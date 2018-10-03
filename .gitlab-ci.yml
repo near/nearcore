@@ -1,0 +1,14 @@
+image: "rust:latest"
+
+cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+        - ./target/
+        - ./.cargo/
+
+test:cargo:
+    stage: test
+    script:
+    - rustc --version && cargo --version
+    - cargo test --all --verbose
+
