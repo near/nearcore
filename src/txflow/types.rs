@@ -1,5 +1,5 @@
 #[derive(Hash)]
-struct TransactionBody {
+pub struct TransactionBody {
     nonce: u64,
     sender_uid: u64,
     receiver_uid: u64,
@@ -7,29 +7,29 @@ struct TransactionBody {
 }
 
 #[derive(Hash)]
-struct SignedTransaction {
+pub struct SignedTransaction {
     sender_sig: u128,
     hash: u64,
-    body: TransactionBody
+    pub body: TransactionBody
 }
 
 #[derive(Hash)]
-enum Payload {
+pub enum Payload {
     None,
     Transactions(Vec<SignedTransaction>),
 }
 
 #[derive(Hash)]
-struct MessageBody {
+pub struct MessageBody {
     owner_uid: u64,
     parents: Vec<u64>,  // Hashes of the parents.
     epoch: u64,
     is_commit: bool,
-    payload: Payload
+    pub payload: Payload
 }
 
-struct SignedMessage {
-    owner_sig: u128,  // Signature of the hash.
-    hash: u64,  // Hash of the body.
-    body: MessageBody
+pub struct SignedMessage {
+    pub owner_sig: u128,  // Signature of the hash.
+    pub hash: u64,  // Hash of the body.
+    pub body: MessageBody
 }
