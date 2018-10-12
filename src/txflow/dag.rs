@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::collections::hash_map::DefaultHasher;
+use std::collections::hash_map::{Entry, DefaultHasher};
 use std::hash::{Hasher, Hash};
 
 use super::types;
@@ -85,7 +85,10 @@ impl DAG {
 
     // Takes ownership of the message.
     pub fn add_existing_message(&mut self, message: types::SignedMessage) -> Result<(), &'static str> {
-        // It does double look-up in the self.messages. Consider optimizing it.
+        // TODO: It does double look-up in the self.messages. Fix it once NLL is in stable (early 2019),
+        // see:
+        // https://santiagopastorino.com/how-to-use-rust-non-lexical-lifetimes-on-nightly/index.html
+        // https://internals.rust-lang.org/t/announcing-the-impl-period-sep-18-dec-17/5676
         if self.messages.contains_key(&message.hash) {
             return Ok({})
         }
