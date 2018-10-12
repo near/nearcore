@@ -21,10 +21,10 @@ pub enum Payload {
 
 #[derive(Hash)]
 pub struct MessageBody {
-    owner_uid: u64,
-    parents: Vec<u64>,  // Hashes of the parents.
-    epoch: u64,
-    is_commit: bool,
+    pub owner_uid: u64,
+    pub parents: Vec<u64>,  // Hashes of the parents.
+    pub epoch: u64,
+    pub is_commit: bool,
     pub payload: Payload
 }
 
