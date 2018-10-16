@@ -3,6 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hasher, Hash};
 
 use super::types;
+use ::primitives::types::{SignedEpochBlockHeader, SignedTransaction};
 
 pub struct DAG {
     // uid of the owner of this graph.
@@ -39,8 +40,8 @@ impl DAG {
 
     // Takes ownership of the payload.
     fn create_message(owner_uid: u64, parents: Vec<u64>, epoch: u64, is_representative: bool,
-                      is_endorsement: bool, transactions: Vec<types::SignedTransaction>,
-                      epoch_block_header: Option<types::SignedEpochBlockHeader>
+                      is_endorsement: bool, transactions: Vec<SignedTransaction>,
+                      epoch_block_header: Option<SignedEpochBlockHeader>
     ) -> types::SignedMessage {
         let body = types::MessageBody{
             owner_uid,
@@ -105,8 +106,8 @@ impl DAG {
     // Takes ownership of the payload.
     pub fn create_root_message(&mut self,
                                is_endorsement: bool,
-                               transactions: Vec<types::SignedTransaction>,
-                               epoch_block_header: Option<types::SignedEpochBlockHeader>) {
+                               transactions: Vec<SignedTransaction>,
+                               epoch_block_header: Option<SignedEpochBlockHeader>) {
         // Check if this is leader's representative.
         let is_representative = self.epoch_leader(self.current_epoch) == self.owner_uid
             && !self.epoch_representatives.contains_key(&self.current_epoch);
