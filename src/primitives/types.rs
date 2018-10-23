@@ -1,6 +1,6 @@
 // 1. Transaction structs.
 
-#[derive(Hash)]
+#[derive(Hash, Serialize, Deserialize)]
 pub struct TransactionBody {
     nonce: u64,
     sender_uid: u64,
@@ -8,14 +8,35 @@ pub struct TransactionBody {
     amount: u64
 }
 
-#[derive(Hash)]
+impl TransactionBody {
+    pub fn new(nonce: u64, sender_uid: u64, receiver_uid: u64, amount: u64) -> TransactionBody {
+        TransactionBody {
+            nonce,
+            sender_uid,
+            receiver_uid,
+            amount
+        }
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize)]
 pub struct SignedTransaction {
     sender_sig: u128,
     hash: u64,
     pub body: TransactionBody
 }
 
-#[derive(Hash)]
+impl SignedTransaction {
+    pub fn new(sender_sig: u128, hash: u64, body: TransactionBody) -> SignedTransaction {
+        SignedTransaction {
+            sender_sig,
+            hash,
+            body
+        }
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize)]
 pub enum TransactionState {
     Sender,
     Receiver,
@@ -23,7 +44,7 @@ pub enum TransactionState {
     Cancelled
 }
 
-#[derive(Hash)]
+#[derive(Hash, Serialize, Deserialize)]
 pub struct StatedTransaction {
     transaction: SignedTransaction,
     state: TransactionState
