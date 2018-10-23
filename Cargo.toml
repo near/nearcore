@@ -1,12 +1,31 @@
-[[bin]]
-name = "nearcore"
-path = "src/main.rs"
-
 [package]
 name = "nearcore"
 version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+build = "build.rs"
+
+[[bin]]
+name = "neard"
+path = "src/main.rs"
 
 [dependencies]
+error-chain = "0.12"
+neard-cli = { path = "cli" }
 futures = "0.1"
+ctrlc = { version = "3.0", features = ["termination"] }
 
+[build-dependencies]
+vergen = "2"
+
+[workspace]
+members = [
+	"cli",
+	"runtime"
+]
+exclude = [
+	"runtime/wasm"
+]
+
+[profile.release]
+# Substrate runtime requires unwinding.
+panic = "unwind"

@@ -1,0 +1,12 @@
+name: neard
+author: "NEAR Protocol <hello@nearprotocol.com>"
+about: NEAR Protocol
+args:
+  - log:
+      short: l
+      value_name: LOG_PATTERN
+      help: Sets a custom logging
+      takes_value: true
+subcommands:
+  - validator:
+      about: Run validator node

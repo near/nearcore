@@ -1,0 +1,53 @@
+[package]
+name = "neard-runtime"
+version = "0.1.0"
+authors = ["NEAR Protocol <hello@nearprotocol.com>"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+integer-sqrt = { git = "https://github.com/paritytech/integer-sqrt-rs.git", branch = "master" }
+safe-mix = { version = "1.0", default-features = false}
+parity-codec-derive = { version = "^2.1" }
+parity-codec = { version = "^2.1", default-features = false }
+substrate-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+sr-api = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+sr-std = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+sr-io = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-support = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-balances = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-consensus = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-executive = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+sr-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-system = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-timestamp = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+srml-upgrade-key = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+sr-version = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+
+[features]
+default = []
+std = [
+	"safe-mix/std",
+	"parity-codec/std",
+	"substrate-primitives/std",
+	"sr-api/std",
+	"sr-std/std",
+	"sr-io/std",
+	"srml-support/std",
+	"srml-balances/std",
+	"srml-consensus/std",
+	"srml-executive/std",
+	"sr-primitives/std",
+	"srml-system/std",
+	"srml-timestamp/std",
+	"srml-upgrade-key/std",
+	"sr-version/std",
+]
+
+[profile.release]
+panic = "abort"
+lto = true
+
+[workspace]
+members = []
