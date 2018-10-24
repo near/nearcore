@@ -1,0 +1,7 @@
+[package]
+name = "primitives"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+futures = "0.1"

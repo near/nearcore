@@ -1,9 +1,10 @@
+use primitives::types::{SignedEpochBlockHeader, SignedTransaction};
+
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hasher, Hash};
 
 use super::types;
-use ::primitives::types::{SignedEpochBlockHeader, SignedTransaction};
 
 pub struct DAG {
     // uid of the owner of this graph.

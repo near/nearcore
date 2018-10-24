@@ -1,4 +1,4 @@
-use ::primitives::types::{SignedTransaction, SignedEpochBlockHeader};
+use primitives::types::{SignedTransaction, SignedEpochBlockHeader};
 
 #[derive(Hash)]
 pub struct MessageBody {
