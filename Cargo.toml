@@ -1,12 +1,4 @@
-[[bin]]
-name = "nearcore"
-path = "src/main.rs"
-
-[package]
-name = "nearcore"
-version = "0.0.1"
-authors = ["Near Inc <hello@nearprotocol.com>"]
-
-[dependencies]
-futures = "0.1"
-
+[workspace]
+members = [
+    "core/primitives",
+]
