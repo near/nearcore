@@ -10,7 +10,7 @@ pub struct DAG {
     // uid of the owner of this graph.
     owner_uid: u64,
     // Message hash -> Message.
-    messages: HashMap<u64, types::SignedMessage>,
+    messages: HashMap<u64, types::SignedMessageData>,
     // Message hashes.
     roots: HashSet<u64>,
     // Epoch -> set of owner_uid that have messages with
@@ -43,8 +43,8 @@ impl DAG {
     fn create_message(owner_uid: u64, parents: Vec<u64>, epoch: u64, is_representative: bool,
                       is_endorsement: bool, transactions: Vec<SignedTransaction>,
                       epoch_block_header: Option<SignedEpochBlockHeader>
-    ) -> types::SignedMessage {
-        let body = types::MessageBody{
+    ) -> types::SignedMessageData {
+        let body = types::MessageDataBody {
             owner_uid,
             parents,
             epoch,
@@ -56,7 +56,7 @@ impl DAG {
         let mut hasher = DefaultHasher::new();
         body.hash(&mut hasher);
         let hash = hasher.finish();
-        types::SignedMessage {
+        types::SignedMessageData {
             // TODO: Actually compute the signature.
             owner_sig: 0,
             hash,
@@ -64,7 +64,7 @@ impl DAG {
         }
     }
 
-    fn update_state(&mut self, message: &types::SignedMessage) {
+    fn update_state(&mut self, message: &types::SignedMessageData) {
         // Update epoch_counter.
         self.epoch_counter.entry(message.body.epoch).or_insert_with(|| HashSet::new())
             .insert(message.body.owner_uid);
@@ -80,7 +80,7 @@ impl DAG {
 
     // Verify that the received message is valid: has correct hash, signature, epoch, and is_representative
     // tags.
-    fn verify_message(&self, _message: &types::SignedMessage) -> Result<(), &'static str> {
+    fn verify_message(&self, _message: &types::SignedMessageData) -> Result<(), &'static str> {
         Ok({})
     }
 
@@ -90,7 +90,7 @@ impl DAG {
     }
 
     // Takes ownership of the message.
-    pub fn add_existing_message(&mut self, message: types::SignedMessage) -> Result<(), &'static str> {
+    pub fn add_existing_message(&mut self, message: types::SignedMessageData) -> Result<(), &'static str> {
         if self.messages.contains_key(&message.hash) {
             return Ok({})
         }

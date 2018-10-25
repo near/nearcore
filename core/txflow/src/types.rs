@@ -1,7 +1,7 @@
 use primitives::types::{SignedTransaction, SignedEpochBlockHeader};
 
 #[derive(Hash)]
-pub struct MessageBody {
+pub struct MessageDataBody {
     pub owner_uid: u64,
     // Hashes of the parents.
     pub parents: Vec<u64>,
@@ -12,8 +12,8 @@ pub struct MessageBody {
     pub epoch_block_header: Option<SignedEpochBlockHeader>,
 }
 
-pub struct SignedMessage {
+pub struct SignedMessageData {
     pub owner_sig: u128,  // Signature of the hash.
     pub hash: u64,  // Hash of the body.
-    pub body: MessageBody
+    pub body: MessageDataBody
 }
