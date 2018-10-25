@@ -9,6 +9,8 @@ cache:
 test:cargo:
     stage: test
     script:
+    - ./init.sh
+    - ./build.sh
     - rustc --version && cargo --version
     - cargo test --all --verbose
 
