@@ -1,8 +1,4 @@
-extern crate serde;
-extern crate serde_json;
-
 use primitives::types;
-
 
 #[derive(Serialize, Deserialize)]
 pub enum MessageBody {

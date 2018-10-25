@@ -1,7 +1,7 @@
 /// network protocol
 
 use primitives::types;
-use network::message;
+use message;
 
 struct ProtocolConfig {
     // config information goes here
