@@ -5,24 +5,24 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hasher, Hash};
 
 use super::types;
+use super::message::{MessageRef, Message};
 
+/// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
+/// but does not support communication-related logic. Also does verification of the messages
+/// received from other nodes.
 pub struct DAG {
-    // uid of the owner of this graph.
+    /// UID of the node.
     owner_uid: u64,
-    // Message hash -> Message.
-    messages: HashMap<u64, types::SignedMessageData>,
-    // Message hashes.
+    /// Message hash -> Message.
+    messages: HashMap<u64, MessageRef>,
+    /// Message hashes of the roots.
     roots: HashSet<u64>,
-    // Epoch -> set of owner_uid that have messages with
-    epoch_counter: HashMap<u64, HashSet<u64>>,
-    // Epoch -> hash of the representative message of that epoch.
-    epoch_representatives: HashMap<u64, u64>,
-    // Message hash -> epoch of the representative that it endorses.
-    message_endorsement: HashMap<u64, u64>,
-    // representative message hash -> uids of the owners of the messages that endorse it.
-    representative_endorsements: HashMap<u64, HashSet<u64>>,
-    // The current epoch of the messages created by the current node.
-    current_epoch: u64
+    /// The current epoch of the messages created by the node.
+    current_epoch: u64,
+    /// Epoch -> Representative message of that epoch.
+    representatives: HashMap<u64, MessageRef>,
+    /// Epoch -> Kickout message of that epoch.
+    kickouts: HashMap<u64, MessageRef>,
 }
 
 impl DAG {
@@ -31,11 +31,9 @@ impl DAG {
             owner_uid,
             messages: HashMap::new(),
             roots: HashSet::new(),
-            epoch_counter: HashMap::new(),
-            epoch_representatives: HashMap::new(),
-            message_endorsement: HashMap::new(),
-            representative_endorsements: HashMap::new(),
-            current_epoch: starting_epoch
+            current_epoch: starting_epoch,
+            representatives: HashMap::new(),
+            kickouts: HashMap::new(),
         })
     }
 
@@ -48,8 +46,6 @@ impl DAG {
             owner_uid,
             parents,
             epoch,
-            is_representative,
-            is_endorsement,
             transactions,
             epoch_block_header
         };
@@ -80,27 +76,59 @@ impl DAG {
 
     // Verify that the received message is valid: has correct hash, signature, epoch, and is_representative
     // tags.
-    fn verify_message(&self, _message: &types::SignedMessageData) -> Result<(), &'static str> {
+    fn verify_message(&self, _message: &MessageRef) -> Result<(), &'static str> {
         Ok({})
     }
 
     fn epoch_leader(&self, _epoch: u64) -> u64 {
         // TODO: call a closure.
-        self.owner_uid
+        42
     }
 
     // Takes ownership of the message.
-    pub fn add_existing_message(&mut self, message: types::SignedMessageData) -> Result<(), &'static str> {
-        if self.messages.contains_key(&message.hash) {
+    pub fn add_existing_message(&mut self, message_data: types::SignedMessageData) -> Result<(), &'static str> {
+        // Check whether this is a new message.
+        if self.messages.contains_key(&message_data.hash) {
             return Ok({})
         }
-        self.verify_message(&message)?;
-        self.update_state(&message);
-        let moved_message = self.messages.insert(message.hash, message).unwrap();
-        for p in moved_message.body.parents.iter() {
-            self.roots.remove(p);
+
+        // Wrap message data and connect to the parents so that the verification can be run.
+        let message = Message::new(message_data);
+        let mut linked_parents = vec![];
+        let unlink_parents = || {
+            // Unlink the previously linked parents.
+            for linked_p in linked_parents {
+                Message::unlink(p, &message);
+            };
+        };
+        for p_hash in message.borrow().data.body.parents {
+            match self.messages.get(&p_hash) {
+                Some(p) => {
+                    linked_parents.push(p);
+                    Message::link(p, &message);
+                },
+                None => {
+                    unlink_parents();
+                    return Err("Some parents of the message are unknown")
+                }
+            }
         }
-        self.roots.insert(moved_message.hash);
+
+        // Compute approved epochs and endorsements.
+        message.borrow_mut().compute_approved_epochs();
+
+        // Verify the message.
+        if let Err(e) = self.verify_message(&message) {
+            unlink_parents();
+            return Err(e)
+        }
+
+        // Finally, remember the message and update the roots.
+        let moved_message = self.messages.insert(message_data.hash, message).unwrap();
+        for p in linked_parents {
+            self.roots.remove(&p.borrow().data.hash);
+        }
+        self.roots.insert(moved_message.borrow().data.hash);
         Ok({})
     }
 
