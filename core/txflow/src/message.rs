@@ -1,33 +1,46 @@
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::collections::HashMap;
 
 use super::types;
+//use primitives::traits::WitnessSelector;
 
 pub type MessageRef = Rc<RefCell<Message>>;
+pub type MessageWeakRef = Weak<RefCell<Message>>;
+
 /// Epoch of the message -> (node uid -> message). A subset of messages approved by the current
 /// message, possibly including the message itself.
-pub type AggregatedMessages = HashMap<u64, HashMap<u64, MessageRef>>;
+pub type AggregatedMessages = HashMap<u64, HashMap<u64, MessageWeakRef>>;
+
 
 // TODO: Consider using arena like in https://github.com/SimonSapin/rust-forest once TypedArena becomes stable.
 /// Represents the message of the DAG.
 #[derive(Debug)]
 pub struct Message {
     pub data: types::SignedMessageData,
-    pub parents: Vec<MessageRef>,
-    pub children: Vec<MessageRef>,
-    /// Whether the current message is the representative message of a leader.
-    pub is_representative: bool,
 
-    pub approved_epochs: AggregatedMessages,
-    pub approved_representatives: AggregatedMessages,
-    pub approved_kickouts: AggregatedMessages,
-    pub approved_endorsements: AggregatedMessages,
+    self_ref: Option<MessageWeakRef>,
+    parents: Vec<MessageRef>,
+
+    // The following fields are computed based on the approved messages.
+    /// The computed epoch of the message. If this message is restored from the epoch block then
+    /// the epoch is taken from the data.
+    computed_epoch: Option<u64>,
+    /// Computed flag of whether this message is representative.
+    computed_is_representative: Option<bool>,
+    /// Computed flag of whether this message is a kickout.
+    computed_is_kickout: Option<bool>,
+
+    // The following are the approved messages, grouped by different criteria.
+    approved_epochs: AggregatedMessages,
+    approved_representatives: AggregatedMessages,
+    approved_kickouts: AggregatedMessages,
+    approved_endorsements: AggregatedMessages,
 }
 
 /// Aggregates messages for the given list of fields.
 macro_rules! collect_aggregates {
-    ( $self:ident, $( $field_name:ident ),* ) => {
+    ( $self:ident, $( $field_name:ident ),+ ) => {
         for p in &$self.parents {
             $(
                 for (epoch, per_epoch) in &p.borrow().$field_name {
@@ -35,33 +48,37 @@ macro_rules! collect_aggregates {
                        .or_insert_with(|| HashMap::new());
                     a.extend(per_epoch.into_iter().map(|(k, v)| (k.clone(), v.clone())));
                 }
-            )*
+            )+
         }
     };
 }
 
+
 impl Message {
     pub fn new(data: types::SignedMessageData) -> MessageRef {
-        Rc::new(RefCell::new(
-            Message {data,
+        let result = Rc::new(RefCell::new(
+            Message {
+                self_ref: None,
+                data,
                 parents: vec![],
-                children: vec![],
-                is_representative: false,
+                computed_epoch: None,
+                computed_is_representative: None,
+                computed_is_kickout: None,
                 approved_epochs: HashMap::new(),
                 approved_representatives: HashMap::new(),
                 approved_kickouts: HashMap::new(),
                 approved_endorsements: HashMap::new(),
-            }
-        ))
+            }));
+        // Keep weak reference to itself.
+        result.borrow_mut().self_ref = Some(Rc::downgrade(&result));
+        result
     }
 
     pub fn link(parent: &MessageRef, child: &MessageRef) {
-        parent.borrow_mut().children.push(Rc::clone(&child));
         child.borrow_mut().parents.push(Rc::clone(&parent));
     }
 
     pub fn unlink(parent: &MessageRef, child: &MessageRef) {
-        parent.borrow_mut().children.retain(|ref x| !Rc::ptr_eq(&x, &child));
         child.borrow_mut().parents.retain(|ref x| !Rc::ptr_eq(&x, &parent));
     }
 
@@ -69,6 +86,22 @@ impl Message {
     pub fn aggregate_parents(&mut self) {
         collect_aggregates!(self, approved_epochs, approved_representatives, approved_kickouts, approved_endorsements);
     }
+
+    // fn compute_epoch(&self, starting_epoch: u64) -> u64{
+    // }
+
+    // /// Computes epoch, is_representative, is_kickout using parents' information.
+    // /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
+    // pub fn compute_counters(&mut self, recompute_epoch: bool, starting_epoch: u64) {
+    //     self.aggregate_parents();
+    //     let owner_uid = self.data.body.owner_uid;
+
+    //     // First, compute epoch.
+    //     let epoch = if recompute_epoch {
+    //         self.computed_epoch(starting_epoch) } else {
+    //         self.data.body.epoch };
+    //     self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => });
+    // }
 }
 
 
@@ -127,7 +160,6 @@ mod tests {
         let b = simple_message();
         Message::link(&a, &b);
         Message::unlink(&a, &b);
-        assert!(a.borrow().children.is_empty());
         assert!(b.borrow().parents.is_empty());
     }
 
@@ -142,16 +174,19 @@ mod tests {
         Message::link(&pp2,&p2);
         Message::link(&p1,&c);
         Message::link(&p2,&c);
-        p1.borrow_mut().approved_epochs.insert(10, map!{0 => pp1.clone()});
-        p2.borrow_mut().approved_epochs.insert(11, map!{1 => pp2.clone()});
+        p1.borrow_mut().approved_epochs.insert(10, map!{0 => Rc::downgrade(&pp1)});
+        p2.borrow_mut().approved_epochs.insert(11, map!{1 => Rc::downgrade(&pp2)});
         c.borrow_mut().aggregate_parents();
-        let expected: HashMap<u64, HashMap<u64, MessageRef>> = map!{10 => map!{0 => pp1.clone()}, 11 => map!{1 => pp2.clone()} };
+        let expected: HashMap<u64, HashMap<u64, MessageWeakRef>> = map!{
+        10 => map!{0 => Rc::downgrade(&pp1)},
+        11 => map!{1 => Rc::downgrade(&pp2)} };
         let actual= &c.borrow().approved_epochs;
         assert_eq!(actual.len(), expected.len());
         for (epoch, epoch_content) in &expected {
             assert!(actual.contains_key(epoch));
             for (uid, message) in epoch_content {
-               assert!(Rc::ptr_eq(message, actual.get(&epoch).unwrap().get(uid).unwrap()));
+               assert!(Rc::ptr_eq(&message.upgrade().unwrap(),
+                                  &actual.get(&epoch).unwrap().get(uid).unwrap().upgrade().unwrap()));
             }
         }
     }
