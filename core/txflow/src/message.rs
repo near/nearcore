@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::types;
 use primitives::traits::WitnessSelector;
@@ -76,7 +76,7 @@ pub struct Message {
     //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
 }
 
-/// Aggregate EpochMapMaps from parents.
+/// Aggregate EpochMapMap's from parents.
 macro_rules! aggregate_mapmaps {
     ( $self:ident, $( $field_name:ident ),+ ) => {
         for p in &$self.parents {
@@ -86,6 +86,18 @@ macro_rules! aggregate_mapmaps {
                        .or_insert_with(|| HashMap::new());
                     a.extend(per_epoch.into_iter().map(|(k, v)| (k.clone(), v.clone())));
                 }
+            )+
+        }
+    };
+}
+
+/// Aggregate EpochMap's from parents.
+macro_rules! aggregate_maps {
+    ( $self:ident, $( $field_name:ident ),+ ) => {
+        for p in &$self.parents {
+            $(
+                let p_field = &p.borrow().$field_name;
+                $self.$field_name.extend(p_field.into_iter().map(|(k, v)| (k.clone(), v.clone())));
             )+
         }
     };
@@ -124,6 +136,7 @@ impl Message {
     /// Computes the aggregated data from the parents and updates the message.
     pub fn aggregate_parents(&mut self) {
         aggregate_mapmaps!(self, approved_epochs, approved_endorsements, approved_promises);
+        aggregate_maps!(self, approved_representatives, approved_kickouts);
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
@@ -138,24 +151,44 @@ impl Message {
         }).max().unwrap_or(starting_epoch)
     }
 
+    fn should_promote<T>(&self, prev_epoch: u64, witness_selector: &T) -> bool
+        where T : WitnessSelector {
+        let total_witnesses = witness_selector.epoch_witnesses(prev_epoch);
+        let mut existing_witnesses = HashSet::new();
+        for p in &self.parents {
+            if let Some(s) = p.borrow().approved_epochs.get(&prev_epoch) {
+                existing_witnesses.extend(s.into_iter().map(|(owner_uid, _)| *owner_uid));
+                if existing_witnesses.len() > total_witnesses.len()*2/3 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
     pub fn populate_from_parents<T>(&mut self,
                                     recompute_epoch: bool,
                                     starting_epoch: u64,
-                                    _witness_selector: &T) where T : WitnessSelector {
+                                    witness_selector: &T) where T : WitnessSelector {
         self.aggregate_parents();
         let owner_uid = self.data.body.owner_uid;
 
         // Compute epoch, if required.
-        //let epoch = if recompute_epoch {
-        //    self.compute_epoch(starting_epoch) } else {
-        //    self.data.body.epoch };
-        //let self_ref = self.self_ref.clone();
-        //self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => self_ref});
-        //self.computed_epoch = Some(epoch);
+        let epoch = if recompute_epoch {
+            let prev_epoch = self.prev_epoch(starting_epoch);
+            if self.should_promote(prev_epoch, witness_selector) {
+                prev_epoch + 1 } else  {
+                prev_epoch }
 
-        // Compute
+        } else {
+            self.data.body.epoch
+        };
+        let self_ref = self.self_ref.clone();
+        self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => self_ref});
+        self.computed_epoch = Some(epoch);
     }
 }
 
@@ -206,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregates() {
+    fn test_mapmap_aggregation() {
         let pp1 = simple_message();
         let pp2 = simple_message();
         let p1 = simple_message();
@@ -231,5 +264,86 @@ mod tests {
                                   &actual.get(&epoch).unwrap().get(uid).unwrap().upgrade().unwrap()));
             }
         }
+    }
+
+    struct FakeWitnessSelector {
+       schedule: HashMap<u64, HashSet<u64>>,
+    }
+    impl FakeWitnessSelector {
+       fn new() -> FakeWitnessSelector {
+          FakeWitnessSelector {
+              schedule: map!{9 => set!{0, 1, 2, 3}, 10 => set!{1, 2, 3, 4}}
+          }
+       }
+    }
+
+    impl WitnessSelector for FakeWitnessSelector {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+            self.schedule.get(&epoch).unwrap()
+        }
+    }
+
+    #[test]
+    fn test_epoch_computation_no_promo() {
+        let selector = FakeWitnessSelector::new();
+        let a = simple_message();
+        let b = simple_message();
+        let c = simple_message();
+        let d = simple_message();
+        let e = simple_message();
+        {
+            let a_data = &mut a.borrow_mut().data;
+            a_data.body.epoch = 9;
+            a_data.body.owner_uid = 0;
+            let b_data = &mut b.borrow_mut().data;
+            b_data.body.epoch = 10;
+            b_data.body.owner_uid = 1;
+            let c_data = &mut c.borrow_mut().data;
+            c_data.body.epoch = 10;
+            c_data.body.owner_uid = 2;
+            let d_data = &mut d.borrow_mut().data;
+            d_data.body.epoch = 10;
+            d_data.body.owner_uid = 3;
+        }
+        let starting_epoch = 9;
+        for m in vec![&a, &b, &c, &d] {
+            m.borrow_mut().populate_from_parents(false, starting_epoch,&selector);
+            Message::link(m, &e);
+        }
+
+        e.borrow_mut().populate_from_parents(true, starting_epoch,&selector);
+        assert_eq!(e.borrow().computed_epoch.unwrap(), 9);
+    }
+
+    #[test]
+    fn test_epoch_computation_promo() {
+        let selector = FakeWitnessSelector::new();
+        let a = simple_message();
+        let b = simple_message();
+        let c = simple_message();
+        let d = simple_message();
+        let e = simple_message();
+        {
+            let a_data = &mut a.borrow_mut().data;
+            a_data.body.epoch = 9;
+            a_data.body.owner_uid = 0;
+            let b_data = &mut b.borrow_mut().data;
+            b_data.body.epoch = 9;
+            b_data.body.owner_uid = 1;
+            let c_data = &mut c.borrow_mut().data;
+            c_data.body.epoch = 9;
+            c_data.body.owner_uid = 2;
+            let d_data = &mut d.borrow_mut().data;
+            d_data.body.epoch = 10;
+            d_data.body.owner_uid = 3;
+        }
+        let starting_epoch = 9;
+        for m in vec![&a, &b, &c, &d] {
+            m.borrow_mut().populate_from_parents(false, starting_epoch,&selector);
+            Message::link(m, &e);
+        }
+
+        e.borrow_mut().populate_from_parents(true, starting_epoch,&selector);
+        assert_eq!(e.borrow().computed_epoch.unwrap(), 10);
     }
 }

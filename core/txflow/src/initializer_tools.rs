@@ -10,3 +10,16 @@ macro_rules! map(
             }
         };
     );
+
+/// Handy utility to create sets.
+macro_rules! set(
+        { $($el:expr),+ } => {
+            {
+                let mut s = ::std::collections::HashSet::new();
+                $(
+                    s.insert($el);
+                )+
+                s
+            }
+        };
+    );

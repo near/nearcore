@@ -7,5 +7,5 @@ pub trait VerifierLike {
 }
 
 pub trait WitnessSelector {
-   fn epoch_witnesses(&self) -> &HashSet<u64>;
+   fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64>;
 }
