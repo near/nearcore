@@ -1,6 +1,6 @@
 // 1. Transaction structs.
 
-#[derive(Hash, Serialize, Deserialize)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Debug)]
 pub struct TransactionBody {
     nonce: u64,
     sender_uid: u64,
@@ -19,7 +19,7 @@ impl TransactionBody {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedTransaction {
     sender_sig: u128,
     hash: u64,
