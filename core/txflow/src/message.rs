@@ -3,14 +3,16 @@ use std::rc::{Rc, Weak};
 use std::collections::HashMap;
 
 use super::types;
-//use primitives::traits::WitnessSelector;
+use primitives::traits::WitnessSelector;
 
 pub type MessageRef = Rc<RefCell<Message>>;
 pub type MessageWeakRef = Weak<RefCell<Message>>;
 
-/// Epoch of the message -> (node uid -> message). A subset of messages approved by the current
-/// message, possibly including the message itself.
-pub type AggregatedMessages = HashMap<u64, HashMap<u64, MessageWeakRef>>;
+/// Epoch -> message.
+pub type EpochMap = HashMap<u64, MessageWeakRef>;
+
+/// Epoch -> (node uid -> message).
+pub type EpochMapMap = HashMap<u64, HashMap<u64, MessageWeakRef>>;
 
 
 // TODO: Consider using arena like in https://github.com/SimonSapin/rust-forest once TypedArena becomes stable.
@@ -19,7 +21,7 @@ pub type AggregatedMessages = HashMap<u64, HashMap<u64, MessageWeakRef>>;
 pub struct Message {
     pub data: types::SignedMessageData,
 
-    self_ref: Option<MessageWeakRef>,
+    self_ref: MessageWeakRef,
     parents: Vec<MessageRef>,
 
     // The following fields are computed based on the approved messages.
@@ -32,14 +34,50 @@ pub struct Message {
     computed_is_kickout: Option<bool>,
 
     // The following are the approved messages, grouped by different criteria.
-    approved_epochs: AggregatedMessages,
-    approved_representatives: AggregatedMessages,
-    approved_kickouts: AggregatedMessages,
-    approved_endorsements: AggregatedMessages,
+    /// Epoch -> messages that have that epoch, grouped as:
+    /// owner_uid who created the message -> the message.
+    approved_epochs: EpochMapMap,
+    /// Epoch -> a/any representative of that epoch (if there are several forked representative
+    /// messages than any of them).
+    approved_representatives: EpochMap,
+    /// Epoch -> a/any kickout message of a representative with epoch Epoch (if there are several
+    /// forked kickout messages then any of them).
+    approved_kickouts: EpochMap,
+    /// Epoch -> endorsements that endorse a/any (if there are several forked representative messages
+    /// then any of them) representative message of that epoch, grouped as:
+    /// owner_uid who created endorsement -> the endorsement message.
+    approved_endorsements: EpochMapMap,
+    /// Epoch -> promises that approve a/any (if there are several forked kickout messages then any
+    /// of them) kickout message (it by the def. has epoch Epoch+1) that kicks out representative
+    /// message of epoch Epoch, grouped as:
+    /// owner_uid who created the promise -> the promise message.
+    approved_promises: EpochMapMap,
+
+    // NOTE, a single message can be simultaneously:
+    // a) a representative message of epoch X;
+    // b) an endorsement of a representative message of epoch Y, Y<X;
+    // c) a promise for a kickout message of a representative message of epoch Z, Z<X (Z can be
+    //    equal to Y).
+    //
+    // It can also be simultaneously:
+    // a) a kickout message of a representative message of epoch A;
+    // b) an endorsement of a representative message of epoch Y, Y<A;
+    // c) a promise for a kickout message of a representative message of epoch Z, Z<A (Z can be
+    //    equal to Y).
+    //
+    // * In both cases for (b) and (c) a message can give multiple endorsements and promises as long
+    //   as Y and Z satisfy the constraints.
+    // * Endorsements are explicit since they require a part of the BLS signature. Promises,
+    //   kickouts, and representative messages are implied by the parent messages.
+    // * A message cannot be both a representative message of epoch X and a kickout message of epoch
+    //   X-1, because the former takes the precedence.
+    // * Also a representative message is supposed to endorse itself which is done by an owner
+    //   including the part of the BLS signature in it. If the signature is not included that it
+    //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
 }
 
-/// Aggregates messages for the given list of fields.
-macro_rules! collect_aggregates {
+/// Aggregate EpochMapMaps from parents.
+macro_rules! aggregate_mapmaps {
     ( $self:ident, $( $field_name:ident ),+ ) => {
         for p in &$self.parents {
             $(
@@ -58,7 +96,7 @@ impl Message {
     pub fn new(data: types::SignedMessageData) -> MessageRef {
         let result = Rc::new(RefCell::new(
             Message {
-                self_ref: None,
+                self_ref: Weak::new(),
                 data,
                 parents: vec![],
                 computed_epoch: None,
@@ -68,9 +106,10 @@ impl Message {
                 approved_representatives: HashMap::new(),
                 approved_kickouts: HashMap::new(),
                 approved_endorsements: HashMap::new(),
+                approved_promises: HashMap::new(),
             }));
         // Keep weak reference to itself.
-        result.borrow_mut().self_ref = Some(Rc::downgrade(&result));
+        result.borrow_mut().self_ref = Rc::downgrade(&result);
         result
     }
 
@@ -84,43 +123,46 @@ impl Message {
 
     /// Computes the aggregated data from the parents and updates the message.
     pub fn aggregate_parents(&mut self) {
-        collect_aggregates!(self, approved_epochs, approved_representatives, approved_kickouts, approved_endorsements);
+        aggregate_mapmaps!(self, approved_epochs, approved_endorsements, approved_promises);
     }
 
-    // fn compute_epoch(&self, starting_epoch: u64) -> u64{
-    // }
+    /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
+    fn prev_epoch(&self, starting_epoch: u64) -> u64 {
+        // Iterate over past messages that were created by the current owner and return their max
+        // epoch. If such message not found then return starting_epoch.
+        self.parents.iter().filter_map(|parent| {
+            parent.borrow().approved_epochs.iter()
+                .filter(|(_, epoch_messages)|
+                    epoch_messages.contains_key(&self.data.body.owner_uid)
+                ).map(|(epoch, _)| *epoch).max()
+        }).max().unwrap_or(starting_epoch)
+    }
 
-    // /// Computes epoch, is_representative, is_kickout using parents' information.
-    // /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
-    // pub fn compute_counters(&mut self, recompute_epoch: bool, starting_epoch: u64) {
-    //     self.aggregate_parents();
-    //     let owner_uid = self.data.body.owner_uid;
+    /// Computes epoch, is_representative, is_kickout using parents' information.
+    /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
+    pub fn populate_from_parents<T>(&mut self,
+                                    recompute_epoch: bool,
+                                    starting_epoch: u64,
+                                    _witness_selector: &T) where T : WitnessSelector {
+        self.aggregate_parents();
+        let owner_uid = self.data.body.owner_uid;
 
-    //     // First, compute epoch.
-    //     let epoch = if recompute_epoch {
-    //         self.computed_epoch(starting_epoch) } else {
-    //         self.data.body.epoch };
-    //     self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => });
-    // }
+        // Compute epoch, if required.
+        //let epoch = if recompute_epoch {
+        //    self.compute_epoch(starting_epoch) } else {
+        //    self.data.body.epoch };
+        //let self_ref = self.self_ref.clone();
+        //self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => self_ref});
+        //self.computed_epoch = Some(epoch);
+
+        // Compute
+    }
 }
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Handy utility to create maps.
-    macro_rules! map(
-        { $($key:expr => $value:expr),+ } => {
-            {
-                let mut m = ::std::collections::HashMap::new();
-                $(
-                    m.insert($key, $value);
-                )+
-                m
-            }
-        };
-    );
 
     fn simple_message() -> MessageRef {
         Message::new(types::SignedMessageData {
