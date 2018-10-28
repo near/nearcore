@@ -1,0 +1,15 @@
+[package]
+name = "substrate-test-client"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+
+[dependencies]
+substrate-client = { path = "../client" }
+parity-codec = "2.1"
+substrate-executor = { path = "../executor" }
+substrate-consensus-common = { path = "../consensus/common" }
+substrate-keyring = { path = "../../core/keyring" }
+substrate-primitives = { path = "../primitives" }
+substrate-test-runtime = { path = "../test-runtime" }
+sr-primitives = { path = "../sr-primitives" }
+

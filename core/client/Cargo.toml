@@ -1,0 +1,30 @@
+[package]
+name = "substrate-client"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+
+[dependencies]
+error-chain = "0.12"
+fnv = "1.0"
+log = "0.4"
+parking_lot = "0.4"
+hex-literal = "0.1"
+futures = "0.1.17"
+slog = "^2"
+heapsize = "0.4"
+substrate-consensus-common = { path = "../consensus/common" }
+parity-codec = "2.1"
+substrate-executor = { path = "../executor" }
+substrate-primitives = { path = "../primitives" }
+sr-primitives = { path = "../sr-primitives" }
+sr-api = { path = "../sr-api" }
+substrate-state-machine = { path = "../state-machine" }
+substrate-keyring = { path = "../keyring" }
+substrate-trie = { path = "../trie" }
+substrate-telemetry = { path = "../telemetry" }
+hash-db = { git = "https://github.com/paritytech/trie" }
+kvdb = "0.1"
+
+[dev-dependencies]
+substrate-test-client = { path = "../test-client" }
+kvdb-memorydb = "0.1"

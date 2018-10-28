@@ -11,21 +11,37 @@ serde_derive = { version = "1.0", optional = true }
 safe-mix = { version = "1.0", default-features = false }
 parity-codec = "2.0"
 parity-codec-derive = "2.0"
-sr-api = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
-sr-std = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-sr-io = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-support = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-keyring = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-balances = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-consensus = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-executive = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-sr-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-system = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-timestamp = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-srml-upgrade-key = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-client = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", optional = true }
-sr-version = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# sr-api = { git = "https://github.com/paritytech/substrate", branch = "rh-aura", default-features = false }
+# sr-std = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# sr-io = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-support = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-keyring = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-balances = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-consensus = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-executive = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# sr-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-system = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-timestamp = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# srml-upgrade-key = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# sr-version = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+
+substrate-client = { path = "../core/client", optional = true }
+substrate-primitives = { path = "../core/primitives", default-features = false }
+substrate-keyring = { path = "../core/keyring", default-features = false }
+sr-std = { path = "../core/sr-std", default-features = false }
+sr-io = { path = "../core/sr-io", default-features = false }
+sr-api = { path = "../core/sr-api", default-features = false }
+sr-primitives = { path = "../core/sr-primitives", default-features = false }
+sr-version = { path = "../core/sr-version", default-features = false }
+srml-support = { path = "../srml/support", default-features = false }
+srml-balances = { path = "../srml/balances", default-features = false }
+srml-consensus = { path = "../srml/consensus", default-features = false }
+srml-executive = { path = "../srml/executive", default-features = false }
+srml-system = { path = "../srml/system", default-features = false }
+srml-timestamp = { path = "../srml/timestamp", default-features = false }
+srml-upgrade-key = { path = "../srml/upgrade-key", default-features = false }
+
 
 [features]
 default = ["std"]

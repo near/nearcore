@@ -13,13 +13,23 @@ hex-literal = "0.1"
 slog = "^2"
 parity-codec = { version = "2.1" }
 trie-root = { git = "https://github.com/paritytech/trie" }
-sr-io = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-sr-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-cli = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-executor = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-service = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-transaction-pool = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-network = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
-substrate-consensus-aura = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# sr-io = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# sr-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-cli = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-primitives = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-executor = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-service = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-transaction-pool = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-network = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+# substrate-consensus-aura = { git = "https://github.com/paritytech/substrate", branch = "rh-aura" }
+
+sr-io = { path = "../core/sr-io", default-features = false }
+sr-primitives = { path = "../core/sr-primitives", default-features = false }
+substrate-cli = { path = "../core/cli", default-features = false }
+substrate-primitives = { path = "../core/primitives", default-features = false }
+substrate-executor = { path = "../core/executor", default-features = false }
+substrate-service = { path = "../core/service", default-features = false }
+substrate-transaction-pool = { path = "../core/transaction-pool", default-features = false }
+substrate-network = { path = "../core/network", default-features = false }
+substrate-consensus-aura = { path = "../core/consensus/aura", default-features = false }
 neard-runtime = { path = "../runtime" }
