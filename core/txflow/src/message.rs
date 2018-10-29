@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::collections::{HashMap, HashSet};
 
-use super::types;
 use primitives::traits::WitnessSelector;
+use primitives::types;
 
 pub type MessageRef<T> = Rc<RefCell<Message<T> >>;
 pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;

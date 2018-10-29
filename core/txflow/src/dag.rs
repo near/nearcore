@@ -1,10 +1,9 @@
-use primitives::types::{SignedEpochBlockHeader, SignedTransaction};
+use primitives::types::*;
 
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hasher, Hash};
 
-use super::types;
 use super::message::{MessageRef, Message};
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,

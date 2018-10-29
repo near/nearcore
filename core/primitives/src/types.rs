@@ -82,18 +82,60 @@ pub struct ShardedEpochBlockBody {
     cancelled_transactions_subtree: Vec<MerkleStatedTransactionNode>,
 }
 
-// 4. Consensus blocks produced by TxFlow.
+// 4. TxFlow-specific structs.
 
-#[derive(Hash)]
+/// Endorsement of a representative message. Includes the epoch of the message that it endorses as
+/// well as the BLS signature part. The leader should also include such self-endorsement upon
+/// creation of the representative message.
+#[derive(Hash, Debug)]
+pub struct Endorsement {
+    pub epoch: u64,
+    pub signature: u128
+}
+
+#[derive(Hash, Debug)]
+pub struct InShardPayload {
+    pub transactions: Vec<SignedTransaction>,
+    pub epoch_block_header: Option<SignedEpochBlockHeader>,
+}
+
+
+#[derive(Hash, Debug)]
+pub struct BeaconChainPayload {
+
+}
+
+#[derive(Hash, Debug)]
+/// Not signed data representing TxFlow message.
+pub struct MessageDataBody<P> {
+    pub owner_uid: u64,
+    pub parents: Vec<u64>,
+    pub epoch: u64,
+    pub payload: P,
+    /// Optional endorsement of this or other representative block.
+    pub endorsements: Vec<Endorsement>,
+}
+
+#[derive(Hash, Debug)]
+pub struct SignedMessageData<P> {
+    /// Signature of the hash.
+    pub owner_sig: u128,
+    /// Hash of the body.
+    pub hash: u64,
+    pub body: MessageDataBody<P>,
+}
+
+#[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {
     pub body_hash: u64,
     pub prev_block_body_hash: u64,
 }
 
-#[derive(Hash)]
-pub struct ConsensusBlockBody<T> {
-    // TODO: Add the list of the TxFlow messages together with the endorsements.
+#[derive(Hash, Debug)]
+pub struct ConsensusBlockBody<P, C> {
+    /// TxFlow messages that constitute that consensus block together with the endorsements.
+    pub messages: Vec<SignedMessageData<P>>,
 
     /// The content specific to where the TxFlow is used: in shard or in beacon chain.
-    pub content: T,
+    pub content: C,
 }
