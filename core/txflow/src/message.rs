@@ -5,24 +5,25 @@ use std::collections::{HashMap, HashSet};
 use super::types;
 use primitives::traits::WitnessSelector;
 
-pub type MessageRef = Rc<RefCell<Message>>;
-pub type MessageWeakRef = Weak<RefCell<Message>>;
+pub type MessageRef<T> = Rc<RefCell<Message<T> >>;
+pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;
 
 /// Epoch -> message.
-pub type EpochMap = HashMap<u64, MessageWeakRef>;
+pub type EpochMap<T> = HashMap<u64, MessageWeakRef<T>>;
 
 /// Epoch -> (node uid -> message).
-pub type EpochMapMap = HashMap<u64, HashMap<u64, MessageWeakRef>>;
+pub type EpochMapMap<T> = HashMap<u64, HashMap<u64, MessageWeakRef<T>>>;
 
 
 // TODO: Consider using arena like in https://github.com/SimonSapin/rust-forest once TypedArena becomes stable.
-/// Represents the message of the DAG.
+/// Represents the message of the DAG, T is the payload parameter. For in-shard TxFlow and
+/// beacon-chain TxFlow T takes different values.
 #[derive(Debug)]
-pub struct Message {
-    pub data: types::SignedMessageData,
+pub struct Message<T> {
+    pub data: types::SignedMessageData<T>,
 
-    self_ref: MessageWeakRef,
-    parents: Vec<MessageRef>,
+    self_ref: MessageWeakRef<T>,
+    parents: Vec<MessageRef<T>>,
 
     // The following fields are computed based on the approved messages.
     /// The computed epoch of the message. If this message is restored from the epoch block then
@@ -36,22 +37,22 @@ pub struct Message {
     // The following are the approved messages, grouped by different criteria.
     /// Epoch -> messages that have that epoch, grouped as:
     /// owner_uid who created the message -> the message.
-    approved_epochs: EpochMapMap,
+    approved_epochs: EpochMapMap<T>,
     /// Epoch -> a/any representative of that epoch (if there are several forked representative
     /// messages than any of them).
-    approved_representatives: EpochMap,
+    approved_representatives: EpochMap<T>,
     /// Epoch -> a/any kickout message of a representative with epoch Epoch (if there are several
     /// forked kickout messages then any of them).
-    approved_kickouts: EpochMap,
+    approved_kickouts: EpochMap<T>,
     /// Epoch -> endorsements that endorse a/any (if there are several forked representative messages
     /// then any of them) representative message of that epoch, grouped as:
     /// owner_uid who created endorsement -> the endorsement message.
-    approved_endorsements: EpochMapMap,
+    approved_endorsements: EpochMapMap<T>,
     /// Epoch -> promises that approve a/any (if there are several forked kickout messages then any
     /// of them) kickout message (it by the def. has epoch Epoch+1) that kicks out representative
     /// message of epoch Epoch, grouped as:
     /// owner_uid who created the promise -> the promise message.
-    approved_promises: EpochMapMap,
+    approved_promises: EpochMapMap<T>,
 
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
@@ -104,8 +105,8 @@ macro_rules! aggregate_maps {
 }
 
 
-impl Message {
-    pub fn new(data: types::SignedMessageData) -> MessageRef {
+impl<T> Message<T> {
+    pub fn new(data: types::SignedMessageData<T>) -> MessageRef<T> {
         let result = Rc::new(RefCell::new(
             Message {
                 self_ref: Weak::new(),
@@ -125,11 +126,11 @@ impl Message {
         result
     }
 
-    pub fn link(parent: &MessageRef, child: &MessageRef) {
+    pub fn link(parent: &MessageRef<T>, child: &MessageRef<T>) {
         child.borrow_mut().parents.push(Rc::clone(&parent));
     }
 
-    pub fn unlink(parent: &MessageRef, child: &MessageRef) {
+    pub fn unlink(parent: &MessageRef<T>, child: &MessageRef<T>) {
         child.borrow_mut().parents.retain(|ref x| !Rc::ptr_eq(&x, &parent));
     }
 
@@ -151,8 +152,8 @@ impl Message {
         }).max().unwrap_or(starting_epoch)
     }
 
-    fn should_promote<T>(&self, prev_epoch: u64, witness_selector: &T) -> bool
-        where T : WitnessSelector {
+    fn should_promote<P>(&self, prev_epoch: u64, witness_selector: &P) -> bool
+        where P : WitnessSelector {
         let total_witnesses = witness_selector.epoch_witnesses(prev_epoch);
         let mut existing_witnesses = HashSet::new();
         for p in &self.parents {
@@ -169,10 +170,10 @@ impl Message {
 
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
-    pub fn populate_from_parents<T>(&mut self,
+    pub fn populate_from_parents<P>(&mut self,
                                     recompute_epoch: bool,
                                     starting_epoch: u64,
-                                    witness_selector: &T) where T : WitnessSelector {
+                                    witness_selector: &P) where P : WitnessSelector {
         self.aggregate_parents();
         let owner_uid = self.data.body.owner_uid;
 
@@ -197,7 +198,11 @@ impl Message {
 mod tests {
     use super::*;
 
-    fn simple_message() -> MessageRef {
+    pub struct FakePayload {
+
+    }
+
+    fn simple_message() -> MessageRef<FakePayload> {
         Message::new(types::SignedMessageData {
             owner_sig: 0,
             hash: 0,
@@ -205,9 +210,8 @@ mod tests {
                 owner_uid: 0,
                 parents: vec![],
                 epoch: 0,
-                transactions: vec![],
-                epoch_block_header: None,
-                endorsement: None,
+                payload: FakePayload {},
+                endorsements: vec![],
             },
         })
     }
@@ -252,7 +256,7 @@ mod tests {
         p1.borrow_mut().approved_epochs.insert(10, map!{0 => Rc::downgrade(&pp1)});
         p2.borrow_mut().approved_epochs.insert(11, map!{1 => Rc::downgrade(&pp2)});
         c.borrow_mut().aggregate_parents();
-        let expected: HashMap<u64, HashMap<u64, MessageWeakRef>> = map!{
+        let expected: HashMap<u64, HashMap<u64, MessageWeakRef<FakePayload>>> = map!{
         10 => map!{0 => Rc::downgrade(&pp1)},
         11 => map!{1 => Rc::downgrade(&pp2)} };
         let actual= &c.borrow().approved_epochs;

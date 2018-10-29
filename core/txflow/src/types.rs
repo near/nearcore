@@ -10,22 +10,33 @@ pub struct Endorsement {
 }
 
 #[derive(Hash, Debug)]
+pub struct InShardPayload {
+    pub transactions: Vec<SignedTransaction>,
+    pub epoch_block_header: Option<SignedEpochBlockHeader>,
+}
+
+
+#[derive(Hash, Debug)]
+pub struct BeaconChainPayload {
+
+}
+
+#[derive(Hash, Debug)]
 /// Not signed data representing TxFlow message.
-pub struct MessageDataBody {
+pub struct MessageDataBody<T> {
     pub owner_uid: u64,
     pub parents: Vec<u64>,
     pub epoch: u64,
-    pub transactions: Vec<SignedTransaction>,
-    pub epoch_block_header: Option<SignedEpochBlockHeader>,
+    pub payload: T,
     /// Optional endorsement of this or other representative block.
-    pub endorsement: Option<Endorsement>,
+    pub endorsements: Vec<Endorsement>,
 }
 
 #[derive(Debug)]
-pub struct SignedMessageData {
+pub struct SignedMessageData<T> {
     /// Signature of the hash.
     pub owner_sig: u128,
     /// Hash of the body.
     pub hash: u64,
-    pub body: MessageDataBody,
+    pub body: MessageDataBody<T>,
 }
