@@ -36,7 +36,7 @@ pub struct State {
 
 }
 
-// 3. Epoch block structs.
+// 3. Epoch blocks produced by verifiers running inside a shard.
 
 #[derive(Hash)]
 pub struct EpochBlockHeader {
@@ -80,4 +80,20 @@ pub struct ShardedEpochBlockBody {
     states_subtree: Vec<MerkleStateNode>,
     new_transactions_subtree: Vec<MerkleStatedTransactionNode>,
     cancelled_transactions_subtree: Vec<MerkleStatedTransactionNode>,
+}
+
+// 4. Consensus blocks produced by TxFlow.
+
+#[derive(Hash)]
+pub struct ConsensusBlockHeader {
+    pub body_hash: u64,
+    pub prev_block_body_hash: u64,
+}
+
+#[derive(Hash)]
+pub struct ConsensusBlockBody<T> {
+    // TODO: Add the list of the TxFlow messages together with the endorsements.
+
+    /// The content specific to where the TxFlow is used: in shard or in beacon chain.
+    pub content: T,
 }
