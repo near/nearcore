@@ -3,15 +3,14 @@ use primitives::traits::{WitnessSelectorLike};
 
 use std::rc::Rc;
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hasher, Hash};
+use std::hash::Hash;
 
 use super::message::{MessageRef, Message};
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes.
-pub struct DAG<'a, T, W: 'a+ WitnessSelectorLike> {
+pub struct DAG<'a, T: Hash, W: 'a+ WitnessSelectorLike> {
     /// UID of the node.
     owner_uid: u64,
     /// Message hash -> Message. Stores all messages known that the current root.
@@ -36,13 +35,6 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
             witness_selector,
             starting_epoch,
         })
-    }
-
-    /// Compute hash of the MessageDataBody.
-    fn hash_message_data_body(body: &MessageDataBody<T>) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        body.hash(&mut hasher);
-        hasher.finish()
     }
 
     /// Verify that this message does not violate the protocol.
@@ -122,10 +114,10 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
                                                    self.witness_selector);
         message.borrow_mut().data.body.epoch = message.borrow().computed_epoch
             .expect("The previous call to populate_from_parents should have populated computed_epoch");
-        // Compute the correct hash
-        let hash = DAG::<'a, T, W>::hash_message_data_body(&message.borrow().data.body);
-        message.borrow_mut().data.hash = hash;
-        // TODO: Compute the signature, too.
+        message.borrow_mut().data.hash = message.borrow().computed_hash
+            .expect("The previous call to populate_from_parents should have populated computed_hash");
+
+        let hash = message.borrow_mut().data.hash;
         let moved_message = self.messages.insert(hash, message)
             .expect("Hash collision: old message already has the same hash as the new one.");
         self.roots.clear();

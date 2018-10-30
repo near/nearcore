@@ -2,15 +2,13 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 
 use primitives::traits::WitnessSelectorLike;
 use primitives::types;
 
 pub type MessageRef<T> = Rc<RefCell<Message<T> >>;
 pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;
-
-/// Epoch -> message.
-pub type EpochMap<T> = HashMap<u64, MessageWeakRef<T>>;
 
 /// Epoch -> (node uid -> message).
 pub type EpochMapMap<T> = HashMap<u64, HashMap<u64, MessageWeakRef<T>>>;
@@ -20,7 +18,7 @@ pub type EpochMapMap<T> = HashMap<u64, HashMap<u64, MessageWeakRef<T>>>;
 /// Represents the message of the DAG, T is the payload parameter. For in-shard TxFlow and
 /// beacon-chain TxFlow T takes different values.
 #[derive(Debug)]
-pub struct Message<T> {
+pub struct Message<T: Hash> {
     pub data: types::SignedMessageData<T>,
 
     self_ref: MessageWeakRef<T>,
@@ -30,10 +28,12 @@ pub struct Message<T> {
     /// The computed epoch of the message. If this message is restored from the epoch block then
     /// the epoch is taken from the data.
     pub computed_epoch: Option<u64>,
+    /// The hash of the message.
+    pub computed_hash: Option<u64>,
     /// Computed flag of whether this message is representative.
     computed_is_representative: Option<bool>,
     /// Computed flag of whether this message is a kickout.
-    pub computed_is_kickout: Option<bool>,
+    computed_is_kickout: Option<bool>,
     /// Computed flag whether this message was created by an epoch leader.
     computed_is_epoch_leader: Option<bool>,
 
@@ -41,12 +41,12 @@ pub struct Message<T> {
     /// Epoch -> messages that have that epoch, grouped as:
     /// owner_uid who created the message -> the message.
     approved_epochs: EpochMapMap<T>,
-    /// Epoch -> a/any representative of that epoch (if there are several forked representative
-    /// messages than any of them).
-    approved_representatives: EpochMap<T>,
-    /// Epoch -> a/any kickout message of a representative with epoch Epoch (if there are several
-    /// forked kickout messages then any of them).
-    approved_kickouts: EpochMap<T>,
+    /// Epoch -> a/all representatives of that epoch (supports forks).
+    /// The inner map is message hash -> message.
+    approved_representatives: EpochMapMap<T>,
+    /// Epoch -> a/all kickouts of that epoch (supports forks).
+    /// The inner map is message hash -> message.
+    approved_kickouts: EpochMapMap<T>,
     /// Epoch -> endorsements that endorse a/any (if there are several forked representative messages
     /// then any of them) representative message of that epoch, grouped as:
     /// owner_uid who created endorsement -> the endorsement message.
@@ -83,23 +83,6 @@ pub struct Message<T> {
     //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
 }
 
-// Traits for the HashMap.
-//impl<T> Hash for MessageRef<T> {
-//    fn hash<H>(&self, state: &mut H)
-//    where H: Hasher, {
-//        state.write_u64(self.borrow().data.hash);
-//        state.finish();
-//    }
-//}
-//
-//impl<T> PartialEq for MessageRef<T> {
-//    fn eq(&self, other: &MessageRef<T>) -> bool {
-//        self.borrow().data.hash == other.borrow().data.hash
-//    }
-//}
-//
-//impl<T> Eq for MessageRef<T> {}
-
 /// Aggregate EpochMapMap's from parents.
 macro_rules! aggregate_mapmaps {
     ( $self:ident, $( $field_name:ident ),+ ) => {
@@ -115,27 +98,15 @@ macro_rules! aggregate_mapmaps {
     };
 }
 
-/// Aggregate EpochMap's from parents.
-macro_rules! aggregate_maps {
-    ( $self:ident, $( $field_name:ident ),+ ) => {
-        for p in &$self.parents {
-            $(
-                let p_field = &p.borrow().$field_name;
-                $self.$field_name.extend(p_field.into_iter().map(|(k, v)| (k.clone(), v.clone())));
-            )+
-        }
-    };
-}
-
-
-impl<T> Message<T> {
+impl<T: Hash> Message<T> {
     pub fn new(data: types::SignedMessageData<T>) -> MessageRef<T> {
         let result = Rc::new(RefCell::new(
             Message {
-                self_ref: Weak::new(),
                 data,
+                self_ref: Weak::new(),
                 parents: vec![],
                 computed_epoch: None,
+                computed_hash: None,
                 computed_is_representative: None,
                 computed_is_kickout: None,
                 computed_is_epoch_leader: None,
@@ -160,8 +131,7 @@ impl<T> Message<T> {
 
     /// Computes the aggregated data from the parents and updates the message.
     pub fn aggregate_parents(&mut self) {
-        aggregate_mapmaps!(self, approved_epochs, approved_endorsements, approved_promises);
-        aggregate_maps!(self, approved_representatives, approved_kickouts);
+        aggregate_mapmaps!(self, approved_epochs, approved_endorsements, approved_promises, approved_representatives, approved_kickouts);
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
@@ -270,6 +240,14 @@ impl<T> Message<T> {
         self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => self_ref});
         self.computed_epoch = Some(epoch);
 
+        // Compute the hash.
+        let hash = {
+            let mut hasher = DefaultHasher::new();
+            self.data.body.hash(&mut hasher);
+            hasher.finish()
+        };
+        self.computed_hash = Some(hash);
+
         // Compute if this is an epoch leader.
         let is_leader = witness_selector.epoch_leader(epoch) == self.data.body.owner_uid;
         self.computed_is_epoch_leader = Some(is_leader);
@@ -279,7 +257,8 @@ impl<T> Message<T> {
         match self.is_representative(is_leader, witness_selector) {
             true => {
                 self.computed_is_representative = Some(true);
-                self.approved_representatives.entry(epoch).or_insert_with(|| self_ref);
+                self.approved_representatives.entry(epoch).or_insert_with(|| HashMap::new())
+                    .insert(hash, self_ref);
             },
             false => {self.computed_is_representative = Some(false); }
         }
@@ -289,7 +268,8 @@ impl<T> Message<T> {
         match self.is_kickout(is_leader, witness_selector) {
             true => {
                 self.computed_is_kickout = Some(true);
-                self.approved_kickouts.entry(epoch - 1).or_insert_with(|| self_ref);
+                self.approved_kickouts.entry(epoch - 1).or_insert_with(|| HashMap::new())
+                    .insert(hash, self_ref);
             },
             false => {self.computed_is_kickout = Some(false);}
         }
@@ -301,6 +281,7 @@ impl<T> Message<T> {
 mod tests {
     use super::*;
 
+    #[derive(Hash)]
     pub struct FakePayload {
 
     }
