@@ -3,6 +3,8 @@
 use substrate_network_libp2p::{Service};
 use primitives::{types, traits::{Encode, Decode}};
 use message::{self, Message};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 struct ProtocolConfig {
     // config information goes here
@@ -17,7 +19,7 @@ impl ProtocolConfig {
     }
 }
 
-struct Protocol {
+pub struct Protocol {
     // TODO: add more fields when we need them
     config: ProtocolConfig,
 }
@@ -33,7 +35,7 @@ impl Protocol {
         panic!("TODO: transaction message");
     }
 
-    pub fn on_message(&self, network: Service, mut data: &[u8]) {
+    pub fn on_message(&self, network: &Arc<Mutex<Service>>, mut data: &[u8]) {
         let message: Message = match Decode::decode(data) {
             Some(m) => m,
             _ => {
