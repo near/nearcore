@@ -28,7 +28,7 @@ pub struct Message<T> {
     // The following fields are computed based on the approved messages.
     /// The computed epoch of the message. If this message is restored from the epoch block then
     /// the epoch is taken from the data.
-    computed_epoch: Option<u64>,
+    pub computed_epoch: Option<u64>,
     /// Computed flag of whether this message is representative.
     computed_is_representative: Option<bool>,
     /// Computed flag of whether this message is a kickout.
