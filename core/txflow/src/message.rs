@@ -33,7 +33,9 @@ pub struct Message<T> {
     /// Computed flag of whether this message is representative.
     computed_is_representative: Option<bool>,
     /// Computed flag of whether this message is a kickout.
-    computed_is_kickout: Option<bool>,
+    pub computed_is_kickout: Option<bool>,
+    /// Computed flag whether this message was created by an epoch leader.
+    computed_is_epoch_leader: Option<bool>,
 
     // The following are the approved messages, grouped by different criteria.
     /// Epoch -> messages that have that epoch, grouped as:
@@ -136,6 +138,7 @@ impl<T> Message<T> {
                 computed_epoch: None,
                 computed_is_representative: None,
                 computed_is_kickout: None,
+                computed_is_epoch_leader: None,
                 approved_epochs: HashMap::new(),
                 approved_representatives: HashMap::new(),
                 approved_kickouts: HashMap::new(),
@@ -196,11 +199,8 @@ impl<T> Message<T> {
     /// b) It approves the representative message of the epoch X-1.
     /// c) It approves the kickout message for the epoch X-1 and it approves >2/3 promises for that
     ///    kickout message.
-    fn is_representative<P: WitnessSelectorLike>(&self, witness_selector: &P) -> bool {
-        let epoch = self.computed_epoch
-            .expect("Message epoch should be computed before everything else.");
-        let is_leader = witness_selector.epoch_leader(epoch) == self.data.body.owner_uid;
-
+    fn is_representative<P: WitnessSelectorLike>(&self, is_leader: bool, _witness_selector: &P) -> bool {
+        let epoch = self.computed_epoch.expect("Epoch should be computed by now");
         if !is_leader {
             // If it is not a leader then don't bother.
             false
@@ -220,9 +220,13 @@ impl<T> Message<T> {
     /// Determines whether this message is a kickout message.
     /// The message is a kickout message for epoch X-1 if this is the first message of the epoch's
     /// leader in the epoch X that does not approve the representative message of the epoch X-1.
-    fn is_kickout(&self) -> bool {
-        // TODO: Implement.
-        false
+    fn is_kickout<P: WitnessSelectorLike>(&self, is_leader:bool, _witness_selector: &P) -> bool {
+        let epoch = self.computed_epoch.expect("Epoch should be computed by now");
+        if !is_leader {
+            false
+        } else if epoch > 0 && !self.approved_representatives.contains_key(&(epoch-1)) {
+            true } else {
+            false }
     }
 
     /// Determines the list of kickouts for which this message gives a promise.
@@ -266,10 +270,29 @@ impl<T> Message<T> {
         self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => self_ref});
         self.computed_epoch = Some(epoch);
 
+        // Compute if this is an epoch leader.
+        let is_leader = witness_selector.epoch_leader(epoch) == self.data.body.owner_uid;
+        self.computed_is_epoch_leader = Some(is_leader);
+
         // Compute if it is a representative.
         let self_ref = self.self_ref.clone();
-        self.computed_is_representative = Some(self.is_representative(witness_selector));
-        self.approved_representatives.entry(epoch).or_insert_with(|| self_ref);
+        match self.is_representative(is_leader, witness_selector) {
+            true => {
+                self.computed_is_representative = Some(true);
+                self.approved_representatives.entry(epoch).or_insert_with(|| self_ref);
+            },
+            false => {self.computed_is_representative = Some(false); }
+        }
+
+        // Compute if it is a kick-out message.
+        let self_ref = self.self_ref.clone();
+        match self.is_kickout(is_leader, witness_selector) {
+            true => {
+                self.computed_is_kickout = Some(true);
+                self.approved_kickouts.entry(epoch - 1).or_insert_with(|| self_ref);
+            },
+            false => {self.computed_is_kickout = Some(false);}
+        }
     }
 }
 
@@ -414,7 +437,6 @@ mod tests {
 
     #[test]
     fn test_epoch_computation_no_promo() {
-        let selector = FakeWitnessSelector::new();
         let starting_epoch = 9;
         // Corner case of having messages for epoch 10 without messages for epoch 9.
         let (_a, _b, _c, _d, e)
@@ -425,7 +447,6 @@ mod tests {
 
     #[test]
     fn test_epoch_computation_promo() {
-        let selector = FakeWitnessSelector::new();
         let starting_epoch = 9;
         let (_a, _b, _c, _d, e)
         = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 0);
@@ -435,7 +456,6 @@ mod tests {
 
     #[test]
     fn test_representatives_scenarios_a_b() {
-        let selector = FakeWitnessSelector::new();
         let starting_epoch = 0;
         let (a, b, c, d, e)
         = simple_graph(0, 0,
@@ -450,5 +470,22 @@ mod tests {
         assert!(!d.borrow().computed_is_representative.unwrap());
         assert_eq!(e.borrow().computed_epoch.unwrap(), 1);
         assert!(e.borrow().computed_is_representative.unwrap());
+    }
+
+    #[test]
+    fn test_no_kickout() {
+         let starting_epoch = 0;
+        let (a, b, c, d, e)
+        = simple_graph(0, 0,
+                       0, 1,
+                       0, 2,
+                       1, 3,
+                       starting_epoch, 1);
+
+        assert!(!a.borrow().computed_is_kickout.unwrap());
+        assert!(!b.borrow().computed_is_kickout.unwrap());
+        assert!(!c.borrow().computed_is_kickout.unwrap());
+        assert!(!d.borrow().computed_is_kickout.unwrap());
+        assert!(!e.borrow().computed_is_kickout.unwrap());
     }
 }
