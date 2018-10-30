@@ -1,5 +1,5 @@
 use primitives::types::*;
-use primitives::traits::{WitnessSelector};
+use primitives::traits::{WitnessSelectorLike};
 
 use std::rc::Rc;
 use std::collections::HashMap;
@@ -11,7 +11,7 @@ use super::message::{MessageRef, Message};
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes.
-pub struct DAG<'a, T, W: 'a+WitnessSelector> {
+pub struct DAG<'a, T, W: 'a+ WitnessSelectorLike> {
     /// UID of the node.
     owner_uid: u64,
     /// Message hash -> Message. Stores all messages known that the current root.
@@ -27,7 +27,7 @@ pub struct DAG<'a, T, W: 'a+WitnessSelector> {
     starting_epoch: u64,
 }
 
-impl<'a, T: Hash, W:'a+WitnessSelector> DAG<'a, T, W> {
+impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
     pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Result<DAG<T, W>, &'static str> {
         Ok(DAG{
             owner_uid,

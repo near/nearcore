@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
-use primitives::traits::WitnessSelector;
+use primitives::traits::WitnessSelectorLike;
 use primitives::types;
 
 pub type MessageRef<T> = Rc<RefCell<Message<T> >>;
@@ -54,6 +55,9 @@ pub struct Message<T> {
     /// owner_uid who created the promise -> the promise message.
     approved_promises: EpochMapMap<T>,
 
+    // Epoch that's being kicked out -> (kickout keyed on hash -> (owner_uid -> a/any promise from this owner)).
+    //approved_promises: HashMap<u64, HashMap<MessageRef<T>, HashMap<u64, MessageRef<T>>>>,
+
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
     // b) an endorsement of a representative message of epoch Y, Y<X;
@@ -76,6 +80,23 @@ pub struct Message<T> {
     //   including the part of the BLS signature in it. If the signature is not included that it
     //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
 }
+
+// Traits for the HashMap.
+//impl<T> Hash for MessageRef<T> {
+//    fn hash<H>(&self, state: &mut H)
+//    where H: Hasher, {
+//        state.write_u64(self.borrow().data.hash);
+//        state.finish();
+//    }
+//}
+//
+//impl<T> PartialEq for MessageRef<T> {
+//    fn eq(&self, other: &MessageRef<T>) -> bool {
+//        self.borrow().data.hash == other.borrow().data.hash
+//    }
+//}
+//
+//impl<T> Eq for MessageRef<T> {}
 
 /// Aggregate EpochMapMap's from parents.
 macro_rules! aggregate_mapmaps {
@@ -152,8 +173,9 @@ impl<T> Message<T> {
         }).max().unwrap_or(starting_epoch)
     }
 
+    /// Determines whether the epoch of the current message should increase.
     fn should_promote<P>(&self, prev_epoch: u64, witness_selector: &P) -> bool
-        where P : WitnessSelector {
+        where P : WitnessSelectorLike {
         let total_witnesses = witness_selector.epoch_witnesses(prev_epoch);
         let mut existing_witnesses = HashSet::new();
         for p in &self.parents {
@@ -167,13 +189,66 @@ impl<T> Message<T> {
         false
     }
 
+    /// Determines whether this message is a representative message.
+    /// The message is a representative of epoch X if this is the first message of the epoch's leader
+    /// in the epoch X that satisfies either of the conditions:
+    /// a) X = 0.
+    /// b) It approves the representative message of the epoch X-1.
+    /// c) It approves the kickout message for the epoch X-1 and it approves >2/3 promises for that
+    ///    kickout message.
+    fn is_representative<P: WitnessSelectorLike>(&self, witness_selector: &P) -> bool {
+        let epoch = self.computed_epoch
+            .expect("Message epoch should be computed before everything else.");
+        let is_leader = witness_selector.epoch_leader(epoch) == self.data.body.owner_uid;
+
+        if !is_leader {
+            // If it is not a leader then don't bother.
+            false
+        } else if epoch == 0 {
+            // Scenario (a).
+            true
+        } else if self.approved_representatives.contains_key(&(epoch-1)) {
+            // Scenario (b).
+            true
+        } else {
+            // Scenario (c).
+            // TODO: Implement this scenario.
+            false
+        }
+    }
+
+    /// Determines whether this message is a kickout message.
+    /// The message is a kickout message for epoch X-1 if this is the first message of the epoch's
+    /// leader in the epoch X that does not approve the representative message of the epoch X-1.
+    fn is_kickout(&self) -> bool {
+        // TODO: Implement.
+        false
+    }
+
+    /// Determines the list of kickouts for which this message gives a promise.
+    /// The message is a promise for a kickout message for epoch X if it approves the kickout but
+    /// does not approve the representative message for epoch X.
+    fn promises_for_kickouts(&self) -> Vec<MessageRef<T>> {
+        // TODO: Implement.
+        vec![]
+    }
+
+    /// Determines the list of representatives endorsed by this message.
+    /// The message is an endorsement for representative message of epoch X if it approves it, if
+    /// it does not approve a promise by the same node for kickout of epoch X, and if it contains
+    /// the corresponding BLS part.
+    fn endorsements_for_representatives(&self) -> Vec<MessageRef<T>> {
+        // TODO: Implement.
+        vec![]
+    }
+
 
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
     pub fn populate_from_parents<P>(&mut self,
                                     recompute_epoch: bool,
                                     starting_epoch: u64,
-                                    witness_selector: &P) where P : WitnessSelector {
+                                    witness_selector: &P) where P : WitnessSelectorLike {
         self.aggregate_parents();
         let owner_uid = self.data.body.owner_uid;
 
@@ -190,6 +265,11 @@ impl<T> Message<T> {
         let self_ref = self.self_ref.clone();
         self.approved_epochs.entry(epoch).or_insert_with(|| map!{owner_uid => self_ref});
         self.computed_epoch = Some(epoch);
+
+        // Compute if it is a representative.
+        let self_ref = self.self_ref.clone();
+        self.computed_is_representative = Some(self.is_representative(witness_selector));
+        self.approved_representatives.entry(epoch).or_insert_with(|| self_ref);
     }
 }
 
@@ -276,19 +356,30 @@ mod tests {
     impl FakeWitnessSelector {
        fn new() -> FakeWitnessSelector {
           FakeWitnessSelector {
-              schedule: map!{9 => set!{0, 1, 2, 3}, 10 => set!{1, 2, 3, 4}}
+              schedule: map!{
+              0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+              9 => set!{0, 1, 2, 3}, 10 => set!{1, 2, 3, 4}}
           }
        }
     }
 
-    impl WitnessSelector for FakeWitnessSelector {
+    impl WitnessSelectorLike for FakeWitnessSelector {
         fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
             self.schedule.get(&epoch).unwrap()
         }
+        fn epoch_leader(&self, epoch: u64) -> u64 {
+            *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
     }
 
-    #[test]
-    fn test_epoch_computation_no_promo() {
+    type FakeMessageRef = MessageRef<FakePayload>;
+
+    fn simple_graph(epoch_a: u64, owner_a: u64,
+                    epoch_b: u64, owner_b: u64,
+                    epoch_c: u64, owner_c: u64,
+                    epoch_d: u64, owner_d: u64,
+                    starting_epoch: u64, owner_e: u64
+    ) -> (FakeMessageRef, FakeMessageRef, FakeMessageRef, FakeMessageRef, FakeMessageRef) {
         let selector = FakeWitnessSelector::new();
         let a = simple_message();
         let b = simple_message();
@@ -297,57 +388,67 @@ mod tests {
         let e = simple_message();
         {
             let a_data = &mut a.borrow_mut().data;
-            a_data.body.epoch = 9;
-            a_data.body.owner_uid = 0;
+            a_data.body.epoch = epoch_a;
+            a_data.body.owner_uid = owner_a;
             let b_data = &mut b.borrow_mut().data;
-            b_data.body.epoch = 10;
-            b_data.body.owner_uid = 1;
+            b_data.body.epoch = epoch_b;
+            b_data.body.owner_uid = owner_b;
             let c_data = &mut c.borrow_mut().data;
-            c_data.body.epoch = 10;
-            c_data.body.owner_uid = 2;
+            c_data.body.epoch = epoch_c;
+            c_data.body.owner_uid = owner_c;
             let d_data = &mut d.borrow_mut().data;
-            d_data.body.epoch = 10;
-            d_data.body.owner_uid = 3;
+            d_data.body.epoch = epoch_d;
+            d_data.body.owner_uid = owner_d;
+            let e_data = &mut e.borrow_mut().data;
+            e_data.body.owner_uid = owner_e;
         }
-        let starting_epoch = 9;
+        let starting_epoch = starting_epoch;
         for m in vec![&a, &b, &c, &d] {
             m.borrow_mut().populate_from_parents(false, starting_epoch,&selector);
             Message::link(m, &e);
         }
 
         e.borrow_mut().populate_from_parents(true, starting_epoch,&selector);
+        return (a, b, c, d, e)
+    }
+
+    #[test]
+    fn test_epoch_computation_no_promo() {
+        let selector = FakeWitnessSelector::new();
+        let starting_epoch = 9;
+        // Corner case of having messages for epoch 10 without messages for epoch 9.
+        let (_a, _b, _c, _d, e)
+        = simple_graph(9, 0, 10, 1, 10, 2, 10, 3, starting_epoch, 0);
+
         assert_eq!(e.borrow().computed_epoch.unwrap(), 9);
     }
 
     #[test]
     fn test_epoch_computation_promo() {
         let selector = FakeWitnessSelector::new();
-        let a = simple_message();
-        let b = simple_message();
-        let c = simple_message();
-        let d = simple_message();
-        let e = simple_message();
-        {
-            let a_data = &mut a.borrow_mut().data;
-            a_data.body.epoch = 9;
-            a_data.body.owner_uid = 0;
-            let b_data = &mut b.borrow_mut().data;
-            b_data.body.epoch = 9;
-            b_data.body.owner_uid = 1;
-            let c_data = &mut c.borrow_mut().data;
-            c_data.body.epoch = 9;
-            c_data.body.owner_uid = 2;
-            let d_data = &mut d.borrow_mut().data;
-            d_data.body.epoch = 10;
-            d_data.body.owner_uid = 3;
-        }
         let starting_epoch = 9;
-        for m in vec![&a, &b, &c, &d] {
-            m.borrow_mut().populate_from_parents(false, starting_epoch,&selector);
-            Message::link(m, &e);
-        }
+        let (_a, _b, _c, _d, e)
+        = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 0);
 
-        e.borrow_mut().populate_from_parents(true, starting_epoch,&selector);
         assert_eq!(e.borrow().computed_epoch.unwrap(), 10);
+    }
+
+    #[test]
+    fn test_representatives_scenarios_a_b() {
+        let selector = FakeWitnessSelector::new();
+        let starting_epoch = 0;
+        let (a, b, c, d, e)
+        = simple_graph(0, 0,
+                       0, 1,
+                       0, 2,
+                       1, 3,
+                       starting_epoch, 1);
+
+        assert!(a.borrow().computed_is_representative.unwrap());
+        assert!(!b.borrow().computed_is_representative.unwrap());
+        assert!(!c.borrow().computed_is_representative.unwrap());
+        assert!(!d.borrow().computed_is_representative.unwrap());
+        assert_eq!(e.borrow().computed_epoch.unwrap(), 1);
+        assert!(e.borrow().computed_is_representative.unwrap());
     }
 }
