@@ -9,6 +9,9 @@ cache:
 test:cargo:
     stage: test
     script:
-    - rustc --version && cargo --version
+    - ./scripts/init.sh
+    - export PATH="${CI_PROJECT_DIR}/cargo/bin/:$PATH"
+    - export RUST_BACKTRACE=1
+    - ./scripts/build.sh
     - cargo test --all --verbose
 
