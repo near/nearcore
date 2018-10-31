@@ -7,11 +7,13 @@ use std::collections::hash_map::DefaultHasher;
 use primitives::traits::WitnessSelectorLike;
 use primitives::types;
 
-pub type MessageRef<T> = Rc<RefCell<Message<T> >>;
+pub type MessageRef<T> = Rc<RefCell<Message<T>>>;
 pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;
 
-/// Epoch -> (node uid -> message).
+/// Epoch -> (node uid/hash -> message).
 pub type EpochMapMap<T> = HashMap<u64, HashMap<u64, MessageWeakRef<T>>>;
+/// Epoch -> (hash -> (message, node uid -> message)).
+pub type EpochMapMapMap<T> = HashMap<u64, HashMap<u64, (MessageRef<T>, HashMap<u64, MessageRef<T>>)>>;
 
 
 // TODO: Consider using arena like in https://github.com/SimonSapin/rust-forest once TypedArena becomes stable.
@@ -28,7 +30,7 @@ pub struct Message<T: Hash> {
     /// The computed epoch of the message. If this message is restored from the epoch block then
     /// the epoch is taken from the data.
     pub computed_epoch: Option<u64>,
-    /// The hash of the message.
+    /// The hash of the message. Depends on the epoch.
     pub computed_hash: Option<u64>,
     /// Computed flag of whether this message is representative.
     computed_is_representative: Option<bool>,
@@ -47,18 +49,16 @@ pub struct Message<T: Hash> {
     /// Epoch -> a/all kickouts of that epoch (supports forks).
     /// The inner map is message hash -> message.
     approved_kickouts: EpochMapMap<T>,
-    /// Epoch -> endorsements that endorse a/any (if there are several forked representative messages
-    /// then any of them) representative message of that epoch, grouped as:
-    /// owner_uid who created endorsement -> the endorsement message.
-    approved_endorsements: EpochMapMap<T>,
-    /// Epoch -> promises that approve a/any (if there are several forked kickout messages then any
-    /// of them) kickout message (it by the def. has epoch Epoch+1) that kicks out representative
-    /// message of epoch Epoch, grouped as:
-    /// owner_uid who created the promise -> the promise message.
-    approved_promises: EpochMapMap<T>,
-
-    // Epoch that's being kicked out -> (kickout keyed on hash -> (owner_uid -> a/any promise from this owner)).
-    //approved_promises: HashMap<u64, HashMap<MessageRef<T>, HashMap<u64, MessageRef<T>>>>,
+    /// Endorsements of a representatives (supports endorsements on forked representatives).
+    /// Representative epoch -> ( hash of the representative -> pair:
+    /// * the representative message
+    /// * a map owner_uid -> endorsement message.
+    approved_endorsements: EpochMapMapMap<T>,
+    /// Promises to kickout a representative message (supports promises on forked kickouts).
+    /// Epoch that's being kicked out -> ( hash of the kickout message -> pair:
+    /// * the kickout message
+    /// * a map owner_uid -> promise message.
+    approved_promises: EpochMapMapMap<T>,
 
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
@@ -98,6 +98,25 @@ macro_rules! aggregate_mapmaps {
     };
 }
 
+/// Aggregate EpochMapMapMap's from parents.
+macro_rules! aggregate_mapmapmaps {
+    ( $self:ident, $( $field_name:ident ),+ ) => {
+        for p in &$self.parents {
+            $(
+                for (epoch, per_epoch) in &p.borrow().$field_name {
+                   let child_per_epoch = $self.$field_name.entry(*epoch)
+                       .or_insert_with(|| HashMap::new());
+                    for (hash, (message, per_message)) in per_epoch {
+                       let (_, child_per_message)  = child_per_epoch.entry(*hash)
+                           .or_insert_with(|| (Rc::clone(message), HashMap::new()));
+                        child_per_message.extend(per_message.into_iter().map(|(k, v)| (k.clone(), v.clone())));
+                    }
+                }
+            )+
+        }
+    };
+}
+
 impl<T: Hash> Message<T> {
     pub fn new(data: types::SignedMessageData<T>) -> MessageRef<T> {
         let result = Rc::new(RefCell::new(
@@ -131,7 +150,8 @@ impl<T: Hash> Message<T> {
 
     /// Computes the aggregated data from the parents and updates the message.
     pub fn aggregate_parents(&mut self) {
-        aggregate_mapmaps!(self, approved_epochs, approved_endorsements, approved_promises, approved_representatives, approved_kickouts);
+        aggregate_mapmaps!(self, approved_epochs, approved_representatives, approved_kickouts);
+        aggregate_mapmapmaps!(self, approved_endorsements, approved_promises);
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
