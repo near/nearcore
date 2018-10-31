@@ -1,4 +1,4 @@
-image: "rust:latest"
+image: "parity/rust:gitlab-ci"
 
 cache:
     key: "${CI_JOB_NAME}"
