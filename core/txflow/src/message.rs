@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 
 use primitives::traits::WitnessSelectorLike;
 use primitives::types;
-use super::epoch_messages::AllEpochMessages;
+use super::group::GroupsPerEpoch;
 
 pub type MessageRef<T> = Rc<RefCell<Message<T>>>;
 pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;
@@ -40,11 +40,11 @@ pub struct Message<T: Hash> {
 
     // The following are the approved messages, grouped by different criteria.
     /// Epoch -> messages that have that epoch.
-    approved_epochs: AllEpochMessages<T>,
+    approved_epochs: GroupsPerEpoch<T>,
     /// Epoch -> a/all representatives of that epoch (supports forks).
-    approved_representatives: AllEpochMessages<T>,
+    approved_representatives: GroupsPerEpoch<T>,
     /// Epoch -> a/all kickouts of that epoch (supports forks).
-    approved_kickouts: AllEpochMessages<T>,
+    approved_kickouts: GroupsPerEpoch<T>,
     /// Endorsements of a representatives (supports endorsements on forked representatives).
     /// Representative epoch -> ( hash of the representative -> pair:
     /// * the representative message
@@ -109,9 +109,9 @@ impl<T: Hash> Message<T> {
                 computed_is_representative: None,
                 computed_is_kickout: None,
                 computed_is_epoch_leader: None,
-                approved_epochs: AllEpochMessages::new(),
-                approved_representatives: AllEpochMessages::new(),
-                approved_kickouts: AllEpochMessages::new(),
+                approved_epochs: GroupsPerEpoch::new(),
+                approved_representatives: GroupsPerEpoch::new(),
+                approved_kickouts: GroupsPerEpoch::new(),
                 approved_endorsements: HashMap::new(),
                 approved_promises: HashMap::new(),
             }));

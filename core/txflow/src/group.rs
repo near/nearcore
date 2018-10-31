@@ -2,22 +2,22 @@ use std::hash::Hash;
 use std::collections::HashMap;
 use super::message::MessageWeakRef;
 
-/// A group of messages associated with an epoch that satisfy certain criteria.
+/// A group of messages associated with a single epoch that satisfy certain criteria.
 /// Examples:
 /// * representative message(s) of epoch X (there are more than one if there is a fork);
 /// * kickout message(s) that kickout epoch X (again, more than one if there is a fork);
 /// * messages of epoch X (it is perfectly normal to have multiple of them).
 #[derive(Debug)]
-pub struct EpochMessages<T: Hash> {
+pub struct Group<T: Hash> {
     /// Messages aggregated by hash.
     pub messages_by_hash: HashMap<u64, MessageWeakRef<T>>,
     /// Messages aggregated by owner uid.
     pub messages_by_owner: HashMap<u64, HashMap<u64, MessageWeakRef<T>>>,
 }
 
-impl<T: Hash> EpochMessages<T> {
-    pub fn new() -> EpochMessages<T> {
-        EpochMessages {
+impl<T: Hash> Group<T> {
+    pub fn new() -> Group<T> {
+        Group {
             messages_by_hash: HashMap::new(),
             messages_by_owner: HashMap::new(),
         }
@@ -29,7 +29,7 @@ impl<T: Hash> EpochMessages<T> {
             .insert(hash, message.clone());
     }
 
-    pub fn union_update(&mut self, other: &EpochMessages<T>) {
+    pub fn union_update(&mut self, other: &Group<T>) {
         {
             self.messages_by_hash.extend((&other.messages_by_hash).into_iter()
                 .map(|(k,v)| (k.clone(), v.clone())));
@@ -49,27 +49,27 @@ impl<T: Hash> EpochMessages<T> {
     }
 }
 
-/// Aggregates EpochMessages for all epochs.
+/// Mapping of groups to epochs.
 #[derive(Debug)]
-pub struct AllEpochMessages<T: Hash> {
-    messages_by_epoch: HashMap<u64, EpochMessages<T>>,
+pub struct GroupsPerEpoch<T: Hash> {
+    messages_by_epoch: HashMap<u64, Group<T>>,
 }
 
-impl<'a, T: Hash> AllEpochMessages<T> {
-    pub fn new() -> AllEpochMessages<T> {
-        AllEpochMessages {
+impl<'a, T: Hash> GroupsPerEpoch<T> {
+    pub fn new() -> GroupsPerEpoch<T> {
+        GroupsPerEpoch {
             messages_by_epoch: HashMap::new(),
         }
     }
 
     pub fn insert(&mut self, epoch: u64, owner_uid: u64, hash: u64, message: &MessageWeakRef<T>) {
-        self.messages_by_epoch.entry(epoch).or_insert_with(|| EpochMessages::new())
+        self.messages_by_epoch.entry(epoch).or_insert_with(|| Group::new())
             .insert(owner_uid, hash, message);
     }
 
-    pub fn union_update(&mut self, other: &AllEpochMessages<T>) {
+    pub fn union_update(&mut self, other: &GroupsPerEpoch<T>) {
         for (epoch, per_epoch) in &other.messages_by_epoch {
-           self.messages_by_epoch.entry(*epoch).or_insert_with(|| EpochMessages::new())
+           self.messages_by_epoch.entry(*epoch).or_insert_with(|| Group::new())
                .union_update(per_epoch);
         }
     }
@@ -82,7 +82,7 @@ impl<'a, T: Hash> AllEpochMessages<T> {
             })
     }
 
-    pub fn filter_by_epoch(&self, epoch: u64) -> Option<&EpochMessages<T>> {
+    pub fn filter_by_epoch(&self, epoch: u64) -> Option<&Group<T>> {
         self.messages_by_epoch.get(&epoch)
     }
 
