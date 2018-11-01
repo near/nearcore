@@ -14,8 +14,10 @@ pub struct Group<T: Hash> {
     pub messages_by_owner: HashMap<u64, HashSet<HashableMessage<T>>>,
 }
 
+// TODO: Create alternative of Group called SingleOwnerGroup with {owner_uid: u64, messages: HashSet<...>}
+// that is more efficient to use for representative messages and kickout messages.
 impl<T: Hash> Group<T> {
-    pub fn new() -> Group<T> {
+    pub fn new() -> Self {
         Group {
             messages_by_owner: HashMap::new(),
         }
@@ -45,11 +47,11 @@ impl<T: Hash> Group<T> {
 /// Mapping of groups to epochs.
 #[derive(Debug)]
 pub struct GroupsPerEpoch<T: Hash> {
-    messages_by_epoch: HashMap<u64, Group<T>>,
+    pub messages_by_epoch: HashMap<u64, Group<T>>,
 }
 
-impl<'a, T: Hash> GroupsPerEpoch<T> {
-    pub fn new() -> GroupsPerEpoch<T> {
+impl<T: Hash> GroupsPerEpoch<T> {
+    pub fn new() -> Self {
         GroupsPerEpoch {
             messages_by_epoch: HashMap::new(),
         }
@@ -67,12 +69,21 @@ impl<'a, T: Hash> GroupsPerEpoch<T> {
         }
     }
 
+    /// Filters out messages not owned by the given owner.
+    /// Returns pairs: epoch -> messages of that owner in the given epoch.
     pub fn filter_by_owner(&self, owner_uid: u64) -> impl Iterator<Item=(&u64, &HashSet<HashableMessage<T>>)> {
         (&self.messages_by_epoch).into_iter().filter_map(move |(epoch, per_epoch)|
             match per_epoch.filter_by_owner(owner_uid) {
                 None => None,
                 Some(filter_epoch_messages) => Some((epoch, filter_epoch_messages))
             })
+    }
+
+    /// Filters out epochs that are present in another GroupsByEpoch.
+    pub fn difference_by_epoch<'a>(&'a self, other: &'a Self) -> Vec<(&'a u64, &'a Group<T>)> {
+        // Closures have static lifetime and this closure captures other, therefore we have to
+        // collect the elements.
+        (&self.messages_by_epoch).into_iter().filter(|&(epoch, _)| !other.contains_epoch(*epoch)).collect()
     }
 
     pub fn filter_by_epoch(&self, epoch: u64) -> Option<&Group<T>> {

@@ -36,10 +36,6 @@ impl<T: Hash> PartialEq for HashableMessage<T> {
     fn eq(&self, other: &HashableMessage<T>) -> bool {
         self.hash == other.hash
     }
-
-    fn ne(&self, other: &HashableMessage<T>) -> bool {
-        self.hash != other.hash
-    }
 }
 
 impl<T: Hash> Eq for HashableMessage<T> {}

@@ -7,13 +7,10 @@ use std::collections::hash_map::DefaultHasher;
 use primitives::traits::WitnessSelectorLike;
 use primitives::types;
 use super::group::GroupsPerEpoch;
+use super::group_approvals::GroupApprovalPerEpoch;
 
 pub type MessageRef<T> = Rc<RefCell<Message<T>>>;
 pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;
-
-/// Epoch -> (hash -> (message, node uid -> message)).
-pub type EpochMapMapMap<T> = HashMap<u64, HashMap<u64, (MessageRef<T>, HashMap<u64, MessageRef<T>>)>>;
-
 
 // TODO: Consider using arena like in https://github.com/SimonSapin/rust-forest once TypedArena becomes stable.
 /// Represents the message of the DAG, T is the payload parameter. For in-shard TxFlow and
@@ -45,16 +42,10 @@ pub struct Message<T: Hash> {
     approved_representatives: GroupsPerEpoch<T>,
     /// Epoch -> a/all kickouts of that epoch (supports forks).
     approved_kickouts: GroupsPerEpoch<T>,
-    /// Endorsements of a representatives (supports endorsements on forked representatives).
-    /// Representative epoch -> ( hash of the representative -> pair:
-    /// * the representative message
-    /// * a map owner_uid -> endorsement message.
-    approved_endorsements: EpochMapMapMap<T>,
+    /// Endorsements of representatives (supports endorsements on forked representatives).
+    approved_endorsements: GroupApprovalPerEpoch<T>,
     /// Promises to kickout a representative message (supports promises on forked kickouts).
-    /// Epoch that's being kicked out -> ( hash of the kickout message -> pair:
-    /// * the kickout message
-    /// * a map owner_uid -> promise message.
-    approved_promises: EpochMapMapMap<T>,
+    approved_promises: GroupApprovalPerEpoch<T>,
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
     // b) an endorsement of a representative message of epoch Y, Y<X;
@@ -78,25 +69,6 @@ pub struct Message<T: Hash> {
     //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
 }
 
-/// Aggregate EpochMapMapMap's from parents.
-macro_rules! aggregate_mapmapmaps {
-    ( $self:ident, $( $field_name:ident ),+ ) => {
-        for p in &$self.parents {
-            $(
-                for (epoch, per_epoch) in &p.borrow().$field_name {
-                   let child_per_epoch = $self.$field_name.entry(*epoch)
-                       .or_insert_with(|| HashMap::new());
-                    for (hash, (message, per_message)) in per_epoch {
-                       let (_, child_per_message)  = child_per_epoch.entry(*hash)
-                           .or_insert_with(|| (Rc::clone(message), HashMap::new()));
-                        child_per_message.extend(per_message.into_iter().map(|(k, v)| (k.clone(), v.clone())));
-                    }
-                }
-            )+
-        }
-    };
-}
-
 impl<T: Hash> Message<T> {
     pub fn new(data: types::SignedMessageData<T>) -> MessageRef<T> {
         let result = Rc::new(RefCell::new(
@@ -112,8 +84,8 @@ impl<T: Hash> Message<T> {
                 approved_epochs: GroupsPerEpoch::new(),
                 approved_representatives: GroupsPerEpoch::new(),
                 approved_kickouts: GroupsPerEpoch::new(),
-                approved_endorsements: HashMap::new(),
-                approved_promises: HashMap::new(),
+                approved_endorsements: GroupApprovalPerEpoch::new(),
+                approved_promises: GroupApprovalPerEpoch::new(),
             }));
         // Keep weak reference to itself.
         result.borrow_mut().self_ref = Rc::downgrade(&result);
@@ -134,8 +106,9 @@ impl<T: Hash> Message<T> {
             self.approved_epochs.union_update(&p.borrow().approved_epochs);
             self.approved_representatives.union_update(&p.borrow().approved_representatives);
             self.approved_kickouts.union_update(&p.borrow().approved_kickouts);
+            self.approved_endorsements.union_update(&p.borrow().approved_endorsements);
+            self.approved_promises.union_update(&p.borrow().approved_promises);
         }
-        aggregate_mapmapmaps!(self, approved_endorsements, approved_promises);
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
@@ -198,53 +171,25 @@ impl<T: Hash> Message<T> {
             false }
     }
 
-    // /// Determines the list of kickouts for which this message gives a promise.
-    // /// The message is a promise for a kickout message for epoch X if it approves the kickout but
-    // /// does not approve the representative message for epoch X.
-    // fn promises_for_kickouts(&mut self) -> EpochMapMapMap<T> {
-    //     //let kickouts = (&self.approved_kickouts).into_iter()
-    //         // Ignore if there is a representative message.
-    //         .filter(|(epoch, _)| !self.approved_representatives.contains_key(epoch));
-    //     let mut result = HashMap::new();
-    //     for (epoch, epoch_kickouts) in kickouts {
-    //         // hash of kickout message -> (the kickout message, owner uid -> promise message).
-    //         let old_promises_for_epoch = self.approved_promises.get(epoch);
-    //         // Ignore if we already promised to kick it out.
-    //         for (kickout_hash, kickout) in epoch_kickouts {
-    //             let already_promised = match old_promises_for_epoch {
-    //                 // This epoch has no promises.
-    //                 None => false,
-    //                 Some(o) => match o.get(kickout_hash) {
-    //                     // This kickout message has no promises.
-    //                     None => false,
-    //                     // Promise on this kickout only if we haven't promised yet.
-    //                     Some((_, old_promises)) => old_promises.contains_key(&self.data.body.owner_uid)
-    //                 }
-    //             };
-    //             if already_promised {continue};
-    //             // Update the promises.
-    //             let self_ref = self.self_ref.clone().upgrade()
-    //                 .expect("self_ref should always be valid");
-    //             // TODO: Skip promising to kickout published consensus blocks.
-    //             result.entry(*epoch).or_insert_with(|| HashMap::new())
-    //                 .entry(*kickout_hash).or_insert_with(|| (kickout.upgrade()
-    //                 .expect("Cannot promise on kickout that is not allocated anymore."), HashMap::new()))
-    //                 .1.insert(self.data.body.owner_uid, self_ref);
-    //         }
-    //     }
-    //     result
-    // }
-
-    // /// Determines the list of representatives endorsed by this message.
-    // /// The message is an endorsement for representative message of epoch X if it approves it, if
-    // /// it does not approve a promise by the same node for kickout of epoch X, and if it contains
-    // /// the corresponding BLS part.
-    // fn endorsements_for_representatives(&self) -> HashMap<u64, Vec<MessageRef<T>>> {
-    //     // TODO: Ignore endorsement if it does not have a BLS signature.
-    //     // TODO: Implement.
-    //     HashMap::new()
-    // }
-
+    fn compute_promises(&mut self) -> GroupApprovalPerEpoch<T> {
+        let owner_uid = self.data.body.owner_uid;
+        let hash = self.computed_hash.expect("Hash should be computed before.");
+        let current_epoch = &self.computed_epoch.expect("Epoch should be computed before.");
+        // Ignore kickouts for which we approve representative message.
+        let kickouts = (&self.approved_kickouts).difference_by_epoch(&self.approved_representatives);
+        let mut result = GroupApprovalPerEpoch::new();
+        for (epoch, epoch_kickouts) in kickouts {
+            // Ignore if we already promised this kickout.
+            if epoch != current_epoch && !self.approved_promises.contains_epoch(epoch) {
+                for (_, messages) in &epoch_kickouts.messages_by_owner {
+                   for message in messages {
+                       result.insert(*epoch, message, owner_uid, hash, &self.self_ref);
+                   }
+                }
+            }
+        }
+        result
+    }
 
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
@@ -301,15 +246,9 @@ impl<T: Hash> Message<T> {
             false => {self.computed_is_kickout = Some(false);}
         }
 
-        // // Compute promises to kickouts.
-        // let promises = self.promises_for_kickouts();
-        // for (epoch, promises_per_epoch) in &promises {
-        //     let mut old_promises_per_epoch = self.approved_promises.entry(*epoch).or_insert_with(|| HashMap::new());
-        //     for (kickout_hash, (kickout, promises)) in promises_per_epoch {
-        //         let (_, old_promises) = old_promises_per_epoch.entry(*kickout_hash).or_insert_with(|| (Rc::clone(kickout), HashMap::new()));
-        //         old_promises.extend(promises.into_iter().map(|(k, v)| (k.clone(), v.clone())));
-        //     }
-        // }
+        // Compute promises to kickouts.
+        let promises = self.compute_promises();
+        self.approved_promises.union_update(&promises);
     }
 }
 
@@ -489,27 +428,23 @@ mod tests {
         assert!(e.borrow().computed_is_kickout.unwrap());
     }
 
-    // #[test]
-    // fn test_promise() {
-    //     let starting_epoch = 9;
-    //     let (a, _b, _c, _d, e)
-    //     = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 1);
-    //     let f = simple_message();
-    //     let selector = FakeWitnessSelector::new();
-    //     {
-    //         let f_data = &mut f.borrow_mut().data;
-    //         f_data.body.epoch = 10;
-    //         f_data.body.owner_uid = 2;
-    //     }
-    //     Message::link(&e, &f);
-    //     f.borrow_mut().populate_from_parents(true, starting_epoch, &selector);
+    #[test]
+    fn test_promise() {
+        let starting_epoch = 9;
+        let (a, _b, _c, _d, e)
+        = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 1);
+        let f = simple_message();
+        let selector = FakeWitnessSelector::new();
+        {
+            let f_data = &mut f.borrow_mut().data;
+            f_data.body.epoch = 10;
+            f_data.body.owner_uid = 2;
+        }
+        Message::link(&e, &f);
+        f.borrow_mut().populate_from_parents(true, starting_epoch, &selector);
 
-    //     assert!(!a.borrow().computed_is_representative.unwrap());
-    //     assert!(e.borrow().computed_is_kickout.unwrap());
-    //     assert!(f.borrow().approved_promises.contains_key(&9));
-    //     let (kickout, promises) = f.borrow().approved_promises.get(&9).unwrap().values().next().unwrap().clone();
-    //     assert!(Rc::ptr_eq(&kickout, &e));
-    //     // This check is failing.
-    //     // assert_eq!(promises.len(), 1);
-    // }
+        assert!(!a.borrow().computed_is_representative.unwrap());
+        assert!(e.borrow().computed_is_kickout.unwrap());
+        assert!(f.borrow().approved_promises.contains_epoch(&9));
+    }
 }
