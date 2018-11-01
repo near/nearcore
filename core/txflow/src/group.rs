@@ -1,9 +1,8 @@
 use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
-use super::message::MessageWeakRef;
 use super::hashable_message::HashableMessage;
 
-/// A group of messages associated with a single epoch that satisfy certain criteria.
+/// A group of messages associated that satisfy certain criteria.
 /// Examples:
 /// * representative message(s) of epoch X (there are more than one if there is a fork);
 /// * kickout message(s) that kickout epoch X (again, more than one if there is a fork);
@@ -23,9 +22,9 @@ impl<T: Hash> Group<T> {
         }
     }
 
-    pub fn insert(&mut self, owner_uid: u64, hash: u64, message: &MessageWeakRef<T>) {
+    pub fn insert(&mut self, owner_uid: u64, message: &HashableMessage<T>) {
         self.messages_by_owner.entry(owner_uid).or_insert_with(|| HashSet::new())
-            .insert(HashableMessage{hash, message: message.clone()});
+            .insert(message.clone());
     }
 
     pub fn union_update(&mut self, other: &Self) {
@@ -65,9 +64,8 @@ impl<T: Hash> GroupsPerEpoch<T> {
         }
     }
 
-    pub fn insert(&mut self, epoch: u64, owner_uid: u64, hash: u64, message: &MessageWeakRef<T>) {
-        self.messages_by_epoch.entry(epoch).or_insert_with(|| Group::new())
-            .insert(owner_uid, hash, message);
+    pub fn insert(&mut self, epoch: u64, owner_uid: u64, message: &HashableMessage<T>) {
+        self.messages_by_epoch.entry(epoch).or_insert_with(|| Group::new()).insert(owner_uid, message);
     }
 
     pub fn union_update(&mut self, other: &Self) {

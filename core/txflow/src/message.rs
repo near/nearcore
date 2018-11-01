@@ -175,7 +175,6 @@ impl<T: Hash> Message<T> {
     fn compute_promises(&mut self) -> GroupApprovalPerEpoch<T> {
         let owner_uid = self.data.body.owner_uid;
         let hash = self.computed_hash.expect("Hash should be computed before.");
-        let current_epoch = &self.computed_epoch.expect("Epoch should be computed before.");
         // Ignore kickouts for which we approve representative message.
         let kickouts = (&self.approved_kickouts).difference_by_epoch(&self.approved_representatives);
 
@@ -211,9 +210,10 @@ impl<T: Hash> Message<T> {
             hasher.finish()
         };
         self.computed_hash = Some(hash);
+        let hashable_self_ref = HashableMessage{hash, message: self.self_ref.clone()};
 
         // Update aggregator per epoch.
-        self.approved_epochs.insert(epoch, owner_uid, hash, &self.self_ref);
+        self.approved_epochs.insert(epoch, owner_uid, &hashable_self_ref);
 
         // Compute if this is an epoch leader.
         let is_leader = witness_selector.epoch_leader(epoch) == owner_uid;
@@ -223,7 +223,7 @@ impl<T: Hash> Message<T> {
         match self.is_representative(is_leader, witness_selector) {
             true => {
                 self.computed_is_representative = Some(true);
-                self.approved_representatives.insert(epoch, owner_uid, hash, &self.self_ref);
+                self.approved_representatives.insert(epoch, owner_uid, &hashable_self_ref);
             },
             false => {self.computed_is_representative = Some(false); }
         }
@@ -233,7 +233,7 @@ impl<T: Hash> Message<T> {
             // TODO: Skip this check if is_representative returned true.
             true => {
                 self.computed_is_kickout = Some(true);
-                self.approved_kickouts.insert(epoch-1, owner_uid, hash, &self.self_ref);
+                self.approved_kickouts.insert(epoch-1, owner_uid, &hashable_self_ref);
             },
             false => {self.computed_is_kickout = Some(false);}
         }
@@ -348,7 +348,7 @@ mod tests {
         }
         let starting_epoch = starting_epoch;
         for m in vec![&a, &b, &c, &d] {
-            m.borrow_mut().populate_from_parents(false, starting_epoch,&selector);
+            m.borrow_mut().populate_from_parents(false, starting_epoch, &selector);
             Message::link(m, &e);
         }
 
