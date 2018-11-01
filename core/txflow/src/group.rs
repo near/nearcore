@@ -28,7 +28,7 @@ impl<T: Hash> Group<T> {
             .insert(HashableMessage{hash, message: message.clone()});
     }
 
-    pub fn union_update(&mut self, other: &Group<T>) {
+    pub fn union_update(&mut self, other: &Self) {
         for (owner_uid, per_owner) in &other.messages_by_owner {
             self.messages_by_owner.entry(*owner_uid).or_insert_with(|| HashSet::new()).extend(
                 per_owner.into_iter().map(|m| m.clone()));
@@ -41,6 +41,14 @@ impl<T: Hash> Group<T> {
 
     pub fn filter_by_owner(&self, owner_uid: u64) -> Option<&HashSet<HashableMessage<T>>> {
         self.messages_by_owner.get(&owner_uid)
+    }
+}
+
+impl<T: Hash> Clone for Group<T> {
+    fn clone(&self) -> Self {
+        Group {
+            messages_by_owner: self.messages_by_owner.clone()
+        }
     }
 }
 
@@ -62,7 +70,7 @@ impl<T: Hash> GroupsPerEpoch<T> {
             .insert(owner_uid, hash, message);
     }
 
-    pub fn union_update(&mut self, other: &GroupsPerEpoch<T>) {
+    pub fn union_update(&mut self, other: &Self) {
         for (epoch, per_epoch) in &other.messages_by_epoch {
            self.messages_by_epoch.entry(*epoch).or_insert_with(|| Group::new())
                .union_update(per_epoch);
@@ -80,10 +88,14 @@ impl<T: Hash> GroupsPerEpoch<T> {
     }
 
     /// Filters out epochs that are present in another GroupsByEpoch.
-    pub fn difference_by_epoch<'a>(&'a self, other: &'a Self) -> Vec<(&'a u64, &'a Group<T>)> {
-        // Closures have static lifetime and this closure captures other, therefore we have to
-        // collect the elements.
-        (&self.messages_by_epoch).into_iter().filter(|&(epoch, _)| !other.contains_epoch(*epoch)).collect()
+    pub fn difference_by_epoch<'a>(&self, other: &Self) -> Self {
+        let mut result = Self::new();
+        for (epoch, group) in &self.messages_by_epoch {
+            if !other.contains_epoch(*epoch) {
+                result.messages_by_epoch.insert(*epoch, group.clone());
+            }
+        }
+        result
     }
 
     pub fn filter_by_epoch(&self, epoch: u64) -> Option<&Group<T>> {

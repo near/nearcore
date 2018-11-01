@@ -8,6 +8,7 @@ use primitives::traits::WitnessSelectorLike;
 use primitives::types;
 use super::group::GroupsPerEpoch;
 use super::group_approvals::GroupApprovalPerEpoch;
+use super::hashable_message::HashableMessage;
 
 pub type MessageRef<T> = Rc<RefCell<Message<T>>>;
 pub type MessageWeakRef<T> = Weak<RefCell<Message<T>>>;
@@ -177,18 +178,9 @@ impl<T: Hash> Message<T> {
         let current_epoch = &self.computed_epoch.expect("Epoch should be computed before.");
         // Ignore kickouts for which we approve representative message.
         let kickouts = (&self.approved_kickouts).difference_by_epoch(&self.approved_representatives);
-        let mut result = GroupApprovalPerEpoch::new();
-        for (epoch, epoch_kickouts) in kickouts {
-            // Ignore if we already promised this kickout.
-            if epoch != current_epoch && !self.approved_promises.contains_epoch(epoch) {
-                for (_, messages) in &epoch_kickouts.messages_by_owner {
-                   for message in messages {
-                       result.insert(*epoch, message, owner_uid, hash, &self.self_ref);
-                   }
-                }
-            }
-        }
-        result
+
+        GroupApprovalPerEpoch::approve_groups(
+            &kickouts, owner_uid, &HashableMessage { hash, message: self.self_ref.clone() })
     }
 
     /// Computes epoch, is_representative, is_kickout using parents' information.

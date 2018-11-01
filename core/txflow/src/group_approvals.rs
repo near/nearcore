@@ -1,5 +1,6 @@
 use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
+use super::group::{Group, GroupsPerEpoch};
 use super::message::MessageWeakRef;
 use super::hashable_message::HashableMessage;
 
@@ -14,10 +15,24 @@ pub struct GroupApprovals<T: Hash> {
 }
 
 impl<T: Hash> GroupApprovals<T> {
-    pub fn new() -> GroupApprovals<T> {
+    pub fn new() -> Self {
         GroupApprovals {
             approvals: HashMap::new(),
         }
+    }
+
+    /// Creates a GroupApproval by approving a Group.
+    pub fn approve_group(group: &Group<T>, owner_uid: u64, approval: &HashableMessage<T>) -> Self {
+        let mut result = Self::new();
+        for (_message_owner, hashable_messages) in &group.messages_by_owner {
+            for hashable_message in hashable_messages {
+                result.approvals
+                    .entry(hashable_message.clone()).or_insert_with(|| HashMap::new())
+                    .entry(owner_uid).or_insert_with(|| HashSet::new())
+                    .insert(approval.clone());
+            }
+        }
+        result
     }
 
     pub fn insert(&mut self, message: &HashableMessage<T>, owner_uid: u64, approval_hash: u64,
@@ -30,7 +45,7 @@ impl<T: Hash> GroupApprovals<T> {
             });
     }
 
-    pub fn union_update(&mut self, other: &GroupApprovals<T>) {
+    pub fn union_update(&mut self, other: &Self) {
         for (message, per_message) in &other.approvals {
             let mut own_per_message = self.approvals.entry(message.clone()).or_insert_with(|| HashMap::new());
             for (owner_uid, per_owner) in per_message {
@@ -48,10 +63,20 @@ pub struct GroupApprovalPerEpoch<T: Hash> {
 }
 
 impl<T: Hash> GroupApprovalPerEpoch<T> {
-    pub fn new() -> GroupApprovalPerEpoch<T> {
+    pub fn new() -> Self {
         GroupApprovalPerEpoch {
             approvals_per_epoch: HashMap::new(),
         }
+    }
+
+    /// Creates GroupApprovalPerEpoch by approving Groups in each epoch.
+    pub fn approve_groups(groups: &GroupsPerEpoch<T>, owner_uid: u64, approval: &HashableMessage<T>) -> Self {
+        let mut result = Self::new();
+        for (epoch, group) in &groups.messages_by_epoch {
+            result.approvals_per_epoch.insert(*epoch, GroupApprovals::approve_group(
+                group, owner_uid, approval));
+        }
+        result
     }
 
     pub fn insert(&mut self, epoch: u64, message: &HashableMessage<T>, owner_uid: u64,
@@ -64,7 +89,7 @@ impl<T: Hash> GroupApprovalPerEpoch<T> {
         self.approvals_per_epoch.contains_key(epoch)
     }
 
-    pub fn union_update(&mut self, other: &GroupApprovalPerEpoch<T>) {
+    pub fn union_update(&mut self, other: &Self) {
         for (epoch, per_epoch) in &other.approvals_per_epoch {
             self.approvals_per_epoch.entry(*epoch).or_insert_with(|| GroupApprovals::new())
                 .union_update(per_epoch);
