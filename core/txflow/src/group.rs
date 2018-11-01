@@ -1,6 +1,7 @@
 use std::hash::Hash;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use super::message::MessageWeakRef;
+use super::hashable_message::HashableMessage;
 
 /// A group of messages associated with a single epoch that satisfy certain criteria.
 /// Examples:
@@ -9,34 +10,26 @@ use super::message::MessageWeakRef;
 /// * messages of epoch X (it is perfectly normal to have multiple of them).
 #[derive(Debug)]
 pub struct Group<T: Hash> {
-    /// Messages aggregated by hash.
-    pub messages_by_hash: HashMap<u64, MessageWeakRef<T>>,
     /// Messages aggregated by owner uid.
-    pub messages_by_owner: HashMap<u64, HashMap<u64, MessageWeakRef<T>>>,
+    pub messages_by_owner: HashMap<u64, HashSet<HashableMessage<T>>>,
 }
 
 impl<T: Hash> Group<T> {
     pub fn new() -> Group<T> {
         Group {
-            messages_by_hash: HashMap::new(),
             messages_by_owner: HashMap::new(),
         }
     }
 
     pub fn insert(&mut self, owner_uid: u64, hash: u64, message: &MessageWeakRef<T>) {
-        self.messages_by_hash.insert(hash, message.clone());
-        self.messages_by_owner.entry(owner_uid).or_insert_with(|| HashMap::new())
-            .insert(hash, message.clone());
+        self.messages_by_owner.entry(owner_uid).or_insert_with(|| HashSet::new())
+            .insert(HashableMessage{hash, message: message.clone()});
     }
 
     pub fn union_update(&mut self, other: &Group<T>) {
-        {
-            self.messages_by_hash.extend((&other.messages_by_hash).into_iter()
-                .map(|(k,v)| (k.clone(), v.clone())));
-        }
         for (owner_uid, per_owner) in &other.messages_by_owner {
-            self.messages_by_owner.entry(*owner_uid).or_insert_with(|| HashMap::new()).extend(
-                per_owner.into_iter().map(|(k,v)| (k.clone(), v.clone())));
+            self.messages_by_owner.entry(*owner_uid).or_insert_with(|| HashSet::new()).extend(
+                per_owner.into_iter().map(|m| m.clone()));
         }
     }
 
@@ -44,7 +37,7 @@ impl<T: Hash> Group<T> {
         self.messages_by_owner.contains_key(owner_uid)
     }
 
-    pub fn filter_by_owner(&self, owner_uid: u64) -> Option<&HashMap<u64, MessageWeakRef<T>>> {
+    pub fn filter_by_owner(&self, owner_uid: u64) -> Option<&HashSet<HashableMessage<T>>> {
         self.messages_by_owner.get(&owner_uid)
     }
 }
@@ -74,7 +67,7 @@ impl<'a, T: Hash> GroupsPerEpoch<T> {
         }
     }
 
-    pub fn filter_by_owner(&self, owner_uid: u64) -> impl Iterator<Item=(&u64, &HashMap<u64, MessageWeakRef<T>>)> {
+    pub fn filter_by_owner(&self, owner_uid: u64) -> impl Iterator<Item=(&u64, &HashSet<HashableMessage<T>>)> {
         (&self.messages_by_epoch).into_iter().filter_map(move |(epoch, per_epoch)|
             match per_epoch.filter_by_owner(owner_uid) {
                 None => None,
