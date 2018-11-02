@@ -1,10 +1,10 @@
 use std::hash::{Hash, Hasher};
+use std::fmt::{Debug, Formatter, Result};
 use super::message::MessageWeakRef;
 
 /// A wrapper around MessageWeakRef<T> so that it can be used in HashSet.
 /// We cannot implement Hash for Rc<RefCell<Message<T>>> because Hash,Rc,RefCell are from external
 /// crate.
-#[derive(Debug)]
 pub struct HashableMessage<T: Hash> {
     pub message: MessageWeakRef<T>,
     pub hash: u64,
@@ -46,5 +46,11 @@ impl<T: Hash> Clone for HashableMessage<T> {
             message: self.message.clone(),
             hash: self.hash,
         }
+    }
+}
+
+impl<T: Hash> Debug for HashableMessage<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "Message(hash={})", self.hash)
     }
 }

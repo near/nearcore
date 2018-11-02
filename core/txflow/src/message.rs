@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
@@ -248,48 +248,24 @@ impl<T: Hash> Message<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Hash)]
-    pub struct FakePayload {
-
-    }
-
-    fn simple_message() -> MessageRef<FakePayload> {
-        Message::new(types::SignedMessageData {
-            owner_sig: 0,
-            hash: 0,
-            body: types::MessageDataBody {
-                owner_uid: 0,
-                parents: vec![],
-                epoch: 0,
-                payload: FakePayload {},
-                endorsements: vec![],
-            },
-        })
-    }
+    use std::collections::HashMap;
 
     #[test]
     fn two_nodes() {
-        let a = simple_message();
-        let b = simple_message();
-        Message::link(&a, &b);
+        tuplet!((a,b) = test_messages!(1=>10, 1=>10));
+        link_messages!(&a => &b);
     }
 
     #[test]
     fn three_nodes() {
-        let a = simple_message();
-        let b = simple_message();
-        let c = simple_message();
-        Message::link(&a,&b);
-        Message::link(&b,&c);
-        Message::link(&a,&c);
+        tuplet!((a,b,c) = test_messages!(1=>10, 1=>10, 1=>10));
+        link_messages!(&a => &b, &b => &c, &a => &c);
     }
 
     #[test]
     fn unlink() {
-        let a = simple_message();
-        let b = simple_message();
-        Message::link(&a, &b);
+        tuplet!((a,b) = test_messages!(1=>10, 1=>10));
+        link_messages!(&a => &b);
         Message::unlink(&a, &b);
         assert!(b.borrow().parents.is_empty());
     }
@@ -316,74 +292,33 @@ mod tests {
         }
     }
 
-    type FakeMessageRef = MessageRef<FakePayload>;
-
-    fn simple_graph(epoch_a: u64, owner_a: u64,
-                    epoch_b: u64, owner_b: u64,
-                    epoch_c: u64, owner_c: u64,
-                    epoch_d: u64, owner_d: u64,
-                    starting_epoch: u64, owner_e: u64
-    ) -> (FakeMessageRef, FakeMessageRef, FakeMessageRef, FakeMessageRef, FakeMessageRef) {
-        let selector = FakeWitnessSelector::new();
-        let a = simple_message();
-        let b = simple_message();
-        let c = simple_message();
-        let d = simple_message();
-        let e = simple_message();
-        {
-            let a_data = &mut a.borrow_mut().data;
-            a_data.body.epoch = epoch_a;
-            a_data.body.owner_uid = owner_a;
-            let b_data = &mut b.borrow_mut().data;
-            b_data.body.epoch = epoch_b;
-            b_data.body.owner_uid = owner_b;
-            let c_data = &mut c.borrow_mut().data;
-            c_data.body.epoch = epoch_c;
-            c_data.body.owner_uid = owner_c;
-            let d_data = &mut d.borrow_mut().data;
-            d_data.body.epoch = epoch_d;
-            d_data.body.owner_uid = owner_d;
-            let e_data = &mut e.borrow_mut().data;
-            e_data.body.owner_uid = owner_e;
-        }
-        let starting_epoch = starting_epoch;
-        for m in vec![&a, &b, &c, &d] {
-            m.borrow_mut().populate_from_parents(false, starting_epoch, &selector);
-            Message::link(m, &e);
-        }
-
-        e.borrow_mut().populate_from_parents(true, starting_epoch,&selector);
-        return (a, b, c, d, e)
-    }
-
     #[test]
     fn test_epoch_computation_no_promo() {
-        let starting_epoch = 9;
+        let selector = FakeWitnessSelector::new();
         // Corner case of having messages for epoch 10 without messages for epoch 9.
-        let (_a, _b, _c, _d, e)
-        = simple_graph(9, 0, 10, 1, 10, 2, 10, 3, starting_epoch, 0);
+        tuplet!((a,b,c,d,e) = test_messages!(9=>0, 10=>1, 10=>2, 10=>3, 9=>0));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
+        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
 
         assert_eq!(e.borrow().computed_epoch.unwrap(), 9);
     }
 
     #[test]
     fn test_epoch_computation_promo() {
-        let starting_epoch = 9;
-        let (_a, _b, _c, _d, e)
-        = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 0);
+        let selector = FakeWitnessSelector::new();
+        tuplet!((a,b,c,d,e) = test_messages!(9=>0, 9=>1, 9=>2, 10=>3, 9=>0));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
+        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
 
         assert_eq!(e.borrow().computed_epoch.unwrap(), 10);
     }
 
     #[test]
     fn test_representatives_scenarios_a_b() {
-        let starting_epoch = 0;
-        let (a, b, c, d, e)
-        = simple_graph(0, 0,
-                       0, 1,
-                       0, 2,
-                       1, 3,
-                       starting_epoch, 1);
+        let selector = FakeWitnessSelector::new();
+        tuplet!((a,b,c,d,e) = test_messages!(0=>0, 0=>1, 0=>2, 1=>3, 0=>1));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
+        populate_messages!(0, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
 
         assert!(a.borrow().computed_is_representative.unwrap());
         assert!(!b.borrow().computed_is_representative.unwrap());
@@ -395,13 +330,10 @@ mod tests {
 
     #[test]
     fn test_no_kickout() {
-        let starting_epoch = 0;
-        let (a, b, c, d, e)
-        = simple_graph(0, 0,
-                       0, 1,
-                       0, 2,
-                       1, 3,
-                       starting_epoch, 1);
+        let selector = FakeWitnessSelector::new();
+        tuplet!((a,b,c,d,e) = test_messages!(0=>0, 0=>1, 0=>2, 1=>3, 0=>1));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
+        populate_messages!(0, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
 
         assert!(!a.borrow().computed_is_kickout.unwrap());
         assert!(!b.borrow().computed_is_kickout.unwrap());
@@ -412,9 +344,10 @@ mod tests {
 
     #[test]
     fn test_kickout() {
-        let starting_epoch = 9;
-        let (a, _b, _c, _d, e)
-        = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 1);
+        let selector = FakeWitnessSelector::new();
+        tuplet!((a,b,c,d,e) = test_messages!(9=>0, 9=>1, 9=>2, 10=>3, 9=>1));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
+        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
 
         assert!(!a.borrow().computed_is_representative.unwrap());
         assert!(e.borrow().computed_is_kickout.unwrap());
@@ -422,18 +355,10 @@ mod tests {
 
     #[test]
     fn test_promise() {
-        let starting_epoch = 9;
-        let (a, _b, _c, _d, e)
-        = simple_graph(9, 0, 9, 1, 9, 2, 10, 3, starting_epoch, 1);
-        let f = simple_message();
         let selector = FakeWitnessSelector::new();
-        {
-            let f_data = &mut f.borrow_mut().data;
-            f_data.body.epoch = 10;
-            f_data.body.owner_uid = 2;
-        }
-        Message::link(&e, &f);
-        f.borrow_mut().populate_from_parents(true, starting_epoch, &selector);
+        tuplet!((a,b,c,d,e,f) = test_messages!(9=>0, 9=>1, 9=>2, 10=>3, 9=>1, 10=>2));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e, &e=>&f);
+        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true, &f=>true);
 
         assert!(!a.borrow().computed_is_representative.unwrap());
         assert!(e.borrow().computed_is_kickout.unwrap());

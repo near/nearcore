@@ -1,4 +1,10 @@
-/// Handy utility to create maps.
+/// Creates HashMap.
+/// # Examples:
+///
+/// ```
+/// let m = map!{0 => 1, 2 => 3};
+/// assert_eq!(m.len(), 2);
+/// ```
 macro_rules! map(
         { $($key:expr => $value:expr),+ } => {
             {
@@ -11,7 +17,13 @@ macro_rules! map(
         };
     );
 
-/// Handy utility to create sets.
+/// Creates HashSet.
+/// # Examples:
+///
+/// ```
+/// let s = set!{2, 1};
+/// assert_eq!(s.len(), 2);
+/// ```
 macro_rules! set(
         { $($el:expr),+ } => {
             {
@@ -24,6 +36,27 @@ macro_rules! set(
         };
     );
 
+/// Binds a tuple to a vector.
+/// # Examples:
+///
+/// ```
+/// let v = vec![1,2,3];
+/// tuplet!((a,b,c) = v);
+/// assert_eq!(a, &1);
+/// assert_eq!(b, &2);
+/// assert_eq!(c, &3);
+/// ```
+macro_rules! tuplet {
+    { ($y:ident $(, $x:ident)*) = $v:expr } => {
+        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]) );
+    };
+    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*) } => {
+        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]) )
+    };
+    { $v:expr ; $j:expr ; () ; $accu:expr } => {
+        $accu
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -73,5 +106,20 @@ mod tests {
         let s1 = set!{ComplexType{value: 0}, ComplexType{value: 1}};
         let s2 = set!{ComplexType{value: 1}, ComplexType{value: 0}};
         assert_eq!(s1, s2);
+    }
+
+    #[test]
+    fn tuplet_test() {
+        let v = vec![1,2,3];
+        tuplet!((a,b,c) = v);
+        assert_eq!(a, &1);
+        assert_eq!(b, &2);
+        assert_eq!(c, &3);
+    }
+
+    #[test]
+    fn tuple_test_messages() {
+        let messages = test_messages!(1=>10, 2=>10, 3=>11);
+        tuplet!((_a,_b,_c) = messages);
     }
 }
