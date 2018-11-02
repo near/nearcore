@@ -66,6 +66,14 @@ impl RegisteredProtocol {
 	}
 }
 
+impl Default for RegisteredProtocol {
+	fn default() -> RegisteredProtocol {
+		let protocol_id = ProtocolId::default();
+		let versions = "0.0".as_bytes();
+		RegisteredProtocol::new(protocol_id, versions)
+	}
+}
+
 /// Output of a `RegisteredProtocol` upgrade.
 pub struct RegisteredProtocolSubstream<TSubstream> {
 	/// If true, we are in the process of closing the sink.
