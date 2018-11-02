@@ -63,8 +63,7 @@ pub struct Message<T: Hash> {
     //   as Y and Z satisfy the constraints.
     // * Endorsements are explicit since they require a part of the BLS signature. Promises,
     //   kickouts, and representative messages are implied by the parent messages.
-    // * A message cannot be both a representative message of epoch X and a kickout message of epoch
-    //   X-1, because the former takes the precedence.
+    // * A message cannot be both a representative message of epoch X and a kickout message of epoch X-1.
     // * Also a representative message is supposed to endorse itself which is done by an owner
     //   including the part of the BLS signature in it. If the signature is not included that it
     //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
@@ -172,6 +171,31 @@ impl<T: Hash> Message<T> {
             false }
     }
 
+    /// Determines whether this message serves as an endorsement to some representatives.
+    /// Message is an endorsement of representative of epoch X if:
+    /// * it approves the representative;
+    /// * it contains the part of the BLS signature that signs the representative message;
+    /// * it does not approve its own promise to kickout of epoch X. (See the note on the precedence).
+    /// Note, a representative message is an endorsement to itself. Unless it does not include the
+    /// part of the BLS signature which is a misbehavior.
+    ///
+    /// The precedence of endorsing over promising:
+    /// If a message simultaneously approves both a representative for epoch X and a kickout of
+    /// epoch X then according to our definitions it is both an endorsement and a promise, which
+    /// cannot happen simultaneously since the message approves itself. We therefore break this
+    /// tie by making it an endorsement. Implementation-wise, this is resolved by computing
+    /// endorsements before promises.
+    #[allow(dead_code)]
+    fn compute_endorsements(&mut self) -> GroupApprovalPerEpoch<T> {
+        unimplemented!()
+    }
+
+    /// Determines whether this message serves as a promise to some kickouts.
+    /// Message is a promise to kickout which kickouts representative of epoch X if:
+    /// * it approves the kickout;
+    /// * it does not approve its own endorsement of a representative of epoch X. (See the note on
+    ///   the precendence).
+    /// Note, a kickout is a promise to itself.
     fn compute_promises(&mut self) -> GroupApprovalPerEpoch<T> {
         let owner_uid = self.data.body.owner_uid;
         let hash = self.computed_hash.expect("Hash should be computed before.");
