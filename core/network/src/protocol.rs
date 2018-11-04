@@ -6,15 +6,15 @@ use message::{self, Message};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-struct ProtocolConfig {
+pub struct ProtocolConfig {
     // config information goes here
-    version: &'static str,
+    pub version: String,
 }
 
 impl ProtocolConfig {
-    fn new(version: &'static str) -> ProtocolConfig {
+    pub fn new(version: &'static str) -> ProtocolConfig {
         ProtocolConfig {
-            version
+            version: version.to_string()
         }
     }
 }
@@ -25,7 +25,7 @@ pub struct Protocol {
 }
 
 impl Protocol {
-    fn new(config: ProtocolConfig) -> Protocol {
+    pub fn new(config: ProtocolConfig) -> Protocol {
         Protocol {
             config
         }

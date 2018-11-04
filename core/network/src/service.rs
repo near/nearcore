@@ -7,22 +7,38 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use substrate_network_libp2p::{
-    start_service, Service, ServiceEvent,
+    start_service, Service as NetworkService, ServiceEvent,
     NetworkConfiguration, ProtocolId, RegisteredProtocol,
     NodeIndex
 };
-use protocol::Protocol;
+use protocol::{Protocol, ProtocolConfig};
 use error::Error;
 
-//pub enum NetworkEvent {
-//    Message {
-//        node_index: NodeIndex,
-//        data: Bytes, 
-//    },
-//}
+/// The service that wraps network service (which runs libp2p) and
+/// protocol. It is thus responsible for hiding network details and
+/// processing messages that nodes send to each other
+pub struct Service {
+    network: Arc<Mutex<NetworkService>>,
+    protocol: Arc<Protocol>,
+    bg_thread: Option<thread::JoinHandle<()>>,
+}
 
-fn start_thread(config: NetworkConfiguration, protocol: Protocol, registered: RegisteredProtocol)
-   -> Result<(thread::JoinHandle<()>, Arc<Mutex<Service>>), Error> {
+impl Service {
+    pub fn new(config: ProtocolConfig, net_config: NetworkConfiguration, protocol_id: ProtocolId) -> Result<Arc<Service>, Error> {
+        let registered = RegisteredProtocol::new(protocol_id, config.version.as_bytes());
+        let protocol = Arc::new(Protocol::new(config));
+        let (thread, network) = start_thread(net_config, protocol.clone(), registered)?;
+        Ok(Arc::new(Service {
+            network: network,
+            protocol: protocol,
+            bg_thread: Some(thread)
+        }))
+    }
+}
+
+
+fn start_thread(config: NetworkConfiguration, protocol: Arc<Protocol>, registered: RegisteredProtocol)
+   -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
     let protocol_id = registered.id();
 
     let service = match start_service(config, Some(registered)) {
@@ -43,7 +59,7 @@ fn start_thread(config: NetworkConfiguration, protocol: Protocol, registered: Re
     Ok((thread, service))
 }
 
-fn run_thread(network_service: Arc<Mutex<Service>>, protocol: Protocol)
+fn run_thread(network_service: Arc<Mutex<NetworkService>>, protocol: Arc<Protocol>)
     -> impl Future<Item = (), Error = io::Error> {
 
     let network_service1 = network_service.clone();
@@ -51,18 +67,21 @@ fn run_thread(network_service: Arc<Mutex<Service>>, protocol: Protocol)
         match event {
             ServiceEvent::CustomMessage { node_index, data, ..} => 
                 protocol.on_message(&network_service, &data),
-            _ => panic!("TODO")
+            _ => {
+                debug!("TODO");
+                ()
+            }
         };
         Ok(())
     });
 
-    let futures = vec![
+    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
         Box::new(network)
     ];
 
     futures::select_all(futures)
 		.and_then(move |_| {
-			println!("Networking ended");
+			info!("Networking ended");
 			Ok(())
 		})
 		.map_err(|(r, _, _)| r)
