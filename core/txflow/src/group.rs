@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
 use super::hashable_message::HashableMessage;
+use super::group_approvals::{GroupApprovals, GroupApprovalPerEpoch};
 
 /// A group of messages associated that satisfy certain criteria.
 /// Examples:
@@ -85,26 +86,11 @@ impl<T: Hash> GroupsPerEpoch<T> {
             })
     }
 
-    /// Filters out epochs that are present in another GroupsByEpoch.
-    pub fn difference_by_epoch<'a>(&self, other: &Self) -> Self {
-        let mut result = Self::new();
-        for (epoch, group) in &self.messages_by_epoch {
-            if !other.contains_epoch(*epoch) {
-                result.messages_by_epoch.insert(*epoch, group.clone());
-            }
-        }
-        result
-    }
-
     pub fn filter_by_epoch(&self, epoch: u64) -> Option<&Group<T>> {
         self.messages_by_epoch.get(&epoch)
     }
 
     pub fn contains_epoch(&self, epoch: u64) -> bool {
         self.messages_by_epoch.contains_key(&epoch)
-    }
-
-    pub fn num_epochs(&self) -> usize {
-        self.messages_by_epoch.len()
     }
 }

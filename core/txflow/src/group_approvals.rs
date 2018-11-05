@@ -20,18 +20,6 @@ impl<T: Hash> GroupApprovals<T> {
         }
     }
 
-    /// Creates a GroupApproval by approving a Group.
-    pub fn approve_group(group: &Group<T>, owner_uid: u64, approval: &HashableMessage<T>) -> Self {
-        let mut result = Self::new();
-        for (_message_owner, hashable_messages) in &group.messages_by_owner {
-            for hashable_message in hashable_messages {
-                result.approvals.entry(hashable_message.clone())
-                    .or_insert_with(|| Group::new()).insert(owner_uid, approval);
-            }
-        }
-        result
-    }
-
     pub fn insert(&mut self, message: &HashableMessage<T>, owner_uid: u64, approval: &HashableMessage<T>) {
         self.approvals.entry(message.clone()).or_insert_with(|| Group::new()).insert(owner_uid, approval);
     }
@@ -42,6 +30,11 @@ impl<T: Hash> GroupApprovals<T> {
                 .or_insert_with(|| Group::new());
             own_per_message.union_update(per_message);
         }
+    }
+
+    fn contains_owner(&self, owner_uid: &u64) -> bool {
+        (&self.approvals).into_iter()
+            .any(|(_, group)| group.contains_owner(owner_uid))
     }
 }
 
@@ -58,24 +51,29 @@ impl<T: Hash> GroupApprovalPerEpoch<T> {
         }
     }
 
-    /// Creates GroupApprovalPerEpoch by approving Groups in each epoch.
-    pub fn approve_groups(groups: &GroupsPerEpoch<T>, owner_uid: u64, approval: &HashableMessage<T>) -> Self {
-        let mut result = Self::new();
-        for (epoch, group) in &groups.messages_by_epoch {
-            result.approvals_per_epoch.insert(*epoch, GroupApprovals::approve_group(
-                group, owner_uid, approval));
-        }
-        result
-    }
-
     pub fn insert(&mut self, epoch: u64, message: &HashableMessage<T>, owner_uid: u64,
                   approval: &HashableMessage<T>) {
         self.approvals_per_epoch.entry(epoch).or_insert_with(|| GroupApprovals::new())
             .insert(message, owner_uid, approval);
     }
 
-    pub fn contains_epoch(&self, epoch: &u64) -> bool {
-        self.approvals_per_epoch.contains_key(epoch)
+    pub fn contains_any_approval(&self, epoch: &u64, owner_uid: &u64) -> bool {
+        match self.approvals_per_epoch.get(epoch) {
+            None => false,
+            Some(group_approvals) => group_approvals.contains_owner(owner_uid)
+        }
+    }
+
+    pub fn contains_approval(&self, epoch: &u64, owner_uid: &u64, message: &HashableMessage<T>) -> bool {
+        match self.approvals_per_epoch.get(epoch) {
+            None => false,
+            Some(group_approvals) => {
+                match group_approvals.approvals.get(message) {
+                    None => false,
+                    Some(approvals) => approvals.contains_owner(owner_uid)
+                }
+            }
+        }
     }
 
     pub fn union_update(&mut self, other: &Self) {
@@ -83,5 +81,9 @@ impl<T: Hash> GroupApprovalPerEpoch<T> {
             self.approvals_per_epoch.entry(*epoch).or_insert_with(|| GroupApprovals::new())
                 .union_update(per_epoch);
         }
+    }
+
+    pub fn contains_epoch(&self, epoch: &u64) -> bool {
+        self.approvals_per_epoch.contains_key(epoch)
     }
 }

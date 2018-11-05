@@ -178,6 +178,7 @@ impl<T: Hash> Message<T> {
     /// * it does not approve its own promise to kickout of epoch X. (See the note on the precedence).
     /// Note, a representative message is an endorsement to itself. Unless it does not include the
     /// part of the BLS signature which is a misbehavior.
+    /// * it does not approve an endorsement by the same owner for the same representative message.
     ///
     /// The precedence of endorsing over promising:
     /// If a message simultaneously approves both a representative for epoch X and a kickout of
@@ -185,25 +186,55 @@ impl<T: Hash> Message<T> {
     /// cannot happen simultaneously since the message approves itself. We therefore break this
     /// tie by making it an endorsement. Implementation-wise, this is resolved by computing
     /// endorsements before promises.
-    #[allow(dead_code)]
     fn compute_endorsements(&mut self) -> GroupApprovalPerEpoch<T> {
-        unimplemented!()
+        let owner_uid = &self.data.body.owner_uid;
+        let hash = self.computed_hash.expect("Hash should be computed before.");
+
+        let mut result = GroupApprovalPerEpoch::<T>::new();
+        for (epoch, reprs) in &self.approved_representatives.messages_by_epoch {
+            // Check if we gave a promise to a kickout in this epoch.
+            if self.approved_promises.contains_any_approval(epoch, owner_uid) {continue};
+            for (_repr_owner_uid, owner_repr) in &reprs.messages_by_owner {
+                for repr in owner_repr {
+                    // Check if we already gave an endorsement to exactly the same representative.
+                    if !self.approved_endorsements.contains_approval(epoch, owner_uid, repr) {
+                       result.insert(*epoch, repr, *owner_uid,
+                                     &HashableMessage {hash, message: self.self_ref.clone()});
+                   }
+                }
+            }
+        }
+        result
     }
 
     /// Determines whether this message serves as a promise to some kickouts.
     /// Message is a promise to kickout which kickouts representative of epoch X if:
     /// * it approves the kickout;
     /// * it does not approve its own endorsement of a representative of epoch X. (See the note on
-    ///   the precendence).
+    ///   the precendence);
+    /// * it does not approve a kickout by the same owner for the same representative message.
     /// Note, a kickout is a promise to itself.
     fn compute_promises(&mut self) -> GroupApprovalPerEpoch<T> {
-        let owner_uid = self.data.body.owner_uid;
+        let owner_uid = &self.data.body.owner_uid;
         let hash = self.computed_hash.expect("Hash should be computed before.");
-        // Ignore kickouts for which we approve representative message.
-        let kickouts = (&self.approved_kickouts).difference_by_epoch(&self.approved_representatives);
-
-        GroupApprovalPerEpoch::approve_groups(
-            &kickouts, owner_uid, &HashableMessage { hash, message: self.self_ref.clone() })
+        // We do not need to subtract endorsements, because we check if we approved representatives.
+        let mut result = GroupApprovalPerEpoch::<T>::new();
+        for (epoch, kickouts) in &self.approved_kickouts.messages_by_epoch {
+            // Ignore kickouts for epochs for which we have representative messages.
+            if self.approved_representatives.contains_epoch(*epoch) {continue};
+            // Check if we endorsed this epoch.
+            if self.approved_endorsements.contains_any_approval(epoch, owner_uid) {continue};
+            for (_kickout_owner_uid, owner_kickout) in &kickouts.messages_by_owner {
+                for kickout in owner_kickout {
+                    // Check if we already gave a promise to exactly the same kickout.
+                    if !self.approved_promises.contains_approval(epoch, owner_uid, kickout) {
+                        result.insert(*epoch, kickout, *owner_uid,
+                        &HashableMessage {hash, message: self.self_ref.clone()})
+                    }
+                }
+            }
+        }
+        result
     }
 
     /// Computes epoch, is_representative, is_kickout using parents' information.
@@ -261,6 +292,10 @@ impl<T: Hash> Message<T> {
             },
             false => {self.computed_is_kickout = Some(false);}
         }
+
+        // Compute endorsements for representative messages.
+        let endorsements = self.compute_endorsements();
+        self.approved_endorsements.union_update(&endorsements);
 
         // Compute promises to kickouts.
         let promises = self.compute_promises();
