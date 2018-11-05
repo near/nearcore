@@ -1,6 +1,6 @@
 use std::hash::Hash;
 use std::collections::HashMap;
-use super::group::{Group, GroupsPerEpoch};
+use super::group::Group;
 use super::hashable_message::HashableMessage;
 
 /// Messages that approve a Group that satisfy certain criteria.

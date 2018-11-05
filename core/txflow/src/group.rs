@@ -1,7 +1,6 @@
 use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
 use super::hashable_message::HashableMessage;
-use super::group_approvals::{GroupApprovals, GroupApprovalPerEpoch};
 
 /// A group of messages associated that satisfy certain criteria.
 /// Examples:
