@@ -10,11 +10,19 @@ extern crate tokio;
 mod example;
 
 use env_logger::Builder;
+use substrate_network_libp2p::ProtocolId;
+use network::{service::Service, protocol::ProtocolConfig, test_utils::*};
 
 pub fn main() {
     let mut builder = Builder::new();
     builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
     builder.filter(None, log::LevelFilter::Info);
     builder.init();
-    example::example_n_nodes(2);
+    // start network service
+    let addr = "/ip4/127.0.0.1/tcp/30000";
+    let net_config = test_config_with_secret(addr, vec![], create_secret());
+    let service = match Service::new(ProtocolConfig::default(), net_config, ProtocolId::default()) {
+        Ok(s) => s,
+        Err(e) => panic!("Error in starting network service: {:?}", e)
+    };
 }

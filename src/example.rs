@@ -7,16 +7,18 @@ use std::time::Duration;
 use std::str::from_utf8;
 
 use substrate_network_libp2p::{
-    start_service, NetworkConfiguration, RegisteredProtocol,
-    ProtocolId, Service as NetworkService, NodeIndex, Secret, ServiceEvent
+    start_service, RegisteredProtocol, ProtocolId,
+    Service as NetworkService, NodeIndex, Secret, ServiceEvent
 };
 
+#[allow(dead_code)]
 fn create_service(addr: &str, boot_nodes: Vec<String>) -> NetworkService {
     let config = test_config(addr, boot_nodes);
     let registered = RegisteredProtocol::default();
     start_service(config, Some(registered)).expect("start service failed")
 }
 
+#[allow(dead_code)]
 fn create_service_with_secret(addr: &str, secret: Secret) -> NetworkService {
     let config = test_config_with_secret(addr, vec![], secret);
     let registered = RegisteredProtocol::default();
@@ -25,6 +27,7 @@ fn create_service_with_secret(addr: &str, secret: Secret) -> NetworkService {
 
 /// spins up n network services and exchange some basic messages between them
 /// TODO: add some sort of configuration?
+#[allow(dead_code)]
 pub fn example_n_nodes(num_nodes: u32) {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = 30000;
