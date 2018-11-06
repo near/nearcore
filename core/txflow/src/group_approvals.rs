@@ -1,5 +1,8 @@
 use std::hash::Hash;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+use primitives::traits::WitnessSelectorLike;
+
 use super::group::Group;
 use super::hashable_message::HashableMessage;
 
@@ -85,5 +88,22 @@ impl<T: Hash> GroupApprovalPerEpoch<T> {
 
     pub fn contains_epoch(&self, epoch: &u64) -> bool {
         self.approvals_per_epoch.contains_key(epoch)
+    }
+
+    pub fn superapproved_messages<P>(&self, witness_selector: &P) -> Vec<(u64, HashableMessage<T>)>
+        where P: WitnessSelectorLike {
+        let mut result = vec![];
+        for (epoch, per_epoch) in &self.approvals_per_epoch {
+            let epoch_witnesses = witness_selector.epoch_witnesses(*epoch);
+            for (message, _approvals) in &per_epoch.approvals {
+                let witnesses: HashSet<u64> = _approvals.messages_by_owner.keys().map(|x| *x).collect();
+                if (&witnesses & epoch_witnesses).len() > epoch_witnesses.len()*2/3 {
+                    result.push((*epoch, message.clone()));
+                    // There can be only one superapproved messaged when forked.
+                    break;
+                }
+            }
+        }
+        result
     }
 }

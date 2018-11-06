@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
@@ -47,6 +47,9 @@ pub struct Message<T: Hash> {
     approved_endorsements: GroupApprovalPerEpoch<T>,
     /// Promises to kickout a representative message (supports promises on forked kickouts).
     approved_promises: GroupApprovalPerEpoch<T>,
+    /// Epoch -> Either a representative message that has >2/3 endorsements or a kickout message
+    /// that has >2/3 promises.
+    complete_epochs: HashMap<u64, HashableMessage<T>>,
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
     // b) an endorsement of a representative message of epoch Y, Y<X;
@@ -86,6 +89,7 @@ impl<T: Hash> Message<T> {
                 approved_kickouts: GroupsPerEpoch::new(),
                 approved_endorsements: GroupApprovalPerEpoch::new(),
                 approved_promises: GroupApprovalPerEpoch::new(),
+                complete_epochs: HashMap::new(),
             }));
         // Keep weak reference to itself.
         result.borrow_mut().self_ref = Rc::downgrade(&result);
@@ -154,8 +158,7 @@ impl<T: Hash> Message<T> {
             true
         } else {
             // Scenario (c).
-            // TODO: Implement this scenario.
-            false
+            self.complete_epochs.contains_key(&(epoch-1))
         }
     }
 
@@ -186,12 +189,15 @@ impl<T: Hash> Message<T> {
     /// cannot happen simultaneously since the message approves itself. We therefore break this
     /// tie by making it an endorsement. Implementation-wise, this is resolved by computing
     /// endorsements before promises.
-    fn compute_endorsements(&mut self) -> GroupApprovalPerEpoch<T> {
+    fn compute_endorsements<P>(&mut self, witness_selector: &P) -> GroupApprovalPerEpoch<T>
+        where P : WitnessSelectorLike {
         let owner_uid = &self.data.body.owner_uid;
         let hash = self.computed_hash.expect("Hash should be computed before.");
 
         let mut result = GroupApprovalPerEpoch::<T>::new();
         for (epoch, reprs) in &self.approved_representatives.messages_by_epoch {
+            // Skip if the message's owner has this message outside its schedule.
+            if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) {continue};
             // Check if we gave a promise to a kickout in this epoch.
             if self.approved_promises.contains_any_approval(epoch, owner_uid) {continue};
             for (_repr_owner_uid, owner_repr) in &reprs.messages_by_owner {
@@ -214,12 +220,15 @@ impl<T: Hash> Message<T> {
     ///   the precendence);
     /// * it does not approve a kickout by the same owner for the same representative message.
     /// Note, a kickout is a promise to itself.
-    fn compute_promises(&mut self) -> GroupApprovalPerEpoch<T> {
+    fn compute_promises<P>(&mut self, witness_selector: &P) -> GroupApprovalPerEpoch<T>
+        where P : WitnessSelectorLike {
         let owner_uid = &self.data.body.owner_uid;
         let hash = self.computed_hash.expect("Hash should be computed before.");
         // We do not need to subtract endorsements, because we check if we approved representatives.
         let mut result = GroupApprovalPerEpoch::<T>::new();
         for (epoch, kickouts) in &self.approved_kickouts.messages_by_epoch {
+            // Skip if the message's owner has this message outside its schedule.
+            if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) {continue};
             // Ignore kickouts for epochs for which we have representative messages.
             if self.approved_representatives.contains_epoch(*epoch) {continue};
             // Check if we endorsed this epoch.
@@ -294,12 +303,14 @@ impl<T: Hash> Message<T> {
         }
 
         // Compute endorsements for representative messages.
-        let endorsements = self.compute_endorsements();
+        let endorsements = self.compute_endorsements(witness_selector);
         self.approved_endorsements.union_update(&endorsements);
+        self.complete_epochs.extend(self.approved_endorsements.superapproved_messages(witness_selector));
 
         // Compute promises to kickouts.
-        let promises = self.compute_promises();
+        let promises = self.compute_promises(witness_selector);
         self.approved_promises.union_update(&promises);
+        self.complete_epochs.extend(self.approved_promises.superapproved_messages(witness_selector));
     }
 }
 
@@ -337,7 +348,7 @@ mod tests {
           FakeWitnessSelector {
               schedule: map!{
               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
-              9 => set!{0, 1, 2, 3}, 10 => set!{1, 2, 3, 4}}
+              8 => set!{3, 0, 1, 2}, 9 => set!{0, 1, 2, 3}, 10 => set!{1, 2, 3, 4}}
           }
        }
     }
