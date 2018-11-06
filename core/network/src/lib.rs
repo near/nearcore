@@ -1,3 +1,4 @@
+extern crate libp2p;
 extern crate substrate_network_libp2p;
 extern crate primitives;
 
@@ -12,6 +13,7 @@ extern crate bytes;
 extern crate parking_lot;
 #[macro_use]
 extern crate log;
+extern crate rand;
 
 use substrate_network_libp2p::{start_service, NetworkConfiguration, ProtocolId, RegisteredProtocol};
 

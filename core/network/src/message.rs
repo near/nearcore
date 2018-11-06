@@ -32,7 +32,7 @@ impl Encode for Message {
         match bincode::serialize(&self) {
             Ok(data) => Some(data),
             Err(e) => {
-                println!("error occurred while encoding: {:?}", e);
+                error!("error occurred while encoding: {:?}", e);
                 None
             }
         }
@@ -45,7 +45,7 @@ impl Decode for Message {
         match bincode::deserialize(data) {
             Ok(s) => Some(s),
             Err(e) => {
-                println!("error occurred while decoding: {:?}", e);
+                error!("error occurred while decoding: {:?}", e);
                 None
             }
         }
