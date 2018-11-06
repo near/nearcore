@@ -35,10 +35,20 @@ impl Service {
     }
 }
 
+// disabled for testing
+//impl Drop for Service {
+//    fn drop(&mut self) {
+//        if let Some(handle) = self.bg_thread.take() {
+//            if let Err(e) = handle.join() {
+//                error!("Error while waiting on background thread: {:?}", e);
+//            }
+//        }
+//    }
+//}
+
 
 fn start_thread(config: NetworkConfiguration, protocol: Arc<Protocol>, registered: RegisteredProtocol)
    -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
-    let protocol_id = registered.id();
 
     let service = match start_service(config, Some(registered)) {
         Ok(service) => Arc::new(Mutex::new(service)),
@@ -104,12 +114,9 @@ mod tests {
     extern crate env_logger;
 
     use super::*;
-    use libp2p::{Multiaddr, secio};
-    use substrate_network_libp2p::{Secret, PeerId};
-    use message::{Message, MessageBody};
-    use primitives::{types, traits::{Encode, Decode}};
-    use std::time;
+    use test_utils::*;
     use log;
+    use std::time;
 
     impl Service {
         pub fn _new(config: ProtocolConfig, net_config: NetworkConfiguration, protocol_id: ProtocolId) -> Service {
@@ -122,46 +129,6 @@ mod tests {
                 bg_thread: Some(thread)
             }
         }
-    }
-
-    fn parse_addr(addr: &str) -> Multiaddr {
-        addr.parse().expect("cannot parse address")
-    }
-
-    fn test_config(addr: &str, boot_nodes: Vec<String>) -> NetworkConfiguration {
-        let mut config = NetworkConfiguration::new();
-        config.listen_addresses = vec![parse_addr(addr)];
-        config.boot_nodes = boot_nodes;
-        config
-    }
-
-    fn test_config_with_secret(addr: &str, boot_nodes: Vec<String>, secret: Secret)
-        -> NetworkConfiguration {
-            let mut config = test_config(addr, boot_nodes);
-            config.use_secret = Some(secret);
-            config
-        }
-
-    fn create_secret() -> Secret {
-        let mut secret: Secret = [0; 32];
-        secret[31] = 1;
-        secret
-    }
-
-    fn raw_key_to_peer_id(raw_key: Secret) -> PeerId {
-        let secret_key = secio::SecioKeyPair::secp256k1_raw_key(&raw_key)
-            .expect("key with correct len should always be valid");
-        secret_key.to_peer_id()
-    }
-
-    fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
-        let peer_id = raw_key_to_peer_id(raw_key);
-        peer_id.to_base58()
-    }
-
-    fn fake_message() -> Message {
-        let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
-        Message::new(0, 0, "shard0", MessageBody::TransactionMessage(tx))
     }
 
     fn create_services(num_services: u32) -> Vec<Service> {
@@ -195,13 +162,13 @@ mod tests {
         builder.filter(None, log::LevelFilter::Info);
         builder.init();
         let services = create_services(2);
-        thread::sleep(time::Duration::from_secs(2));
+        thread::sleep(time::Duration::from_secs(1));
         for service in services {
             for peer in service.protocol.sample_peers(1) {
                 let message = fake_message();
                 service.protocol.send_message(&service.network, peer, message);
             }
         }
-        thread::sleep(time::Duration::from_secs(2));
+        thread::sleep(time::Duration::from_secs(1));
     }
 }

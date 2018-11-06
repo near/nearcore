@@ -21,20 +21,4 @@ pub mod message;
 pub mod protocol;
 pub mod service;
 pub mod error;
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    
-    #[test]
-    fn test_service() {
-        let protocol_id = ProtocolId::default();
-        let versions = "1.0".as_bytes();
-        let config = NetworkConfiguration::default();
-        let registered = RegisteredProtocol::new(protocol_id, versions);
-        let service = start_service(config, Some(registered));
-        assert!(service.is_ok());
-
-    }
-}
+pub mod test_utils;

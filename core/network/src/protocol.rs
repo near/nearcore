@@ -6,7 +6,7 @@ use message::{self, Message};
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use std::collections::HashMap;
-use rand::{thread_rng, sample};
+use rand::{thread_rng, seq};
 
 pub struct ProtocolConfig {
     // config information goes here
@@ -64,12 +64,8 @@ impl Protocol {
     pub fn sample_peers(&self, num_to_sample: usize) -> Vec<usize> {
         let mut rng = thread_rng();
         let peers = self.peers.read();
-        //let mut owned_peers = Vec::new();
-        //for peer in peers.keys() {
-        //    owned_peers.push(*peer);
-        //}
         let owned_peers = peers.keys().map(|x| *x);
-        sample(&mut rng, owned_peers, num_to_sample)
+        seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
     
     fn on_transaction_message(&self, tx: types::SignedTransaction) {
