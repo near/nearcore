@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::collections::{HashSet, HashMap};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
@@ -48,8 +48,8 @@ pub struct Message<T: Hash> {
     /// Promises to kickout a representative message (supports promises on forked kickouts).
     approved_promises: GroupApprovalPerEpoch<T>,
     /// Epoch -> Either a representative message that has >2/3 endorsements or a kickout message
-    /// that has >2/3 promises.
-    complete_epochs: HashMap<u64, HashableMessage<T>>,
+    /// that has >2/3 promises. Epoch should always have one element, but we do not assert it yet.
+    complete_epochs: GroupsPerEpoch<T>,
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
     // b) an endorsement of a representative message of epoch Y, Y<X;
@@ -89,7 +89,7 @@ impl<T: Hash> Message<T> {
                 approved_kickouts: GroupsPerEpoch::new(),
                 approved_endorsements: GroupApprovalPerEpoch::new(),
                 approved_promises: GroupApprovalPerEpoch::new(),
-                complete_epochs: HashMap::new(),
+                complete_epochs: GroupsPerEpoch::new(),
             }));
         // Keep weak reference to itself.
         result.borrow_mut().self_ref = Rc::downgrade(&result);
@@ -112,6 +112,7 @@ impl<T: Hash> Message<T> {
             self.approved_kickouts.union_update(&p.borrow().approved_kickouts);
             self.approved_endorsements.union_update(&p.borrow().approved_endorsements);
             self.approved_promises.union_update(&p.borrow().approved_promises);
+            self.complete_epochs.union_update(&p.borrow().complete_epochs);
         }
     }
 
@@ -158,7 +159,7 @@ impl<T: Hash> Message<T> {
             true
         } else {
             // Scenario (c).
-            self.complete_epochs.contains_key(&(epoch-1))
+            self.complete_epochs.contains_epoch(epoch-1)
         }
     }
 
@@ -305,12 +306,12 @@ impl<T: Hash> Message<T> {
         // Compute endorsements for representative messages.
         let endorsements = self.compute_endorsements(witness_selector);
         self.approved_endorsements.union_update(&endorsements);
-        self.complete_epochs.extend(self.approved_endorsements.superapproved_messages(witness_selector));
+        self.complete_epochs.union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
 
         // Compute promises to kickouts.
         let promises = self.compute_promises(witness_selector);
         self.approved_promises.union_update(&promises);
-        self.complete_epochs.extend(self.approved_promises.superapproved_messages(witness_selector));
+        self.complete_epochs.union_update(&self.approved_promises.superapproved_messages(witness_selector));
     }
 }
 
