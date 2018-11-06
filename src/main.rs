@@ -6,6 +6,8 @@ extern crate substrate_network_libp2p;
 extern crate libp2p;
 extern crate futures;
 extern crate tokio;
+extern crate storage;
+extern crate primitives;
 
 mod example;
 
@@ -14,6 +16,7 @@ use substrate_network_libp2p::ProtocolId;
 use network::{service::Service, protocol::ProtocolConfig, test_utils::*};
 
 pub fn main() {
+    let mut storage = storage::Storage::new("storage/db/".to_string());
     let mut builder = Builder::new();
     builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
     builder.filter(None, log::LevelFilter::Info);

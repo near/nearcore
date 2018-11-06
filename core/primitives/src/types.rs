@@ -59,16 +59,16 @@ pub struct State {
 
 // 3. Epoch block structs.
 
-#[derive(Hash)]
+#[derive(Serialize, Hash)]
 pub struct EpochBlockHeader {
-    shard_id: u32,
-    verifier_epoch: u64,
-    txflow_epoch: u64,
-    prev_header_hash: u64,
+    pub shard_id: u32,
+    pub verifier_epoch: u64,
+    pub txflow_epoch: u64,
+    pub prev_header_hash: u64,
 
-    states_merkle_root: u64,
-    new_transactions_merkle_root: u64,
-    cancelled_transactions_merkle_root: u64
+    pub states_merkle_root: u64,
+    pub new_transactions_merkle_root: u64,
+    pub cancelled_transactions_merkle_root: u64
 }
 
 #[derive(Hash)]
