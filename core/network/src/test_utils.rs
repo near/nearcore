@@ -1,7 +1,7 @@
 use libp2p::{Multiaddr, secio};
 use substrate_network_libp2p::{Secret, PeerId, NetworkConfiguration};
 use message::{Message, MessageBody};
-use primitives::{types, traits::{Encode, Decode}};
+use primitives::types;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
         addr.parse().expect("cannot parse address")
@@ -40,5 +40,5 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
 
 pub fn fake_message() -> Message {
     let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
-    Message::new(0, 0, "shard0", MessageBody::TransactionMessage(tx))
+    Message::new(0, 0, "shard0", MessageBody::Transaction(tx))
 }

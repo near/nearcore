@@ -15,8 +15,6 @@ extern crate parking_lot;
 extern crate log;
 extern crate rand;
 
-use substrate_network_libp2p::{start_service, NetworkConfiguration, ProtocolId, RegisteredProtocol};
-
 pub mod message;
 pub mod protocol;
 pub mod service;

@@ -1,19 +1,26 @@
 use primitives::{types, traits::{Encode, Decode}};
-use serde_json;
-use bincode;
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum MessageBody {
     //TODO: add different types of messages here
-    TransactionMessage(types::SignedTransaction) // placeholder here
+    Transaction(types::SignedTransaction),
+    Status(Status),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Message {
-    src: u32,
-    dst: u32,
-    channel: String,
+    pub src: u32,
+    pub dst: u32,
+    pub channel: String,
     pub body: MessageBody,
+}
+
+/// status sent on connection
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Status {
+    // protocol version
+    pub version: u32,
+    // TODO: block number, block hash, etc
 }
 
 impl Message {
@@ -23,6 +30,16 @@ impl Message {
             dst,
             body,
             channel: channel.to_string()
+        }
+    }
+
+    /// for now, we are not using the other fields.
+    pub fn new_default(body: MessageBody) -> Message {
+        Message {
+            src: 0,
+            dst: 0,
+            channel: String::new(),
+            body
         }
     }
 }

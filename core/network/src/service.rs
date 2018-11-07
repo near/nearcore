@@ -1,17 +1,18 @@
 use futures::{self, stream, Future, Stream};
 use tokio::{runtime::Runtime, timer::Interval};
-use bytes::Bytes;
 use std::thread;
 use std::io;
 use std::sync::Arc;
+use std::time::Duration;
 use parking_lot::Mutex;
 use substrate_network_libp2p::{
     start_service, Service as NetworkService, ServiceEvent,
     NetworkConfiguration, ProtocolId, RegisteredProtocol,
-    NodeIndex,
 };
-use protocol::{Protocol, ProtocolConfig};
+use protocol::{self, Protocol, ProtocolConfig};
 use error::Error;
+
+const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// A service that wraps network service (which runs libp2p) and
 /// protocol. It is thus responsible for hiding network details and
@@ -24,7 +25,8 @@ pub struct Service {
 
 impl Service {
     pub fn new(config: ProtocolConfig, net_config: NetworkConfiguration, protocol_id: ProtocolId) -> Result<Arc<Service>, Error> {
-        let registered = RegisteredProtocol::new(protocol_id, config.version.as_bytes());
+        let version = [(protocol::CURRENT_VERSION) as u8];
+        let registered = RegisteredProtocol::new(protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config));
         let (thread, network) = start_thread(net_config, protocol.clone(), registered)?;
         Ok(Arc::new(Service {
@@ -76,14 +78,17 @@ fn run_thread(network_service: Arc<Mutex<NetworkService>>, protocol: Arc<Protoco
     -> impl Future<Item = (), Error = io::Error> {
 
     let network_service1 = network_service.clone();
-    let network = stream::poll_fn(move || network_service1.lock().poll()).for_each(move |event| {
+    let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
+        let protocol = protocol.clone();
+        let network_service = network_service.clone();
+        move |event| {
         debug!(target: "sub-libp2p", "event: {:?}", event);
         match event {
-            ServiceEvent::CustomMessage { data, .. } => {
-                protocol.on_message(&network_service, &data);
+            ServiceEvent::CustomMessage { node_index, data, .. } => {
+                protocol.on_message(node_index, &data);
             },
             ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_connected(node_index);
+                protocol.on_peer_connected(&network_service, node_index);
             },
             ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                 protocol.on_peer_disconnected(node_index);
@@ -94,10 +99,30 @@ fn run_thread(network_service: Arc<Mutex<NetworkService>>, protocol: Arc<Protoco
             }
         };
         Ok(())
-    });
+    }});
+
+    // Interval for performing maintenance on the protocol handler.
+	let timer = Interval::new_interval(TICK_TIMEOUT)
+		.for_each({
+			let protocol = protocol.clone();
+			let network_service = network_service.clone();
+			move |_| {
+				protocol.maintain_peers(&network_service);
+				Ok(())
+			}
+		})
+		.then(|res| {
+			match res {
+				Ok(()) => (),
+				Err(err) => error!("Error in the propagation timer: {:?}", err),
+			};
+			Ok(())
+		});
+
 
     let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
-        Box::new(network)
+        Box::new(network),
+        Box::new(timer),
     ];
 
     futures::select_all(futures)
@@ -120,7 +145,8 @@ mod tests {
 
     impl Service {
         pub fn _new(config: ProtocolConfig, net_config: NetworkConfiguration, protocol_id: ProtocolId) -> Service {
-            let registered = RegisteredProtocol::new(protocol_id, config.version.as_bytes());
+            let version = [(protocol::CURRENT_VERSION) as u8];
+            let registered = RegisteredProtocol::new(protocol_id, &version);
             let protocol = Arc::new(Protocol::new(config));
             let (thread, network) = start_thread(net_config, protocol.clone(), registered).expect("start_thread shouldn't fail");
             Service {

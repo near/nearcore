@@ -1,23 +1,28 @@
 /// network protocol
 
-use substrate_network_libp2p::{Service, NodeIndex, ProtocolId};
+use substrate_network_libp2p::{Service as NetworkService, NodeIndex, ProtocolId};
 use primitives::{types, traits::{Encode, Decode}};
-use message::{self, Message};
+use message::{self, Message, MessageBody, Status};
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::time;
 use rand::{thread_rng, seq};
+
+/// time to wait (secs) for a request
+const REQUEST_WAIT: u64 = 60;
+
+/// current version of the protocol
+pub (crate) const CURRENT_VERSION: u32 = 1;
 
 pub struct ProtocolConfig {
     // config information goes here
-    pub version: String,
     pub protocol_id: ProtocolId,
 }
 
 impl ProtocolConfig {
-    pub fn new(version: &'static str, protocol_id: ProtocolId) -> ProtocolConfig {
+    pub fn new(protocol_id: ProtocolId) -> ProtocolConfig {
         ProtocolConfig {
-            version: version.to_string(),
             protocol_id
         }
     }
@@ -25,46 +30,51 @@ impl ProtocolConfig {
 
 impl Default for ProtocolConfig {
     fn default() -> Self {
-        ProtocolConfig::new("1.0", ProtocolId::default())
+        ProtocolConfig::new(ProtocolId::default())
     }
 }
 
 struct PeerInfo {
     // information about connected peers
-}
-
-impl PeerInfo {
-    pub fn new() -> PeerInfo {
-        PeerInfo {}
-    }
+    request_timestamp: Option<time::Instant>,
 }
 
 pub struct Protocol {
     // TODO: add more fields when we need them
     config: ProtocolConfig,
-    peers: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    // peers that are in the handshaking process
+    handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
+    // info about peers
+    peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
 }
 
 impl Protocol {
     pub fn new(config: ProtocolConfig) -> Protocol {
         Protocol {
             config,
-            peers: RwLock::new(HashMap::new())
+            handshaking_peers: RwLock::new(HashMap::new()),
+            peer_info: RwLock::new(HashMap::new())
         }
     }
 
-    pub fn on_peer_connected(&self, peer: NodeIndex) {
-        self.peers.write().insert(peer, PeerInfo::new());
+    pub fn on_peer_connected(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
+        self.handshaking_peers.write().insert(peer, time::Instant::now());
+        let status = Status {
+            version: CURRENT_VERSION,
+        };
+        let message = Message::new_default(MessageBody::Status(status));
+        self.send_message(network, peer, message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
-        self.peers.write().remove(&peer);
+        self.handshaking_peers.write().remove(&peer);
+        self.peer_info.write().remove(&peer);
     }
 
     pub fn sample_peers(&self, num_to_sample: usize) -> Vec<usize> {
         let mut rng = thread_rng();
-        let peers = self.peers.read();
-        let owned_peers = peers.keys().map(|x| *x);
+        let peer_info = self.peer_info.read();
+        let owned_peers = peer_info.keys().map(|x| *x);
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
     
@@ -72,7 +82,17 @@ impl Protocol {
         debug!("TODO: transaction message");
     }
 
-    pub fn on_message(&self, network: &Arc<Mutex<Service>>, data: &[u8]) {
+    fn on_status_message(&self, peer: NodeIndex, status: Status) {
+        if status.version != CURRENT_VERSION {
+            debug!(target: "sync", "Version mismatch");
+            return;
+        }
+        let peer_info = PeerInfo { request_timestamp: None };
+        self.peer_info.write().insert(peer, peer_info);
+        self.handshaking_peers.write().remove(&peer);
+    }
+
+    pub fn on_message(&self, peer: NodeIndex, data: &[u8]) {
         let message: Message = match Decode::decode(data) {
             Some(m) => m,
             _ => {
@@ -81,11 +101,12 @@ impl Protocol {
             }
         };
         match message.body {
-            message::MessageBody::TransactionMessage(tx) => self.on_transaction_message(tx)
+            MessageBody::Transaction(tx) => self.on_transaction_message(tx),
+            MessageBody::Status(status) => self.on_status_message(peer, status),
         }
     }
 
-    pub fn send_message(&self, network: &Arc<Mutex<Service>>, node_index: NodeIndex, message: Message) {
+    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message) {
         let data = match Encode::encode(&message) {
             Some(d) => d,
             _ => {
@@ -94,6 +115,24 @@ impl Protocol {
             }
         };
         network.lock().send_custom_message(node_index, self.config.protocol_id, data);
+    }
+
+    pub fn maintain_peers(&self, network: &Arc<Mutex<NetworkService>>) {
+        let cur_time = time::Instant::now();
+        let mut aborting = Vec::new();
+        let peer_info = self.peer_info.read();
+        let handshaking_peers = self.handshaking_peers.read();
+        for (peer, time_stamp) in peer_info.iter()
+            .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
+            .chain(handshaking_peers.iter()) {
+                if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
+                    trace!(target: "sync", "Timeout {}", *peer);
+                    aborting.push(*peer);
+                }
+            }
+        for peer in aborting {
+            network.lock().drop_node(peer);
+        }
     }
 }
 
@@ -114,9 +153,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
-        let message = message::Message::new(
-            0, 0, "shard0", message::MessageBody::TransactionMessage(tx)
-        );
+        let message = message::Message::new_default(message::MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let protocol = Protocol::new(config);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
