@@ -10,4 +10,3 @@ pub mod hashable_message;
 pub mod group;
 pub mod group_approvals;
 pub mod dag;
-

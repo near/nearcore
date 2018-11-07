@@ -144,8 +144,8 @@ impl<T: Hash> Message<T> {
     /// in the epoch X that satisfies either of the conditions:
     /// a) X = 0.
     /// b) It approves the representative message of the epoch X-1.
-    /// c) It approves the kickout message for the epoch X-1 and it approves >2/3 promises for that
-    ///    kickout message.
+    /// c) Let Y, Y<X be either 0 or the epoch of the previous representative message, whichever is
+    ///    greater. Then we need all kickout messages between Y and X exclusive to have >2/3 promises.
     fn is_representative<P: WitnessSelectorLike>(&self, is_leader: bool, _witness_selector: &P) -> bool {
         let epoch = self.computed_epoch.expect("Epoch should be computed by now");
         if !is_leader {
@@ -159,7 +159,35 @@ impl<T: Hash> Message<T> {
             true
         } else {
             // Scenario (c).
-            self.complete_epochs.contains_epoch(epoch-1)
+            let mut result = false;
+            for prev_epoch in (0..epoch).rev() {
+                // While iterating, if prev_epoch is a kickout that is not super-approved then
+                // return false.
+                if let Some(group) = self.complete_epochs.messages_by_epoch.get(&prev_epoch) {
+                    if let Some(messages) = group.messages_by_owner.values().next() {
+                        if let Some(message) = messages.iter().next() {
+                            let r = message.message.upgrade().expect("Message should exist");
+                            if r.borrow().computed_is_representative == Some(true) {
+                                result = true;
+                                break
+                            } else if r.borrow().computed_is_kickout == Some(true) {
+                                continue;
+                            } else {
+                                panic!("Messages in complete_epochs should be either representatives or kickouts")
+                            }
+                        } else {
+                            panic!("Should contain at least one element");
+                        }
+                    } else {
+                        // One epoch does not have a representative/kickout.
+                        break;
+                    }
+                } else {
+                    // Epoch is missing.
+                    break;
+                }
+            }
+            result
         }
     }
 
