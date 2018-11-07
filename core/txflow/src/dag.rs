@@ -27,14 +27,14 @@ pub struct DAG<'a, T: Hash, W: 'a+ WitnessSelectorLike> {
 }
 
 impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
-    pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Result<DAG<T, W>, &'static str> {
-        Ok(DAG{
+    pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
+        DAG{
             owner_uid,
             messages: HashMap::new(),
             roots: HashMap::new(),
             witness_selector,
             starting_epoch,
-        })
+        }
     }
 
     /// Verify that this message does not violate the protocol.
@@ -65,7 +65,7 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
                     Message::link(p, &message);
                 },
                 None => {
-                    DAG::<'a,T,W>::unlink_parents(&linked_parents, &message);
+                    Self::unlink_parents(&linked_parents, &message);
                     return Err("Some parents of the message are unknown")
                 }
             }
@@ -77,17 +77,17 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
 
         // Verify the message.
         if let Err(e) = self.verify_message(&message) {
-            DAG::<'a,T,W>::unlink_parents(&linked_parents, &message);
+            Self::unlink_parents(&linked_parents, &message);
             return Err(e)
         }
 
         // Finally, remember the message and update the roots.
         let hash = message.borrow().data.hash;
-        let moved_message = self.messages.insert(hash,message).unwrap();
+        self.messages.insert(hash, message.clone());
         for p in &linked_parents {
             self.roots.remove(&p.borrow().data.hash);
         }
-        self.roots.insert(hash, moved_message);
+        self.roots.insert(hash, message.clone());
         Ok({})
     }
 
@@ -122,5 +122,40 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
             .expect("Hash collision: old message already has the same hash as the new one.");
         self.roots.clear();
         self.roots.insert(hash, moved_message);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use ::testing_utils::{FakePayload, simple_message};
+
+    struct FakeWitnessSelector {
+        schedule: HashMap<u64, HashSet<u64>>,
+    }
+    impl FakeWitnessSelector {
+        fn new() -> FakeWitnessSelector {
+            FakeWitnessSelector {
+                schedule: map! { 0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4} }
+            }
+        }
+    }
+
+    impl WitnessSelectorLike for FakeWitnessSelector {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+            self.schedule.get(&epoch).unwrap()
+        }
+        fn epoch_leader(&self, epoch: u64) -> u64 {
+            *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+    }
+
+    #[test]
+    fn one_node_dag() {
+        let selector = FakeWitnessSelector::new();
+        let mut dag: DAG<FakePayload, FakeWitnessSelector> = DAG::new(0, 0, &selector);
+        assert!(dag.add_existing_message(simple_message(0, 1)).is_ok());
     }
 }

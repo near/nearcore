@@ -1,6 +1,21 @@
 #[derive(Hash)]
 pub struct FakePayload {}
 
+pub fn simple_message(owner_uid: u64, epoch: u64) -> ::primitives::types::SignedMessageData<FakePayload> {
+    ::primitives::types::SignedMessageData {
+        owner_sig: 0,
+        hash: 0,
+        body: ::primitives::types::MessageDataBody {
+            owner_uid,
+            parents: vec![],
+            epoch,
+            payload: ::testing_utils::FakePayload {},
+            endorsements: vec![],
+        },
+    }
+}
+
+
 /// Create several messages, and set their owner_uid and epoch.
 /// # Examples:
 /// Create two messages owned by 10 and one message owned by 11, with epochs 1,2,3.
@@ -15,18 +30,8 @@ macro_rules! test_messages(
                 let mut messages = vec![];
                 $(
                     {
-                       let message = ::message::Message::new(
-                           ::primitives::types::SignedMessageData {
-                           owner_sig: 0,
-                           hash: 0,
-                           body: ::primitives::types::MessageDataBody {
-                               owner_uid: $owner_uid,
-                               parents: vec![],
-                               epoch: $epoch,
-                               payload: ::testing_utils::FakePayload {},
-                               endorsements: vec![],
-                           },
-                       });
+                       let message = ::message::Message::new(::testing_utils::simple_message(
+                       $owner_uid, $epoch));
                        messages.push(message);
                     }
                 )+
