@@ -435,4 +435,16 @@ mod tests {
         assert!(e.borrow().computed_is_kickout.unwrap());
         assert!(f.borrow().approved_promises.contains_epoch(&9));
     }
+
+    #[test]
+    fn test_endorsement() {
+        let selector = FakeWitnessSelector::new();
+        tuplet!((a,b,c,d,e,f) = test_messages!(0=>0, 0=>1, 0=>2, 1=>3, 0=>1, 1=>2));
+        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e, &e=>&f);
+        populate_messages!(0, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true, &f=>true);
+
+        assert!(a.borrow().computed_is_representative.unwrap());
+        assert!(e.borrow().computed_is_representative.unwrap());
+        assert!(f.borrow().approved_endorsements.contains_any_approval(&1, &2));
+    }
 }

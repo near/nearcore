@@ -99,7 +99,11 @@ impl<T: Hash> GroupApprovalPerEpoch<T> {
                 let witnesses: HashSet<u64> = _approvals.messages_by_owner.keys().map(|x| *x).collect();
                 if (&witnesses & epoch_witnesses).len() > epoch_witnesses.len()*2/3 {
                     // We compute owner_uid only when there is a supermajority approval.
-                    // This allows to avoid
+                    // This allows to avoid for the message to borrow its own message, because it
+                    // will never be the case that the message which is a representative message or
+                    // a kickout message has a supermajority support once posted, unless there is
+                    // a single participant.
+                    // TODO: Make it work for a single participant.
                     let owner_uid = {
                         let r = (&message.message).upgrade().expect("Parent messages should be present");
                         let data = &r.borrow().data;
