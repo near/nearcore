@@ -20,10 +20,11 @@ impl Storage {
         }
     }
 
-    pub fn put<T: serde::ser::Serialize>(&self, obj: T) {
+    pub fn put<T: serde::ser::Serialize>(&self, obj: T) -> primitives::hash::HashValue {
         let header_data = serialize(&obj).unwrap();
-        let header_key : Vec<u8>  = primitives::hash::hash(&header_data).into();
+        let header_key : Vec<u8> = primitives::hash::hash(&header_data).into();
         self.db.put(&header_key, &header_data).ok();
+        primitives::hash::HashValue::new(&header_key)
     }
 
     pub fn get<T>(&self, key: primitives::hash::HashValue) -> Option<T>

@@ -1,7 +1,5 @@
 extern crate exonum_sodiumoxide as sodiumoxide;
 
-// pub use hash::sodiumoxide::crypto::hash::sha256::Digest;
-
 pub struct HashValue(Vec<u8>);
 
 impl HashValue {
@@ -15,18 +13,6 @@ impl Into<Vec<u8>> for HashValue {
         self.0
     }
 }
-
-//impl From<[u8]> for HashValue {
-//    fn from(item: &[u8]) -> Self {
-//        HashValue::new(item)
-//    }
-//}
-//impl AsRef<[u8]> for HashValue {
-//    fn as_ref(&self) -> &[u8] {
-//        &self.0[..]
-//    }
-//    }
-//}
 
 /// Calculates a hash of a bytes slice.
 ///

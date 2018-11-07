@@ -21,6 +21,8 @@ substrate-network-libp2p = { path = "core/network-libp2p" }
 primitives = { path = "core/primitives" }
 network = { path = "core/network" }
 storage = { path = "core/storage" }
+runtime = { path = "core/runtime" }
+client = { path = "core/client" }
 
 
 [workspace]
@@ -28,4 +30,6 @@ members = [
     "core/primitives",
     "core/network",
     "core/storage",
+    "core/runtime",
+    "core/client",
 ]
