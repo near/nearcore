@@ -1,4 +1,3 @@
-use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
 
 use message::Message;

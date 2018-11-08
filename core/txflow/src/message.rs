@@ -24,7 +24,7 @@ pub struct Message<'a, P: 'a + PayloadLike> {
     /// the epoch is taken from the data.
     pub computed_epoch: u64,
     /// The hash of the message. Depends on the epoch.
-    computed_hash: u64,
+    pub computed_hash: u64,
     /// Computed flag of whether this message is representative.
     computed_is_representative: bool,
     /// Computed flag of whether this message is a kickout.
@@ -304,7 +304,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
 
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
-    pub fn init<W>(&'a mut self,
+    pub fn init<W>(&mut self,
                    recompute_epoch: bool,
                    starting_epoch: u64,
                    witness_selector: &W) where W : WitnessSelectorLike {
