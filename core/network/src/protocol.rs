@@ -1,8 +1,8 @@
 /// network protocol
 
 use substrate_network_libp2p::{Service as NetworkService, NodeIndex, ProtocolId};
-use primitives::{types, traits::{Encode, Decode}};
-use message::{self, Message, MessageBody, Status};
+use primitives::traits::{Encode, Decode};
+use message::{Message, MessageBody, Status};
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -158,6 +158,7 @@ mod tests {
 
     use super::*;
     use transaction_pool::Pool;
+    use primitives::types;
 
     impl<T: Transaction> Protocol<T> {
         fn _on_message(&self, data: &[u8]) -> Message<T> {
@@ -171,7 +172,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
-        let message = message::Message::new_default(message::MessageBody::Transaction(tx));
+        let message = Message::new_default(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
         let protocol = Protocol::new(config, tx_pool);

@@ -1,5 +1,4 @@
-use primitives::{types, traits::{Encode, Decode}};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use primitives::traits::{Encode, Decode};
 use protocol::Transaction;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]

@@ -206,10 +206,6 @@ mod tests {
 
     #[test]
     fn test_send_message() {
-        //let mut builder = env_logger::Builder::new();
-        //builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
-        //builder.filter(None, log::LevelFilter::Info);
-        //builder.init();
         init_logger();
         let services = create_services(2) as Vec<Arc<Service<types::SignedTransaction>>>;
         thread::sleep(time::Duration::from_secs(1));
@@ -224,10 +220,6 @@ mod tests {
 
     #[test]
     fn test_tx_pool() {
-        //let mut builder = env_logger::Builder::new();
-        //builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
-        //builder.filter(None, log::LevelFilter::Info);
-        //builder.init();
         init_logger();
         let services = create_services(2) as Vec<Arc<Service<types::SignedTransaction>>>;
         thread::sleep(time::Duration::from_secs(1));
