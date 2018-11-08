@@ -353,6 +353,66 @@ impl<'a, P: PayloadLike> Message<'a, P> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+    use primitives::traits::WitnessSelectorLike;
+    use typed_arena::Arena;
+
+    struct FakeWitnessSelector {
+        schedule: HashMap<u64, HashSet<u64>>,
+    }
+
+    impl FakeWitnessSelector {
+        fn new() -> FakeWitnessSelector {
+            FakeWitnessSelector {
+                schedule: map!{
+               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+               2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}}
+            }
+        }
+    }
+
+    impl WitnessSelectorLike for FakeWitnessSelector {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+            self.schedule.get(&epoch).unwrap()
+        }
+        fn epoch_leader(&self, epoch: u64) -> u64 {
+            *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+    }
+
+    // TODO: For promo tests below, report incorrectly provided epoch as an adversarial behavior.
+    #[test]
+    fn epoch_promo() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let root;
+        simple_messages!(0, &selector, arena [[0, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        // The data.epoch, which is 0, is ignored because it is recomputed.
+        assert_eq!(root.computed_epoch, 1);
+    }
+
+    #[test]
+    fn epoch_borderline_promo() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let root;
+        simple_messages!(0, &selector, arena [[4, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        assert_eq!(root.computed_epoch, 1);
+    }
+
+    #[test]
+    fn epoch_nopromo() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let root;
+        // Owners 4 and 5 are irrelevant for epoch 0.
+        simple_messages!(0, &selector, arena [[4, 0, false; 5, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        assert_eq!(root.computed_epoch, 0);
+    }
+}
+
 
 //#[cfg(test)]
 //mod tests {

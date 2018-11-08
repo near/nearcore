@@ -104,6 +104,13 @@ macro_rules! simple_bare_messages {
         simple_bare_messages!($arena, $messages [$($rest)*]);
     }};
 
+    ($arena:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr => $name:ident; $($rest:tt)* ]) => {{
+        let ps = simple_bare_messages!($arena [ $($parents)* ]);
+        $name = &*$arena.alloc(::testing_utils::simple_bare_message($owner, $epoch, ps));
+        $messages.push($name);
+        simple_bare_messages!($arena, $messages [$($rest)*]);
+    }};
+
     ($arena:ident, $messages:ident [ => $element:expr; $($rest:tt)* ]) => {{
         $messages.push($element);
         simple_bare_messages!($arena, $messages [$($rest)*]);
@@ -152,6 +159,13 @@ macro_rules! simple_messages {
     ($starting_epoch:expr, $witness_selector:expr, $arena:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr, $recompute_epoch:expr; $($rest:tt)* ]) => {{
         let ps = simple_messages!($starting_epoch, $witness_selector, $arena [ $($parents)* ]);
         $messages.push(&*$arena.alloc(::testing_utils::simple_message($owner, $epoch, ps, $recompute_epoch, $starting_epoch, $witness_selector)));
+        simple_messages!($starting_epoch, $witness_selector, $arena, $messages [$($rest)*]);
+    }};
+
+    ($starting_epoch:expr, $witness_selector:expr, $arena:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr, $recompute_epoch:expr => $name:ident; $($rest:tt)* ]) => {{
+        let ps = simple_messages!($starting_epoch, $witness_selector, $arena [ $($parents)* ]);
+        $name = &*$arena.alloc(::testing_utils::simple_message($owner, $epoch, ps, $recompute_epoch, $starting_epoch, $witness_selector));
+        $messages.push($name);
         simple_messages!($starting_epoch, $witness_selector, $arena, $messages [$($rest)*]);
     }};
 
