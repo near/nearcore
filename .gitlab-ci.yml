@@ -17,5 +17,5 @@ test:cargo:
     stage: test
     script:
     - rustc --version && cargo --version
-    - cargo test --all --verbose
+    - cargo test --all --verbose -- --test-threads=1
 
