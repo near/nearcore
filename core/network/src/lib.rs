@@ -13,6 +13,7 @@ extern crate bytes;
 extern crate parking_lot;
 #[macro_use]
 extern crate log;
+extern crate env_logger;
 extern crate rand;
 
 pub mod message;

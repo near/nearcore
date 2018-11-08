@@ -157,6 +157,7 @@ mod tests {
     use std::time;
     use transaction_pool::Pool;
     use primitives::types;
+    use rand::Rng;
 
     impl<T: Transaction> Service<T> {
         pub fn _new(
@@ -164,22 +165,22 @@ mod tests {
             net_config: NetworkConfiguration, 
             protocol_id: ProtocolId,
             tx_pool: Arc<Mutex<TransactionPool<T>>>
-            ) -> Service<T> {
+            ) -> Arc<Service<T>> {
             let version = [(protocol::CURRENT_VERSION) as u8];
             let registered = RegisteredProtocol::new(protocol_id, &version);
             let protocol = Arc::new(Protocol::new(config, tx_pool));
             let (thread, network) = start_thread(net_config, protocol.clone(), registered).expect("start_thread shouldn't fail");
-            Service {
+            Arc::new(Service {
                 network: network,
                 protocol: protocol,
                 bg_thread: Some(thread)
-            }
+            })
         }
     }
 
-    fn create_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
+    fn create_services<T: Transaction>(num_services: u32) -> Vec<Arc<Service<T>>> {
         let base_address = "/ip4/127.0.0.1/tcp/".to_string();
-        let base_port = 30000;
+        let base_port = rand::thread_rng().gen_range(30000, 80000);
         let mut addresses = Vec::new();
         for i in 0..num_services {
             let port = base_port + i;
@@ -205,11 +206,12 @@ mod tests {
 
     #[test]
     fn test_send_message() {
-        let mut builder = env_logger::Builder::new();
-        builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
-        builder.filter(None, log::LevelFilter::Info);
-        builder.init();
-        let services = create_services(2) as Vec<Service<types::SignedTransaction>>;
+        //let mut builder = env_logger::Builder::new();
+        //builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+        //builder.filter(None, log::LevelFilter::Info);
+        //builder.init();
+        init_logger();
+        let services = create_services(2) as Vec<Arc<Service<types::SignedTransaction>>>;
         thread::sleep(time::Duration::from_secs(1));
         for service in services {
             for peer in service.protocol.sample_peers(1) {
@@ -218,5 +220,28 @@ mod tests {
             }
         }
         thread::sleep(time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_tx_pool() {
+        //let mut builder = env_logger::Builder::new();
+        //builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+        //builder.filter(None, log::LevelFilter::Info);
+        //builder.init();
+        init_logger();
+        let services = create_services(2) as Vec<Arc<Service<types::SignedTransaction>>>;
+        thread::sleep(time::Duration::from_secs(1));
+        for service in services.clone() {
+            for peer in service.protocol.sample_peers(1) {
+                let message = fake_message();
+                service.protocol.send_message(&service.network, peer, message);
+            }
+        }
+        thread::sleep(time::Duration::from_secs(1));
+        for service in services {
+            let mut tx_pool = service.protocol.tx_pool.lock();
+            let txs = tx_pool.get();
+            assert_eq!(txs.len(), 1);
+        }
     }
 }

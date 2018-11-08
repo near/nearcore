@@ -36,7 +36,7 @@ impl Default for ProtocolConfig {
     }
 }
 
-struct PeerInfo {
+pub(crate) struct PeerInfo {
     // information about connected peers
     request_timestamp: Option<time::Instant>,
 }
@@ -55,13 +55,13 @@ pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'sta
 
 pub struct Protocol<T: Transaction> {
     // TODO: add more fields when we need them
-    config: ProtocolConfig,
+    pub(crate) config: ProtocolConfig,
     // peers that are in the handshaking process
-    handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
+    pub(crate) handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
-    peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    pub(crate) peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     // transaction pool
-    tx_pool: Arc<Mutex<TransactionPool<T>>>,
+    pub(crate) tx_pool: Arc<Mutex<TransactionPool<T>>>,
 }
 
 impl<T: Transaction> Protocol<T>  {

@@ -42,3 +42,13 @@ pub fn fake_message() -> Message<types::SignedTransaction> {
     let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
     Message::new(0, 0, "shard0", MessageBody::Transaction(tx))
 }
+
+pub fn init_logger() {
+    let mut builder = env_logger::Builder::new();
+    builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+    builder.filter(None, log::LevelFilter::Info);
+    match builder.try_init() {
+        _ => ()
+    }
+
+}
