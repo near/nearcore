@@ -38,7 +38,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_message() -> Message {
+pub fn fake_message() -> Message<types::SignedTransaction> {
     let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
     Message::new(0, 0, "shard0", MessageBody::Transaction(tx))
 }

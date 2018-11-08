@@ -9,25 +9,33 @@ use substrate_network_libp2p::{
     start_service, Service as NetworkService, ServiceEvent,
     NetworkConfiguration, ProtocolId, RegisteredProtocol,
 };
-use protocol::{self, Protocol, ProtocolConfig};
-use error::Error;
+use protocol::{self, Protocol, ProtocolConfig, TransactionPool, Transaction};
+use error::Error; 
+use primitives::types;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
+
+impl Transaction for types::SignedTransaction {}
 
 /// A service that wraps network service (which runs libp2p) and
 /// protocol. It is thus responsible for hiding network details and
 /// processing messages that nodes send to each other
-pub struct Service {
+pub struct Service<T: Transaction> {
     network: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol>,
+    protocol: Arc<Protocol<T>>,
     bg_thread: Option<thread::JoinHandle<()>>,
 }
 
-impl Service {
-    pub fn new(config: ProtocolConfig, net_config: NetworkConfiguration, protocol_id: ProtocolId) -> Result<Arc<Service>, Error> {
+impl<T: Transaction> Service<T> {
+    pub fn new(
+        config: ProtocolConfig, 
+        net_config: NetworkConfiguration, 
+        protocol_id: ProtocolId,
+        tx_pool: Arc<Mutex<TransactionPool<T>>>
+        ) -> Result<Arc<Service<T>>, Error> {
         let version = [(protocol::CURRENT_VERSION) as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
-        let protocol = Arc::new(Protocol::new(config));
+        let protocol = Arc::new(Protocol::new(config, tx_pool));
         let (thread, network) = start_thread(net_config, protocol.clone(), registered)?;
         Ok(Arc::new(Service {
             network: network,
@@ -49,8 +57,11 @@ impl Service {
 //}
 
 
-fn start_thread(config: NetworkConfiguration, protocol: Arc<Protocol>, registered: RegisteredProtocol)
-   -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
+fn start_thread<T: Transaction>(
+    config: NetworkConfiguration, 
+    protocol: Arc<Protocol<T>>, 
+    registered: RegisteredProtocol
+    ) -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
 
     let service = match start_service(config, Some(registered)) {
         Ok(service) => Arc::new(Mutex::new(service)),
@@ -74,8 +85,10 @@ fn start_thread(config: NetworkConfiguration, protocol: Arc<Protocol>, registere
     Ok((thread, service))
 }
 
-fn run_thread(network_service: Arc<Mutex<NetworkService>>, protocol: Arc<Protocol>)
-    -> impl Future<Item = (), Error = io::Error> {
+fn run_thread<T: Transaction>(
+    network_service: Arc<Mutex<NetworkService>>, 
+    protocol: Arc<Protocol<T>>
+    ) -> impl Future<Item = (), Error = io::Error> {
 
     let network_service1 = network_service.clone();
     let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
@@ -142,12 +155,19 @@ mod tests {
     use test_utils::*;
     use log;
     use std::time;
+    use transaction_pool::Pool;
+    use primitives::types;
 
-    impl Service {
-        pub fn _new(config: ProtocolConfig, net_config: NetworkConfiguration, protocol_id: ProtocolId) -> Service {
+    impl<T: Transaction> Service<T> {
+        pub fn _new(
+            config: ProtocolConfig, 
+            net_config: NetworkConfiguration, 
+            protocol_id: ProtocolId,
+            tx_pool: Arc<Mutex<TransactionPool<T>>>
+            ) -> Service<T> {
             let version = [(protocol::CURRENT_VERSION) as u8];
             let registered = RegisteredProtocol::new(protocol_id, &version);
-            let protocol = Arc::new(Protocol::new(config));
+            let protocol = Arc::new(Protocol::new(config, tx_pool));
             let (thread, network) = start_thread(net_config, protocol.clone(), registered).expect("start_thread shouldn't fail");
             Service {
                 network: network,
@@ -157,7 +177,7 @@ mod tests {
         }
     }
 
-    fn create_services(num_services: u32) -> Vec<Service> {
+    fn create_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
         let base_address = "/ip4/127.0.0.1/tcp/".to_string();
         let base_port = 30000;
         let mut addresses = Vec::new();
@@ -170,12 +190,14 @@ mod tests {
         // may want to abstract this out to enable different configurations
         let secret = create_secret();
         let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-        let root_service = Service::_new(ProtocolConfig::default(), root_config, ProtocolId::default());
+        let tx_pool = Arc::new(Mutex::new(Pool::new()));
+        let root_service = Service::_new(ProtocolConfig::default(), root_config, ProtocolId::default(), tx_pool);
         let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
         let mut services = vec![root_service];
         for i in 1..num_services {
             let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-            let service = Service::_new(ProtocolConfig::default(), config, ProtocolId::default());
+            let tx_pool = Arc::new(Mutex::new(Pool::new()));
+            let service = Service::_new(ProtocolConfig::default(), config, ProtocolId::default(), tx_pool);
             services.push(service);
         }
         services
@@ -187,7 +209,7 @@ mod tests {
         builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
         builder.filter(None, log::LevelFilter::Info);
         builder.init();
-        let services = create_services(2);
+        let services = create_services(2) as Vec<Service<types::SignedTransaction>>;
         thread::sleep(time::Duration::from_secs(1));
         for service in services {
             for peer in service.protocol.sample_peers(1) {

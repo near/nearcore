@@ -1,18 +1,20 @@
 use primitives::{types, traits::{Encode, Decode}};
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use protocol::Transaction;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum MessageBody {
+pub enum MessageBody<T> {
     //TODO: add different types of messages here
-    Transaction(types::SignedTransaction),
+    Transaction(T),
     Status(Status),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Message {
+pub struct Message<T> {
     pub src: u32,
     pub dst: u32,
     pub channel: String,
-    pub body: MessageBody,
+    pub body: MessageBody<T>,
 }
 
 /// status sent on connection
@@ -23,8 +25,8 @@ pub struct Status {
     // TODO: block number, block hash, etc
 }
 
-impl Message {
-    pub fn new(src: u32, dst: u32, channel: &str, body: MessageBody) -> Message {
+impl<T> Message<T> {
+    pub fn new(src: u32, dst: u32, channel: &str, body: MessageBody<T>) -> Message<T> {
         Message {
             src,
             dst,
@@ -34,7 +36,7 @@ impl Message {
     }
 
     /// for now, we are not using the other fields.
-    pub fn new_default(body: MessageBody) -> Message {
+    pub fn new_default(body: MessageBody<T>) -> Message<T> {
         Message {
             src: 0,
             dst: 0,
@@ -44,7 +46,7 @@ impl Message {
     }
 }
 
-impl Encode for Message {
+impl<T: Transaction> Encode for Message<T> {
     fn encode(&self) -> Option<Vec<u8>> {
         match bincode::serialize(&self) {
             Ok(data) => Some(data),
@@ -56,7 +58,7 @@ impl Encode for Message {
     }
 }
 
-impl Decode for Message {
+impl<T: Transaction> Decode for Message<T> {
     fn decode(data: &[u8]) -> Option<Self> {
         // need to figure out how to deserialize without copying
         match bincode::deserialize(data) {

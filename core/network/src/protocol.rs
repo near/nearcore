@@ -7,7 +7,9 @@ use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time;
+use std::fmt::Debug;
 use rand::{thread_rng, seq};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -39,21 +41,36 @@ struct PeerInfo {
     request_timestamp: Option<time::Instant>,
 }
 
-pub struct Protocol {
+/// interface for transaction pool
+pub trait TransactionPool<T>: Send + Sync {
+    // get transactions from pool
+    fn get(&mut self) -> Vec<T>;
+    // put a transaction into the pool
+    fn put(&mut self, tx: T);
+    // put transactions into the pool
+    fn put_many(&mut self, txs: Vec<T>);
+}
+
+pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
+
+pub struct Protocol<T: Transaction> {
     // TODO: add more fields when we need them
     config: ProtocolConfig,
     // peers that are in the handshaking process
     handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    // transaction pool
+    tx_pool: Arc<Mutex<TransactionPool<T>>>,
 }
 
-impl Protocol {
-    pub fn new(config: ProtocolConfig) -> Protocol {
+impl<T: Transaction> Protocol<T>  {
+    pub fn new(config: ProtocolConfig, tx_pool: Arc<Mutex<TransactionPool<T>>>) -> Protocol<T> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
-            peer_info: RwLock::new(HashMap::new())
+            peer_info: RwLock::new(HashMap::new()),
+            tx_pool,
         }
     }
 
@@ -78,8 +95,8 @@ impl Protocol {
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
     
-    fn on_transaction_message(&self, tx: types::SignedTransaction) {
-        debug!("TODO: transaction message");
+    fn on_transaction_message(&self, tx: T) {
+        self.tx_pool.lock().put(tx);
     }
 
     fn on_status_message(&self, peer: NodeIndex, status: Status) {
@@ -93,7 +110,7 @@ impl Protocol {
     }
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) {
-        let message: Message = match Decode::decode(data) {
+        let message: Message<T> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
                 error!("cannot decode message: {:?}", data);
@@ -106,7 +123,7 @@ impl Protocol {
         }
     }
 
-    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message) {
+    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
         let data = match Encode::encode(&message) {
             Some(d) => d,
             _ => {
@@ -140,9 +157,10 @@ impl Protocol {
 mod tests {
 
     use super::*;
+    use transaction_pool::Pool;
 
-    impl Protocol {
-        fn _on_message(&self, data: &[u8]) -> Message {
+    impl<T: Transaction> Protocol<T> {
+        fn _on_message(&self, data: &[u8]) -> Message<T> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data)
@@ -155,7 +173,8 @@ mod tests {
         let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
         let message = message::Message::new_default(message::MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let protocol = Protocol::new(config);
+        let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
+        let protocol = Protocol::new(config, tx_pool);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }
