@@ -83,6 +83,14 @@ impl<'a, P: 'a + PayloadLike> GroupApprovalPerEpoch<'a, P> {
         }
     }
 
+    /// Check if there is an epoch greater than `epoch` for which we gave an approval.
+    pub fn contains_any_future_approvals(&self, epoch: &u64, owner_uid: &u64) -> bool {
+        (&self.approvals_per_epoch).into_iter().any(|(e, group_approvals)|
+            e > epoch
+            && group_approvals.contains_owner(owner_uid)
+        )
+    }
+
     /// Whether there is an approval of the message of the epoch by the owner_uid.
     pub fn contains_approval(&self, epoch: &u64, owner_uid: &u64, message: &Message<'a, P>) -> bool {
         match self.approvals_per_epoch.get(epoch) {
@@ -107,18 +115,33 @@ impl<'a, P: 'a + PayloadLike> GroupApprovalPerEpoch<'a, P> {
         self.approvals_per_epoch.contains_key(epoch)
     }
 
-    pub fn superapproved_messages<W>(&self, witness_selector: &W) -> GroupsPerEpoch<'a, P>
+    /// Check whether there are messages that become superapproved once we add the complementary
+    /// approvals.
+    pub fn new_superapproved_messages<W>(&self,
+                                         complementary_approvals: &GroupsPerEpoch<'a, P>,
+                                         complementary_owner_uid: u64,
+                                         witness_selector: &W) -> GroupsPerEpoch<'a, P>
         where W: WitnessSelectorLike {
         let mut result = GroupsPerEpoch::new();
         for (epoch, per_epoch) in &self.approvals_per_epoch {
             let epoch_witnesses = witness_selector.epoch_witnesses(*epoch);
             for (message, _approvals) in &per_epoch.approvals {
                 let witnesses: HashSet<u64> = _approvals.messages_by_owner.keys().map(|x| *x).collect();
-                if (&witnesses & epoch_witnesses).len() > epoch_witnesses.len()*2/3 {
-                    // TODO: Make it work for a single participant.
-                    result.insert(*epoch, *message);
-                    // There can be only one superapproved messaged when forked.
-                    break;
+                let num_missing = epoch_witnesses.len()*2/3 +1 - (&witnesses & epoch_witnesses).len();
+                if num_missing == 1 {
+                    let one_more_approval = match complementary_approvals.messages_by_epoch.get(epoch) {
+                        None => false,
+                        Some(group) => match group.messages_by_owner.get(&message.data.body.owner_uid) {
+                            None => false,
+                            Some(approvals) => approvals.contains(message)
+                        }
+                    };
+                    let valid_approver = (epoch_witnesses - &witnesses).contains(&complementary_owner_uid);
+                    if one_more_approval & valid_approver {
+                        // TODO: With the current implementation a single verifier will publish
+                        // only every second epoch.
+                       result.insert(*epoch, *message);
+                    }
                 }
             }
         }

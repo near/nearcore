@@ -35,6 +35,8 @@ pub struct Message<'a, P: 'a + PayloadLike> {
     computed_endorsements: GroupsPerEpoch<'a, P>,
     /// Computed promises given by this message.
     computed_promises: GroupsPerEpoch<'a, P>,
+    /// Computed epochs that became complete due to this message.
+    computed_complete_epochs: GroupsPerEpoch<'a, P>,
 
 
     // The following are the approved messages, grouped by different criteria.
@@ -49,8 +51,10 @@ pub struct Message<'a, P: 'a + PayloadLike> {
     /// Promises to kickout a representative message (supports promises on forked kickouts).
     approved_promises: GroupApprovalPerEpoch<'a, P>,
     /// Epoch -> Either a representative message that has >2/3 endorsements or a kickout message
-    /// that has >2/3 promises. Epoch should always have one element, but we do not assert it yet.
-    complete_epochs: GroupsPerEpoch<'a, P>,
+    /// that has >2/3 promises. Epoch should always have one element, but our design does not restrict to it.
+    /// TODO: Rework the design so that the restriction is inherent, this also should improve the
+    /// performance.
+    approved_complete_epochs: GroupsPerEpoch<'a, P>,
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
     // b) an endorsement of a representative message of epoch Y, Y<X;
@@ -109,13 +113,14 @@ impl<'a, P: PayloadLike> Message<'a, P> {
             computed_is_epoch_leader: false,
             computed_endorsements: GroupsPerEpoch::new(),
             computed_promises: GroupsPerEpoch::new(),
+            computed_complete_epochs: GroupsPerEpoch::new(),
 
             approved_epochs: GroupsPerEpoch::new(),
             approved_representatives: GroupsPerEpoch::new(),
             approved_kickouts: GroupsPerEpoch::new(),
             approved_endorsements: GroupApprovalPerEpoch::new(),
             approved_promises: GroupApprovalPerEpoch::new(),
-            complete_epochs: GroupsPerEpoch::new(),
+            approved_complete_epochs: GroupsPerEpoch::new(),
         }
     }
 
@@ -148,8 +153,15 @@ impl<'a, P: PayloadLike> Message<'a, P> {
             }
 
             self.approved_endorsements.union_update(&p.approved_endorsements);
+            self.approved_endorsements.union_update(&GroupApprovalPerEpoch::approve_groups_per_epoch(
+               &p.computed_endorsements, p ));
+
             self.approved_promises.union_update(&p.approved_promises);
-            self.complete_epochs.union_update(&p.complete_epochs);
+            self.approved_promises.union_update(&GroupApprovalPerEpoch::approve_groups_per_epoch(
+               &p.computed_promises, p ));
+
+            self.approved_complete_epochs.union_update(&p.approved_complete_epochs);
+            self.approved_complete_epochs.union_update(&p.computed_complete_epochs);
         }
     }
 
@@ -197,7 +209,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
             for prev_epoch in (0..self.computed_epoch).rev() {
                 // While iterating, if prev_epoch is a kickout that is not super-approved then
                 // return false.
-                if let Some(group) = self.complete_epochs.messages_by_epoch.get(&prev_epoch) {
+                if let Some(group) = self.approved_complete_epochs.messages_by_epoch.get(&prev_epoch) {
                     if let Some(messages) = group.messages_by_owner.values().next() {
                         if let Some(message) = messages.iter().next() {
                             if message.computed_is_representative {
@@ -216,7 +228,6 @@ impl<'a, P: PayloadLike> Message<'a, P> {
                         break;
                     }
                 } else {
-                    // Epoch is missing.
                     break;
                 }
             }
@@ -258,6 +269,8 @@ impl<'a, P: PayloadLike> Message<'a, P> {
             if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) {continue};
             // Check if we gave a promise to a kickout in this epoch.
             if self.approved_promises.contains_any_approval(epoch, owner_uid) {continue};
+            // Check if we endorsed representative with higher epoch.
+            if self.approved_endorsements.contains_any_future_approvals(epoch, owner_uid) {continue};
             for (_repr_owner_uid, owner_repr) in &reprs.messages_by_owner {
                 for repr in owner_repr {
                     // Check if we already gave an endorsement to exactly the same representative.
@@ -349,6 +362,13 @@ impl<'a, P: PayloadLike> Message<'a, P> {
 
         self.computed_endorsements = self.compute_endorsements(witness_selector);
         self.computed_promises = self.compute_promises(witness_selector);
+
+        // Record the epochs that will be complete once we apply the new endorsements and promises.
+        self.computed_complete_epochs = self.approved_endorsements.new_superapproved_messages(
+            &self.computed_endorsements, self.data.body.owner_uid, witness_selector);
+        self.computed_complete_epochs.union_update(&self.approved_promises.new_superapproved_messages(
+            &self.computed_promises, self.data.body.owner_uid, witness_selector));
+
         self.is_initialized = true;
     }
 }
@@ -411,138 +431,28 @@ mod tests {
         simple_messages!(0, &selector, arena [[4, 0, false; 5, 0, false; 2, 0, false;] => 3, 0, true => root;]);
         assert_eq!(root.computed_epoch, 0);
     }
+
+    #[test]
+    fn repr() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let (a, b, c, d);
+        simple_messages!(0, &selector, arena [[0, 0, false => a; 1, 0, false => b; 2, 0, false => c;] => 1, 1, true => d;]);
+        assert!(a.computed_is_representative);  // Scenario (a).
+        assert!(!b.computed_is_representative);
+        assert!(!c.computed_is_representative);
+        assert!(d.computed_is_representative);  // Scenario (b).
+    }
+
+    #[test]
+    fn no_repr_but_kickout() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let root;
+        simple_messages!(0, &selector, arena [[1, 0, false; 2, 0, false; 3, 0, false;] => 1, 1, true => root;]);
+        assert_eq!(root.computed_epoch, 1);  // The message is promoted ...
+        assert!(root.computed_is_epoch_leader);  // ... and it is an epoch leader ...
+        assert!(!root.computed_is_representative);  // ... but the prev repr is missing, so it is not a repr...
+        assert!(root.computed_is_kickout);  // ... but a kickout.
+    }
 }
-
-
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use std::collections::HashMap;
-//
-//    #[test]
-//    fn two_nodes() {
-//        tuplet!((a,b) = test_messages!(1=>10, 1=>10));
-//        link_messages!(&a => &b);
-//    }
-//
-//    #[test]
-//    fn three_nodes() {
-//        tuplet!((a,b,c) = test_messages!(1=>10, 1=>10, 1=>10));
-//        link_messages!(&a => &b, &b => &c, &a => &c);
-//    }
-//
-//    #[test]
-//    fn unlink() {
-//        tuplet!((a,b) = test_messages!(1=>10, 1=>10));
-//        link_messages!(&a => &b);
-//        Message::unlink(&a, &b);
-//        assert!(b.borrow().parents.is_empty());
-//    }
-//
-//    struct FakeWitnessSelector {
-//        schedule: HashMap<u64, HashSet<u64>>,
-//    }
-//    impl FakeWitnessSelector {
-//        fn new() -> FakeWitnessSelector {
-//            FakeWitnessSelector {
-//                schedule: map!{
-//               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
-//               8 => set!{3, 0, 1, 2}, 9 => set!{0, 1, 2, 3}, 10 => set!{1, 2, 3, 4}}
-//            }
-//        }
-//    }
-//
-//    impl WitnessSelectorLike for FakeWitnessSelector {
-//        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
-//            self.schedule.get(&epoch).unwrap()
-//        }
-//        fn epoch_leader(&self, epoch: u64) -> u64 {
-//            *self.epoch_witnesses(epoch).iter().min().unwrap()
-//        }
-//    }
-//
-//    #[test]
-//    fn test_epoch_computation_no_promo() {
-//        let selector = FakeWitnessSelector::new();
-//        // Corner case of having messages for epoch 10 without messages for epoch 9.
-//        tuplet!((a,b,c,d,e) = test_messages!(9=>0, 10=>1, 10=>2, 10=>3, 9=>0));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
-//        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
-//
-//        assert_eq!(e.borrow().computed_epoch.unwrap(), 9);
-//    }
-//
-//    #[test]
-//    fn test_epoch_computation_promo() {
-//        let selector = FakeWitnessSelector::new();
-//        tuplet!((a,b,c,d,e) = test_messages!(9=>0, 9=>1, 9=>2, 10=>3, 9=>0));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
-//        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
-//
-//        assert_eq!(e.borrow().computed_epoch.unwrap(), 10);
-//    }
-//
-//    #[test]
-//    fn test_representatives_scenarios_a_b() {
-//        let selector = FakeWitnessSelector::new();
-//        tuplet!((a,b,c,d,e) = test_messages!(0=>0, 0=>1, 0=>2, 1=>3, 0=>1));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
-//        populate_messages!(0, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
-//
-//        assert!(a.borrow().computed_is_representative.unwrap());
-//        assert!(!b.borrow().computed_is_representative.unwrap());
-//        assert!(!c.borrow().computed_is_representative.unwrap());
-//        assert!(!d.borrow().computed_is_representative.unwrap());
-//        assert_eq!(e.borrow().computed_epoch.unwrap(), 1);
-//        assert!(e.borrow().computed_is_representative.unwrap());
-//    }
-//
-//    #[test]
-//    fn test_no_kickout() {
-//        let selector = FakeWitnessSelector::new();
-//        tuplet!((a,b,c,d,e) = test_messages!(0=>0, 0=>1, 0=>2, 1=>3, 0=>1));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
-//        populate_messages!(0, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
-//
-//        assert!(!a.borrow().computed_is_kickout.unwrap());
-//        assert!(!b.borrow().computed_is_kickout.unwrap());
-//        assert!(!c.borrow().computed_is_kickout.unwrap());
-//        assert!(!d.borrow().computed_is_kickout.unwrap());
-//        assert!(!e.borrow().computed_is_kickout.unwrap());
-//    }
-//
-//    #[test]
-//    fn test_kickout() {
-//        let selector = FakeWitnessSelector::new();
-//        tuplet!((a,b,c,d,e) = test_messages!(9=>0, 9=>1, 9=>2, 10=>3, 9=>1));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e);
-//        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true);
-//
-//        assert!(!a.borrow().computed_is_representative.unwrap());
-//        assert!(e.borrow().computed_is_kickout.unwrap());
-//    }
-//
-//    #[test]
-//    fn test_promise() {
-//        let selector = FakeWitnessSelector::new();
-//        tuplet!((a,b,c,d,e,f) = test_messages!(9=>0, 9=>1, 9=>2, 10=>3, 9=>1, 10=>2));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e, &e=>&f);
-//        populate_messages!(9, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true, &f=>true);
-//
-//        assert!(!a.borrow().computed_is_representative.unwrap());
-//        assert!(e.borrow().computed_is_kickout.unwrap());
-//        assert!(f.borrow().approved_promises.contains_epoch(&9));
-//    }
-//
-//    #[test]
-//    fn test_endorsement() {
-//        let selector = FakeWitnessSelector::new();
-//        tuplet!((a,b,c,d,e,f) = test_messages!(0=>0, 0=>1, 0=>2, 1=>3, 0=>1, 1=>2));
-//        link_messages!(&a=>&e, &b=>&e, &c=>&e, &d=>&e, &e=>&f);
-//        populate_messages!(0, selector, &a=>false, &b=>false, &c=>false, &d=>false, &e=>true, &f=>true);
-//
-//        assert!(a.borrow().computed_is_representative.unwrap());
-//        assert!(e.borrow().computed_is_representative.unwrap());
-//        assert!(f.borrow().approved_endorsements.contains_any_approval(&1, &2));
-//    }
-//}
