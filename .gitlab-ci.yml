@@ -1,4 +1,4 @@
-image: "rust:latest"
+image: "parity/rust:latest"
 
 cache:
     key: "${CI_JOB_NAME}"
