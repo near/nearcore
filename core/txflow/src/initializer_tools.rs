@@ -116,10 +116,4 @@ mod tests {
         assert_eq!(b, &2);
         assert_eq!(c, &3);
     }
-
-    #[test]
-    fn tuple_test_messages() {
-        let messages = test_messages!(1=>10, 2=>10, 3=>11);
-        tuplet!((_a,_b,_c) = messages);
-    }
 }
