@@ -111,6 +111,8 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
         }
     }
 
+    // Used in test only.
+    #[allow(dead_code)]
     pub fn contains_epoch(&self, epoch: &u64) -> bool {
         self.approvals_per_epoch.contains_key(epoch)
     }
