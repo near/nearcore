@@ -1,5 +1,5 @@
 use super::types;
-use std::hash;
+use hash::HashValue;
 
 pub trait VerifierLike {
    fn compute_state(&mut self, transactions: &[types::StatedTransaction]) -> types::State;
@@ -17,9 +17,8 @@ pub trait Decode: Sized {
 
 /// trait that abstracts ``Header"
 pub trait Header: Clone + Send + Sync + Encode + Decode + Eq + 'static {
-    type Hash: hash::Hash;
     // TODO: add methods
-    fn hash(&self) -> Self::Hash;
+    fn hash(&self) -> HashValue;
 }
 
 /// trait that abstracts ``block", ideally could be used for both beacon-chain blocks
@@ -27,11 +26,10 @@ pub trait Header: Clone + Send + Sync + Encode + Decode + Eq + 'static {
 pub trait Block: Clone + Send + Sync + Encode + Decode + Eq + 'static {
     type Header;
     type Body;
-    type Hash: hash::Hash;
 
     fn header(&self) -> &Self::Header;
     fn body(&self) -> &Self::Body;
     fn deconstruct(self) -> (Self::Header, Self::Body);
     fn new(header: Self::Header, body: Self::Body) -> Self;
-    fn hash(&self) -> Self::Hash;
+    fn hash(&self) -> HashValue;
 }
