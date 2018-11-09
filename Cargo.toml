@@ -16,6 +16,7 @@ serde_derive = "1.0"
 log = "0.4"
 env_logger = "0.5"
 parking_lot = "0.6"
+clap = "2.32.0"
 
 libp2p = { git = "https://github.com/tomaka/libp2p-rs", rev = "8111062f0177fd7423626f2db9560273644a4c4d", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
 substrate-network-libp2p = { path = "core/network-libp2p" }

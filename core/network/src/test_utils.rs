@@ -47,8 +47,5 @@ pub fn init_logger() {
     let mut builder = env_logger::Builder::new();
     builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
     builder.filter(None, log::LevelFilter::Info);
-    match builder.try_init() {
-        _ => ()
-    }
-
+    builder.try_init().unwrap_or(());
 }

@@ -46,15 +46,15 @@ impl<T: Transaction> Service<T> {
 }
 
 // disabled for testing
-//impl Drop for Service {
-//    fn drop(&mut self) {
-//        if let Some(handle) = self.bg_thread.take() {
-//            if let Err(e) = handle.join() {
-//                error!("Error while waiting on background thread: {:?}", e);
-//            }
-//        }
-//    }
-//}
+impl<T: Transaction> Drop for Service<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.bg_thread.take() {
+            if let Err(e) = handle.join() {
+                error!("Error while waiting on background thread: {:?}", e);
+            }
+        }
+    }
+}
 
 
 fn start_thread<T: Transaction>(
