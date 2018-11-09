@@ -61,7 +61,7 @@ pub struct Protocol<T: Transaction> {
     // info about peers
     pub(crate) peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     // transaction pool
-    pub(crate) tx_pool: Arc<Mutex<TransactionPool<T>>>,
+    pub tx_pool: Arc<Mutex<TransactionPool<T>>>,
 }
 
 impl<T: Transaction> Protocol<T>  {

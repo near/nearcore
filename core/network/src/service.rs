@@ -45,7 +45,6 @@ impl<T: Transaction> Service<T> {
     }
 }
 
-// disabled for testing
 impl<T: Transaction> Drop for Service<T> {
     fn drop(&mut self) {
         if let Some(handle) = self.bg_thread.take() {
@@ -57,7 +56,7 @@ impl<T: Transaction> Drop for Service<T> {
 }
 
 
-fn start_thread<T: Transaction>(
+pub fn start_thread<T: Transaction>(
     config: NetworkConfiguration, 
     protocol: Arc<Protocol<T>>, 
     registered: RegisteredProtocol
@@ -144,96 +143,4 @@ fn run_thread<T: Transaction>(
 			Ok(())
 		})
 		.map_err(|(r, _, _)| r)
-}
-
-
-#[cfg(test)]
-mod tests {
-    extern crate env_logger;
-
-    use super::*;
-    use test_utils::*;
-    use log;
-    use std::time;
-    use transaction_pool::Pool;
-    use primitives::types;
-    use rand::Rng;
-
-    impl<T: Transaction> Service<T> {
-        pub fn _new(
-            config: ProtocolConfig, 
-            net_config: NetworkConfiguration, 
-            protocol_id: ProtocolId,
-            tx_pool: Arc<Mutex<TransactionPool<T>>>
-            ) -> Arc<Service<T>> {
-            let version = [(protocol::CURRENT_VERSION) as u8];
-            let registered = RegisteredProtocol::new(protocol_id, &version);
-            let protocol = Arc::new(Protocol::new(config, tx_pool));
-            let (thread, network) = start_thread(net_config, protocol.clone(), registered).expect("start_thread shouldn't fail");
-            Arc::new(Service {
-                network: network,
-                protocol: protocol,
-                bg_thread: Some(thread)
-            })
-        }
-    }
-
-    fn create_services<T: Transaction>(num_services: u32) -> Vec<Arc<Service<T>>> {
-        let base_address = "/ip4/127.0.0.1/tcp/".to_string();
-        let base_port = rand::thread_rng().gen_range(30000, 80000);
-        let mut addresses = Vec::new();
-        for i in 0..num_services {
-            let port = base_port + i;
-            addresses.push(base_address.clone() + &port.to_string());
-        }
-        // spin up a root service that does not have bootnodes and 
-        // have other services have this service as their boot node
-        // may want to abstract this out to enable different configurations
-        let secret = create_secret();
-        let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-        let tx_pool = Arc::new(Mutex::new(Pool::new()));
-        let root_service = Service::_new(ProtocolConfig::default(), root_config, ProtocolId::default(), tx_pool);
-        let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
-        let mut services = vec![root_service];
-        for i in 1..num_services {
-            let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-            let tx_pool = Arc::new(Mutex::new(Pool::new()));
-            let service = Service::_new(ProtocolConfig::default(), config, ProtocolId::default(), tx_pool);
-            services.push(service);
-        }
-        services
-    }
-
-    #[test]
-    fn test_send_message() {
-        init_logger();
-        let services = create_services(2) as Vec<Arc<Service<types::SignedTransaction>>>;
-        thread::sleep(time::Duration::from_secs(1));
-        for service in services {
-            for peer in service.protocol.sample_peers(1) {
-                let message = fake_message();
-                service.protocol.send_message(&service.network, peer, message);
-            }
-        }
-        thread::sleep(time::Duration::from_secs(1));
-    }
-
-    #[test]
-    fn test_tx_pool() {
-        init_logger();
-        let services = create_services(2) as Vec<Arc<Service<types::SignedTransaction>>>;
-        thread::sleep(time::Duration::from_secs(1));
-        for service in services.clone() {
-            for peer in service.protocol.sample_peers(1) {
-                let message = fake_message();
-                service.protocol.send_message(&service.network, peer, message);
-            }
-        }
-        thread::sleep(time::Duration::from_secs(1));
-        for service in services {
-            let mut tx_pool = service.protocol.tx_pool.lock();
-            let txs = tx_pool.get();
-            assert_eq!(txs.len(), 1);
-        }
-    }
 }
