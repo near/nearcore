@@ -93,7 +93,7 @@ impl<'a, P: PayloadLike> PartialEq for Message<'a, P> {
 
 impl<'a, P: PayloadLike> Eq for Message<'a, P> {}
 
-impl<'a, P: PayloadLike> Borrow<u64> for Message<'a, P> {
+impl<'a, P: PayloadLike> Borrow<u64> for &'a Message<'a, P> {
     fn borrow(&self) -> &u64 {
         if !self.is_initialized {panic!(UNINITIALIZED_MESSAGE_ERR)}
         &self.computed_hash

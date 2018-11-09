@@ -1,7 +1,7 @@
 use primitives::traits::{PayloadLike, WitnessSelectorLike};
 use std::hash::{Hash, Hasher};
 
-#[derive(Hash)]
+#[derive(Hash, Clone)]
 pub struct FakePayload {}
 
 impl PayloadLike for FakePayload {

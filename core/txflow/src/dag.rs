@@ -1,29 +1,29 @@
 use primitives::types::*;
-use primitives::traits::{WitnessSelectorLike};
+use primitives::traits::{WitnessSelectorLike, PayloadLike};
 
 use std::collections::HashSet;
-use std::hash::Hash;
 
 use super::message::Message;
 use typed_arena::Arena;
 
+// TODO: This code has incorrect lifetimes. Fix it.
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes.
-pub struct DAG<'a, T: Hash, W: 'a+ WitnessSelectorLike> {
+pub struct DAG<'a, P: 'a + PayloadLike, W: 'a + WitnessSelectorLike> {
     /// UID of the node.
     owner_uid: u64,
-    arena: Arena<Message<'a, T>>,
+    arena: Arena<Message<'a, P>>,
     /// Stores all messages known to the current root.
-    messages: HashSet<&'a Message<'a, T>>,
+    messages: HashSet<&'a Message<'a, P>>,
     /// Stores all current roots.
-    roots: HashSet<&'a Message<'a, T>>,
+    roots: HashSet<&'a Message<'a, P>>,
 
     witness_selector: &'a W,
     starting_epoch: u64,
 }
 
-impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
+impl<'a, P: 'a + PayloadLike, W:'a+ WitnessSelectorLike> DAG<'a, P, W> {
     pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG{
             owner_uid,
@@ -36,31 +36,29 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
     }
 
     /// Verify that this message does not violate the protocol.
-    fn verify_message(&self, _message: &Message<T>) -> Result<(), &'static str> {
+    fn verify_message(&self, _message: &Message<'a, P>) -> Result<(), &'static str> {
         Ok({})
     }
 
     // Takes ownership of the message.
-    pub fn add_existing_message(&mut self, message_data: SignedMessageData<T>) -> Result<(), &'static str> {
+    pub fn add_existing_message(&'a mut self, message_data: SignedMessageData<P>) -> Result<(), &'static str> {
         // Check whether this is a new message.
-        if self.messages.contains_key(&message_data.hash) {
+        if self.messages.contains(&message_data.hash) {
             return Ok({})
         }
 
         // Wrap message data and connect to the parents so that the verification can be run.
         let mut message = Message::new(message_data);
-        let mut linked_parents: Vec<MessageRef<T>> = vec![];
-        for p_hash in message.data.body.parents {
+        for p_hash in &message.data.body.parents {
             if let Some(&p) = self.messages.get(p_hash) {
-                message.parents.push(p);
+                message.parents.insert(p);
             } else {
                 return Err("Some parents of the message are unknown");
             }
         }
 
         // Compute epochs, endorsements, etc.
-        message.populate_from_parents(true,
-                                      self.starting_epoch, self.witness_selector);
+        message.init(true, self.starting_epoch, self.witness_selector);
 
         // Verify the message.
         if let Err(e) = self.verify_message(&message) {
@@ -71,7 +69,7 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
         let message_ref = &*self.arena.alloc(message);
 
         self.messages.insert(message_ref);
-        for p in message_ref.parents {
+        for p in &message_ref.parents {
             self.roots.remove(p);
         }
         self.roots.insert(message_ref);
@@ -80,21 +78,21 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
     /// the endorsements.
-    pub fn create_root_message(&mut self, payload: T, endorsements: Vec<Endorsement>) {
+    pub fn create_root_message(&'a mut self, payload: P, endorsements: Vec<Endorsement>) {
         let mut message = Message::new(
             SignedMessageData {
                 owner_sig: 0,  // Will populate once the epoch is computed.
                 hash: 0,  // Will populate once the epoch is computed.
                 body: MessageDataBody {
                     owner_uid: self.owner_uid,
-                    parents: self.roots.into_iter().collect(),
+                    parents: (&self.roots).into_iter().map(|m| m.computed_hash).collect(),
                     epoch: 0,  // Will be computed later.
                     payload,
                     endorsements,
                 }
             }
         );
-        message.populate_from_parents(true, self.starting_epoch, self.witness_selector);
+        message.init(true, self.starting_epoch, self.witness_selector);
         message.assume_computed_hash_epoch();
 
         // Finally, take ownership of the new root.
@@ -108,49 +106,43 @@ impl<'a, T: Hash, W:'a+ WitnessSelectorLike> DAG<'a, T, W> {
 
 #[cfg(test)]
 mod tests {
-//    use super::*;
-//    use std::collections::HashSet;
-//    use ::testing_utils::{FakePayload, simple_message};
-//
-//    struct FakeWitnessSelector {
-//        schedule: HashMap<u64, HashSet<u64>>,
-//    }
-//    impl FakeWitnessSelector {
-//        fn new() -> FakeWitnessSelector {
-//            FakeWitnessSelector {
-//                schedule: map! { 0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4} }
-//            }
-//        }
-//    }
-//
-//    impl WitnessSelectorLike for FakeWitnessSelector {
-//        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
-//            self.schedule.get(&epoch).unwrap()
-//        }
-//        fn epoch_leader(&self, epoch: u64) -> u64 {
-//            *self.epoch_witnesses(epoch).iter().min().unwrap()
-//        }
-//    }
-//
-//    #[test]
-//    fn one_node_dag() {
-//        let selector = FakeWitnessSelector::new();
-//        let mut dag: DAG<FakePayload, FakeWitnessSelector> = DAG::new(0, 0, &selector);
-//        assert!(dag.add_existing_message(simple_message(0, 1)).is_ok());
-//    }
+    use super::*;
+    use std::collections::{HashSet, HashMap};
+    use typed_arena::Arena;
 
+    struct FakeWitnessSelector {
+        schedule: HashMap<u64, HashSet<u64>>,
+    }
 
-    use super::Arena;
-    struct V<'a> {
-        pub parents: Vec<&'a V<'a>>,
+    impl FakeWitnessSelector {
+        fn new() -> FakeWitnessSelector {
+            FakeWitnessSelector {
+                schedule: map!{
+               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+               2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}}
+            }
+        }
+    }
+
+    impl WitnessSelectorLike for FakeWitnessSelector {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+            self.schedule.get(&epoch).unwrap()
+        }
+        fn epoch_leader(&self, epoch: u64) -> u64 {
+            *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
     }
 
     #[test]
-    fn simple_graph() {
+    fn one_node_dag() {
+        let selector = FakeWitnessSelector::new();
         let arena = Arena::new();
-        let first = &*arena.alloc(V{parents: vec![]});
-        let second = &*arena.alloc(V{parents: vec![first]});
-        let third =  &*arena.alloc(V{parents: vec![first, second]});
-        let tmp = third.parents[1].parents[0];
+        let mut dag = DAG::new(0, 0, &selector);
+        let (a, b, c, d, e);
+        simple_bare_messages!(arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
+        simple_bare_messages!(arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
+        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        // TODO: Fix lifetimes.
+        //assert!(dag.add_existing_message((*b).clone()).is_ok());
     }
 }

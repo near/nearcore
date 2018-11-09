@@ -9,4 +9,4 @@ pub mod testing_utils;
 pub mod message;
 pub mod group;
 pub mod group_approvals;
-//pub mod dag;
+pub mod dag;

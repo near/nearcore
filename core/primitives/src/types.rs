@@ -87,7 +87,7 @@ pub struct ShardedEpochBlockBody {
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Clone)]
 pub struct Endorsement {
     pub epoch: u64,
     pub signature: u128
@@ -105,7 +105,7 @@ pub struct BeaconChainPayload {
 
 }
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: u64,
@@ -116,7 +116,7 @@ pub struct MessageDataBody<P> {
     pub endorsements: Vec<Endorsement>,
 }
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Clone)]
 pub struct SignedMessageData<P> {
     /// Signature of the hash.
     pub owner_sig: u128,
