@@ -6,6 +6,7 @@ extern crate serde;
 
 use parity_rocksdb::{DB, Writable};
 use bincode::{serialize, deserialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 
 pub struct Storage {
@@ -20,15 +21,14 @@ impl Storage {
         }
     }
 
-    pub fn put<T: serde::ser::Serialize>(&self, obj: T) -> primitives::hash::HashValue {
+    pub fn put<T: Serialize>(&self, obj: T) -> primitives::hash::HashValue {
         let header_data = serialize(&obj).unwrap();
         let header_key : Vec<u8> = primitives::hash::hash(&header_data).into();
         self.db.put(&header_key, &header_data).ok();
         primitives::hash::HashValue::new(&header_key)
     }
 
-    pub fn get<T>(&self, key: primitives::hash::HashValue) -> Option<T>
-       where for<'a> T: serde::Deserialize<'a> {
+    pub fn get<T: DeserializeOwned>(&self, key: primitives::hash::HashValue) -> Option<T> {
         let header_key : Vec<u8> = key.into();
         match self.db.get(&header_key) {
             Ok(Some(value)) => deserialize(&value).unwrap(),
