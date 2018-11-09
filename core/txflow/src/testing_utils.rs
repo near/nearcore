@@ -1,10 +1,10 @@
-use primitives::traits::{PayloadLike, WitnessSelectorLike};
+use primitives::traits::{Payload, WitnessSelector};
 use std::hash::{Hash, Hasher};
 
 #[derive(Hash, Clone)]
 pub struct FakePayload {}
 
-impl PayloadLike for FakePayload {
+impl Payload for FakePayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
@@ -35,7 +35,7 @@ pub fn simple_bare_message(owner_uid: u64, epoch: u64,
 pub fn simple_message<'a, W>(owner_uid: u64, epoch: u64,
                       parents: Vec<&'a ::message::Message<'a, FakePayload>>,
     recompute_epoch: bool, starting_epoch: u64, witness_selector: &W) -> ::message::Message<'a, FakePayload>
-    where W: WitnessSelectorLike {
+    where W: WitnessSelector {
     let body = ::primitives::types::MessageDataBody {
             owner_uid,
             parents: (&parents).into_iter().map(|m| m.computed_hash).collect(),
@@ -205,7 +205,7 @@ macro_rules! simple_messages {
 #[cfg(test)]
 mod tests {
     use std::collections::{HashSet, HashMap};
-    use primitives::traits::WitnessSelectorLike;
+    use primitives::traits::WitnessSelector;
     use typed_arena::Arena;
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
         }
     }
 
-    impl WitnessSelectorLike for FakeWitnessSelector {
+    impl WitnessSelector for FakeWitnessSelector {
         fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
             self.schedule.get(&epoch).unwrap()
         }

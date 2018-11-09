@@ -1,5 +1,5 @@
 use primitives::types::*;
-use primitives::traits::{WitnessSelectorLike, PayloadLike};
+use primitives::traits::{WitnessSelector, Payload};
 
 use std::collections::HashSet;
 
@@ -10,7 +10,7 @@ use typed_arena::Arena;
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes.
-pub struct DAG<'a, P: 'a + PayloadLike, W: 'a + WitnessSelectorLike> {
+pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// UID of the node.
     owner_uid: u64,
     arena: Arena<Message<'a, P>>,
@@ -23,7 +23,7 @@ pub struct DAG<'a, P: 'a + PayloadLike, W: 'a + WitnessSelectorLike> {
     starting_epoch: u64,
 }
 
-impl<'a, P: 'a + PayloadLike, W:'a+ WitnessSelectorLike> DAG<'a, P, W> {
+impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG{
             owner_uid,
@@ -124,7 +124,7 @@ mod tests {
         }
     }
 
-    impl WitnessSelectorLike for FakeWitnessSelector {
+    impl WitnessSelector for FakeWitnessSelector {
         fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
             self.schedule.get(&epoch).unwrap()
         }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use message::Message;
-use primitives::traits::PayloadLike;
+use primitives::traits::Payload;
 
 /// A group of messages associated that satisfy certain criteria.
 /// Examples:
@@ -8,7 +8,7 @@ use primitives::traits::PayloadLike;
 /// * kickout message(s) that kickout epoch X (again, more than one if there is a fork);
 /// * messages of epoch X (it is perfectly normal to have multiple of them).
 #[derive(Debug)]
-pub struct Group<'a, P: 'a + PayloadLike> {
+pub struct Group<'a, P: 'a + Payload> {
     /// Messages aggregated by owner uid.
     pub messages_by_owner: HashMap<u64, HashSet<&'a Message<'a, P>>>,
     pub v: HashSet<&'a Message<'a, P>>,
@@ -16,7 +16,7 @@ pub struct Group<'a, P: 'a + PayloadLike> {
 
 // TODO: Create alternative of Group called SingleOwnerGroup with {owner_uid: u64, messages: HashSet<...>}
 // that is more efficient to use for representative messages and kickout messages.
-impl<'a, P: 'a + PayloadLike> Group<'a, P> {
+impl<'a, P: 'a + Payload> Group<'a, P> {
     pub fn new() -> Self {
         Group {
             messages_by_owner: HashMap::new(),
@@ -45,7 +45,7 @@ impl<'a, P: 'a + PayloadLike> Group<'a, P> {
     }
 }
 
-impl<'a, P: 'a + PayloadLike> Clone for Group<'a, P> {
+impl<'a, P: 'a + Payload> Clone for Group<'a, P> {
     fn clone(&self) -> Self {
         Group {
             messages_by_owner: self.messages_by_owner.clone(),
@@ -56,11 +56,11 @@ impl<'a, P: 'a + PayloadLike> Clone for Group<'a, P> {
 
 /// Mapping of groups to epochs.
 #[derive(Debug)]
-pub struct GroupsPerEpoch<'a, P: 'a + PayloadLike> {
+pub struct GroupsPerEpoch<'a, P: 'a + Payload> {
     pub messages_by_epoch: HashMap<u64, Group<'a, P>>,
 }
 
-impl<'a, P: 'a + PayloadLike> GroupsPerEpoch<'a, P> {
+impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
     pub fn new() -> Self {
         GroupsPerEpoch {
             messages_by_epoch: HashMap::new(),

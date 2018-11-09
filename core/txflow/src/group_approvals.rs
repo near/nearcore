@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use message::Message;
-use primitives::traits::{PayloadLike, WitnessSelectorLike};
+use primitives::traits::{Payload, WitnessSelector};
 
 use super::group::{Group, GroupsPerEpoch};
 
@@ -10,12 +10,12 @@ use super::group::{Group, GroupsPerEpoch};
 /// * endorsements of representative message(s) of epoch X.
 /// * promises of kickout(s) of epoch X.
 #[derive(Debug)]
-pub struct GroupApprovals<'a, P: 'a + PayloadLike> {
+pub struct GroupApprovals<'a, P: 'a + Payload> {
     /// Message being approved -> (owner uid -> message that do the approval).
     pub approvals: HashMap<&'a Message<'a, P>, Group<'a, P>>,
 }
 
-impl<'a, P: 'a + PayloadLike> GroupApprovals<'a, P> {
+impl<'a, P: 'a + Payload> GroupApprovals<'a, P> {
     pub fn new() -> Self {
         GroupApprovals {
             approvals: HashMap::new(),
@@ -52,11 +52,11 @@ impl<'a, P: 'a + PayloadLike> GroupApprovals<'a, P> {
 
 /// Mapping of group approvals to epochs that they approve.
 #[derive(Debug)]
-pub struct GroupApprovalPerEpoch<'a, P: 'a + PayloadLike> {
+pub struct GroupApprovalPerEpoch<'a, P: 'a + Payload> {
     approvals_per_epoch: HashMap<u64, GroupApprovals<'a, P>>,
 }
 
-impl<'a, P: 'a + PayloadLike> GroupApprovalPerEpoch<'a, P> {
+impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
     pub fn new() -> Self {
         GroupApprovalPerEpoch {
             approvals_per_epoch: HashMap::new(),
@@ -121,7 +121,7 @@ impl<'a, P: 'a + PayloadLike> GroupApprovalPerEpoch<'a, P> {
                                          complementary_approvals: &GroupsPerEpoch<'a, P>,
                                          complementary_owner_uid: u64,
                                          witness_selector: &W) -> GroupsPerEpoch<'a, P>
-        where W: WitnessSelectorLike {
+        where W: WitnessSelector {
         let mut result = GroupsPerEpoch::new();
         for (epoch, per_epoch) in &self.approvals_per_epoch {
             let epoch_witnesses = witness_selector.epoch_witnesses(*epoch);

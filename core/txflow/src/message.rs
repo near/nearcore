@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
-use primitives::traits::{WitnessSelectorLike, PayloadLike};
+use primitives::traits::{WitnessSelector, Payload};
 use primitives::types;
 use super::group::GroupsPerEpoch;
 use super::group_approvals::GroupApprovalPerEpoch;
@@ -13,7 +13,7 @@ static UNINITIALIZED_MESSAGE_ERR: &'static str = "This usage of the message requ
 /// Represents the message of the DAG, T is the payload parameter. For in-shard TxFlow and
 /// beacon-chain TxFlow T takes different values.
 #[derive(Debug)]
-pub struct Message<'a, P: 'a + PayloadLike> {
+pub struct Message<'a, P: 'a + Payload> {
     pub data: types::SignedMessageData<P>,
 
     pub parents: HashSet<&'a Message<'a, P>>,
@@ -77,30 +77,30 @@ pub struct Message<'a, P: 'a + PayloadLike> {
     //   does not endorse itself and is considered to be a recoverable deviation from the protocol.
 }
 
-impl<'a, P: PayloadLike> Hash for Message<'a, P> {
+impl<'a, P: Payload> Hash for Message<'a, P> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         if !self.is_initialized {panic!(UNINITIALIZED_MESSAGE_ERR)}
         state.write_u64(self.computed_hash);
     }
 }
 
-impl<'a, P: PayloadLike> PartialEq for Message<'a, P> {
+impl<'a, P: Payload> PartialEq for Message<'a, P> {
     fn eq(&self, other: &Message<'a, P>) -> bool {
         if !self.is_initialized || !other.is_initialized {panic!(UNINITIALIZED_MESSAGE_ERR)}
         self.computed_hash == other.computed_hash
     }
 }
 
-impl<'a, P: PayloadLike> Eq for Message<'a, P> {}
+impl<'a, P: Payload> Eq for Message<'a, P> {}
 
-impl<'a, P: PayloadLike> Borrow<u64> for &'a Message<'a, P> {
+impl<'a, P: Payload> Borrow<u64> for &'a Message<'a, P> {
     fn borrow(&self) -> &u64 {
         if !self.is_initialized {panic!(UNINITIALIZED_MESSAGE_ERR)}
         &self.computed_hash
     }
 }
 
-impl<'a, P: PayloadLike> Message<'a, P> {
+impl<'a, P: Payload> Message<'a, P> {
     pub fn new(data: types::SignedMessageData<P>) -> Message<'a, P > {
         Message {
             data,
@@ -175,7 +175,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
 
     /// Determines whether the epoch of the current message should increase.
     fn should_promote<W>(&self, prev_epoch: u64, witness_selector: &W) -> bool
-        where W : WitnessSelectorLike {
+        where W : WitnessSelector {
         match self.approved_epochs.filter_by_epoch(prev_epoch) {
             None => false,
             Some(epoch_messages) => {
@@ -196,7 +196,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
     /// c) Let Y, Y<X be either 0 or the epoch of the previous representative message, whichever is
     ///    greater. Then we need all kickout messages between Y and X exclusive to have >2/3 promises.
     fn is_representative<W>(&self, _witness_selector: &W) -> bool
-    where W: WitnessSelectorLike {
+    where W: WitnessSelector {
         if self.computed_epoch == 0 {
             // Scenario (a).
             true
@@ -239,7 +239,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
     /// The message is a kickout message for epoch X-1 if this is the first message of the epoch's
     /// leader in the epoch X that does not approve the representative message of the epoch X-1.
     fn is_kickout<W>(&self, _witness_selector: &W) -> bool
-    where W: WitnessSelectorLike {
+    where W: WitnessSelector {
         self.computed_epoch > 0
             && !self.approved_representatives.contains_epoch(self.computed_epoch-1)
     }
@@ -260,7 +260,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
     /// tie by making it an endorsement. Implementation-wise, this is resolved by computing
     /// endorsements before promises.
     fn compute_endorsements<W>(&mut self, witness_selector: &W) -> GroupsPerEpoch<'a, P>
-        where W : WitnessSelectorLike {
+        where W : WitnessSelector {
         let owner_uid = &self.data.body.owner_uid;
 
         let mut result = GroupsPerEpoch::new();
@@ -291,7 +291,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
     /// * it does not approve a kickout by the same owner for the same representative message.
     /// Note, a kickout is a promise to itself.
     fn compute_promises<W>(&mut self, witness_selector: &W) -> GroupsPerEpoch<'a, P>
-        where W : WitnessSelectorLike {
+        where W : WitnessSelector {
         let owner_uid = &self.data.body.owner_uid;
         // We do not need to subtract endorsements, because we check if we approved representatives.
         let mut result = GroupsPerEpoch::new();
@@ -320,7 +320,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
     pub fn init<W>(&mut self,
                    recompute_epoch: bool,
                    starting_epoch: u64,
-                   witness_selector: &W) where W : WitnessSelectorLike {
+                   witness_selector: &W) where W : WitnessSelector {
         let owner_uid = self.data.body.owner_uid;
         self.aggregate_parents();
 
@@ -376,7 +376,7 @@ impl<'a, P: PayloadLike> Message<'a, P> {
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
-    use primitives::traits::WitnessSelectorLike;
+    use primitives::traits::WitnessSelector;
     use typed_arena::Arena;
 
     struct FakeWitnessSelector {
@@ -393,7 +393,7 @@ mod tests {
         }
     }
 
-    impl WitnessSelectorLike for FakeWitnessSelector {
+    impl WitnessSelector for FakeWitnessSelector {
         fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
             self.schedule.get(&epoch).unwrap()
         }
