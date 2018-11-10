@@ -69,8 +69,8 @@ pub fn main() {
         net_config = test_config(&addr, vec![boot_node]);
     }
     let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
-    let service = match Service::new(ProtocolConfig::default(), net_config, ProtocolId::default(), tx_pool) {
-        Ok(s) => s,
-        Err(e) => panic!("Error in starting network service: {:?}", e)
-    };
+    let service = Service::new(ProtocolConfig::default(), net_config, ProtocolId::default(), tx_pool)
+        .unwrap_or_else(|e| {
+            panic!("service failed to start: {:?}", e);
+        });
 }
