@@ -60,7 +60,7 @@ pub struct State {
 
 // 3. Epoch blocks produced by verifiers running inside a shard.
 
-#[derive(Hash, Debug, Serialize, Hash)]
+#[derive(Hash, Debug, Serialize, Deserialize)]
 pub struct EpochBlockHeader {
     pub shard_id: u32,
     pub verifier_epoch: u64,
