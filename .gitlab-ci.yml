@@ -10,12 +10,11 @@ variables:
 cache:
     key: "${CI_JOB_NAME}"
     paths:
-        - ./target/
-        - ./.cargo/
+        - target/
+        - cargo/
 
 test:cargo:
     stage: test
     script:
     - rustc --version && cargo --version
     - cargo test --all --verbose -- --test-threads=1
-
