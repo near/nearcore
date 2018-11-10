@@ -1,4 +1,3 @@
-
 extern crate parity_rocksdb;
 extern crate bincode;
 extern crate primitives;
@@ -23,13 +22,13 @@ impl Storage {
 
     pub fn put<T: Serialize>(&self, obj: T) -> primitives::hash::HashValue {
         let header_data = serialize(&obj).unwrap();
-        let header_key : Vec<u8> = primitives::hash::hash(&header_data).into();
+        let header_key: Vec<u8> = primitives::hash::hash(&header_data).into();
         self.db.put(&header_key, &header_data).ok();
         primitives::hash::HashValue::new(&header_key)
     }
 
     pub fn get<T: DeserializeOwned>(&self, key: primitives::hash::HashValue) -> Option<T> {
-        let header_key : Vec<u8> = key.into();
+        let header_key: Vec<u8> = key.into();
         match self.db.get(&header_key) {
             Ok(Some(value)) => deserialize(&value).unwrap(),
             Ok(None) => None,

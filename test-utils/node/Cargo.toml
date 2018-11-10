@@ -1,0 +1,24 @@
+[package]
+name = "test-node"
+version = "0.1.0"
+
+[[bin]]
+name = "test-node"
+path = "src/main.rs"
+
+[dependencies]
+clap = "2.32.0"
+env_logger = "0.5"
+futures = "0.1"
+libp2p = { git = "https://github.com/tomaka/libp2p-rs", rev = "8111062f0177fd7423626f2db9560273644a4c4d", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
+log = "0.4"
+parking_lot = "0.6"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+tokio = "0.1"
+
+network = { path = "../../core/network" }
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+substrate-network-libp2p = { path = "../../core/network-libp2p" }
