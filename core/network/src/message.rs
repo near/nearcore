@@ -10,9 +10,6 @@ pub enum MessageBody<T> {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Message<T> {
-    pub src: u32,
-    pub dst: u32,
-    pub channel: String,
     pub body: MessageBody<T>,
 }
 
@@ -25,22 +22,9 @@ pub struct Status {
 }
 
 impl<T> Message<T> {
-    pub fn new(src: u32, dst: u32, channel: &str, body: MessageBody<T>) -> Message<T> {
+    pub fn new(body: MessageBody<T>) -> Message<T> {
         Message {
-            src,
-            dst,
             body,
-            channel: channel.to_string()
-        }
-    }
-
-    /// for now, we are not using the other fields.
-    pub fn new_default(body: MessageBody<T>) -> Message<T> {
-        Message {
-            src: 0,
-            dst: 0,
-            channel: String::new(),
-            body
         }
     }
 }
