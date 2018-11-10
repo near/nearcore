@@ -266,11 +266,11 @@ impl<'a, P: Payload> Message<'a, P> {
         let mut result = GroupsPerEpoch::new();
         for (epoch, reprs) in &self.approved_representatives.messages_by_epoch {
             // Skip if the message's owner has this message outside its schedule.
-            if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) {continue};
+            if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) { continue };
             // Check if we gave a promise to a kickout in this epoch.
-            if self.approved_promises.contains_any_approval(epoch, owner_uid) {continue};
+            if self.approved_promises.contains_any_approval(epoch, owner_uid) { continue };
             // Check if we endorsed representative with higher epoch.
-            if self.approved_endorsements.contains_any_future_approvals(epoch, owner_uid) {continue};
+            if self.approved_endorsements.contains_any_future_approvals(epoch, owner_uid) { continue };
             for (_repr_owner_uid, owner_repr) in &reprs.messages_by_owner {
                 for repr in owner_repr {
                     // Check if we already gave an endorsement to exactly the same representative.
@@ -297,12 +297,12 @@ impl<'a, P: Payload> Message<'a, P> {
         let mut result = GroupsPerEpoch::new();
         for (epoch, kickouts) in &self.approved_kickouts.messages_by_epoch {
             // Skip if the message's owner has this message outside its schedule.
-            if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) {continue};
+            if !witness_selector.epoch_witnesses(*epoch).contains(owner_uid) { continue };
             // Ignore kickouts for epochs for which we have representative messages.
-            if self.approved_representatives.contains_epoch(*epoch) {continue};
+            if self.approved_representatives.contains_epoch(*epoch) { continue };
             // Check if we endorsed this epoch.
             if self.approved_endorsements.contains_any_approval(epoch, owner_uid)
-                || self.computed_endorsements.contains_epoch(*epoch) {continue};
+                || self.computed_endorsements.contains_epoch(*epoch) { continue };
             for (_kickout_owner_uid, owner_kickout) in &kickouts.messages_by_owner {
                 for kickout in owner_kickout {
                     // Check if we already gave a promise to exactly the same kickout.
