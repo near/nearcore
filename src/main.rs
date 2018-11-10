@@ -12,8 +12,6 @@ extern crate parking_lot;
 #[macro_use]
 extern crate clap;
 
-mod example;
-
 use env_logger::Builder;
 use substrate_network_libp2p::ProtocolId;
 use network::{
