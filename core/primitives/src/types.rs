@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 // 1. Transaction structs.
 
 #[derive(Hash, Debug)]
@@ -116,7 +117,7 @@ pub struct MessageDataBody<P> {
     pub endorsements: Vec<Endorsement>,
 }
 
-#[derive(Hash, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct SignedMessageData<P> {
     /// Signature of the hash.
     pub owner_sig: u128,
@@ -124,6 +125,13 @@ pub struct SignedMessageData<P> {
     pub hash: u64,
     pub body: MessageDataBody<P>,
 }
+
+impl<P> Hash for SignedMessageData<P> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
 
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {
