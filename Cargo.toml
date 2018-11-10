@@ -34,4 +34,5 @@ members = [
     "core/storage",
     "core/runtime",
     "core/client",
+    "core/txflow",
 ]
