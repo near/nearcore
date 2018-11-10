@@ -1,0 +1,10 @@
+[package]
+name = "storage"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+serde = "1.0"
+parity-rocksdb = "0.5"
+primitives = { path = "../primitives" }
+bincode = "1.0.0"
