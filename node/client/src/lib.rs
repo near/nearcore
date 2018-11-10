@@ -13,12 +13,14 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(genesis: EpochBlockHeader, runtime: Runtime, storage: Storage) -> Self {
+    pub fn new(genesis: EpochBlockHeader,
+               runtime: Runtime,
+               storage: Storage) -> Self {
         let last_header = storage.put(genesis);
         Client {
-            runtime: runtime,
-            storage: storage,
-            last_header: last_header,
+            runtime,
+            storage,
+            last_header,
         }
     }
 

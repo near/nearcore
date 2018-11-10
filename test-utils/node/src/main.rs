@@ -1,5 +1,6 @@
+#![allow(unused_mut,unused_variables)]
+
 extern crate env_logger;
-#[macro_use]
 extern crate log;
 extern crate network;
 extern crate substrate_network_libp2p;
@@ -15,8 +16,8 @@ extern crate clap;
 use env_logger::Builder;
 use substrate_network_libp2p::ProtocolId;
 use network::{
-    service::Service, protocol::ProtocolConfig, test_utils::*, transaction_pool::Pool
-    };
+    service::Service, protocol::ProtocolConfig, test_utils::*, transaction_pool::Pool,
+};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use primitives::types;
@@ -53,7 +54,7 @@ pub fn main() {
     let port = matches.value_of("port").unwrap_or("30000");
     let is_root = value_t!(matches, "is_root", bool).unwrap();
     let root_port = matches.value_of("root_port").unwrap();
-    
+
     let mut storage = storage::Storage::new(format!("storage/db-{}/", port));
 
     // start network service
