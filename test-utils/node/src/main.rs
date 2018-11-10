@@ -61,16 +61,11 @@ pub fn main() {
     } else {
         let boot_node = root_addr + "/p2p/" + &raw_key_to_peer_id_str(create_secret());
         println!("boot node: {}", boot_node);
-        test_config(&addr, vec![boot_node])
-    };
-    let tx_pool = Arc::new(Mutex::new(Pool::default() as Pool<types::SignedTransaction>));
-    let service = match Service::new(
-        ProtocolConfig::default(),
-        net_config,
-        ProtocolId::default(),
-        tx_pool,
-    ) {
-        Ok(s) => s,
-        Err(e) => panic!("Error in starting network service: {:?}", e),
-    };
+        net_config = test_config(&addr, vec![boot_node]);
+    }
+    let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
+    let service = Service::new(ProtocolConfig::default(), net_config, ProtocolId::default(), tx_pool)
+        .unwrap_or_else(|e| {
+            panic!("service failed to start: {:?}", e);
+        });
 }
