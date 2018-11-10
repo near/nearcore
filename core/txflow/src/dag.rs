@@ -25,7 +25,7 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
-        DAG{
+        DAG {
             owner_uid,
             arena: Arena::new(),
             messages: HashSet::new(),
