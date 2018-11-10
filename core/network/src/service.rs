@@ -32,7 +32,7 @@ impl<T: Transaction> Service<T> {
         net_config: NetworkConfiguration, 
         protocol_id: ProtocolId,
         tx_pool: Arc<Mutex<TransactionPool<T>>>
-        ) -> Result<Arc<Service<T>>, Error> {
+    ) -> Result<Arc<Service<T>>, Error> {
         let version = [(protocol::CURRENT_VERSION) as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, tx_pool));
@@ -60,7 +60,7 @@ pub fn start_thread<T: Transaction>(
     config: NetworkConfiguration, 
     protocol: Arc<Protocol<T>>, 
     registered: RegisteredProtocol
-    ) -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
+) -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
 
     let service = match start_service(config, Some(registered)) {
         Ok(service) => Arc::new(Mutex::new(service)),
@@ -87,7 +87,7 @@ pub fn start_thread<T: Transaction>(
 fn run_thread<T: Transaction>(
     network_service: Arc<Mutex<NetworkService>>, 
     protocol: Arc<Protocol<T>>
-    ) -> impl Future<Item = (), Error = io::Error> {
+) -> impl Future<Item = (), Error = io::Error> {
 
     let network_service1 = network_service.clone();
     let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({

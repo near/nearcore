@@ -79,7 +79,7 @@ impl<T: Transaction> Protocol<T>  {
         let status = Status {
             version: CURRENT_VERSION,
         };
-        let message = Message::new_default(MessageBody::Status(status));
+        let message = Message::new(MessageBody::Status(status));
         self.send_message(network, peer, message);
     }
 
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
-        let message = Message::new_default(MessageBody::Transaction(tx));
+        let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
         let protocol = Protocol::new(config, tx_pool);

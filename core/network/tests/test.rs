@@ -30,7 +30,7 @@ impl Service {
         net_config: NetworkConfiguration, 
         protocol_id: ProtocolId,
         tx_pool: Arc<Mutex<TransactionPool<SignedTransaction>>>
-        ) -> Arc<Service> {
+    ) -> Arc<Service> {
         let version = [1 as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, tx_pool));
@@ -77,7 +77,7 @@ fn test_send_message() {
     thread::sleep(time::Duration::from_secs(1));
     for service in services {
         for peer in service.protocol.sample_peers(1) {
-            let message = fake_message();
+            let message = fake_tx_message();
             service.protocol.send_message(&service.network, peer, message);
         }
     }
@@ -91,7 +91,7 @@ fn test_tx_pool() {
     thread::sleep(time::Duration::from_secs(1));
     for service in services.clone() {
         for peer in service.protocol.sample_peers(1) {
-            let message = fake_message();
+            let message = fake_tx_message();
             service.protocol.send_message(&service.network, peer, message);
         }
     }
