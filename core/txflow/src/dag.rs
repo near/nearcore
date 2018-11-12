@@ -144,6 +144,6 @@ mod tests {
         simple_bare_messages!(data_arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
         assert!(dag.add_existing_message((*a).clone()).is_ok());
         // TODO: Fix lifetimes.
-        //assert!(dag.add_existing_message((*b).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone()).is_ok());
     }
 }
