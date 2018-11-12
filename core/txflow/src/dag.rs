@@ -13,7 +13,7 @@ use typed_arena::Arena;
 pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// UID of the node.
     owner_uid: u64,
-    arena: Arena<Message<'a, P>>,
+    arena: &'a Arena<Message<'a, P>>,
     /// Stores all messages known to the current root.
     messages: HashSet<&'a Message<'a, P>>,
     /// Stores all current roots.
@@ -24,10 +24,10 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
-    pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
+    pub fn new(arena: &'a Arena<Message<'a, P>>, owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
-            arena: Arena::new(),
+            arena,
             messages: HashSet::new(),
             roots: HashSet::new(),
             witness_selector,
@@ -41,7 +41,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     }
 
     // Takes ownership of the message.
-    pub fn add_existing_message(&'a mut self, message_data: SignedMessageData<P>) -> Result<(), &'static str> {
+    pub fn add_existing_message(&mut self, message_data: SignedMessageData<P>) -> Result<(), &'static str> {
         // Check whether this is a new message.
         if self.messages.contains(&message_data.hash) {
             return Ok({})
@@ -78,7 +78,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
     /// the endorsements.
-    pub fn create_root_message(&'a mut self, payload: P, endorsements: Vec<Endorsement>) {
+    pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) {
         let mut message = Message::new(
             SignedMessageData {
                 owner_sig: 0,  // Will populate once the epoch is computed.
@@ -137,10 +137,11 @@ mod tests {
     fn one_node_dag() {
         let selector = FakeWitnessSelector::new();
         let arena = Arena::new();
-        let mut dag = DAG::new(0, 0, &selector);
+        let data_arena = Arena::new();
+        let mut dag = DAG::new(&arena, 0, 0, &selector);
         let (a, b, c, d, e);
-        simple_bare_messages!(arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
-        simple_bare_messages!(arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
+        simple_bare_messages!(data_arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
+        simple_bare_messages!(data_arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
         assert!(dag.add_existing_message((*a).clone()).is_ok());
         // TODO: Fix lifetimes.
         //assert!(dag.add_existing_message((*b).clone()).is_ok());
