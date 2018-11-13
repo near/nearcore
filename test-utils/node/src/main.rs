@@ -1,8 +1,12 @@
 #![allow(unused_mut, unused_variables)]
 
 extern crate env_logger;
+<<<<<<< HEAD
 extern crate futures;
 extern crate libp2p;
+=======
+#[macro_use]
+>>>>>>> add transaction thread to test node
 extern crate log;
 extern crate network;
 extern crate parking_lot;
@@ -15,11 +19,17 @@ extern crate clap;
 
 use clap::{App, Arg};
 use env_logger::Builder;
-use network::{protocol::ProtocolConfig, service::Service, test_utils::*, transaction_pool::Pool};
-use parking_lot::Mutex;
-use primitives::types;
-use std::sync::Arc;
 use substrate_network_libp2p::ProtocolId;
+use network::{
+    service::Service, protocol::{ProtocolConfig, TransactionPool}, 
+    test_utils::*, transaction_pool::Pool,
+};
+use std::sync::Arc;
+use std::time::Duration;
+use primitives::types;
+use clap::{Arg, App};
+use futures::{Future, Stream};
+use tokio::timer::Interval;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -28,6 +38,7 @@ fn create_addr(host: &str, port: &str) -> String {
 pub fn main() {
     let mut builder = Builder::new();
     builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+    builder.filter(Some("main"), log::LevelFilter::Debug);
     builder.filter(None, log::LevelFilter::Info);
     builder.init();
 
@@ -63,9 +74,24 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         net_config = test_config(&addr, vec![boot_node]);
     }
-    let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
-    let service = Service::new(ProtocolConfig::default(), net_config, ProtocolId::default(), tx_pool)
+    let tx_pool = Arc::new(Pool::new() as Pool<types::SignedTransaction>);
+    let service = Service::new(ProtocolConfig::default(), net_config, ProtocolId::default(), tx_pool.clone())
         .unwrap_or_else(|e| {
             panic!("service failed to start: {:?}", e);
         });
+
+    // a test thread that generates transactions and put them in transaction pool
+    //let mut runtime = Runtime::new().unwrap();
+    let tx_stream = Interval::new_interval(Duration::from_secs(1)).for_each({
+        let tx_pool = tx_pool.clone();
+        move |_| { 
+            let tx = types::SignedTransaction::default();
+            tx_pool.put(tx);
+            debug!(target: "main", "tx pool size: {}", tx_pool.size());
+            Ok(()) 
+        }
+    })
+    .map_err(|_| ());
+
+    tokio::run(tx_stream);
 }

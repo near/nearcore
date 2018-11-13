@@ -27,4 +27,8 @@ impl<T> Pool<T> {
             data: RwLock::new(Vec::new())
         }
     }
+
+    pub fn size(&self) -> usize {
+        self.data.read().len()
+    }
 }
