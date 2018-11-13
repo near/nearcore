@@ -6,14 +6,15 @@ use std::collections::HashSet;
 use super::message::Message;
 use typed_arena::Arena;
 
-// TODO: This code has incorrect lifetimes. Fix it.
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes.
+/// It uses unsafe code to implement a self-referential struct and the interface makes sure that
+/// the references never outlive the instances.
 pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// UID of the node.
     owner_uid: u64,
-    arena: &'a Arena<Message<'a, P>>,
+    arena: Arena<Message<'a, P>>,
     /// Stores all messages known to the current root.
     messages: HashSet<&'a Message<'a, P>>,
     /// Stores all current roots.
@@ -24,10 +25,10 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
-    pub fn new(arena: &'a Arena<Message<'a, P>>, owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
+    pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
-            arena,
+            arena: Arena::new(),
             messages: HashSet::new(),
             roots: HashSet::new(),
             witness_selector,
@@ -66,13 +67,13 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
 
         // Finally, take ownership of the message and update the roots.
-        let message_ref = &*self.arena.alloc(message);
-
-        self.messages.insert(message_ref);
-        for p in &message_ref.parents {
+        for p in &message.parents {
             self.roots.remove(p);
         }
-        self.roots.insert(message_ref);
+
+        let message_ptr = self.arena.alloc(message) as *const Message<'a, P>;
+        self.messages.insert(unsafe{&*message_ptr});
+        self.roots.insert(unsafe{&*message_ptr});
         Ok({})
     }
 
@@ -96,10 +97,10 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         message.assume_computed_hash_epoch();
 
         // Finally, take ownership of the new root.
-        let message_ref = &*self.arena.alloc(message);
-        self.messages.insert(message_ref);
+        let message_ptr = self.arena.alloc(message) as *const Message<'a, P>;
+        self.messages.insert(unsafe{ &*message_ptr});
         self.roots.clear();
-        self.roots.insert(message_ref);
+        self.roots.insert(unsafe{ &*message_ptr});
     }
 }
 
@@ -136,9 +137,8 @@ mod tests {
     #[test]
     fn one_node_dag() {
         let selector = FakeWitnessSelector::new();
-        let arena = Arena::new();
         let data_arena = Arena::new();
-        let mut dag = DAG::new(&arena, 0, 0, &selector);
+        let mut dag = DAG::new(0, 0, &selector);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
         simple_bare_messages!(data_arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
