@@ -31,7 +31,7 @@ impl<T: Transaction> Service<T> {
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
-        tx_pool: Arc<Mutex<TransactionPool<T>>>,
+        tx_pool: Arc<TransactionPool<T>>
     ) -> Result<Arc<Service<T>>, Error> {
         let version = [(protocol::CURRENT_VERSION) as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);

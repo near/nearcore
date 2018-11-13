@@ -28,7 +28,7 @@ impl Service {
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
-        tx_pool: Arc<Mutex<TransactionPool<SignedTransaction>>>,
+        tx_pool: Arc<TransactionPool<SignedTransaction>>
     ) -> Arc<Service> {
         let version = [1 as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
@@ -52,24 +52,14 @@ fn create_services(num_services: u32) -> Vec<Arc<Service>> {
     // may want to abstract this out to enable different configurations
     let secret = create_secret();
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-    let tx_pool = Arc::new(Mutex::new(Pool::default()));
-    let root_service = Service::new(
-        ProtocolConfig::default(),
-        root_config,
-        ProtocolId::default(),
-        tx_pool,
-    );
+    let tx_pool = Arc::new(Pool::new());
+    let root_service = Service::new(ProtocolConfig::default(), root_config, ProtocolId::default(), tx_pool);
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-        let tx_pool = Arc::new(Mutex::new(Pool::default()));
-        let service = Service::new(
-            ProtocolConfig::default(),
-            config,
-            ProtocolId::default(),
-            tx_pool,
-        );
+        let tx_pool = Arc::new(Pool::new());
+        let service = Service::new(ProtocolConfig::default(), config, ProtocolId::default(), tx_pool);
         services.push(service);
     }
     services
@@ -106,8 +96,7 @@ fn test_tx_pool() {
     }
     thread::sleep(time::Duration::from_secs(1));
     for service in services {
-        let mut tx_pool = service.protocol.tx_pool.lock();
-        let txs = tx_pool.get();
+        let txs = service.protocol.tx_pool.get();
         assert_eq!(txs.len(), 1);
     }
 }
