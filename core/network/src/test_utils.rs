@@ -1,5 +1,7 @@
-use libp2p::{Multiaddr, secio, PeerId};
-use substrate_network_libp2p::{Secret, NetworkConfiguration};
+#![allow(dead_code)]
+
+use libp2p::{Multiaddr, secio};
+use substrate_network_libp2p::{Secret, PeerId, NetworkConfiguration};
 use message::{Message, MessageBody};
 use primitives::types;
 
@@ -43,9 +45,11 @@ pub fn fake_tx_message() -> Message<types::SignedTransaction> {
     Message::new(MessageBody::Transaction(tx))
 }
 
-pub fn init_logger() {
+pub fn init_logger(debug: bool) {
     let mut builder = env_logger::Builder::new();
-    builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+    if debug {
+        builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+    }
     builder.filter(None, log::LevelFilter::Info);
     builder.try_init().unwrap_or(());
 }

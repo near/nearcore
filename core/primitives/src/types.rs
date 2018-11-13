@@ -43,7 +43,7 @@ impl Default for TransactionBody {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
     hash: CryptoHash,
