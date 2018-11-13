@@ -15,7 +15,7 @@ use serde::{Serialize, de::DeserializeOwned};
 const REQUEST_WAIT: u64 = 60;
 
 /// current version of the protocol
-pub (crate) const CURRENT_VERSION: u32 = 1;
+pub(crate) const CURRENT_VERSION: u32 = 1;
 
 pub struct ProtocolConfig {
     // config information goes here
@@ -64,7 +64,7 @@ pub struct Protocol<T: Transaction> {
     pub tx_pool: Arc<Mutex<TransactionPool<T>>>,
 }
 
-impl<T: Transaction> Protocol<T>  {
+impl<T: Transaction> Protocol<T> {
     pub fn new(config: ProtocolConfig, tx_pool: Arc<Mutex<TransactionPool<T>>>) -> Protocol<T> {
         Protocol {
             config,
@@ -94,7 +94,7 @@ impl<T: Transaction> Protocol<T>  {
         let owned_peers = peer_info.keys().map(|x| *x);
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
-    
+
     fn on_transaction_message(&self, tx: T) {
         self.tx_pool.lock().put(tx);
     }
@@ -128,7 +128,7 @@ impl<T: Transaction> Protocol<T>  {
             Some(d) => d,
             _ => {
                 error!("cannot encode message: {:?}", message);
-                return
+                return;
             }
         };
         network.lock().send_custom_message(node_index, self.config.protocol_id, data);
@@ -142,11 +142,11 @@ impl<T: Transaction> Protocol<T>  {
         for (peer, time_stamp) in peer_info.iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
             .chain(handshaking_peers.iter()) {
-                if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
-                    trace!(target: "sync", "Timeout {}", *peer);
-                    aborting.push(*peer);
-                }
+            if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
+                trace!(target: "sync", "Timeout {}", *peer);
+                aborting.push(*peer);
             }
+        }
         for peer in aborting {
             network.lock().drop_node(peer);
         }
@@ -155,7 +155,6 @@ impl<T: Transaction> Protocol<T>  {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use transaction_pool::Pool;
     use primitives::types;
@@ -179,5 +178,4 @@ mod tests {
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }
-
 }

@@ -26,10 +26,10 @@ struct Service {
 
 impl Service {
     fn new(
-        config: ProtocolConfig, 
-        net_config: NetworkConfiguration, 
+        config: ProtocolConfig,
+        net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
-        tx_pool: Arc<Mutex<TransactionPool<SignedTransaction>>>
+        tx_pool: Arc<Mutex<TransactionPool<SignedTransaction>>>,
     ) -> Arc<Service> {
         let version = [1 as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
@@ -39,7 +39,7 @@ impl Service {
         Arc::new(Service {
             network: network,
             protocol: protocol,
-            bg_thread: Some(thread)
+            bg_thread: Some(thread),
         })
     }
 }

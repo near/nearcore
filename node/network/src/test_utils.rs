@@ -4,8 +4,8 @@ use message::{Message, MessageBody};
 use primitives::types;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
-        addr.parse().expect("cannot parse address")
-    }
+    addr.parse().expect("cannot parse address")
+}
 
 pub fn test_config(addr: &str, boot_nodes: Vec<String>) -> NetworkConfiguration {
     let mut config = NetworkConfiguration::new();
@@ -15,11 +15,11 @@ pub fn test_config(addr: &str, boot_nodes: Vec<String>) -> NetworkConfiguration 
 }
 
 pub fn test_config_with_secret(addr: &str, boot_nodes: Vec<String>, secret: Secret)
-    -> NetworkConfiguration {
-        let mut config = test_config(addr, boot_nodes);
-        config.use_secret = Some(secret);
-        config
-    }
+                               -> NetworkConfiguration {
+    let mut config = test_config(addr, boot_nodes);
+    config.use_secret = Some(secret);
+    config
+}
 
 pub fn create_secret() -> Secret {
     let mut secret: Secret = [0; 32];
