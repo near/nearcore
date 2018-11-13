@@ -88,7 +88,7 @@ pub fn main() {
             let tx = types::SignedTransaction::default();
             tx_pool.put(tx);
             debug!(target: "main", "tx pool size: {}", tx_pool.size());
-            Ok(()) 
+            Ok(())
         }
     })
     .map_err(|_| ());
