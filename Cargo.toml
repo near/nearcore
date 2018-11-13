@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [[bin]]
 name = "nearcore"
-path = "node/src/main.rs"
+path = "test-utils/node/src/main.rs"
 
 [dependencies]
 node-cli = { path = "./node/cli" }
