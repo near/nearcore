@@ -48,7 +48,7 @@ pub trait TransactionPool<T>: Send + Sync {
     fn put_many(&self, txs: Vec<T>);
 }
 
-pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
+pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + Clone + 'static {}
 
 pub struct Protocol<T: Transaction> {
     // TODO: add more fields when we need them

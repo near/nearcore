@@ -20,6 +20,7 @@ impl Transaction for types::SignedTransaction {}
 /// A service that wraps network service (which runs libp2p) and
 /// protocol. It is thus responsible for hiding network details and
 /// processing messages that nodes send to each other
+#[allow(dead_code)]
 pub struct Service<T: Transaction> {
     _network: Arc<Mutex<NetworkService>>,
     _protocol: Arc<Protocol<T>>,

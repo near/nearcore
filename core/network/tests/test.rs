@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+
+extern crate substrate_network_libp2p;
+extern crate primitives;
 extern crate network;
 extern crate parking_lot;
 extern crate primitives;
@@ -67,7 +71,6 @@ fn create_services(num_services: u32) -> Vec<Arc<Service>> {
 
 #[test]
 fn test_send_message() {
-    init_logger();
     let services = create_services(2) as Vec<Arc<Service>>;
     thread::sleep(time::Duration::from_secs(1));
     for service in services {
@@ -83,7 +86,6 @@ fn test_send_message() {
 
 #[test]
 fn test_tx_pool() {
-    init_logger();
     let services = create_services(2) as Vec<Arc<Service>>;
     thread::sleep(time::Duration::from_secs(1));
     for service in services.clone() {
