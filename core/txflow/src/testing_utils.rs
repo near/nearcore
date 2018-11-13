@@ -1,4 +1,5 @@
 use primitives::traits::{Payload, WitnessSelector};
+use primitives::types::UID;
 use std::hash::{Hash, Hasher};
 
 #[derive(Hash, Clone)]
@@ -10,8 +11,8 @@ impl Payload for FakePayload {
     }
 }
 
-pub fn simple_bare_message(owner_uid: u64, epoch: u64,
-                              parents: Vec<&::primitives::types::SignedMessageData<FakePayload>>)
+pub fn simple_bare_message(owner_uid: UID, epoch: u64,
+                           parents: Vec<&::primitives::types::SignedMessageData<FakePayload>>)
     -> ::primitives::types::SignedMessageData<FakePayload> {
     let body = ::primitives::types::MessageDataBody {
             owner_uid,
@@ -32,7 +33,7 @@ pub fn simple_bare_message(owner_uid: u64, epoch: u64,
     }
 }
 
-pub fn simple_message<'a, W>(owner_uid: u64, epoch: u64,
+pub fn simple_message<'a, W>(owner_uid: UID, epoch: u64,
                       parents: Vec<&'a ::message::Message<'a, FakePayload>>,
     recompute_epoch: bool, starting_epoch: u64, witness_selector: &W) -> ::message::Message<'a, FakePayload>
     where W: WitnessSelector {

@@ -6,13 +6,14 @@ use std::collections::HashSet;
 use super::message::Message;
 use typed_arena::Arena;
 
-// TODO: This code has incorrect lifetimes. Fix it.
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes.
+/// It uses unsafe code to implement a self-referential struct and the interface makes sure that
+/// the references never outlive the instances.
 pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// UID of the node.
-    owner_uid: u64,
+    owner_uid: UID,
     arena: Arena<Message<'a, P>>,
     /// Stores all messages known to the current root.
     messages: HashSet<&'a Message<'a, P>>,
@@ -24,7 +25,7 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
-    pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
+    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
             arena: Arena::new(),
@@ -41,7 +42,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     }
 
     // Takes ownership of the message.
-    pub fn add_existing_message(&'a mut self, message_data: SignedMessageData<P>) -> Result<(), &'static str> {
+    pub fn add_existing_message(&mut self, message_data: SignedMessageData<P>) -> Result<(), &'static str> {
         // Check whether this is a new message.
         if self.messages.contains(&message_data.hash) {
             return Ok({})
@@ -66,19 +67,19 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
 
         // Finally, take ownership of the message and update the roots.
-        let message_ref = &*self.arena.alloc(message);
-
-        self.messages.insert(message_ref);
-        for p in &message_ref.parents {
+        for p in &message.parents {
             self.roots.remove(p);
         }
-        self.roots.insert(message_ref);
+
+        let message_ptr = self.arena.alloc(message) as *const Message<'a, P>;
+        self.messages.insert(unsafe{&*message_ptr});
+        self.roots.insert(unsafe{&*message_ptr});
         Ok({})
     }
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
     /// the endorsements.
-    pub fn create_root_message(&'a mut self, payload: P, endorsements: Vec<Endorsement>) {
+    pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) {
         let mut message = Message::new(
             SignedMessageData {
                 owner_sig: 0,  // Will populate once the epoch is computed.
@@ -96,10 +97,10 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         message.assume_computed_hash_epoch();
 
         // Finally, take ownership of the new root.
-        let message_ref = &*self.arena.alloc(message);
-        self.messages.insert(message_ref);
+        let message_ptr = self.arena.alloc(message) as *const Message<'a, P>;
+        self.messages.insert(unsafe{ &*message_ptr});
         self.roots.clear();
-        self.roots.insert(message_ref);
+        self.roots.insert(unsafe{ &*message_ptr});
     }
 }
 
@@ -111,7 +112,7 @@ mod tests {
     use typed_arena::Arena;
 
     struct FakeWitnessSelector {
-        schedule: HashMap<u64, HashSet<u64>>,
+        schedule: HashMap<u64, HashSet<UID>>,
     }
 
     impl FakeWitnessSelector {
@@ -128,7 +129,7 @@ mod tests {
         fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
             self.schedule.get(&epoch).unwrap()
         }
-        fn epoch_leader(&self, epoch: u64) -> u64 {
+        fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
     }
@@ -136,13 +137,13 @@ mod tests {
     #[test]
     fn one_node_dag() {
         let selector = FakeWitnessSelector::new();
-        let arena = Arena::new();
+        let data_arena = Arena::new();
         let mut dag = DAG::new(0, 0, &selector);
         let (a, b, c, d, e);
-        simple_bare_messages!(arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
-        simple_bare_messages!(arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
+        simple_bare_messages!(data_arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
+        simple_bare_messages!(data_arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
         assert!(dag.add_existing_message((*a).clone()).is_ok());
         // TODO: Fix lifetimes.
-        //assert!(dag.add_existing_message((*b).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone()).is_ok());
     }
 }

@@ -1,38 +1,54 @@
 use std::hash::{Hash, Hasher};
+
+/// User identifier. Currently derived from the user's public key.
+pub type UID = u64;
+// TODO: Separate cryptographic hash from the hashmap hash.
+/// Hash of a struct that can be used to verify the signature on the struct. Not to be confused with
+/// the hash used in the container like HashMap. Currently we conflate them.
+pub type StructHash = u64;
+/// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
+/// confused with the multisig.
+pub type StructSignature = u128;
+/// Hash used by a struct implementing the Merkle tree.
+pub type MerkleHash = u64;
+/// Part of the BLS signature.
+pub type BLSSignature = u128;
+
+
 // 1. Transaction structs.
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TransactionBody {
     nonce: u64,
-    sender_uid: u64,
-    receiver_uid: u64,
-    amount: u64
+    sender_uid: UID,
+    receiver_uid: UID,
+    amount: u64,
 }
 
 impl TransactionBody {
-    pub fn new(nonce: u64, sender_uid: u64, receiver_uid: u64, amount: u64) -> TransactionBody {
+    pub fn new(nonce: u64, sender_uid: UID, receiver_uid: UID, amount: u64) -> TransactionBody {
         TransactionBody {
             nonce,
             sender_uid,
             receiver_uid,
-            amount
+            amount,
         }
     }
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct SignedTransaction {
-    sender_sig: u128,
-    hash: u64,
-    pub body: TransactionBody
+    sender_sig: StructSignature,
+    hash: StructHash,
+    pub body: TransactionBody,
 }
 
 impl SignedTransaction {
-    pub fn new(sender_sig: u128, hash: u64, body: TransactionBody) -> SignedTransaction {
+    pub fn new(sender_sig: StructSignature, hash: StructHash, body: TransactionBody) -> SignedTransaction {
         SignedTransaction {
             sender_sig,
             hash,
-            body
+            body,
         }
     }
 }
@@ -42,20 +58,20 @@ pub enum TransactionState {
     Sender,
     Receiver,
     SenderRollback,
-    Cancelled
+    Cancelled,
 }
 
 #[derive(Hash, Debug, Serialize, Deserialize)]
 pub struct StatedTransaction {
     transaction: SignedTransaction,
-    state: TransactionState
+    state: TransactionState,
 }
 
 // 2. State structs.
 
 #[derive(Hash, Debug)]
 pub struct State {
-
+    // TODO: Fill in.
 }
 
 // 3. Epoch blocks produced by verifiers running inside a shard.
@@ -65,16 +81,16 @@ pub struct EpochBlockHeader {
     pub shard_id: u32,
     pub verifier_epoch: u64,
     pub txflow_epoch: u64,
-    pub prev_header_hash: u64,
+    pub prev_header_hash: StructHash,
 
-    pub states_merkle_root: u64,
-    pub new_transactions_merkle_root: u64,
-    pub cancelled_transactions_merkle_root: u64
+    pub states_merkle_root: MerkleHash,
+    pub new_transactions_merkle_root: MerkleHash,
+    pub cancelled_transactions_merkle_root: MerkleHash,
 }
 
 #[derive(Hash, Debug)]
 pub struct SignedEpochBlockHeader {
-    pub bls_sig: u128,
+    pub bls_sig: BLSSignature,
     pub epoch_block_header: EpochBlockHeader,
 }
 
@@ -87,13 +103,13 @@ pub struct FullEpochBlockBody {
 
 #[derive(Hash, Debug)]
 pub enum MerkleStateNode {
-    Hash(u64),
+    Hash(MerkleHash),
     State(State),
 }
 
 #[derive(Hash, Debug)]
 pub enum MerkleStatedTransactionNode {
-    Hash(u64),
+    Hash(MerkleHash),
     StatedTransaction(StatedTransaction),
 }
 
@@ -112,7 +128,7 @@ pub struct ShardedEpochBlockBody {
 #[derive(Hash, Debug, Clone)]
 pub struct Endorsement {
     pub epoch: u64,
-    pub signature: u128
+    pub signature: BLSSignature
 }
 
 #[derive(Hash, Debug)]
@@ -130,8 +146,8 @@ pub struct BeaconChainPayload {
 #[derive(Hash, Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
-    pub owner_uid: u64,
-    pub parents: Vec<u64>,
+    pub owner_uid: UID,
+    pub parents: Vec<StructHash>,
     pub epoch: u64,
     pub payload: P,
     /// Optional endorsement of this or other representative block.
@@ -141,9 +157,9 @@ pub struct MessageDataBody<P> {
 #[derive(Debug, Clone)]
 pub struct SignedMessageData<P> {
     /// Signature of the hash.
-    pub owner_sig: u128,
+    pub owner_sig: StructSignature,
     /// Hash of the body.
-    pub hash: u64,
+    pub hash: StructHash,
     pub body: MessageDataBody<P>,
 }
 
@@ -156,8 +172,8 @@ impl<P> Hash for SignedMessageData<P> {
 
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {
-    pub body_hash: u64,
-    pub prev_block_body_hash: u64,
+    pub body_hash: StructHash,
+    pub prev_block_body_hash: StructHash,
 }
 
 #[derive(Hash, Debug)]

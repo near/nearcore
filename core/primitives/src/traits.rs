@@ -42,8 +42,8 @@ pub trait Verifier {
 }
 
 pub trait WitnessSelector {
-    fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64>;
-    fn epoch_leader(&self, epoch: u64) -> u64;
+    fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
+    fn epoch_leader(&self, epoch: u64) -> types::UID;
 }
 
 pub trait Payload: Hash {
