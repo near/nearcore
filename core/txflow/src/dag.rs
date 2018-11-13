@@ -13,7 +13,7 @@ use typed_arena::Arena;
 /// the references never outlive the instances.
 pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// UID of the node.
-    owner_uid: u64,
+    owner_uid: UID,
     arena: Arena<Message<'a, P>>,
     /// Stores all messages known to the current root.
     messages: HashSet<&'a Message<'a, P>>,
@@ -25,7 +25,7 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
-    pub fn new(owner_uid: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
+    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
             arena: Arena::new(),
@@ -112,7 +112,7 @@ mod tests {
     use typed_arena::Arena;
 
     struct FakeWitnessSelector {
-        schedule: HashMap<u64, HashSet<u64>>,
+        schedule: HashMap<u64, HashSet<UID>>,
     }
 
     impl FakeWitnessSelector {
@@ -129,7 +129,7 @@ mod tests {
         fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
             self.schedule.get(&epoch).unwrap()
         }
-        fn epoch_leader(&self, epoch: u64) -> u64 {
+        fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
     }

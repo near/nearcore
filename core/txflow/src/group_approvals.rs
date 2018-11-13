@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use message::Message;
 use primitives::traits::{Payload, WitnessSelector};
+use primitives::types::UID;
 
 use super::group::{Group, GroupsPerEpoch};
 
@@ -45,7 +46,7 @@ impl<'a, P: 'a + Payload> GroupApprovals<'a, P> {
         }
     }
 
-    fn contains_owner(&self, owner_uid: &u64) -> bool {
+    fn contains_owner(&self, owner_uid: &UID) -> bool {
         (&self.approvals).values().any(|group| group.contains_owner(owner_uid))
     }
 }
@@ -76,7 +77,7 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
             .insert(message, approval);
     }
 
-    pub fn contains_any_approval(&self, epoch: &u64, owner_uid: &u64) -> bool {
+    pub fn contains_any_approval(&self, epoch: &u64, owner_uid: &UID) -> bool {
         match self.approvals_per_epoch.get(epoch) {
             None => false,
             Some(group_approvals) => group_approvals.contains_owner(owner_uid)
@@ -84,7 +85,7 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
     }
 
     /// Check if there is an epoch greater than `epoch` for which we gave an approval.
-    pub fn contains_any_future_approvals(&self, epoch: &u64, owner_uid: &u64) -> bool {
+    pub fn contains_any_future_approvals(&self, epoch: &u64, owner_uid: &UID) -> bool {
         (&self.approvals_per_epoch).into_iter().any(|(e, group_approvals)|
             e > epoch
             && group_approvals.contains_owner(owner_uid)
@@ -92,7 +93,7 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
     }
 
     /// Whether there is an approval of the message of the epoch by the owner_uid.
-    pub fn contains_approval(&self, epoch: &u64, owner_uid: &u64, message: &Message<'a, P>) -> bool {
+    pub fn contains_approval(&self, epoch: &u64, owner_uid: &UID, message: &Message<'a, P>) -> bool {
         match self.approvals_per_epoch.get(epoch) {
             None => false,
             Some(group_approvals) => {
@@ -121,7 +122,7 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
     /// approvals.
     pub fn new_superapproved_messages<W>(&self,
                                          complementary_approvals: &GroupsPerEpoch<'a, P>,
-                                         complementary_owner_uid: u64,
+                                         complementary_owner_uid: UID,
                                          witness_selector: &W) -> GroupsPerEpoch<'a, P>
         where W: WitnessSelector {
         let mut result = GroupsPerEpoch::new();

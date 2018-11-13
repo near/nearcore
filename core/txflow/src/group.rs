@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use message::Message;
 use primitives::traits::Payload;
+use primitives::types::UID;
 
 /// A group of messages associated that satisfy certain criteria.
 /// Examples:
@@ -10,7 +11,7 @@ use primitives::traits::Payload;
 #[derive(Debug)]
 pub struct Group<'a, P: 'a + Payload> {
     /// Messages aggregated by owner uid.
-    pub messages_by_owner: HashMap<u64, HashSet<&'a Message<'a, P>>>,
+    pub messages_by_owner: HashMap<UID, HashSet<&'a Message<'a, P>>>,
     pub v: HashSet<&'a Message<'a, P>>,
 }
 
@@ -36,11 +37,11 @@ impl<'a, P: 'a + Payload> Group<'a, P> {
         }
     }
 
-    pub fn contains_owner(&self, owner_uid: &u64) -> bool {
+    pub fn contains_owner(&self, owner_uid: &UID) -> bool {
         self.messages_by_owner.contains_key(owner_uid)
     }
 
-    pub fn filter_by_owner(&self, owner_uid: u64) -> Option<&HashSet<&Message<P>>> {
+    pub fn filter_by_owner(&self, owner_uid: UID) -> Option<&HashSet<&Message<P>>> {
         self.messages_by_owner.get(&owner_uid)
     }
 }
@@ -80,7 +81,7 @@ impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
 
     /// Filters out messages not owned by the given owner.
     /// Returns pairs: epoch -> messages of that owner in the given epoch.
-    pub fn filter_by_owner(&'a self, owner_uid: u64) -> impl Iterator<Item=(&u64, &'a HashSet<&'a Message<'a, P>>)> {
+    pub fn filter_by_owner(&'a self, owner_uid: UID) -> impl Iterator<Item=(&u64, &'a HashSet<&'a Message<'a, P>>)> {
         (&self.messages_by_epoch).into_iter().filter_map(move |(epoch, per_epoch)|
             match per_epoch.filter_by_owner(owner_uid) {
                 None => None,

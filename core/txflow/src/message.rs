@@ -24,7 +24,7 @@ pub struct Message<'a, P: 'a + Payload> {
     /// the epoch is taken from the data.
     pub computed_epoch: u64,
     /// The hash of the message. Depends on the epoch.
-    pub computed_hash: u64,
+    pub computed_hash: types::StructHash,
     /// Computed flag of whether this message is representative.
     computed_is_representative: bool,
     /// Computed flag of whether this message is a kickout.
@@ -378,9 +378,10 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use primitives::traits::WitnessSelector;
     use typed_arena::Arena;
+    use primitives::types::UID;
 
     struct FakeWitnessSelector {
-        schedule: HashMap<u64, HashSet<u64>>,
+        schedule: HashMap<u64, HashSet<UID>>,
     }
 
     impl FakeWitnessSelector {
