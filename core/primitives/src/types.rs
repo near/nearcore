@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 // 1. Transaction structs.
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TransactionBody {
     nonce: u64,
     sender_uid: u64,
@@ -9,14 +9,35 @@ pub struct TransactionBody {
     amount: u64
 }
 
-#[derive(Hash, Debug)]
+impl TransactionBody {
+    pub fn new(nonce: u64, sender_uid: u64, receiver_uid: u64, amount: u64) -> TransactionBody {
+        TransactionBody {
+            nonce,
+            sender_uid,
+            receiver_uid,
+            amount
+        }
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct SignedTransaction {
     sender_sig: u128,
     hash: u64,
     pub body: TransactionBody
 }
 
-#[derive(Hash, Debug)]
+impl SignedTransaction {
+    pub fn new(sender_sig: u128, hash: u64, body: TransactionBody) -> SignedTransaction {
+        SignedTransaction {
+            sender_sig,
+            hash,
+            body
+        }
+    }
+}
+
+#[derive(Hash, Debug, Serialize, Deserialize)]
 pub enum TransactionState {
     Sender,
     Receiver,
@@ -24,7 +45,7 @@ pub enum TransactionState {
     Cancelled
 }
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize)]
 pub struct StatedTransaction {
     transaction: SignedTransaction,
     state: TransactionState
@@ -39,16 +60,16 @@ pub struct State {
 
 // 3. Epoch blocks produced by verifiers running inside a shard.
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize)]
 pub struct EpochBlockHeader {
-    shard_id: u32,
-    verifier_epoch: u64,
-    txflow_epoch: u64,
-    prev_header_hash: u64,
+    pub shard_id: u32,
+    pub verifier_epoch: u64,
+    pub txflow_epoch: u64,
+    pub prev_header_hash: u64,
 
-    states_merkle_root: u64,
-    new_transactions_merkle_root: u64,
-    cancelled_transactions_merkle_root: u64
+    pub states_merkle_root: u64,
+    pub new_transactions_merkle_root: u64,
+    pub cancelled_transactions_merkle_root: u64
 }
 
 #[derive(Hash, Debug)]

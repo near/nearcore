@@ -1,5 +1,21 @@
+[package]
+name = "nearcore"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[[bin]]
+name = "nearcore"
+path = "node/src/main.rs"
+
+[dependencies]
+node-cli = { path = "./node/cli" }
+
 [workspace]
 members = [
+    "core/network",
     "core/primitives",
+    "core/storage",
     "core/txflow",
+    "node/cli",
+    "test-utils/node"
 ]
