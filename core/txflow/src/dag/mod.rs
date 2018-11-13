@@ -1,9 +1,11 @@
+mod message;
+
 use primitives::types::*;
 use primitives::traits::{WitnessSelector, Payload};
 
 use std::collections::HashSet;
 
-use super::message::Message;
+use self::message::Message;
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
@@ -108,6 +110,8 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
 
 #[cfg(test)]
 mod tests {
+
+
     use super::*;
     use std::collections::{HashSet, HashMap};
     use typed_arena::Arena;
