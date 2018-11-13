@@ -12,10 +12,10 @@ node-cli = { path = "./node/cli" }
 
 [workspace]
 members = [
-    "core/network",
     "core/primitives",
     "core/storage",
     "core/txflow",
     "node/cli",
+    "node/network",
     "test-utils/node"
 ]
