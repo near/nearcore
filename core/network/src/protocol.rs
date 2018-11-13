@@ -41,11 +41,11 @@ pub(crate) struct PeerInfo {
 /// interface for transaction pool
 pub trait TransactionPool<T>: Send + Sync {
     // get transactions from pool
-    fn get(&mut self) -> Vec<T>;
+    fn get(&self) -> Vec<T>;
     // put a transaction into the pool
-    fn put(&mut self, tx: T);
+    fn put(&self, tx: T);
     // put transactions into the pool
-    fn put_many(&mut self, txs: Vec<T>);
+    fn put_many(&self, txs: Vec<T>);
 }
 
 pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
@@ -58,11 +58,11 @@ pub struct Protocol<T: Transaction> {
     // info about peers
     pub(crate) peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     // transaction pool
-    pub tx_pool: Arc<Mutex<TransactionPool<T>>>,
+    pub tx_pool: Arc<TransactionPool<T>>,
 }
 
-impl<T: Transaction> Protocol<T> {
-    pub fn new(config: ProtocolConfig, tx_pool: Arc<Mutex<TransactionPool<T>>>) -> Protocol<T> {
+impl<T: Transaction> Protocol<T>  {
+    pub fn new(config: ProtocolConfig, tx_pool: Arc<TransactionPool<T>>) -> Protocol<T> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
@@ -95,7 +95,7 @@ impl<T: Transaction> Protocol<T> {
     }
 
     fn on_transaction_message(&self, tx: T) {
-        self.tx_pool.lock().put(tx);
+        self.tx_pool.put(tx);
     }
 
     fn on_status_message(&self, peer: NodeIndex, status: &Status) {
@@ -184,7 +184,7 @@ mod tests {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let tx_pool = Arc::new(Mutex::new(Pool::default() as Pool<types::SignedTransaction>));
+        let tx_pool = Arc::new(Pool::new() as Pool<types::SignedTransaction>);
         let protocol = Protocol::new(config, tx_pool);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
