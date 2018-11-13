@@ -37,7 +37,13 @@ impl TransactionBody {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+impl Default for TransactionBody {
+    fn default() -> Self {
+        TransactionBody::new(0, 0, 0, 0)
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
     hash: CryptoHash,
@@ -54,7 +60,13 @@ impl SignedTransaction {
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, Clone)]
+impl Default for SignedTransaction {
+    fn default() -> Self {
+        SignedTransaction::new(0, TransactionBody::default())
+    }
+}
+
+#[derive(Hash, Debug, Serialize, Deserialize)]
 pub enum TransactionState {
     Sender,
     Receiver,
@@ -62,7 +74,7 @@ pub enum TransactionState {
     Cancelled,
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, Clone)]
+#[derive(Hash, Debug, Serialize, Deserialize)]
 pub struct StatedTransaction {
     pub transaction: SignedTransaction,
     pub state: TransactionState,
