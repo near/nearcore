@@ -21,4 +21,3 @@ pub mod protocol;
 pub mod service;
 pub mod error;
 pub mod test_utils;
-pub mod transaction_pool;

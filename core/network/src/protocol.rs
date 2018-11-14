@@ -41,45 +41,33 @@ pub(crate) struct PeerInfo {
     request_timestamp: Option<time::Instant>,
 }
 
-/// interface for transaction pool
-pub trait TransactionPool<T>: Send + Sync {
-    // get transactions from pool
-    fn get(&self) -> Vec<T>;
-    // put a transaction into the pool
-    fn put(&self, tx: T);
-    // put transactions into the pool
-    fn put_many(&self, txs: Vec<T>);
-}
-
 pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + Clone + 'static {}
+impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + Clone + 'static {}
 
-pub struct Protocol<T: Transaction> {
+pub struct Protocol {
     // TODO: add more fields when we need them
     pub(crate) config: ProtocolConfig,
     // peers that are in the handshaking process
     pub(crate) handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
     pub(crate) peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
-    // transaction pool
-    pub tx_pool: Arc<TransactionPool<T>>,
 }
 
-impl<T: Transaction> Protocol<T>  {
-    pub fn new(config: ProtocolConfig, tx_pool: Arc<TransactionPool<T>>) -> Protocol<T> {
+impl Protocol  {
+    pub fn new(config: ProtocolConfig) -> Protocol {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
-            tx_pool,
         }
     }
 
-    pub fn on_peer_connected(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
+    pub fn on_peer_connected<T: Transaction>(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         let status = Status {
             version: CURRENT_VERSION,
         };
-        let message = Message::new(MessageBody::Status(status));
+        let message: Message<T> = Message::new(MessageBody::Status(status));
         self.send_message(network, peer, message);
     }
 
@@ -95,8 +83,10 @@ impl<T: Transaction> Protocol<T>  {
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
     
-    fn on_transaction_message(&self, tx: T) {
-        self.tx_pool.put(tx);
+    #[allow(unused_variables)]
+    fn on_transaction_message<T: Transaction>(&self, tx: T) {
+        //TODO: communicate to consensus
+        unimplemented!("TODO: on_transaction_message");
     }
 
     fn on_status_message(&self, peer: NodeIndex, status: Status) {
@@ -109,7 +99,7 @@ impl<T: Transaction> Protocol<T>  {
         self.handshaking_peers.write().remove(&peer);
     }
 
-    pub fn on_message(&self, peer: NodeIndex, data: &[u8]) {
+    pub fn on_message<T: Transaction>(&self, peer: NodeIndex, data: &[u8]) {
         let message: Message<T> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
@@ -123,7 +113,7 @@ impl<T: Transaction> Protocol<T>  {
         }
     }
 
-    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
+    pub fn send_message<T: Transaction>(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
         let data = match Encode::encode(&message) {
             Some(d) => d,
             _ => {
@@ -157,11 +147,10 @@ impl<T: Transaction> Protocol<T>  {
 mod tests {
 
     use super::*;
-    use transaction_pool::Pool;
     use primitives::types;
 
-    impl<T: Transaction> Protocol<T> {
-        fn _on_message(&self, data: &[u8]) -> Message<T> {
+    impl Protocol {
+        fn _on_message<T: Transaction>(&self, data: &[u8]) -> Message<T> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data)
@@ -174,8 +163,7 @@ mod tests {
         let tx = types::SignedTransaction::new( 0, types::TransactionBody::new(0, 0, 0, 0));
         let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let tx_pool = Arc::new(Pool::new() as Pool<types::SignedTransaction>);
-        let protocol = Protocol::new(config, tx_pool);
+        let protocol = Protocol::new(config);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }
