@@ -46,6 +46,30 @@ pub trait WitnessSelector {
     fn epoch_leader(&self, epoch: u64) -> types::UID;
 }
 
+pub type GenericResult = Result<(), &'static str>;
+
 pub trait Payload: Hash {
-    fn verify(&self) -> Result<(), &'static str>;
+    fn verify(&self) -> GenericResult;
+}
+
+pub trait TxFlow<P: Payload,
+    C,
+    MessageCallback: Fn() -> GenericResult,
+    PayloadCallback: Fn() -> GenericResult,
+    MessageSubscriber: Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult,
+    ConsensusSubscriber: Fn(types::ConsensusBlockBody<P, C>),
+>{
+    /// Tells TxFlow to process the given TxFlow message received from another peer. TxFlow signals
+    /// when the message is processed.
+    fn process_message(message: types::SignedMessageData<P>, callback: MessageCallback) -> GenericResult;
+    /// Tells TxFlow to process a payload, e.g. for in-shard TxFlow it is a transaction received
+    /// from a client. TxFlow signals when the payload is accepted.
+    fn process_payload(payload: P, callback: PayloadCallback) -> GenericResult;
+    /// Subscribes to the messages produced by TxFlow. These messages indicate the receiver that
+    /// they have to be relayed to.
+    fn subscribe_to_messages(subscriber: MessageSubscriber) -> GenericResult;
+    /// Subscribes to the consensus blocks produced by TxFlow. The consensus blocks contain messages
+    /// with payload + some content specific to whether TxFlow is used on the Beacon Chain or in
+    /// the shard.
+    fn subscribe_to_consensus_blocks(subscriber: ConsensusSubscriber) -> GenericResult;
 }

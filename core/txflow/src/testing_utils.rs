@@ -1,4 +1,4 @@
-use primitives::traits::{Payload, WitnessSelector};
+use primitives::traits::Payload;
 use primitives::types::UID;
 use std::hash::{Hash, Hasher};
 
@@ -127,8 +127,6 @@ macro_rules! simple_bare_messages {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashSet, HashMap};
-    use primitives::traits::WitnessSelector;
     use typed_arena::Arena;
 
     #[test]
