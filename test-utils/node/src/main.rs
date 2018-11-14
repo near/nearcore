@@ -67,8 +67,9 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         net_config = test_config(&addr, vec![boot_node]);
     }
-    let service = Service::new::<types::SignedTransaction>(
-        ProtocolConfig::default(), net_config, ProtocolId::default()
+    let tx_callback = |_: types::SignedTransaction| { Ok(()) };
+    let service = Service::new(
+        ProtocolConfig::default(), net_config, ProtocolId::default(), tx_callback
     )
     .unwrap_or_else(|e| {
         panic!("service failed to start: {:?}", e);

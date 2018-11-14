@@ -1,3 +1,7 @@
+/// network protocol
+
+use substrate_network_libp2p::{Service as NetworkService, NodeIndex, ProtocolId};
+use primitives::traits::{Encode, Decode, GenericResult};
 use message::{Message, MessageBody, Status};
 use parking_lot::{Mutex, RwLock};
 use primitives::traits::{Decode, Encode};
@@ -38,28 +42,31 @@ pub(crate) struct PeerInfo {
     request_timestamp: Option<time::Instant>,
 }
 
-pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug {}
-impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug {}
+pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
+impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
 
-pub struct Protocol {
+pub struct Protocol<T> {
     // TODO: add more fields when we need them
     config: ProtocolConfig,
     // peers that are in the handshaking process
     handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    // callbacks
+    tx_callback: fn(T) -> GenericResult,
 }
 
-impl Protocol  {
-    pub fn new(config: ProtocolConfig) -> Protocol {
+impl<T: Transaction> Protocol<T>  {
+    pub fn new(config: ProtocolConfig, tx_callback: fn(T) -> GenericResult) -> Protocol<T> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
+            tx_callback
         }
     }
 
-    pub fn on_peer_connected<T: Transaction>(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
+    pub fn on_peer_connected(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         let status = Status {
             version: CURRENT_VERSION,
@@ -80,10 +87,9 @@ impl Protocol  {
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
     
-    #[allow(unused_variables)]
-    fn on_transaction_message<T: Transaction>(&self, tx: T) {
+    fn on_transaction_message(&self, tx: T) {
         //TODO: communicate to consensus
-        unimplemented!("TODO: on_transaction_message");
+        let _ = (self.tx_callback)(tx);
     }
 
     fn on_status_message(&self, peer: NodeIndex, status: &Status) {
@@ -98,7 +104,7 @@ impl Protocol  {
         self.handshaking_peers.write().remove(&peer);
     }
 
-    pub fn on_message<T: Transaction>(&self, peer: NodeIndex, data: &[u8]) {
+    pub fn on_message(&self, peer: NodeIndex, data: &[u8]) {
         let message: Message<T> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
@@ -112,7 +118,7 @@ impl Protocol  {
         }
     }
 
-    pub fn send_message<T: Transaction>(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
+    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
         let data = match Encode::encode(&message) {
             Some(d) => d,
             _ => {
@@ -153,8 +159,8 @@ mod tests {
     use primitives::types;
     use transaction_pool::Pool;
 
-    impl Protocol {
-        fn _on_message<T: Transaction>(&self, data: &[u8]) -> Message<T> {
+    impl<T: Transaction> Protocol<T> {
+        fn _on_message(&self, data: &[u8]) -> Message<T> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data),
@@ -167,7 +173,10 @@ mod tests {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let protocol = Protocol::new(config);
+        let callback = |_| {
+            Ok(())
+        };
+        let protocol = Protocol::new(config, callback);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }
