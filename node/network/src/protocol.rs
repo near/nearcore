@@ -38,16 +38,16 @@ pub(crate) struct PeerInfo {
     request_timestamp: Option<time::Instant>,
 }
 
-pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + Clone + 'static {}
-impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + Clone + 'static {}
+pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug {}
+impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug {}
 
 pub struct Protocol {
     // TODO: add more fields when we need them
-    pub(crate) config: ProtocolConfig,
+    config: ProtocolConfig,
     // peers that are in the handshaking process
-    pub(crate) handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
+    handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
-    pub(crate) peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
 }
 
 impl Protocol  {

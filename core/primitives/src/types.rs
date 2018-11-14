@@ -18,7 +18,7 @@ pub type DBValue = Vec<u8>;
 
 // 1. Transaction structs.
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TransactionBody {
     pub nonce: u64,
     pub sender: AccountId,
@@ -43,7 +43,7 @@ impl Default for TransactionBody {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
     hash: CryptoHash,
