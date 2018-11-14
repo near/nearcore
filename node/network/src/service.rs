@@ -141,9 +141,9 @@ mod tests {
         let services = create_services(2);
         thread::sleep(time::Duration::from_secs(1));
         let mut runtime = Runtime::new().unwrap();
-        let _ = services.iter().map(|s| {
-            runtime.spawn(s.service_task::<types::SignedTransaction>().map_err(|_| ()));
-        }).collect::<Vec<_>>();
+        for service in services.iter() {
+            runtime.spawn(service.service_task::<types::SignedTransaction>().map_err(|_| ()));
+        }
         thread::sleep(time::Duration::from_millis(100));
         for service in services {
             for peer in service.protocol.sample_peers(1) {
