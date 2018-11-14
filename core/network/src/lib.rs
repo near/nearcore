@@ -21,4 +21,3 @@ pub mod message;
 pub mod protocol;
 pub mod service;
 pub mod test_utils;
-pub mod transaction_pool;
