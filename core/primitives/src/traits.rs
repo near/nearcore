@@ -4,10 +4,6 @@ use std::hash::Hash;
 use super::types;
 use hash::CryptoHash;
 
-pub trait VerifierLike {
-    fn compute_state(&mut self, transactions: &[types::StatedTransaction]) -> types::State;
-}
-
 // encode a type to byte array
 pub trait Encode {
     fn encode(&self) -> Option<Vec<u8>>;

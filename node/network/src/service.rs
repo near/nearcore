@@ -11,23 +11,25 @@ use substrate_network_libp2p::{
 };
 use protocol::{self, Protocol, ProtocolConfig, Transaction};
 use error::Error; 
+use primitives::traits::GenericResult;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
-pub struct Service {
+pub struct Service<T> {
     network: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol>,
+    protocol: Arc<Protocol<T>>,
 }
 
-impl Service {
-    pub fn new<T: Transaction>(
+impl<T: Transaction> Service<T> {
+    pub fn new(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
-        protocol_id: ProtocolId
-    ) -> Result<Service, Error> {
+        protocol_id: ProtocolId,
+        tx_callback: fn(T) -> GenericResult,
+    ) -> Result<Service<T>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
-        let protocol = Arc::new(Protocol::new(config));
+        let protocol = Arc::new(Protocol::new(config, tx_callback));
         let service = match start_service(net_config, Some(registered)) {
             Ok(s) => s,
             Err(e) => return Err(e.into())
@@ -38,7 +40,7 @@ impl Service {
         })
     }
 
-    pub fn service_task<T: Transaction>(&self) -> impl Future<Item = (), Error = io::Error> {
+    pub fn service_task(&self) -> impl Future<Item = (), Error = io::Error> {
         let network_service1 = self.network.clone();
         let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
             let protocol = self.protocol.clone();
@@ -47,10 +49,10 @@ impl Service {
             debug!(target: "sub-libp2p", "event: {:?}", event);
             match event {
                 ServiceEvent::CustomMessage { node_index, data, .. } => {
-                    protocol.on_message::<T>(node_index, &data);
+                    protocol.on_message(node_index, &data);
                 },
                 ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                    protocol.on_peer_connected::<T>(&network_service, node_index);
+                    protocol.on_peer_connected(&network_service, node_index);
                 },
                 ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                     protocol.on_peer_disconnected(node_index);
@@ -104,11 +106,9 @@ mod tests {
     use test_utils::*;
     use rand::Rng;
     use std::time;
-    use primitives::types;
     use std::thread;
-    use tokio::runtime::Runtime;
 
-    fn create_services(num_services: u32) -> Vec<Service> {
+    fn create_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
         let base_address = "/ip4/127.0.0.1/tcp/".to_string();
         let base_port = rand::thread_rng().gen_range(30000, 60000);
         let mut addresses = Vec::new();
@@ -121,15 +121,16 @@ mod tests {
         // may want to abstract this out to enable different configurations
         let secret = create_secret();
         let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-        let root_service = Service::new::<types::SignedTransaction>(
-            ProtocolConfig::default(), root_config, ProtocolId::default()
+        let tx_callback = |_| { Ok(()) };
+        let root_service = Service::new(
+            ProtocolConfig::default(), root_config, ProtocolId::default(), tx_callback
         ).unwrap();
         let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
         let mut services = vec![root_service];
         for i in 1..num_services {
             let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-            let service = Service::new::<types::SignedTransaction>(
-                ProtocolConfig::default(), config, ProtocolId::default()
+            let service = Service::new(
+                ProtocolConfig::default(), config, ProtocolId::default(), tx_callback,
             ).unwrap();
             services.push(service);
         }
@@ -139,18 +140,17 @@ mod tests {
     #[test]
     fn test_send_message() {
         let services = create_services(2);
-        thread::sleep(time::Duration::from_secs(1));
-        let mut runtime = Runtime::new().unwrap();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
         for service in services.iter() {
-            runtime.spawn(service.service_task::<types::SignedTransaction>().map_err(|_| ()));
+            runtime.spawn(service.service_task().map_err(|_| ()));
         }
-        thread::sleep(time::Duration::from_millis(100));
+        thread::sleep(time::Duration::from_millis(1000));
         for service in services {
             for peer in service.protocol.sample_peers(1) {
                 let message = fake_tx_message();
                 service.protocol.send_message(&service.network, peer, message);
             }
         }
-        thread::sleep(time::Duration::from_millis(100));
+        thread::sleep(time::Duration::from_millis(1000));
     }
 }
