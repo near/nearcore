@@ -1,3 +1,7 @@
+mod group;
+mod group_approvals;
+
+
 use std::collections::HashSet;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
@@ -5,8 +9,9 @@ use std::collections::hash_map::DefaultHasher;
 
 use primitives::traits::{WitnessSelector, Payload};
 use primitives::types;
-use super::group::GroupsPerEpoch;
-use super::group_approvals::GroupApprovalPerEpoch;
+
+use self::group::GroupsPerEpoch;
+use self::group_approvals::GroupApprovalPerEpoch;
 
 static UNINITIALIZED_MESSAGE_ERR: &'static str = "This usage of the message requires its initialization.";
 
@@ -372,6 +377,10 @@ impl<'a, P: Payload> Message<'a, P> {
         self.is_initialized = true;
     }
 }
+
+#[cfg(test)]
+#[macro_use]
+mod testing_utils;
 
 #[cfg(test)]
 mod tests {

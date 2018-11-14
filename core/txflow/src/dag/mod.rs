@@ -1,9 +1,11 @@
+mod message;
+
 use primitives::types::*;
 use primitives::traits::{WitnessSelector, Payload};
 
 use std::collections::HashSet;
 
-use super::message::Message;
+use self::message::Message;
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
@@ -79,7 +81,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
     /// the endorsements.
-    pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) {
+    pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) -> &'a Message<'a, P> {
         let mut message = Message::new(
             SignedMessageData {
                 owner_sig: 0,  // Will populate once the epoch is computed.
@@ -98,15 +100,18 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
 
         // Finally, take ownership of the new root.
         let message_ptr = self.arena.alloc(message) as *const Message<'a, P>;
-        self.messages.insert(unsafe{ &*message_ptr});
+        self.messages.insert(unsafe { &*message_ptr });
         self.roots.clear();
-        self.roots.insert(unsafe{ &*message_ptr});
+        self.roots.insert(unsafe { &*message_ptr });
+        unsafe { &*message_ptr }
     }
 }
 
 
 #[cfg(test)]
 mod tests {
+
+
     use super::*;
     use std::collections::{HashSet, HashMap};
     use typed_arena::Arena;
@@ -135,15 +140,71 @@ mod tests {
     }
 
     #[test]
-    fn one_node_dag() {
+    fn feed_complex_topology() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; => b; 0, 0;] => 4, 3;]);
+
+        // Feed messages in DFS order which ensures that the parents are fed before the children.
+        for m in all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
+        }
+    }
+
+    #[test]
+    fn check_missing_messages_as_feeding() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
         let mut dag = DAG::new(0, 0, &selector);
         let (a, b, c, d, e);
-        simple_bare_messages!(data_arena [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
-        simple_bare_messages!(data_arena [[=> a; 3, 4 => d;] => 4, 5 => e;]);
+        simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4 => d;] => 4, 5 => e;]);
         assert!(dag.add_existing_message((*a).clone()).is_ok());
-        // TODO: Fix lifetimes.
+        // Check we cannot add message e yet, because it's parent d was not received, yet.
+        assert!(dag.add_existing_message((*e).clone()).is_err());
+        assert!(dag.add_existing_message((*d).clone()).is_ok());
+        // Check that we have two dangling roots now.
+        assert_eq!(dag.roots.len(), 2);
+        // Now we can add message e, because we know all its parents!
+        assert!(dag.add_existing_message((*e).clone()).is_ok());
+        // Check that there is only one root now.
+        assert_eq!(dag.roots.len(), 1);
+        // Still we cannot add message c, because b is missing.
+        assert!(dag.add_existing_message((*c).clone()).is_err());
+        // Now add b and c.
         assert!(dag.add_existing_message((*b).clone()).is_ok());
+        assert!(dag.add_existing_message((*c).clone()).is_ok());
+        // Check that we again have to dangling roots -- e and c.
+        assert_eq!(dag.roots.len(), 2);
     }
+
+    #[test]
+    fn create_roots() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+        let (a, b, c, d, e);
+        simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
+
+        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        let message = dag.create_root_message(::testing_utils::FakePayload{}, vec![]);
+        d = &message.data;
+
+        simple_bare_messages!(data_arena, all_messages [[=> b; => d;] => 4, 5 => e;]);
+
+        // Check that we cannot message e, because b was not added yet.
+        assert!(dag.add_existing_message((*e).clone()).is_err());
+
+        assert!(dag.add_existing_message((*b).clone()).is_ok());
+        assert!(dag.add_existing_message((*e).clone()).is_ok());
+        assert!(dag.add_existing_message((*c).clone()).is_ok());
+    }
+
 }

@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use message::Message;
 use primitives::traits::Payload;
 use primitives::types::UID;
+
+use super::Message;
 
 /// A group of messages associated that satisfy certain criteria.
 /// Examples:

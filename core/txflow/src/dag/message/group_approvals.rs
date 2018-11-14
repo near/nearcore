@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use message::Message;
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::UID;
 
+use super::Message;
 use super::group::{Group, GroupsPerEpoch};
 
 /// Messages that approve a Group that satisfy certain criteria.
