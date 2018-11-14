@@ -55,15 +55,15 @@ pub trait Payload: Hash {
 pub trait TxFlow<P: Payload>{
     /// Tells TxFlow to process the given TxFlow message received from another peer. TxFlow signals
     /// when the message is processed.
-    fn process_message(message: types::SignedMessageData<P>, callback: &Fn() -> GenericResult) -> GenericResult;
+    fn process_message(&self, message: types::SignedMessageData<P>, callback: &Fn() -> GenericResult) -> GenericResult;
     /// Tells TxFlow to process a payload, e.g. for in-shard TxFlow it is a transaction received
     /// from a client. TxFlow signals when the payload is accepted.
-    fn process_payload(payload: P, callback: &Fn() -> GenericResult) -> GenericResult;
+    fn process_payload(&self, payload: P, callback: &Fn() -> GenericResult) -> GenericResult;
     /// Subscribes to the messages produced by TxFlow. These messages indicate the receiver that
     /// they have to be relayed to.
-    fn subscribe_to_messages(subscriber: &Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult) -> GenericResult;
+    fn subscribe_to_messages(&self, subscriber: &Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult) -> GenericResult;
     /// Subscribes to the consensus blocks produced by TxFlow. The consensus blocks contain messages
     /// with payload + some content specific to whether TxFlow is used on the Beacon Chain or in
     /// the shard.
-    fn subscribe_to_consensus_blocks<C>(subscriber: &Fn(types::ConsensusBlockBody<P, C>)) -> GenericResult;
+    fn subscribe_to_consensus_blocks<C>(&self, subscriber: &Fn(types::ConsensusBlockBody<P, C>)) -> GenericResult;
 }
