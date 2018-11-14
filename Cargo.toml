@@ -13,11 +13,10 @@ node-runtime = { path = "./node/runtime" }
 
 [workspace]
 members = [
-    "core/network",
     "core/primitives",
     "core/storage",
     "core/txflow",
     "node/cli",
-    "node/runtime",
+    "node/network",
     "test-utils/node"
 ]
