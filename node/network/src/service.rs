@@ -140,7 +140,7 @@ mod tests {
     fn test_send_message() {
         let services = create_services(2);
         thread::sleep(time::Duration::from_secs(1));
-        let mut runtime = tokio::runtime::Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
         let _ = services.iter().map(|s| {
             runtime.spawn(s.service_task::<types::SignedTransaction>().map_err(|_| ()));
         }).collect::<Vec<_>>();
