@@ -15,7 +15,7 @@ use error::Error;
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub struct Service {
-    network_service: Arc<Mutex<NetworkService>>,
+    network: Arc<Mutex<NetworkService>>,
     protocol: Arc<Protocol>,
 }
 
@@ -33,16 +33,16 @@ impl Service {
             Err(e) => return Err(e.into())
         };
         Ok(Service {
-            network_service: Arc::new(Mutex::new(service)),
+            network: Arc::new(Mutex::new(service)),
             protocol,
         })
     }
 
     pub fn service_task<T: Transaction>(&self) -> impl Future<Item = (), Error = io::Error> {
-        let network_service1 = self.network_service.clone();
+        let network_service1 = self.network.clone();
         let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
             let protocol = self.protocol.clone();
-            let network_service = self.network_service.clone();
+            let network_service = self.network.clone();
             move |event| {
             debug!(target: "sub-libp2p", "event: {:?}", event);
             match event {
@@ -67,7 +67,7 @@ impl Service {
     	let timer = Interval::new_interval(TICK_TIMEOUT)
     		.for_each({
     			let protocol = self.protocol.clone();
-    			let network_service = self.network_service.clone();
+    			let network_service = self.network.clone();
     			move |_| {
     				protocol.maintain_peers(&network_service);
     				Ok(())
@@ -148,7 +148,7 @@ mod tests {
         for service in services {
             for peer in service.protocol.sample_peers(1) {
                 let message = fake_tx_message();
-                service.protocol.send_message(&service.network_service, peer, message);
+                service.protocol.send_message(&service.network, peer, message);
             }
         }
         thread::sleep(time::Duration::from_millis(100));
