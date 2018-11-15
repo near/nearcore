@@ -73,12 +73,16 @@ pub trait StateDbView: Sized {
     /// Returns Merkle root of the original view.
     fn merkle_root(&self) -> types::MerkleHash;
     /// Gets the value from given key.
-    fn get(&self, key: String) -> Option<types::DBValue>;
+    fn get(&self, key: &[u8]) -> Option<types::DBValue>;
     /// Sets the value for given key.
-    fn set(&mut self, key: String, value: types::DBValue);
+    fn set(&mut self, key: &[u8], value: types::DBValue);
     /// Deletes given key.
-    fn delete(&mut self, key: String);
-    /// Finishes the change set and returns new view with updated merkle root.
+    fn delete(&mut self, key: &[u8]);
+    /// Commit current changes into the change set.
+    fn commit(&mut self);
+    /// Roll back non-committed changes.
+    fn rollback(&mut self);
+    /// Finishes the change set and returns new view with updated Merkle root.
     fn finish(&self) -> Self;
 }
 

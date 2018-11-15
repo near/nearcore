@@ -16,9 +16,11 @@ pub struct StateDbViewMock {}
 
 impl StateDbView for StateDbViewMock {
     fn merkle_root(&self) -> MerkleHash { 0 }
-    fn get(&self, key: String) -> Option<DBValue> { Some(vec![]) }
-    fn set(&mut self, key: String, value: DBValue) {}
-    fn delete(&mut self, key: String) {}
+    fn get(&self, key: &[u8]) -> Option<DBValue> { Some(vec![]) }
+    fn set(&mut self, key: &[u8], value: DBValue) {}
+    fn delete(&mut self, key: &[u8]) {}
+    fn commit(&mut self) {}
+    fn rollback(&mut self) {}
     fn finish(&self) -> Self { StateDbViewMock {} }
 }
 
@@ -34,7 +36,7 @@ pub struct Runtime {}
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
     fn get_account(&self, state_view: &StateDbViewMock, account_key: AccountId) -> Option<Account> {
-        match state_view.get(account_key.to_string()) {
+        match state_view.get(account_key.to_string().as_bytes()) {
             Some(data) => match bincode::deserialize(&data) {
                 Ok(s) => Some(s),
                 Err(e) => {
@@ -47,7 +49,7 @@ impl Runtime {
     }
     fn set_account(&self, state_view: &mut StateDbViewMock, account_key: AccountId, account: Account) {
         match bincode::serialize(&account) {
-            Ok(data) => state_view.set(account_key.to_string(), data),
+            Ok(data) => state_view.set(account_key.to_string().as_bytes(), data),
             Err(e) => {
                 error!("error occurred while encoding: {:?}", e);
             }
@@ -77,7 +79,10 @@ impl StateTransitionRuntime for Runtime {
         let mut filtered_transactions = vec![];
         for t in transactions {
             if self.apply_transaction(state_view, t) {
+                state_view.commit();
                 filtered_transactions.push((*t).clone());
+            } else {
+                state_view.rollback();
             }
         }
         (filtered_transactions, state_view.finish())
