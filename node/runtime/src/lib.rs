@@ -9,14 +9,14 @@ extern crate primitives;
 
 use primitives::signature::{PublicKey};
 use primitives::types::{DBValue, AccountId, MerkleHash, StatedTransaction};
-use primitives::traits::{StateDbView, StateTransitionRuntime};
+use primitives::traits::{GenericResult, StateDbView, StateTransitionRuntime};
 
 // TODO: waiting for storage::state_view
 pub struct StateDbViewMock {}
 
 impl StateDbView for StateDbViewMock {
     fn merkle_root(&self) -> MerkleHash { 0 }
-    fn get(&self, key: String) -> DBValue { vec![] }
+    fn get(&self, key: String) -> Option<DBValue> { Some(vec![]) }
     fn set(&mut self, key: String, value: DBValue) {}
     fn delete(&mut self, key: String) {}
     fn finish(&self) -> Self { StateDbViewMock {} }
@@ -34,13 +34,15 @@ pub struct Runtime {}
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
     fn get_account(&self, state_view: &StateDbViewMock, account_key: AccountId) -> Option<Account> {
-        let data = state_view.get(account_key.to_string());
-        match bincode::deserialize(&data) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                error!("error occurred while decoding: {:?}", e);
-                None
+        match state_view.get(account_key.to_string()) {
+            Some(data) => match bincode::deserialize(&data) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    error!("error occurred while decoding: {:?}", e);
+                    None
+                }
             }
+            None => None
         }
     }
     fn set_account(&self, state_view: &mut StateDbViewMock, account_key: AccountId, account: Account) {
@@ -52,18 +54,19 @@ impl Runtime {
         }
     }
     fn apply_transaction(&self, state_view: &mut StateDbViewMock, transaction: &StatedTransaction) -> bool {
-        let mut sender = self.get_account(state_view, transaction.transaction.body.sender).expect("Account is not found");
-        // TODO: validate if transaction is correctly signed.
-        let mut receiver = self.get_account(state_view, transaction.transaction.body.receiver).expect("Account is not found");
-        if sender.amount >= transaction.transaction.body.amount && transaction.transaction.body.nonce > sender.nonce {
-            sender.amount -= transaction.transaction.body.amount;
-            sender.nonce += 1;
-            receiver.amount += transaction.transaction.body.amount;
-            self.set_account(state_view, transaction.transaction.body.sender, sender);
-            self.set_account(state_view, transaction.transaction.body.sender, receiver);
-            true
-        } else {
-            false
+        match self.get_account(state_view, transaction.transaction.body.sender) {
+            Some(mut sender) => match self.get_account(state_view, transaction.transaction.body.receiver) {
+                Some(mut receiver) => {
+                    sender.amount -= transaction.transaction.body.amount;
+                    sender.nonce += 1;
+                    receiver.amount += transaction.transaction.body.amount;
+                    self.set_account(state_view, transaction.transaction.body.sender, sender);
+                    self.set_account(state_view, transaction.transaction.body.sender, receiver);
+                    true
+                }
+                None => false
+            }
+            None => false
         }
     }
 }
