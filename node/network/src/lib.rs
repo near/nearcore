@@ -17,8 +17,8 @@ extern crate env_logger;
 extern crate rand;
 
 pub mod error;
+mod io;
 pub mod message;
 pub mod protocol;
 pub mod service;
 pub mod test_utils;
-mod io;

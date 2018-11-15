@@ -1,4 +1,5 @@
 use primitives::traits::{Decode, Encode};
+use primitives::hash::CryptoHash;
 use protocol::Transaction;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -18,7 +19,23 @@ pub struct Message<T> {
 pub struct Status {
     // protocol version
     pub version: u32,
-    // TODO: block number, block hash, etc
+    // best block number
+    pub best_number: u64,
+    // best block hash
+    pub best_hash: CryptoHash,
+    // genesis hash
+    pub genesis_hash: CryptoHash,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Status {
+            version: 1,
+            best_number: 0,
+            best_hash: CryptoHash { 0: [0; 32] },
+            genesis_hash: CryptoHash { 0: [0; 32] }
+        }
+    }
 }
 
 impl<T> Message<T> {
