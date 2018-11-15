@@ -1,12 +1,10 @@
 /// network protocol
 
-use substrate_network_libp2p::{Service as NetworkService, NodeIndex, ProtocolId};
+use substrate_network_libp2p::{Severity, NodeIndex, ProtocolId};
 use primitives::traits::{Encode, Decode, GenericResult};
 use message::{Message, MessageBody, Status};
-use parking_lot::{Mutex, RwLock};
-use primitives::traits::{Decode, Encode};
-use rand::{seq, thread_rng};
-use serde::{de::DeserializeOwned, Serialize};
+use io::{SyncIo, NetSyncIo};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -45,6 +43,7 @@ pub(crate) struct PeerInfo {
 pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
 impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
 
+#[allow(dead_code)]
 pub struct Protocol<T> {
     // TODO: add more fields when we need them
     config: ProtocolConfig,
@@ -66,13 +65,13 @@ impl<T: Transaction> Protocol<T>  {
         }
     }
 
-    pub fn on_peer_connected(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
+    pub fn on_peer_connected(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         let status = Status {
             version: CURRENT_VERSION,
         };
         let message: Message<T> = Message::new(MessageBody::Status(status));
-        self.send_message(network, peer, message);
+        self.send_message(net_sync, peer, message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
@@ -92,9 +91,14 @@ impl<T: Transaction> Protocol<T>  {
         let _ = (self.tx_callback)(tx);
     }
 
+<<<<<<< HEAD
     fn on_status_message(&self, peer: NodeIndex, status: &Status) {
+=======
+    fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: Status) {
+>>>>>>> port io sync from substrate
         if status.version != CURRENT_VERSION {
             debug!(target: "sync", "Version mismatch");
+            net_sync.report_peer(peer, Severity::Bad(&format!("Peer uses incompatible version {}", status.version)));
             return;
         }
         let peer_info = PeerInfo {
@@ -104,24 +108,32 @@ impl<T: Transaction> Protocol<T>  {
         self.handshaking_peers.write().remove(&peer);
     }
 
-    pub fn on_message(&self, peer: NodeIndex, data: &[u8]) {
+    pub fn on_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
         let message: Message<T> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
-                error!("cannot decode message: {:?}", data);
+                debug!("cannot decode message: {:?}", data);
+                net_sync.report_peer(peer, Severity::Bad("invalid message format"));
                 return;
             }
         };
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
+<<<<<<< HEAD
             MessageBody::Status(status) => self.on_status_message(peer, &status),
+=======
+            MessageBody::Status(status) => self.on_status_message(net_sync, peer, status),
+>>>>>>> port io sync from substrate
         }
     }
 
-    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
-        let data = match Encode::encode(&message) {
-            Some(d) => d,
+    pub fn send_message(&self, net_sync: &mut NetSyncIo, node_index: NodeIndex, message: Message<T>) {
+        match Encode::encode(&message) {
+            Some(data) => {
+                net_sync.send(node_index, data);
+            },
             _ => {
+<<<<<<< HEAD
                 error!("cannot encode message: {:?}", message);
                 return;
             }
@@ -129,9 +141,16 @@ impl<T: Transaction> Protocol<T>  {
         network
             .lock()
             .send_custom_message(node_index, self.config.protocol_id, data);
+=======
+                // this should never happen
+                error!("FATAL: cannot encode message: {:?}", message);
+                return;
+            }
+        };
+>>>>>>> port io sync from substrate
     }
 
-    pub fn maintain_peers(&self, network: &Arc<Mutex<NetworkService>>) {
+    pub fn maintain_peers(&self, net_sync: &mut NetSyncIo) {
         let cur_time = time::Instant::now();
         let mut aborting = Vec::new();
         let peer_info = self.peer_info.read();
@@ -147,7 +166,7 @@ impl<T: Transaction> Protocol<T>  {
             }
         }
         for peer in aborting {
-            network.lock().drop_node(peer);
+            net_sync.report_peer(peer, Severity::Timeout);
         }
     }
 }

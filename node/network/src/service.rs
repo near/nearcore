@@ -10,11 +10,13 @@ use substrate_network_libp2p::{
     ServiceEvent,
 };
 use protocol::{self, Protocol, ProtocolConfig, Transaction};
-use error::Error; 
+use error::Error;
+use io::NetSyncIo;
 use primitives::traits::GenericResult;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
+#[allow(dead_code)]
 pub struct Service<T> {
     network: Arc<Mutex<NetworkService>>,
     protocol: Arc<Protocol<T>>,
@@ -26,79 +28,80 @@ impl<T: Transaction> Service<T> {
         net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
         tx_callback: fn(T) -> GenericResult,
-    ) -> Result<Service<T>, Error> {
+    ) -> Result<(Service<T>, impl Future<Item = (), Error = ()>), Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, tx_callback));
         let service = match start_service(net_config, Some(registered)) {
-            Ok(s) => s,
+            Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into())
         };
-        Ok(Service {
-            network: Arc::new(Mutex::new(service)),
+        let task = service_task(service.clone(), protocol.clone(), protocol_id)
+            .map_err(|e| {
+                debug!(target: "sub-libp2p", "service error: {:?}", e);
+            });
+        Ok((Service {
+            network: service,
             protocol,
-        })
-    }
-
-    pub fn service_task(&self) -> impl Future<Item = (), Error = io::Error> {
-        let network_service1 = self.network.clone();
-        let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
-            let protocol = self.protocol.clone();
-            let network_service = self.network.clone();
-            move |event| {
-            debug!(target: "sub-libp2p", "event: {:?}", event);
-            match event {
-                ServiceEvent::CustomMessage { node_index, data, .. } => {
-                    protocol.on_message(node_index, &data);
-                },
-                ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                    protocol.on_peer_connected(&network_service, node_index);
-                },
-                ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
-                    protocol.on_peer_disconnected(node_index);
-                },
-                _ => {
-                    debug!("TODO");
-                    ()
-                }
-            };
-            Ok(())
-        }});
-
-        // Interval for performing maintenance on the protocol handler.
-    	let timer = Interval::new_interval(TICK_TIMEOUT)
-    		.for_each({
-    			let protocol = self.protocol.clone();
-    			let network_service = self.network.clone();
-    			move |_| {
-    				protocol.maintain_peers(&network_service);
-    				Ok(())
-    			}
-    		})
-    		.then(|res| {
-    			match res {
-    				Ok(()) => (),
-    				Err(err) => error!("Error in the propagation timer: {:?}", err),
-    			};
-    			Ok(())
-    		});
-
-
-        let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
-            Box::new(network),
-            Box::new(timer),
-        ];
-
-        futures::select_all(futures)
-    		.and_then(move |_| {
-    			info!("Networking ended");
-    			Ok(())
-    		})
-    		.map_err(|(r, _, _)| r)
+        }, task))
     }
 }
 
-
+pub fn service_task<T: Transaction>(
+    network_service: Arc<Mutex<NetworkService>>,
+    protocol: Arc<Protocol<T>>,
+    protocol_id: ProtocolId,
+) -> impl Future<Item = (), Error = io::Error> {
+     
+    // Interval for performing maintenance on the protocol handler.
+    let timer = Interval::new_interval(TICK_TIMEOUT)
+    	.for_each({
+    		let protocol = protocol.clone();
+    		let network_service = network_service.clone();
+    		move |_| {
+    			protocol.maintain_peers(&mut NetSyncIo::new(&network_service, protocol_id));
+    			Ok(())
+    		}
+    	})
+    	.then(|res| {
+    		match res {
+    			Ok(()) => (),
+    			Err(err) => error!("Error in the propagation timer: {:?}", err),
+    		};
+    		Ok(())
+    	});
+    let network_service1 = network_service.clone();
+    let network = stream::poll_fn(move || network_service1.lock().poll()).for_each(move |event| {
+        let mut net_sync = NetSyncIo::new(&network_service, protocol_id);
+        debug!(target: "sub-libp2p", "event: {:?}", event);
+        match event {
+            ServiceEvent::CustomMessage { node_index, data, .. } => {
+                protocol.on_message(&mut net_sync, node_index, &data);
+            },
+            ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
+                protocol.on_peer_connected(&mut net_sync, node_index);
+            },
+            ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
+                protocol.on_peer_disconnected(node_index);
+            },
+            _ => {
+                debug!("TODO");
+                ()
+            }
+        };
+        Ok(())
+    });
+    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
+        Box::new(timer),
+        Box::new(network),
+    ];
+    futures::select_all(futures)
+    	.and_then(move |_| {
+    		info!("Networking ended");
+    		Ok(())
+    	})
+    	.map_err(|(r, _, _)| r)   
+}
 
 #[cfg(test)]
 mod tests {
@@ -108,7 +111,7 @@ mod tests {
     use std::time;
     use std::thread;
 
-    fn create_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
+    fn create_services<T: Transaction>(num_services: u32) -> Vec<(Service<T>, impl Future<Item = (), Error = ()>)> {
         let base_address = "/ip4/127.0.0.1/tcp/".to_string();
         let base_port = rand::thread_rng().gen_range(30000, 60000);
         let mut addresses = Vec::new();
@@ -141,14 +144,16 @@ mod tests {
     fn test_send_message() {
         let services = create_services(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
-        for service in services.iter() {
-            runtime.spawn(service.service_task().map_err(|_| ()));
+        let (services, tasks): (Vec<_>, Vec<_>) = services.into_iter().unzip();
+        for task in tasks {
+            runtime.spawn(task);
         }
         thread::sleep(time::Duration::from_millis(1000));
         for service in services {
             for peer in service.protocol.sample_peers(1) {
                 let message = fake_tx_message();
-                service.protocol.send_message(&service.network, peer, message);
+                let mut net_sync = NetSyncIo::new(&service.network, ProtocolId::default());
+                service.protocol.send_message(&mut net_sync, peer, message);
             }
         }
         thread::sleep(time::Duration::from_millis(1000));
