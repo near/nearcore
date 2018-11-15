@@ -15,6 +15,9 @@ cache:
 
 test:cargo:
     stage: test
+    before_script:
+    - rustup component add rustfmt-preview
     script:
     - rustc --version && cargo --version
+    - cargo fmt --all -- --check
     - cargo test --all --verbose -- --test-threads=1
