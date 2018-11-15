@@ -1,13 +1,11 @@
 use std::hash::{Hash, Hasher};
+use hash::{CryptoHash, hash_struct};
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
 /// Account identifier. Provides access to user's state.
 pub type AccountId = u64;
 // TODO: Separate cryptographic hash from the hashmap hash.
-/// Hash of a struct that can be used to verify the signature on the struct. Not to be confused with
-/// the hash used in the container like HashMap. Currently we conflate them.
-pub type StructHash = u64;
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
 pub type StructSignature = u128;
@@ -42,15 +40,15 @@ impl TransactionBody {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
-    hash: StructHash,
+    hash: CryptoHash,
     pub body: TransactionBody,
 }
 
 impl SignedTransaction {
-    pub fn new(sender_sig: StructSignature, hash: StructHash, body: TransactionBody) -> SignedTransaction {
+    pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
         SignedTransaction {
             sender_sig,
-            hash,
+            hash: hash_struct(&body),
             body,
         }
     }
@@ -84,7 +82,7 @@ pub struct EpochBlockHeader {
     pub shard_id: u32,
     pub verifier_epoch: u64,
     pub txflow_epoch: u64,
-    pub prev_header_hash: StructHash,
+    pub prev_header_hash: CryptoHash,
 
     pub states_merkle_root: MerkleHash,
     pub new_transactions_merkle_root: MerkleHash,
@@ -125,6 +123,8 @@ pub struct ShardedEpochBlockBody {
 
 // 4. TxFlow-specific structs.
 
+pub type TxFlowHash = u64;
+
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
@@ -150,7 +150,7 @@ pub struct BeaconChainPayload {
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: UID,
-    pub parents: Vec<StructHash>,
+    pub parents: Vec<TxFlowHash>,
     pub epoch: u64,
     pub payload: P,
     /// Optional endorsement of this or other representative block.
@@ -162,7 +162,7 @@ pub struct SignedMessageData<P> {
     /// Signature of the hash.
     pub owner_sig: StructSignature,
     /// Hash of the body.
-    pub hash: StructHash,
+    pub hash: TxFlowHash,
     pub body: MessageDataBody<P>,
 }
 
@@ -175,8 +175,8 @@ impl<P> Hash for SignedMessageData<P> {
 
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {
-    pub body_hash: StructHash,
-    pub prev_block_body_hash: StructHash,
+    pub body_hash: CryptoHash,
+    pub prev_block_body_hash: CryptoHash,
 }
 
 #[derive(Hash, Debug)]

@@ -20,16 +20,15 @@ impl Storage {
         }
     }
 
-    pub fn put<T: Serialize>(&self, obj: T) -> primitives::hash::HashValue {
+    pub fn put<T: Serialize>(&self, obj: T) -> primitives::hash::CryptoHash {
         let header_data = serialize(&obj).unwrap();
-        let header_key: Vec<u8> = primitives::hash::hash(&header_data).into();
-        self.db.put(&header_key, &header_data).ok();
-        primitives::hash::HashValue::new(&header_key)
+        let header_key = primitives::hash::hash(&header_data);
+        self.db.put(&header_key.0, &header_data).ok();
+        header_key
     }
 
-    pub fn get<T: DeserializeOwned>(&self, key: primitives::hash::HashValue) -> Option<T> {
-        let header_key: Vec<u8> = key.into();
-        match self.db.get(&header_key) {
+    pub fn get<T: DeserializeOwned>(&self, key: primitives::hash::CryptoHash) -> Option<T> {
+        match self.db.get(&key.0) {
             Ok(Some(value)) => deserialize(&value).unwrap(),
             Ok(None) => None,
             Err(_e) => None,

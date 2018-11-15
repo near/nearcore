@@ -39,7 +39,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
 }
 
 pub fn fake_tx_message() -> Message<types::SignedTransaction> {
-    let tx = types::SignedTransaction::new(0, 0, types::TransactionBody::new(0, 0, 0, 0));
+    let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
     Message::new(MessageBody::Transaction(tx))
 }
 

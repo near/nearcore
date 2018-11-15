@@ -1,18 +1,11 @@
+extern crate serde;
+extern crate bincode;
 extern crate exonum_sodiumoxide as sodiumoxide;
 
-pub struct HashValue(Vec<u8>);
+use self::serde::Serialize;
+use self::bincode::serialize;
 
-impl HashValue {
-    pub fn new(hash_slice: &[u8]) -> Self {
-        HashValue{ 0: hash_slice.to_vec() }
-    }
-}
-
-impl Into<Vec<u8>> for HashValue {
-    fn into(self) -> Vec<u8> {
-        self.0
-    }
-}
+pub type CryptoHash = sodiumoxide::crypto::hash::sha256::Digest;
 
 /// Calculates a hash of a bytes slice.
 ///
@@ -26,7 +19,10 @@ impl Into<Vec<u8>> for HashValue {
 /// let data = [1, 2, 3];
 /// let hash = primitives::hash::hash(&data);
 /// ```
-pub fn hash(data: &[u8]) -> HashValue {
-    let value = sodiumoxide::crypto::hash::sha256::hash(data).0;
-    HashValue::new(&value)
+pub fn hash(data: &[u8]) -> CryptoHash {
+    sodiumoxide::crypto::hash::sha256::hash(data)
+}
+
+pub fn hash_struct<T: Serialize>(obj: &T) -> CryptoHash {
+    hash(&serialize(&obj).expect("Serialization failed"))
 }

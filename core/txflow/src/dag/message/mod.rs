@@ -29,7 +29,7 @@ pub struct Message<'a, P: 'a + Payload> {
     /// the epoch is taken from the data.
     pub computed_epoch: u64,
     /// The hash of the message. Depends on the epoch.
-    pub computed_hash: types::StructHash,
+    pub computed_hash: types::TxFlowHash,
     /// Computed flag of whether this message is representative.
     computed_is_representative: bool,
     /// Computed flag of whether this message is a kickout.
