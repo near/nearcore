@@ -1,5 +1,5 @@
-use libp2p::{Multiaddr, secio};
-use substrate_network_libp2p::{Secret, PeerId, NetworkConfiguration};
+use libp2p::{Multiaddr, secio, PeerId};
+use substrate_network_libp2p::{Secret, NetworkConfiguration};
 use message::{Message, MessageBody};
 use primitives::types;
 
