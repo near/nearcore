@@ -16,6 +16,7 @@ members = [
     "core/primitives",
     "core/storage",
     "core/txflow",
+    "core/wasm",
     "node/cli",
     "test-utils/node"
 ]

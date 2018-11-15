@@ -1,0 +1,8 @@
+[package]
+name = "wasm"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+wasmi = { version = "0.4.1" }
+primitives = { path = "../primitives" }

@@ -2,6 +2,8 @@ use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
+/// Contract Address is used to execute a contract.alloc
+pub type ContractAddress = u64;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Hash of a struct that can be used to verify the signature on the struct. Not to be confused with
 /// the hash used in the container like HashMap. Currently we conflate them.
