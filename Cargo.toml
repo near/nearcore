@@ -9,6 +9,7 @@ path = "node/src/main.rs"
 
 [dependencies]
 node-cli = { path = "./node/cli" }
+node-runtime = { path = "./node/runtime" }
 
 [workspace]
 members = [
@@ -17,5 +18,6 @@ members = [
     "core/storage",
     "core/txflow",
     "node/cli",
+    "node/runtime",
     "test-utils/node"
 ]

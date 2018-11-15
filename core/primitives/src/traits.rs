@@ -67,3 +67,16 @@ pub trait TxFlow<P: Payload>{
     /// the shard.
     fn subscribe_to_consensus_blocks<C>(subscriber: &Fn(types::ConsensusBlockBody<P, C>)) -> GenericResult;
 }
+
+pub trait StateDbView: Sized {
+    fn get(&self, key: String) -> String;
+    fn set(&mut self, key: String, value: String);
+    fn delete(&mut self, key: String);
+    fn finish(&self) -> Self;
+}
+
+pub trait StateTransitionRuntime {
+    type StateDbView;
+
+    fn apply(&self, state_view: &Self::StateDbView, transactions: &[types::StatedTransaction]) -> Self::StateDbView;
+}
