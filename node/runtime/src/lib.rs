@@ -39,7 +39,7 @@ impl Runtime {
 impl StateTransitionRuntime for Runtime {
     type StateDbView = StateDbViewMock;
     fn apply(&self, state_view: &mut StateDbViewMock, transactions: &Vec<StatedTransaction>) -> (Vec<StatedTransaction>, StateDbViewMock) {
-        let mut filtered_transactions: Vec<StatedTransaction> = Vec::new();
+        let mut filtered_transactions = vec![];
         for t in transactions {
             if self.apply_transaction(state_view, t) {
                 filtered_transactions.push((*t).clone());
