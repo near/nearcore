@@ -21,3 +21,4 @@ pub mod message;
 pub mod protocol;
 pub mod service;
 pub mod test_utils;
+mod io;
