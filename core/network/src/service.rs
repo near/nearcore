@@ -21,8 +21,8 @@ impl Transaction for types::SignedTransaction {}
 /// protocol. It is thus responsible for hiding network details and
 /// processing messages that nodes send to each other
 pub struct Service<T: Transaction> {
-    network: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<T>>,
+    _network: Arc<Mutex<NetworkService>>,
+    _protocol: Arc<Protocol<T>>,
     bg_thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -38,8 +38,8 @@ impl<T: Transaction> Service<T> {
         let protocol = Arc::new(Protocol::new(config, tx_pool));
         let (thread, network) = start_thread(net_config, protocol.clone(), registered)?;
         Ok(Arc::new(Service {
-            network,
-            protocol,
+            _network: network,
+            _protocol: protocol,
             bg_thread: Some(thread),
         }))
     }

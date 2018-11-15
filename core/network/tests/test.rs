@@ -21,7 +21,6 @@ use substrate_network_libp2p::{
 struct Service {
     network: Arc<Mutex<NetworkService>>,
     protocol: Arc<Protocol<SignedTransaction>>,
-    bg_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Service {
@@ -34,13 +33,9 @@ impl Service {
         let version = [1 as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, tx_pool));
-        let (thread, network) = start_thread(net_config, protocol.clone(), registered)
+        let (_, network) = start_thread(net_config, protocol.clone(), registered)
             .expect("start_thread should not fail");
-        Arc::new(Service {
-            network,
-            protocol,
-            bg_thread: Some(thread),
-        })
+        Arc::new(Service { network, protocol })
     }
 }
 
