@@ -58,7 +58,7 @@ impl Runtime {
             Some(mut sender) => match self.get_account(state_view, transaction.transaction.body.receiver) {
                 Some(mut receiver) => {
                     sender.amount -= transaction.transaction.body.amount;
-                    sender.nonce += 1;
+                    sender.nonce = transaction.transaction.body.nonce;
                     receiver.amount += transaction.transaction.body.amount;
                     self.set_account(state_view, transaction.transaction.body.sender, sender);
                     self.set_account(state_view, transaction.transaction.body.sender, receiver);
