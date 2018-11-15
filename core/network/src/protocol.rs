@@ -79,7 +79,7 @@ impl<T: Transaction> Protocol<T> {
             version: CURRENT_VERSION,
         };
         let message = Message::new(MessageBody::Status(status));
-        self.send_message(network, peer, message);
+        self.send_message(network, peer, &message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
@@ -90,7 +90,7 @@ impl<T: Transaction> Protocol<T> {
     pub fn sample_peers(&self, num_to_sample: usize) -> Vec<usize> {
         let mut rng = thread_rng();
         let peer_info = self.peer_info.read();
-        let owned_peers = peer_info.keys().map(|x| *x);
+        let owned_peers = peer_info.keys().cloned();
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
 
@@ -98,7 +98,7 @@ impl<T: Transaction> Protocol<T> {
         self.tx_pool.lock().put(tx);
     }
 
-    fn on_status_message(&self, peer: NodeIndex, status: Status) {
+    fn on_status_message(&self, peer: NodeIndex, status: &Status) {
         if status.version != CURRENT_VERSION {
             debug!(target: "sync", "Version mismatch");
             return;
@@ -120,7 +120,7 @@ impl<T: Transaction> Protocol<T> {
         };
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
-            MessageBody::Status(status) => self.on_status_message(peer, status),
+            MessageBody::Status(status) => self.on_status_message(peer, &status),
         }
     }
 
@@ -128,9 +128,9 @@ impl<T: Transaction> Protocol<T> {
         &self,
         network: &Arc<Mutex<NetworkService>>,
         node_index: NodeIndex,
-        message: Message<T>,
+        message: &Message<T>,
     ) {
-        let data = match Encode::encode(&message) {
+        let data = match Encode::encode(message) {
             Some(d) => d,
             _ => {
                 error!("cannot encode message: {:?}", message);
@@ -184,7 +184,7 @@ mod tests {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
+        let tx_pool = Arc::new(Mutex::new(Pool::default() as Pool<types::SignedTransaction>));
         let protocol = Protocol::new(config, tx_pool);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);

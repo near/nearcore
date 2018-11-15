@@ -14,7 +14,7 @@ pub struct Storage {
 
 impl Storage {
     pub fn new(path: &str) -> Self {
-        let db = DB::open_default(path).unwrap();
+        let db = DB::open_default(&path).unwrap();
         Storage { db }
     }
 

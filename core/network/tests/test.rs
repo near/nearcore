@@ -37,8 +37,8 @@ impl Service {
         let (thread, network) = start_thread(net_config, protocol.clone(), registered)
             .expect("start_thread should not fail");
         Arc::new(Service {
-            network: network,
-            protocol: protocol,
+            network,
+            protocol,
             bg_thread: Some(thread),
         })
     }
@@ -57,7 +57,7 @@ fn create_services(num_services: u32) -> Vec<Arc<Service>> {
     // may want to abstract this out to enable different configurations
     let secret = create_secret();
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-    let tx_pool = Arc::new(Mutex::new(Pool::new()));
+    let tx_pool = Arc::new(Mutex::new(Pool::default()));
     let root_service = Service::new(
         ProtocolConfig::default(),
         root_config,
@@ -68,7 +68,7 @@ fn create_services(num_services: u32) -> Vec<Arc<Service>> {
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-        let tx_pool = Arc::new(Mutex::new(Pool::new()));
+        let tx_pool = Arc::new(Mutex::new(Pool::default()));
         let service = Service::new(
             ProtocolConfig::default(),
             config,
@@ -90,7 +90,7 @@ fn test_send_message() {
             let message = fake_tx_message();
             service
                 .protocol
-                .send_message(&service.network, peer, message);
+                .send_message(&service.network, peer, &message);
         }
     }
     thread::sleep(time::Duration::from_secs(1));
@@ -106,7 +106,7 @@ fn test_tx_pool() {
             let message = fake_tx_message();
             service
                 .protocol
-                .send_message(&service.network, peer, message);
+                .send_message(&service.network, peer, &message);
         }
     }
     thread::sleep(time::Duration::from_secs(1));

@@ -94,7 +94,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
             hash: 0,      // Will populate once the epoch is computed.
             body: MessageDataBody {
                 owner_uid: self.owner_uid,
-                parents: (&self.roots).into_iter().map(|m| m.computed_hash).collect(),
+                parents: (&self.roots).iter().map(|m| m.computed_hash).collect(),
                 epoch: 0, // Will be computed later.
                 payload,
                 endorsements,
