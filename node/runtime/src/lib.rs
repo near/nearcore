@@ -8,7 +8,7 @@ extern crate log;
 extern crate primitives;
 
 use primitives::signature::{PublicKey};
-use primitives::types::{AccountId, MerkleHash, StatedTransaction};
+use primitives::types::{DBValue, AccountId, MerkleHash, StatedTransaction};
 use primitives::traits::{StateDbView, StateTransitionRuntime};
 
 // TODO: waiting for storage::state_view
@@ -16,8 +16,8 @@ pub struct StateDbViewMock {}
 
 impl StateDbView for StateDbViewMock {
     fn merkle_root(&self) -> MerkleHash { 0 }
-    fn get(&self, key: String) -> String { "".to_string() }
-    fn set(&mut self, key: String, value: String) {}
+    fn get(&self, key: String) -> DBValue { vec![] }
+    fn set(&mut self, key: String, value: DBValue) {}
     fn delete(&mut self, key: String) {}
     fn finish(&self) -> Self { StateDbViewMock {} }
 }
@@ -35,7 +35,7 @@ pub struct Runtime {}
 impl Runtime {
     fn get_account(&self, state_view: &StateDbViewMock, account_key: AccountId) -> Option<Account> {
         let data = state_view.get(account_key.to_string());
-        match bincode::deserialize(data.as_bytes()) {
+        match bincode::deserialize(&data) {
             Ok(s) => Some(s),
             Err(e) => {
                 error!("error occurred while decoding: {:?}", e);
@@ -45,7 +45,7 @@ impl Runtime {
     }
     fn set_account(&self, state_view: &mut StateDbViewMock, account_key: AccountId, account: Account) {
         match bincode::serialize(&account) {
-            Ok(data) => state_view.set(account_key.to_string(), String::from_utf8(data).expect("Failed to convert bytes to string")),
+            Ok(data) => state_view.set(account_key.to_string(), data),
             Err(e) => {
                 error!("error occurred while encoding: {:?}", e);
             }

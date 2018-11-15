@@ -15,7 +15,8 @@ pub type StructSignature = u128;
 pub type MerkleHash = u64;
 /// Part of the BLS signature.
 pub type BLSSignature = u128;
-
+/// Database record type.
+pub type DBValue = Vec<u8>;
 
 // 1. Transaction structs.
 
