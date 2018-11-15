@@ -1,6 +1,14 @@
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate bincode;
+#[macro_use]
+extern crate log;
+
 extern crate primitives;
 
-use primitives::types::{MerkleHash, StatedTransaction};
+use primitives::signature::{PublicKey};
+use primitives::types::{AccountId, MerkleHash, StatedTransaction};
 use primitives::traits::{StateDbView, StateTransitionRuntime};
 
 // TODO: waiting for storage::state_view
@@ -14,21 +22,43 @@ impl StateDbView for StateDbViewMock {
     fn finish(&self) -> Self { StateDbViewMock {} }
 }
 
+#[derive(Serialize, Deserialize)]
+struct Account {
+    pub public_keys: Vec<PublicKey>,
+    pub amount: u64,
+}
+
 pub struct Runtime {}
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
+    fn get_account(&self, state_view: &StateDbViewMock, account_key: AccountId) -> Option<Account> {
+        let data = state_view.get(account_key.to_string());
+        match bincode::deserialize(data.as_bytes()) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                error!("error occurred while decoding: {:?}", e);
+                None
+            }
+        }
+    }
+    fn set_account(&self, state_view: &mut StateDbViewMock, account_key: AccountId, account: Account) {
+        match bincode::serialize(&account) {
+            Ok(data) => state_view.set(account_key.to_string(), String::from_utf8(data).expect("Failed to convert bytes to string")),
+            Err(e) => {
+                error!("error occurred while encoding: {:?}", e);
+            }
+        }
+    }
     fn apply_transaction(&self, state_view: &mut StateDbViewMock, transaction: &StatedTransaction) -> bool {
+        let mut sender = self.get_account(state_view, transaction.transaction.body.sender).expect("Account is not found");
         // TODO: validate if transaction is correctly signed.
-        let sender_value = state_view.get(transaction.transaction.body.sender_uid.to_string()).parse::<u64>().unwrap();
-        let receiver_value = state_view.get(transaction.transaction.body.receiver_uid.to_string()).parse::<u64>().unwrap();
-        if sender_value >= transaction.transaction.body.amount {
-            state_view.set(
-                transaction.transaction.body.sender_uid.to_string(),
-                (sender_value - transaction.transaction.body.amount).to_string());
-            state_view.set(
-                transaction.transaction.body.receiver_uid.to_string(),
-                (receiver_value + transaction.transaction.body.amount).to_string());
+        let mut receiver = self.get_account(state_view, transaction.transaction.body.receiver).expect("Account is not found");
+        if sender.amount >= transaction.transaction.body.amount {
+            sender.amount -= transaction.transaction.body.amount;
+            receiver.amount += transaction.transaction.body.amount;
+            self.set_account(state_view, transaction.transaction.body.sender, sender);
+            self.set_account(state_view, transaction.transaction.body.sender, receiver);
             true
         } else {
             false
