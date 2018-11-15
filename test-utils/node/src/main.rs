@@ -60,14 +60,13 @@ pub fn main() {
     // start network service
     let addr = create_addr(host, port);
     let root_addr = create_addr(host, root_port);
-    let net_config;
-    if is_root {
-        net_config = test_config_with_secret(&addr, vec![], create_secret());
+    let net_config = if is_root {
+        test_config_with_secret(&addr, vec![], create_secret())
     } else {
         let boot_node = root_addr + "/p2p/" + &raw_key_to_peer_id_str(create_secret());
         println!("boot node: {}", boot_node);
-        net_config = test_config(&addr, vec![boot_node]);
-    }
+        test_config(&addr, vec![boot_node])
+    };
     let tx_callback = |_: types::SignedTransaction| { Ok(()) };
     let service = Service::new(
         ProtocolConfig::default(), net_config, ProtocolId::default(), tx_callback

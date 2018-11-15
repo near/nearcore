@@ -72,7 +72,7 @@ impl<T: Transaction> Protocol<T>  {
             version: CURRENT_VERSION,
         };
         let message: Message<T> = Message::new(MessageBody::Status(status));
-        self.send_message(net_sync, peer, message);
+        self.send_message(net_sync, peer, &message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
@@ -83,7 +83,7 @@ impl<T: Transaction> Protocol<T>  {
     pub fn sample_peers(&self, num_to_sample: usize) -> Vec<usize> {
         let mut rng = thread_rng();
         let peer_info = self.peer_info.read();
-        let owned_peers = peer_info.keys().map(|x| *x);
+        let owned_peers = peer_info.keys().cloned();
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
     
@@ -92,7 +92,7 @@ impl<T: Transaction> Protocol<T>  {
         let _ = (self.tx_callback)(tx);
     }
 
-    fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: Status) {
+    fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: &Status) {
         if status.version != CURRENT_VERSION {
             debug!(target: "sync", "Version mismatch");
             net_sync.report_peer(peer, Severity::Bad(&format!("Peer uses incompatible version {}", status.version)));
@@ -114,12 +114,12 @@ impl<T: Transaction> Protocol<T>  {
         };
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
-            MessageBody::Status(status) => self.on_status_message(net_sync, peer, status),
+            MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
         }
     }
 
-    pub fn send_message(&self, net_sync: &mut NetSyncIo, node_index: NodeIndex, message: Message<T>) {
-        match Encode::encode(&message) {
+    pub fn send_message(&self, net_sync: &mut NetSyncIo, node_index: NodeIndex, message: &Message<T>) {
+        match Encode::encode(message) {
             Some(data) => {
                 net_sync.send(node_index, data);
             },
