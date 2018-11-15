@@ -1,6 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived from the user's public key.
+pub type UID = u64;
+/// Account identifier. Provides access to user's state.
 pub type AccountId = u64;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Hash of a struct that can be used to verify the signature on the struct. Not to be confused with
@@ -146,7 +148,7 @@ pub struct BeaconChainPayload {
 #[derive(Hash, Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
-    pub owner_uid: AccountId,
+    pub owner_uid: UID,
     pub parents: Vec<StructHash>,
     pub epoch: u64,
     pub payload: P,
