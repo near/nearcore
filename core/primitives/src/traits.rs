@@ -42,8 +42,8 @@ pub trait Verifier {
 }
 
 pub trait WitnessSelector {
-    fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
-    fn epoch_leader(&self, epoch: u64) -> types::UID;
+    fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::AccountId>;
+    fn epoch_leader(&self, epoch: u64) -> types::AccountId;
 }
 
 pub type GenericResult = Result<(), &'static str>;
@@ -61,7 +61,7 @@ pub trait TxFlow<P: Payload>{
     fn process_payload(payload: P, callback: &Fn() -> GenericResult) -> GenericResult;
     /// Subscribes to the messages produced by TxFlow. These messages indicate the receiver that
     /// they have to be relayed to.
-    fn subscribe_to_messages(subscriber: &Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult) -> GenericResult;
+    fn subscribe_to_messages(subscriber: &Fn(types::AccountId, &types::SignedMessageData<P>) -> GenericResult) -> GenericResult;
     /// Subscribes to the consensus blocks produced by TxFlow. The consensus blocks contain messages
     /// with payload + some content specific to whether TxFlow is used on the Beacon Chain or in
     /// the shard.

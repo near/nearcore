@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived from the user's public key.
-pub type UID = u64;
+pub type AccountId = u64;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Hash of a struct that can be used to verify the signature on the struct. Not to be confused with
 /// the hash used in the container like HashMap. Currently we conflate them.
@@ -20,17 +20,17 @@ pub type BLSSignature = u128;
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct TransactionBody {
     pub nonce: u64,
-    pub sender_uid: UID,
-    pub receiver_uid: UID,
+    pub sender: AccountId,
+    pub receiver: AccountId,
     pub amount: u64,
 }
 
 impl TransactionBody {
-    pub fn new(nonce: u64, sender_uid: UID, receiver_uid: UID, amount: u64) -> TransactionBody {
+    pub fn new(nonce: u64, sender: AccountId, receiver: AccountId, amount: u64) -> TransactionBody {
         TransactionBody {
             nonce,
-            sender_uid,
-            receiver_uid,
+            sender,
+            receiver,
             amount,
         }
     }
@@ -146,7 +146,7 @@ pub struct BeaconChainPayload {
 #[derive(Hash, Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
-    pub owner_uid: UID,
+    pub owner_uid: AccountId,
     pub parents: Vec<StructHash>,
     pub epoch: u64,
     pub payload: P,
