@@ -1,16 +1,14 @@
-/// network protocol
-
-use substrate_network_libp2p::{Severity, NodeIndex, ProtocolId};
-use primitives::traits::{Encode, Decode, GenericResult};
+use io::{NetSyncIo, SyncIo};
 use message::{Message, MessageBody, Status};
-use io::{SyncIo, NetSyncIo};
 use parking_lot::RwLock;
+use primitives::traits::{Decode, Encode, GenericResult};
+use rand::{seq, thread_rng};
+use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Arc;
 use std::time;
 /// network protocol
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Service as NetworkService};
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -55,21 +53,22 @@ pub struct Protocol<T> {
     tx_callback: fn(T) -> GenericResult,
 }
 
-impl<T: Transaction> Protocol<T>  {
+impl<T: Transaction> Protocol<T> {
     pub fn new(config: ProtocolConfig, tx_callback: fn(T) -> GenericResult) -> Protocol<T> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
-            tx_callback
+            tx_callback,
         }
     }
 
     pub fn on_peer_connected(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
-        self.handshaking_peers.write().insert(peer, time::Instant::now());
-        let status = Status {
-            version: CURRENT_VERSION,
-        };
+        self.handshaking_peers
+            .write()
+            .insert(peer, time::Instant::now());
+        // use this placeholder for now. Change this when block storage is ready
+        let status = Status::default();
         let message: Message<T> = Message::new(MessageBody::Status(status));
         self.send_message(net_sync, peer, &message);
     }
@@ -85,7 +84,7 @@ impl<T: Transaction> Protocol<T>  {
         let owned_peers = peer_info.keys().cloned();
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
-    
+
     fn on_transaction_message(&self, tx: T) {
         //TODO: communicate to consensus
         let _ = (self.tx_callback)(tx);
@@ -94,7 +93,13 @@ impl<T: Transaction> Protocol<T>  {
     fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: &Status) {
         if status.version != CURRENT_VERSION {
             debug!(target: "sync", "Version mismatch");
-            net_sync.report_peer(peer, Severity::Bad(&format!("Peer uses incompatible version {}", status.version)));
+            net_sync.report_peer(
+                peer,
+                Severity::Bad(&format!(
+                    "Peer uses incompatible version {}",
+                    status.version
+                )),
+            );
             return;
         }
         let peer_info = PeerInfo {
@@ -119,11 +124,16 @@ impl<T: Transaction> Protocol<T>  {
         }
     }
 
-    pub fn send_message(&self, net_sync: &mut NetSyncIo, node_index: NodeIndex, message: &Message<T>) {
+    pub fn send_message(
+        &self,
+        net_sync: &mut NetSyncIo,
+        node_index: NodeIndex,
+        message: &Message<T>,
+    ) {
         match Encode::encode(message) {
             Some(data) => {
                 net_sync.send(node_index, data);
-            },
+            }
             _ => {
                 // this should never happen
                 error!("FATAL: cannot encode message: {:?}", message);
@@ -173,9 +183,7 @@ mod tests {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let callback = |_| {
-            Ok(())
-        };
+        let callback = |_| Ok(());
         let protocol = Protocol::new(config, callback);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);

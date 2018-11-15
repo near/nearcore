@@ -1,10 +1,9 @@
 #![allow(dead_code)]
 
-use libp2p::{Multiaddr, secio};
-use substrate_network_libp2p::{Secret, PeerId, NetworkConfiguration};
+use libp2p::{secio, Multiaddr};
 use message::{Message, MessageBody};
 use primitives::types;
-use substrate_network_libp2p::{NetworkConfiguration, Secret};
+use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
