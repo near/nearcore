@@ -17,7 +17,7 @@ pub type BLSSignature = u128;
 
 // 1. Transaction structs.
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct TransactionBody {
     pub nonce: u64,
     pub sender_uid: UID,
@@ -36,7 +36,7 @@ impl TransactionBody {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
     hash: StructHash,
@@ -53,7 +53,7 @@ impl SignedTransaction {
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize)]
+#[derive(Hash, Debug, Serialize, Deserialize, Clone)]
 pub enum TransactionState {
     Sender,
     Receiver,
@@ -61,7 +61,7 @@ pub enum TransactionState {
     Cancelled,
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize)]
+#[derive(Hash, Debug, Serialize, Deserialize, Clone)]
 pub struct StatedTransaction {
     pub transaction: SignedTransaction,
     pub state: TransactionState,
