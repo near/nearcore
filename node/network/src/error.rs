@@ -1,14 +1,16 @@
-use std::{io, fmt, error};
+use std::{error, fmt, io};
 use substrate_network_libp2p::Error as libp2pError;
 
 #[derive(Debug)]
 pub struct Error {
-    inner: String
+    inner: String,
 }
 
 impl Error {
     fn new(msg: &str) -> Error {
-        Error { inner: msg.to_string()}
+        Error {
+            inner: msg.to_string(),
+        }
     }
 }
 
@@ -30,7 +32,6 @@ impl From<io::Error> for Error {
         self::Error::new(error.description())
     }
 }
-
 
 impl From<libp2pError> for Error {
     fn from(error: libp2pError) -> Self {
