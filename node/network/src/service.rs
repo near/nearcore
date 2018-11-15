@@ -153,7 +153,7 @@ mod tests {
             for peer in service.protocol.sample_peers(1) {
                 let message = fake_tx_message();
                 let mut net_sync = NetSyncIo::new(&service.network, ProtocolId::default());
-                service.protocol.send_message(&mut net_sync, peer, message);
+                service.protocol.send_message(&mut net_sync, peer, &message);
             }
         }
         thread::sleep(time::Duration::from_millis(1000));

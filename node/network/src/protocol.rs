@@ -71,7 +71,7 @@ impl<T: Transaction> Protocol<T>  {
             version: CURRENT_VERSION,
         };
         let message: Message<T> = Message::new(MessageBody::Status(status));
-        self.send_message(net_sync, peer, message);
+        self.send_message(net_sync, peer, &message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
@@ -91,11 +91,7 @@ impl<T: Transaction> Protocol<T>  {
         let _ = (self.tx_callback)(tx);
     }
 
-<<<<<<< HEAD
-    fn on_status_message(&self, peer: NodeIndex, status: &Status) {
-=======
-    fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: Status) {
->>>>>>> port io sync from substrate
+    fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: &Status) {
         if status.version != CURRENT_VERSION {
             debug!(target: "sync", "Version mismatch");
             net_sync.report_peer(peer, Severity::Bad(&format!("Peer uses incompatible version {}", status.version)));
@@ -119,35 +115,21 @@ impl<T: Transaction> Protocol<T>  {
         };
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
-<<<<<<< HEAD
-            MessageBody::Status(status) => self.on_status_message(peer, &status),
-=======
-            MessageBody::Status(status) => self.on_status_message(net_sync, peer, status),
->>>>>>> port io sync from substrate
+            MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
         }
     }
 
-    pub fn send_message(&self, net_sync: &mut NetSyncIo, node_index: NodeIndex, message: Message<T>) {
-        match Encode::encode(&message) {
+    pub fn send_message(&self, net_sync: &mut NetSyncIo, node_index: NodeIndex, message: &Message<T>) {
+        match Encode::encode(message) {
             Some(data) => {
                 net_sync.send(node_index, data);
             },
             _ => {
-<<<<<<< HEAD
-                error!("cannot encode message: {:?}", message);
-                return;
-            }
-        };
-        network
-            .lock()
-            .send_custom_message(node_index, self.config.protocol_id, data);
-=======
                 // this should never happen
                 error!("FATAL: cannot encode message: {:?}", message);
                 return;
             }
         };
->>>>>>> port io sync from substrate
     }
 
     pub fn maintain_peers(&self, net_sync: &mut NetSyncIo) {
@@ -176,7 +158,6 @@ mod tests {
 
     use super::*;
     use primitives::types;
-    use transaction_pool::Pool;
 
     impl<T: Transaction> Protocol<T> {
         fn _on_message(&self, data: &[u8]) -> Message<T> {

@@ -65,8 +65,8 @@ pub fn main() {
     } else {
         let boot_node = root_addr + "/p2p/" + &raw_key_to_peer_id_str(create_secret());
         println!("boot node: {}", boot_node);
-        net_config = test_config(&addr, vec![boot_node]);
-    }
+        test_config(&addr, vec![boot_node])
+    };
     let tx_callback = |_: types::SignedTransaction| { Ok(()) };
     let service = Service::new(
         ProtocolConfig::default(), net_config, ProtocolId::default(), tx_callback
