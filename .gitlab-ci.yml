@@ -16,8 +16,10 @@ cache:
 test:cargo:
     stage: test
     before_script:
+    - rustup component add clippy-preview
     - rustup component add rustfmt-preview
     script:
     - rustc --version && cargo --version
     - cargo fmt --all -- --check
+    - cargo clippy --all -- -A clippy::unit_arg -A clippy::if_same_then_else -A clippy::collapsible_if -D warnings
     - cargo test --all --verbose -- --test-threads=1
