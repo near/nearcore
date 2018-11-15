@@ -38,8 +38,8 @@ impl<T: Transaction> Service<T> {
         let protocol = Arc::new(Protocol::new(config, tx_pool));
         let (thread, network) = start_thread(net_config, protocol.clone(), registered)?;
         Ok(Arc::new(Service {
-            network: network,
-            protocol: protocol,
+            network,
+            protocol,
             bg_thread: Some(thread),
         }))
     }
@@ -85,8 +85,8 @@ pub fn start_thread<T: Transaction>(
 }
 
 fn run_thread<T: Transaction>(
-    network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<T>>,
+    network_service: &Arc<Mutex<NetworkService>>,
+    protocol: &Arc<Protocol<T>>,
 ) -> impl Future<Item = (), Error = io::Error> {
     let network_service1 = network_service.clone();
     let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
@@ -106,10 +106,7 @@ fn run_thread<T: Transaction>(
                 ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                     protocol.on_peer_disconnected(node_index);
                 }
-                _ => {
-                    debug!("TODO");
-                    ()
-                }
+                _ => unimplemented!(),
             };
             Ok(())
         }

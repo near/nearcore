@@ -208,11 +208,8 @@ impl<'a, P: Payload> Message<'a, P> {
             Some(epoch_messages) => {
                 let owner_uid = self.data.body.owner_uid;
                 let total_witnesses = witness_selector.epoch_witnesses(prev_epoch);
-                let mut existing_witnesses: HashSet<u64> = epoch_messages
-                    .messages_by_owner
-                    .keys()
-                    .map(|x| x.clone())
-                    .collect();
+                let mut existing_witnesses: HashSet<u64> =
+                    epoch_messages.messages_by_owner.keys().cloned().collect();
                 existing_witnesses.insert(owner_uid);
                 (total_witnesses & &existing_witnesses).len() > total_witnesses.len() * 2 / 3
             }
@@ -317,23 +314,23 @@ impl<'a, P: Payload> Message<'a, P> {
             // Check if we gave a promise to a kickout in this epoch.
             if self
                 .approved_promises
-                .contains_any_approval(epoch, owner_uid)
+                .contains_any_approval(*epoch, *owner_uid)
             {
                 continue;
             };
             // Check if we endorsed representative with higher epoch.
             if self
                 .approved_endorsements
-                .contains_any_future_approvals(epoch, owner_uid)
+                .contains_any_future_approvals(*epoch, *owner_uid)
             {
                 continue;
             };
-            for (_repr_owner_uid, owner_repr) in &reprs.messages_by_owner {
+            for owner_repr in reprs.messages_by_owner.values() {
                 for repr in owner_repr {
                     // Check if we already gave an endorsement to exactly the same representative.
                     if !self
                         .approved_endorsements
-                        .contains_approval(epoch, owner_uid, repr)
+                        .contains_approval(*epoch, *owner_uid, repr)
                     {
                         result.insert(*epoch, repr);
                     }
@@ -369,17 +366,17 @@ impl<'a, P: Payload> Message<'a, P> {
             // Check if we endorsed this epoch.
             if self
                 .approved_endorsements
-                .contains_any_approval(epoch, owner_uid)
+                .contains_any_approval(*epoch, *owner_uid)
                 || self.computed_endorsements.contains_epoch(*epoch)
             {
                 continue;
             };
-            for (_kickout_owner_uid, owner_kickout) in &kickouts.messages_by_owner {
+            for owner_kickout in kickouts.messages_by_owner.values() {
                 for kickout in owner_kickout {
                     // Check if we already gave a promise to exactly the same kickout.
                     if !self
                         .approved_promises
-                        .contains_approval(epoch, owner_uid, kickout)
+                        .contains_approval(*epoch, *owner_uid, kickout)
                     {
                         result.insert(*epoch, kickout);
                     }

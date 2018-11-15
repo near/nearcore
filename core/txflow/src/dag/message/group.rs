@@ -30,7 +30,7 @@ impl<'a, P: 'a + Payload> Group<'a, P> {
         let owner_uid = message.data.body.owner_uid;
         self.messages_by_owner
             .entry(owner_uid)
-            .or_insert_with(|| HashSet::new())
+            .or_insert_with(HashSet::new)
             .insert(message);
     }
 
@@ -38,13 +38,13 @@ impl<'a, P: 'a + Payload> Group<'a, P> {
         for (owner_uid, per_owner) in &other.messages_by_owner {
             self.messages_by_owner
                 .entry(*owner_uid)
-                .or_insert_with(|| HashSet::new())
+                .or_insert_with(HashSet::new)
                 .extend(per_owner);
         }
     }
 
-    pub fn contains_owner(&self, owner_uid: &UID) -> bool {
-        self.messages_by_owner.contains_key(owner_uid)
+    pub fn contains_owner(&self, owner_uid: UID) -> bool {
+        self.messages_by_owner.contains_key(&owner_uid)
     }
 
     pub fn filter_by_owner(&self, owner_uid: UID) -> Option<&HashSet<&Message<P>>> {
@@ -77,7 +77,7 @@ impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
     pub fn insert(&mut self, epoch: u64, message: &'a Message<'a, P>) {
         self.messages_by_epoch
             .entry(epoch)
-            .or_insert_with(|| Group::new())
+            .or_insert_with(Group::new)
             .insert(message);
     }
 
@@ -85,7 +85,7 @@ impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
         for (epoch, per_epoch) in &other.messages_by_epoch {
             self.messages_by_epoch
                 .entry(*epoch)
-                .or_insert_with(|| Group::new())
+                .or_insert_with(Group::new)
                 .union_update(per_epoch);
         }
     }
@@ -97,7 +97,7 @@ impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
         owner_uid: UID,
     ) -> impl Iterator<Item = (&u64, &'a HashSet<&'a Message<'a, P>>)> {
         (&self.messages_by_epoch)
-            .into_iter()
+            .iter()
             .filter_map(
                 move |(epoch, per_epoch)| match per_epoch.filter_by_owner(owner_uid) {
                     None => None,

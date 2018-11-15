@@ -19,8 +19,8 @@ where
     }
 }
 
-impl<T> Pool<T> {
-    pub fn new() -> Pool<T> {
+impl<T> Default for Pool<T> {
+    fn default() -> Self {
         Pool(Vec::new())
     }
 }
