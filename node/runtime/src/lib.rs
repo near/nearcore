@@ -25,6 +25,7 @@ impl StateDbView for StateDbViewMock {
 #[derive(Serialize, Deserialize)]
 struct Account {
     pub public_keys: Vec<PublicKey>,
+    pub nonce: u64,
     pub amount: u64,
 }
 
@@ -54,8 +55,9 @@ impl Runtime {
         let mut sender = self.get_account(state_view, transaction.transaction.body.sender).expect("Account is not found");
         // TODO: validate if transaction is correctly signed.
         let mut receiver = self.get_account(state_view, transaction.transaction.body.receiver).expect("Account is not found");
-        if sender.amount >= transaction.transaction.body.amount {
+        if sender.amount >= transaction.transaction.body.amount && transaction.transaction.body.nonce > sender.nonce {
             sender.amount -= transaction.transaction.body.amount;
+            sender.nonce += 1;
             receiver.amount += transaction.transaction.body.amount;
             self.set_account(state_view, transaction.transaction.body.sender, sender);
             self.set_account(state_view, transaction.transaction.body.sender, receiver);
