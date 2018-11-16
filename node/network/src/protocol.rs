@@ -1,7 +1,7 @@
 use io::{NetSyncIo, SyncIo};
-use message::{Message, MessageBody, Status};
+use message::*;
 use parking_lot::RwLock;
-use primitives::traits::{Decode, Encode, GenericResult};
+use primitives::traits::{Block, Decode, Encode, GenericResult};
 use rand::{seq, thread_rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -63,13 +63,13 @@ impl<T: Transaction> Protocol<T> {
         }
     }
 
-    pub fn on_peer_connected(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
+    pub fn on_peer_connected<B: Block>(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
         self.handshaking_peers
             .write()
             .insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
         let status = Status::default();
-        let message: Message<T> = Message::new(MessageBody::Status(status));
+        let message: Message<T, B> = Message::new(MessageBody::Status(status));
         self.send_message(net_sync, peer, &message);
     }
 
@@ -109,8 +109,26 @@ impl<T: Transaction> Protocol<T> {
         self.handshaking_peers.write().remove(&peer);
     }
 
-    pub fn on_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
-        let message: Message<T> = match Decode::decode(data) {
+    fn on_block_request(
+        &self,
+        _net_sync: &mut NetSyncIo,
+        _peer: NodeIndex,
+        _request: &BlockRequest,
+    ) {
+        unimplemented!();
+    }
+
+    fn on_block_response<B: Block>(
+        &self,
+        _net_sync: &mut NetSyncIo,
+        _peer: NodeIndex,
+        _response: &BlockResponse<B>,
+    ) {
+        unimplemented!()
+    }
+
+    pub fn on_message<B: Block>(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
+        let message: Message<T, B> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
                 debug!("cannot decode message: {:?}", data);
@@ -121,14 +139,18 @@ impl<T: Transaction> Protocol<T> {
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
             MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
+            MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, &request),
+            MessageBody::BlockResponse(response) => {
+                self.on_block_response(net_sync, peer, &response)
+            }
         }
     }
 
-    pub fn send_message(
+    pub fn send_message<B: Block>(
         &self,
         net_sync: &mut NetSyncIo,
         node_index: NodeIndex,
-        message: &Message<T>,
+        message: &Message<T, B>,
     ) {
         match Encode::encode(message) {
             Some(data) => {
@@ -168,9 +190,10 @@ mod tests {
 
     use super::*;
     use primitives::types;
+    use MockBlock;
 
     impl<T: Transaction> Protocol<T> {
-        fn _on_message(&self, data: &[u8]) -> Message<T> {
+        fn _on_message<B: Block>(&self, data: &[u8]) -> Message<T, B> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data),
@@ -181,7 +204,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
-        let message = Message::new(MessageBody::Transaction(tx));
+        let message: Message<_, MockBlock> = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let callback = |_| Ok(());
         let protocol = Protocol::new(config, callback);

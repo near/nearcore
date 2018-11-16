@@ -1,11 +1,8 @@
-extern crate bincode;
-extern crate exonum_sodiumoxide as sodiumoxide;
-extern crate serde;
+use bincode::serialize;
+use exonum_sodiumoxide::{self as sodiumoxide, crypto::hash::sha256::Digest};
+use serde::Serialize;
 
-use self::bincode::serialize;
-use self::serde::Serialize;
-
-pub type CryptoHash = sodiumoxide::crypto::hash::sha256::Digest;
+pub type CryptoHash = Digest;
 
 /// Calculates a hash of a bytes slice.
 ///

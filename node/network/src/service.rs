@@ -2,7 +2,7 @@ use error::Error;
 use futures::{self, stream, Future, Stream};
 use io::NetSyncIo;
 use parking_lot::Mutex;
-use primitives::traits::GenericResult;
+use primitives::traits::{Block, GenericResult};
 use protocol::{self, Protocol, ProtocolConfig, Transaction};
 use std::io;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ pub struct Service<T> {
 }
 
 impl<T: Transaction> Service<T> {
-    pub fn new(
+    pub fn new<B: Block>(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
@@ -35,9 +35,10 @@ impl<T: Transaction> Service<T> {
             Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
         };
-        let task = service_task(service.clone(), protocol.clone(), protocol_id).map_err(|e| {
-            debug!(target: "sub-libp2p", "service error: {:?}", e);
-        });
+        let task =
+            service_task::<T, B>(service.clone(), protocol.clone(), protocol_id).map_err(|e| {
+                debug!(target: "sub-libp2p", "service error: {:?}", e);
+            });
         Ok((
             Service {
                 network: service,
@@ -48,7 +49,7 @@ impl<T: Transaction> Service<T> {
     }
 }
 
-pub fn service_task<T: Transaction>(
+pub fn service_task<T: Transaction, B: Block>(
     network_service: Arc<Mutex<NetworkService>>,
     protocol: Arc<Protocol<T>>,
     protocol_id: ProtocolId,
@@ -77,10 +78,10 @@ pub fn service_task<T: Transaction>(
             ServiceEvent::CustomMessage {
                 node_index, data, ..
             } => {
-                protocol.on_message(&mut net_sync, node_index, &data);
+                protocol.on_message::<B>(&mut net_sync, node_index, &data);
             }
             ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_connected(&mut net_sync, node_index);
+                protocol.on_peer_connected::<B>(&mut net_sync, node_index);
             }
             ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                 protocol.on_peer_disconnected(node_index);
@@ -108,6 +109,7 @@ mod tests {
     use std::thread;
     use std::time;
     use test_utils::*;
+    use MockBlock;
 
     fn create_services<T: Transaction>(
         num_services: u32,
@@ -125,7 +127,7 @@ mod tests {
         let secret = create_secret();
         let root_config = test_config_with_secret(&addresses[0], vec![], secret);
         let tx_callback = |_| Ok(());
-        let root_service = Service::new(
+        let root_service = Service::new::<MockBlock>(
             ProtocolConfig::default(),
             root_config,
             ProtocolId::default(),

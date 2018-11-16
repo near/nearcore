@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use super::MockBlock;
 use libp2p::{secio, Multiaddr};
 use message::{Message, MessageBody};
 use primitives::types;
@@ -43,7 +44,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<types::SignedTransaction> {
+pub fn fake_tx_message() -> Message<types::SignedTransaction, MockBlock> {
     let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
     Message::new(MessageBody::Transaction(tx))
 }

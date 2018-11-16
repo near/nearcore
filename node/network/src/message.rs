@@ -1,17 +1,25 @@
-use primitives::traits::{Decode, Encode};
-use primitives::hash::CryptoHash;
-use protocol::Transaction;
+use primitives::{hash::CryptoHash, traits::Block};
+
+pub type RequestId = u64;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum MessageBody<T> {
+pub enum MessageBody<T, B> {
     //TODO: add different types of messages here
     Transaction(T),
     Status(Status),
+    BlockRequest(BlockRequest),
+    BlockResponse(BlockResponse<B>),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Message<T> {
-    pub body: MessageBody<T>,
+pub struct Message<T, B> {
+    pub body: MessageBody<T, B>,
+}
+
+impl<T, B: Block> Message<T, B> {
+    pub fn new(body: MessageBody<T, B>) -> Message<T, B> {
+        Message { body }
+    }
 }
 
 /// status sent on connection
@@ -33,38 +41,25 @@ impl Default for Status {
             version: 1,
             best_number: 0,
             best_hash: CryptoHash { 0: [0; 32] },
-            genesis_hash: CryptoHash { 0: [0; 32] }
+            genesis_hash: CryptoHash { 0: [0; 32] },
         }
     }
 }
 
-impl<T> Message<T> {
-    pub fn new(body: MessageBody<T>) -> Message<T> {
-        Message { body }
-    }
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockRequest {
+    // request id
+    pub id: RequestId,
+    // starting from the hash
+    pub from: CryptoHash,
+    // ending at this hash,
+    pub to: CryptoHash,
 }
 
-impl<T: Transaction> Encode for Message<T> {
-    fn encode(&self) -> Option<Vec<u8>> {
-        match bincode::serialize(&self) {
-            Ok(data) => Some(data),
-            Err(e) => {
-                error!("error occurred while encoding: {:?}", e);
-                None
-            }
-        }
-    }
-}
-
-impl<T: Transaction> Decode for Message<T> {
-    fn decode(data: &[u8]) -> Option<Self> {
-        // need to figure out how to deserialize without copying
-        match bincode::deserialize(data) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                error!("error occurred while decoding: {:?}", e);
-                None
-            }
-        }
-    }
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockResponse<Block> {
+    // request id that the response is responding to
+    pub id: RequestId,
+    // block data
+    pub blocks: Vec<Block>,
 }
