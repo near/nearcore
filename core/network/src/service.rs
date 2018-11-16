@@ -69,7 +69,7 @@ pub fn start_thread<T: Transaction>(
     let thread = thread::Builder::new()
         .name("network".to_string())
         .spawn(move || {
-            let future = run_thread(service_clone, protocol);
+            let future = run_thread(&service_clone, &protocol);
 
             match runtime.block_on(future) {
                 Ok(()) => {

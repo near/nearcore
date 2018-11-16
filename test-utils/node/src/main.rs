@@ -63,7 +63,7 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
+    let tx_pool = Arc::new(Mutex::new(Pool::default() as Pool<types::SignedTransaction>));
     let service = match Service::new(
         ProtocolConfig::default(),
         net_config,
