@@ -11,20 +11,15 @@ build_rpc_trait! {
     }
 }
 
-#[derive(Default)]
-pub struct RpcImpl {
-    client: Client,
-}
-
-impl TransactionApi for RpcImpl {
+impl TransactionApi for Client {
     fn rpc_receive_transaction(&self, t: TransactionBody) -> JsonRpcResult<()> {
-        Ok(self.client.receive_transaction(&t))
+        Ok(self.receive_transaction(&t))
     }
 }
 
-pub fn get_handler() -> IoHandler {
+pub fn get_handler(client: Client) -> IoHandler {
     let mut io = IoHandler::new();
-    io.extend_with(RpcImpl::default().to_delegate());
+    io.extend_with(client.to_delegate());
     io
 }
 
@@ -40,7 +35,7 @@ mod tests {
 
     #[test]
     fn test_call() {
-        let handler = get_handler();
+        let handler = get_handler(Client::default());
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
             nonce: 0,
