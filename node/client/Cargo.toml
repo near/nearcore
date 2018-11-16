@@ -5,3 +5,5 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
 primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+node-runtime = { path = "../runtime" }

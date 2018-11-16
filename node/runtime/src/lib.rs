@@ -39,6 +39,7 @@ struct Account {
     pub amount: u64,
 }
 
+#[derive(Default)]
 pub struct Runtime {}
 
 fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
