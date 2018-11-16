@@ -1,30 +1,13 @@
 use call::Callback;
 
 use ext::Externalities;
-use wasmi::{self, MemoryRef, Error as WasmiError, Trap};
+use wasmi::{self, MemoryRef};
 
 use resolver::EnvModuleResolver;
+use prepare;
 
 use runtime::{self, Runtime, RuntimeContext};
-
-/// Wrapped error
-#[derive(Debug)]
-pub enum Error {
-	Interpreter(WasmiError),
-	Trap(Trap),
-}
-
-impl From<WasmiError> for Error {
-	fn from(e: WasmiError) -> Self {
-		Error::Interpreter(e)
-	}
-}
-
-impl From<Trap> for Error {
-	fn from(e: Trap) -> Self {
-		Error::Trap(e)
-	}
-}
+use types::*;
 
 enum ExecutionOutcome {
 	WTF,
@@ -34,37 +17,48 @@ enum ExecutionOutcome {
 
 
 pub struct Exectutor {
-
+    params: ExecutionParams,
 }
 
 impl Exectutor {
     pub fn new(
-
+        params: ExecutionParams,
     ) -> Exectutor {
         Exectutor {
-
+            params,
         }
     }
 
     pub fn execute(
+        &self,
+        code: &[u8],
 		ext: &mut Externalities,
     ) -> Result<(), Error> {
         // Fetch code
+        /*
         let wasm_binary = fs::read("wasm_with_mem.wasm")
             .expect("Unable to read file");
 
         // Load wasm binary and prepare it for instantiation.
         let module = wasmi::Module::from_buffer(&wasm_binary)
             .expect("failed to load wasm");
+        */
+        let prepare::PreparedContract {
+            instrumented_code,
+            memory,
+        } = prepare::prepare_contract(
+                code,
+                &self.params.config,
+                &prepare::HostFunctionSet::new()
+            ).map_err(Error::Prepare)?;
 
-		let (module, data) = parser::payload(&self.params, ext.schedule().wasm())?;
         // Parse module from code
-		let loaded_module = wasmi::Module::from_parity_wasm_module(module).map_err(Error::Interpreter)?;
+        let module = wasmi::Module::from_buffer(&instrumented_code).map_err(Error::Interpreter)?;
         // Setup memory and functions
 		let instantiation_resolver = EnvModuleResolver::with_limit(16);
         // Make a module instance
 		let module_instance = wasmi::ModuleInstance::new(
-			&loaded_module,
+			&module,
 			&wasmi::ImportsBuilder::new().with_resolver("env", &instantiation_resolver)
 		).map_err(Error::Interpreter)?;
         // Getting initial memory
