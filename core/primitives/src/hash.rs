@@ -1,9 +1,9 @@
-extern crate serde;
 extern crate bincode;
 extern crate exonum_sodiumoxide as sodiumoxide;
+extern crate serde;
 
-use self::serde::Serialize;
 use self::bincode::serialize;
+use self::serde::Serialize;
 
 pub type CryptoHash = sodiumoxide::crypto::hash::sha256::Digest;
 

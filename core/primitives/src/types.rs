@@ -1,5 +1,5 @@
+use hash::{hash_struct, CryptoHash};
 use std::hash::{Hash, Hasher};
-use hash::{CryptoHash, hash_struct};
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
@@ -131,7 +131,7 @@ pub type TxFlowHash = u64;
 #[derive(Hash, Debug, Clone)]
 pub struct Endorsement {
     pub epoch: u64,
-    pub signature: BLSSignature
+    pub signature: BLSSignature,
 }
 
 #[derive(Hash, Debug)]
@@ -140,11 +140,8 @@ pub struct InShardPayload {
     pub epoch_block_header: Option<SignedEpochBlockHeader>,
 }
 
-
 #[derive(Hash, Debug)]
-pub struct BeaconChainPayload {
-
-}
+pub struct BeaconChainPayload {}
 
 #[derive(Hash, Debug, Clone)]
 /// Not signed data representing TxFlow message.
@@ -171,7 +168,6 @@ impl<P> Hash for SignedMessageData<P> {
         state.write_u64(self.hash);
     }
 }
-
 
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {

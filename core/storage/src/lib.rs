@@ -1,13 +1,12 @@
-extern crate parity_rocksdb;
 extern crate bincode;
+extern crate parity_rocksdb;
 extern crate primitives;
 extern crate serde;
 
-use parity_rocksdb::{DB, Writable};
-use bincode::{serialize, deserialize};
-use serde::{Serialize, de::DeserializeOwned};
+use bincode::{deserialize, serialize};
+use parity_rocksdb::{Writable, DB};
 use primitives::hash::CryptoHash;
-
+use serde::{de::DeserializeOwned, Serialize};
 
 pub struct Storage {
     db: DB,
@@ -16,9 +15,7 @@ pub struct Storage {
 impl Storage {
     pub fn new(path: &str) -> Self {
         let db = DB::open_default(path).unwrap();
-        Storage {
-            db
-        }
+        Storage { db }
     }
 
     pub fn put<T: Serialize>(&self, obj: T) -> CryptoHash {

@@ -5,7 +5,7 @@ use super::types;
 use hash::CryptoHash;
 
 pub trait VerifierLike {
-   fn compute_state(&mut self, transactions: &[types::StatedTransaction]) -> types::State;
+    fn compute_state(&mut self, transactions: &[types::StatedTransaction]) -> types::State;
 }
 
 // encode a type to byte array
@@ -52,20 +52,30 @@ pub trait Payload: Hash {
     fn verify(&self) -> GenericResult;
 }
 
-pub trait TxFlow<P: Payload>{
+pub trait TxFlow<P: Payload> {
     /// Tells TxFlow to process the given TxFlow message received from another peer. TxFlow signals
     /// when the message is processed.
-    fn process_message(&mut self, message: types::SignedMessageData<P>, callback: &Fn() -> GenericResult) -> GenericResult;
+    fn process_message(
+        &mut self,
+        message: types::SignedMessageData<P>,
+        callback: &Fn() -> GenericResult,
+    ) -> GenericResult;
     /// Tells TxFlow to process a payload, e.g. for in-shard TxFlow it is a transaction received
     /// from a client. TxFlow signals when the payload is accepted.
     fn process_payload(&mut self, payload: P, callback: &Fn() -> GenericResult) -> GenericResult;
     /// Subscribes to the messages produced by TxFlow. These messages indicate the receiver that
     /// they have to be relayed to.
-    fn subscribe_to_messages(&mut self, subscriber: &Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult) -> GenericResult;
+    fn subscribe_to_messages(
+        &mut self,
+        subscriber: &Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult,
+    ) -> GenericResult;
     /// Subscribes to the consensus blocks produced by TxFlow. The consensus blocks contain messages
     /// with payload + some content specific to whether TxFlow is used on the Beacon Chain or in
     /// the shard.
-    fn subscribe_to_consensus_blocks<C>(&mut self, subscriber: &Fn(types::ConsensusBlockBody<P, C>)) -> GenericResult;
+    fn subscribe_to_consensus_blocks<C>(
+        &mut self,
+        subscriber: &Fn(types::ConsensusBlockBody<P, C>),
+    ) -> GenericResult;
 }
 
 /// View of State database. Provides a way to get/set values in database and finalize into new view.
@@ -91,5 +101,9 @@ pub trait StateDbView: Sized {
 pub trait StateTransitionRuntime {
     type StateDbView;
 
-    fn apply(&self, state_view: &mut Self::StateDbView, transactions: Vec<types::StatedTransaction>) -> (Vec<types::StatedTransaction>, Self::StateDbView);
+    fn apply(
+        &self,
+        state_view: &mut Self::StateDbView,
+        transactions: Vec<types::StatedTransaction>,
+    ) -> (Vec<types::StatedTransaction>, Self::StateDbView);
 }

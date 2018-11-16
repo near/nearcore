@@ -1,11 +1,11 @@
-use libp2p::{Multiaddr, secio, PeerId};
-use substrate_network_libp2p::{Secret, NetworkConfiguration};
+use libp2p::{secio, Multiaddr, PeerId};
 use message::{Message, MessageBody};
 use primitives::types;
+use substrate_network_libp2p::{NetworkConfiguration, Secret};
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
-        addr.parse().expect("cannot parse address")
-    }
+    addr.parse().expect("cannot parse address")
+}
 
 pub fn test_config(addr: &str, boot_nodes: Vec<String>) -> NetworkConfiguration {
     let mut config = NetworkConfiguration::new();
@@ -14,12 +14,15 @@ pub fn test_config(addr: &str, boot_nodes: Vec<String>) -> NetworkConfiguration 
     config
 }
 
-pub fn test_config_with_secret(addr: &str, boot_nodes: Vec<String>, secret: Secret)
-    -> NetworkConfiguration {
-        let mut config = test_config(addr, boot_nodes);
-        config.use_secret = Some(secret);
-        config
-    }
+pub fn test_config_with_secret(
+    addr: &str,
+    boot_nodes: Vec<String>,
+    secret: Secret,
+) -> NetworkConfiguration {
+    let mut config = test_config(addr, boot_nodes);
+    config.use_secret = Some(secret);
+    config
+}
 
 pub fn create_secret() -> Secret {
     let mut secret: Secret = [0; 32];

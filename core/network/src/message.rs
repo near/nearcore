@@ -1,4 +1,4 @@
-use primitives::traits::{Encode, Decode};
+use primitives::traits::{Decode, Encode};
 use protocol::Transaction;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -23,9 +23,7 @@ pub struct Status {
 
 impl<T> Message<T> {
     pub fn new(body: MessageBody<T>) -> Message<T> {
-        Message {
-            body,
-        }
+        Message { body }
     }
 }
 

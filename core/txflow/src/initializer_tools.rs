@@ -63,7 +63,7 @@ mod tests {
     use std::hash::{Hash, Hasher};
 
     #[derive(Debug)]
-    struct ComplexType{
+    struct ComplexType {
         pub value: u64,
     }
     impl PartialEq for ComplexType {
@@ -88,9 +88,9 @@ mod tests {
     #[test]
     fn complex_map() {
         let m1 = map!{ComplexType{value: 0} => ComplexType{value: 1},
-                     ComplexType{value: 2} => ComplexType{value: 3}};
+        ComplexType{value: 2} => ComplexType{value: 3}};
         let m2 = map!{ComplexType{value: 2} => ComplexType{value: 3},
-            ComplexType{value: 0} => ComplexType{value: 1}};
+        ComplexType{value: 0} => ComplexType{value: 1}};
         assert_eq!(m1, m2);
     }
 
@@ -110,8 +110,8 @@ mod tests {
 
     #[test]
     fn tuplet_test() {
-        let v = vec![1,2,3];
-        tuplet!((a,b,c) = v);
+        let v = vec![1, 2, 3];
+        tuplet!((a, b, c) = v);
         assert_eq!(a, &1);
         assert_eq!(b, &2);
         assert_eq!(c, &3);
