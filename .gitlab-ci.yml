@@ -22,4 +22,4 @@ test:cargo:
     - rustc --version && cargo --version
     - cargo fmt --all -- --check
     - ./scripts/run_clippy.sh
-    - cargo test --all --verbose -- --test-threads=1
+    - cargo test --all --verbose
