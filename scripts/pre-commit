@@ -6,4 +6,5 @@ while [ -h "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null && pwd )"
+cargo fmt --all -- --check
 ${DIR}/run_clippy.sh
