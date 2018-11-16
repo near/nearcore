@@ -1,17 +1,17 @@
+use error::Error;
 use futures::{self, stream, Future, Stream};
-use tokio::{runtime::Runtime, timer::Interval};
-use std::thread;
+use parking_lot::Mutex;
+use primitives::types;
+use protocol::{self, Protocol, ProtocolConfig, Transaction, TransactionPool};
 use std::io;
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
-use parking_lot::Mutex;
 use substrate_network_libp2p::{
-    start_service, Service as NetworkService, ServiceEvent,
-    NetworkConfiguration, ProtocolId, RegisteredProtocol,
+    start_service, NetworkConfiguration, ProtocolId, RegisteredProtocol, Service as NetworkService,
+    ServiceEvent,
 };
-use protocol::{self, Protocol, ProtocolConfig, TransactionPool, Transaction};
-use error::Error; 
-use primitives::types;
+use tokio::{runtime::Runtime, timer::Interval};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -28,10 +28,10 @@ pub struct Service<T: Transaction> {
 
 impl<T: Transaction> Service<T> {
     pub fn new(
-        config: ProtocolConfig, 
-        net_config: NetworkConfiguration, 
+        config: ProtocolConfig,
+        net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
-        tx_pool: Arc<Mutex<TransactionPool<T>>>
+        tx_pool: Arc<Mutex<TransactionPool<T>>>,
     ) -> Result<Arc<Service<T>>, Error> {
         let version = [(protocol::CURRENT_VERSION) as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
@@ -40,7 +40,7 @@ impl<T: Transaction> Service<T> {
         Ok(Arc::new(Service {
             network: network,
             protocol: protocol,
-            bg_thread: Some(thread)
+            bg_thread: Some(thread),
         }))
     }
 }
@@ -55,92 +55,89 @@ impl<T: Transaction> Drop for Service<T> {
     }
 }
 
-
 pub fn start_thread<T: Transaction>(
-    config: NetworkConfiguration, 
-    protocol: Arc<Protocol<T>>, 
-    registered: RegisteredProtocol
+    config: NetworkConfiguration,
+    protocol: Arc<Protocol<T>>,
+    registered: RegisteredProtocol,
 ) -> Result<(thread::JoinHandle<()>, Arc<Mutex<NetworkService>>), Error> {
-
     let service = match start_service(config, Some(registered)) {
         Ok(service) => Arc::new(Mutex::new(service)),
-        Err(e) => return Err(e.into())
+        Err(e) => return Err(e.into()),
     };
     let service_clone = service.clone();
     let mut runtime = Runtime::new()?;
-    let thread = thread::Builder::new().name("network".to_string()).spawn(move || {
-        let future = run_thread(service_clone, protocol);
+    let thread = thread::Builder::new()
+        .name("network".to_string())
+        .spawn(move || {
+            let future = run_thread(service_clone, protocol);
 
-        match runtime.block_on(future) {
-            Ok(()) => {
-                debug!("Network thread finished");
+            match runtime.block_on(future) {
+                Ok(()) => {
+                    debug!("Network thread finished");
+                }
+                Err(e) => {
+                    error!("Error occurred in network thread: {:?}", e);
+                }
             }
-            Err(e) => {
-                error!("Error occurred in network thread: {:?}", e);
-            }
-        }
-    })?;
+        })?;
 
     Ok((thread, service))
 }
 
 fn run_thread<T: Transaction>(
-    network_service: Arc<Mutex<NetworkService>>, 
-    protocol: Arc<Protocol<T>>
+    network_service: Arc<Mutex<NetworkService>>,
+    protocol: Arc<Protocol<T>>,
 ) -> impl Future<Item = (), Error = io::Error> {
-
     let network_service1 = network_service.clone();
     let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
         let protocol = protocol.clone();
         let network_service = network_service.clone();
         move |event| {
-        debug!(target: "sub-libp2p", "event: {:?}", event);
-        match event {
-            ServiceEvent::CustomMessage { node_index, data, .. } => {
-                protocol.on_message(node_index, &data);
-            },
-            ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_connected(&network_service, node_index);
-            },
-            ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_disconnected(node_index);
-            },
-            _ => {
-                debug!("TODO");
-                ()
-            }
-        };
-        Ok(())
-    }});
+            debug!(target: "sub-libp2p", "event: {:?}", event);
+            match event {
+                ServiceEvent::CustomMessage {
+                    node_index, data, ..
+                } => {
+                    protocol.on_message(node_index, &data);
+                }
+                ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
+                    protocol.on_peer_connected(&network_service, node_index);
+                }
+                ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
+                    protocol.on_peer_disconnected(node_index);
+                }
+                _ => {
+                    debug!("TODO");
+                    ()
+                }
+            };
+            Ok(())
+        }
+    });
 
     // Interval for performing maintenance on the protocol handler.
-	let timer = Interval::new_interval(TICK_TIMEOUT)
-		.for_each({
-			let protocol = protocol.clone();
-			let network_service = network_service.clone();
-			move |_| {
-				protocol.maintain_peers(&network_service);
-				Ok(())
-			}
-		})
-		.then(|res| {
-			match res {
-				Ok(()) => (),
-				Err(err) => error!("Error in the propagation timer: {:?}", err),
-			};
-			Ok(())
-		});
+    let timer = Interval::new_interval(TICK_TIMEOUT)
+        .for_each({
+            let protocol = protocol.clone();
+            let network_service = network_service.clone();
+            move |_| {
+                protocol.maintain_peers(&network_service);
+                Ok(())
+            }
+        }).then(|res| {
+            match res {
+                Ok(()) => (),
+                Err(err) => error!("Error in the propagation timer: {:?}", err),
+            };
+            Ok(())
+        });
 
-
-    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
-        Box::new(network),
-        Box::new(timer),
-    ];
+    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> =
+        vec![Box::new(network), Box::new(timer)];
 
     futures::select_all(futures)
-		.and_then(move |_| {
-			info!("Networking ended");
-			Ok(())
-		})
-		.map_err(|(r, _, _)| r)
+        .and_then(move |_| {
+            info!("Networking ended");
+            Ok(())
+        }).map_err(|(r, _, _)| r)
 }

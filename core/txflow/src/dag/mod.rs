@@ -1,7 +1,7 @@
 mod message;
 
+use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;
-use primitives::traits::{WitnessSelector, Payload};
 
 use std::collections::HashSet;
 
@@ -26,7 +26,7 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     starting_epoch: u64,
 }
 
-impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
+impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
     pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
@@ -44,10 +44,13 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     }
 
     // Takes ownership of the message.
-    pub fn add_existing_message(&mut self, message_data: SignedMessageData<P>) -> Result<(), &'static str> {
+    pub fn add_existing_message(
+        &mut self,
+        message_data: SignedMessageData<P>,
+    ) -> Result<(), &'static str> {
         // Check whether this is a new message.
         if self.messages.contains(&message_data.hash) {
-            return Ok({})
+            return Ok({});
         }
 
         // Wrap message data and connect to the parents so that the verification can be run.
@@ -65,7 +68,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
 
         // Verify the message.
         if let Err(e) = self.verify_message(&message) {
-            return Err(e)
+            return Err(e);
         }
 
         // Finally, take ownership of the message and update the roots.
@@ -74,27 +77,29 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
 
         let message_ptr = self.arena.alloc(message) as *const Message<'a, P>;
-        self.messages.insert(unsafe{&*message_ptr});
-        self.roots.insert(unsafe{&*message_ptr});
+        self.messages.insert(unsafe { &*message_ptr });
+        self.roots.insert(unsafe { &*message_ptr });
         Ok({})
     }
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
     /// the endorsements.
-    pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) -> &'a Message<'a, P> {
-        let mut message = Message::new(
-            SignedMessageData {
-                owner_sig: 0,  // Will populate once the epoch is computed.
-                hash: 0,  // Will populate once the epoch is computed.
-                body: MessageDataBody {
-                    owner_uid: self.owner_uid,
-                    parents: (&self.roots).into_iter().map(|m| m.computed_hash).collect(),
-                    epoch: 0,  // Will be computed later.
-                    payload,
-                    endorsements,
-                }
-            }
-        );
+    pub fn create_root_message(
+        &mut self,
+        payload: P,
+        endorsements: Vec<Endorsement>,
+    ) -> &'a Message<'a, P> {
+        let mut message = Message::new(SignedMessageData {
+            owner_sig: 0, // Will populate once the epoch is computed.
+            hash: 0,      // Will populate once the epoch is computed.
+            body: MessageDataBody {
+                owner_uid: self.owner_uid,
+                parents: (&self.roots).into_iter().map(|m| m.computed_hash).collect(),
+                epoch: 0, // Will be computed later.
+                payload,
+                endorsements,
+            },
+        });
         message.init(true, self.starting_epoch, self.witness_selector);
         message.assume_computed_hash_epoch();
 
@@ -107,13 +112,11 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
-
     use super::*;
-    use std::collections::{HashSet, HashMap};
+    use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;
 
     struct FakeWitnessSelector {
@@ -124,8 +127,8 @@ mod tests {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
                 schedule: map!{
-               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
-               2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}}
+                0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+                2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
             }
         }
     }
@@ -194,7 +197,7 @@ mod tests {
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
         assert!(dag.add_existing_message((*a).clone()).is_ok());
-        let message = dag.create_root_message(::testing_utils::FakePayload{}, vec![]);
+        let message = dag.create_root_message(::testing_utils::FakePayload {}, vec![]);
         d = &message.data;
 
         simple_bare_messages!(data_arena, all_messages [[=> b; => d;] => 4, 5 => e;]);

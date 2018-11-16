@@ -1,21 +1,20 @@
-/// network protocol
-
-use substrate_network_libp2p::{Service as NetworkService, NodeIndex, ProtocolId};
-use primitives::traits::{Encode, Decode};
 use message::{Message, MessageBody, Status};
 use parking_lot::{Mutex, RwLock};
-use std::sync::Arc;
+use primitives::traits::{Decode, Encode};
+use rand::{seq, thread_rng};
+use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
-use std::time;
 use std::fmt::Debug;
-use rand::{thread_rng, seq};
-use serde::{Serialize, de::DeserializeOwned};
+use std::sync::Arc;
+use std::time;
+/// network protocol
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Service as NetworkService};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
 
 /// current version of the protocol
-pub (crate) const CURRENT_VERSION: u32 = 1;
+pub(crate) const CURRENT_VERSION: u32 = 1;
 
 pub struct ProtocolConfig {
     // config information goes here
@@ -24,9 +23,7 @@ pub struct ProtocolConfig {
 
 impl ProtocolConfig {
     pub fn new(protocol_id: ProtocolId) -> ProtocolConfig {
-        ProtocolConfig {
-            protocol_id
-        }
+        ProtocolConfig { protocol_id }
     }
 }
 
@@ -64,7 +61,7 @@ pub struct Protocol<T: Transaction> {
     pub tx_pool: Arc<Mutex<TransactionPool<T>>>,
 }
 
-impl<T: Transaction> Protocol<T>  {
+impl<T: Transaction> Protocol<T> {
     pub fn new(config: ProtocolConfig, tx_pool: Arc<Mutex<TransactionPool<T>>>) -> Protocol<T> {
         Protocol {
             config,
@@ -75,7 +72,9 @@ impl<T: Transaction> Protocol<T>  {
     }
 
     pub fn on_peer_connected(&self, network: &Arc<Mutex<NetworkService>>, peer: NodeIndex) {
-        self.handshaking_peers.write().insert(peer, time::Instant::now());
+        self.handshaking_peers
+            .write()
+            .insert(peer, time::Instant::now());
         let status = Status {
             version: CURRENT_VERSION,
         };
@@ -94,7 +93,7 @@ impl<T: Transaction> Protocol<T>  {
         let owned_peers = peer_info.keys().map(|x| *x);
         seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
     }
-    
+
     fn on_transaction_message(&self, tx: T) {
         self.tx_pool.lock().put(tx);
     }
@@ -104,7 +103,9 @@ impl<T: Transaction> Protocol<T>  {
             debug!(target: "sync", "Version mismatch");
             return;
         }
-        let peer_info = PeerInfo { request_timestamp: None };
+        let peer_info = PeerInfo {
+            request_timestamp: None,
+        };
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);
     }
@@ -123,15 +124,22 @@ impl<T: Transaction> Protocol<T>  {
         }
     }
 
-    pub fn send_message(&self, network: &Arc<Mutex<NetworkService>>, node_index: NodeIndex, message: Message<T>) {
+    pub fn send_message(
+        &self,
+        network: &Arc<Mutex<NetworkService>>,
+        node_index: NodeIndex,
+        message: Message<T>,
+    ) {
         let data = match Encode::encode(&message) {
             Some(d) => d,
             _ => {
                 error!("cannot encode message: {:?}", message);
-                return
+                return;
             }
         };
-        network.lock().send_custom_message(node_index, self.config.protocol_id, data);
+        network
+            .lock()
+            .send_custom_message(node_index, self.config.protocol_id, data);
     }
 
     pub fn maintain_peers(&self, network: &Arc<Mutex<NetworkService>>) {
@@ -139,14 +147,16 @@ impl<T: Transaction> Protocol<T>  {
         let mut aborting = Vec::new();
         let peer_info = self.peer_info.read();
         let handshaking_peers = self.handshaking_peers.read();
-        for (peer, time_stamp) in peer_info.iter()
+        for (peer, time_stamp) in peer_info
+            .iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
-            .chain(handshaking_peers.iter()) {
-                if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
-                    trace!(target: "sync", "Timeout {}", *peer);
-                    aborting.push(*peer);
-                }
+            .chain(handshaking_peers.iter())
+        {
+            if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
+                trace!(target: "sync", "Timeout {}", *peer);
+                aborting.push(*peer);
             }
+        }
         for peer in aborting {
             network.lock().drop_node(peer);
         }
@@ -157,21 +167,21 @@ impl<T: Transaction> Protocol<T>  {
 mod tests {
 
     use super::*;
-    use transaction_pool::Pool;
     use primitives::types;
+    use transaction_pool::Pool;
 
     impl<T: Transaction> Protocol<T> {
         fn _on_message(&self, data: &[u8]) -> Message<T> {
             match Decode::decode(data) {
                 Some(m) => m,
-                _ => panic!("cannot decode message: {:?}", data)
+                _ => panic!("cannot decode message: {:?}", data),
             }
         }
     }
 
     #[test]
     fn test_serialization() {
-        let tx = types::SignedTransaction::new( 0, types::TransactionBody::new(0, 0, 0, 0));
+        let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));

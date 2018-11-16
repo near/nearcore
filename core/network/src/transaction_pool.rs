@@ -2,7 +2,10 @@ use protocol::TransactionPool;
 
 pub struct Pool<T>(Vec<T>);
 
-impl<T> TransactionPool<T> for Pool<T> where T: Sync + Send {
+impl<T> TransactionPool<T> for Pool<T>
+where
+    T: Sync + Send,
+{
     fn get(&mut self) -> Vec<T> {
         self.0.drain(0..).collect()
     }

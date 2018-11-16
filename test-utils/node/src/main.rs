@@ -1,27 +1,25 @@
-#![allow(unused_mut,unused_variables)]
+#![allow(unused_mut, unused_variables)]
 
 extern crate env_logger;
+extern crate futures;
+extern crate libp2p;
 extern crate log;
 extern crate network;
-extern crate substrate_network_libp2p;
-extern crate libp2p;
-extern crate futures;
-extern crate tokio;
-extern crate storage;
-extern crate primitives;
 extern crate parking_lot;
+extern crate primitives;
+extern crate storage;
+extern crate substrate_network_libp2p;
+extern crate tokio;
 #[macro_use]
 extern crate clap;
 
+use clap::{App, Arg};
 use env_logger::Builder;
-use substrate_network_libp2p::ProtocolId;
-use network::{
-    service::Service, protocol::ProtocolConfig, test_utils::*, transaction_pool::Pool,
-};
+use network::{protocol::ProtocolConfig, service::Service, test_utils::*, transaction_pool::Pool};
 use parking_lot::Mutex;
-use std::sync::Arc;
 use primitives::types;
-use clap::{Arg, App};
+use std::sync::Arc;
+use substrate_network_libp2p::ProtocolId;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -35,21 +33,19 @@ pub fn main() {
 
     // parse command line arguments for now. Will need to switch to use config file in the future.
     let matches = App::new("Client")
-        .arg(Arg::with_name("host")
-            .long("host")
-            .takes_value(true))
-        .arg(Arg::with_name("port")
-            .long("port")
-            .takes_value(true))
-        .arg(Arg::with_name("is_root")
-            .long("is_root")
-            .required(true)
-            .takes_value(true))
-        .arg(Arg::with_name("root_port")
-            .long("root_port")
-            .required(true)
-            .takes_value(true))
-        .get_matches();
+        .arg(Arg::with_name("host").long("host").takes_value(true))
+        .arg(Arg::with_name("port").long("port").takes_value(true))
+        .arg(
+            Arg::with_name("is_root")
+                .long("is_root")
+                .required(true)
+                .takes_value(true),
+        ).arg(
+            Arg::with_name("root_port")
+                .long("root_port")
+                .required(true)
+                .takes_value(true),
+        ).get_matches();
     let host = matches.value_of("host").unwrap_or("127.0.0.1");
     let port = matches.value_of("port").unwrap_or("30000");
     let is_root = value_t!(matches, "is_root", bool).unwrap();
@@ -69,8 +65,13 @@ pub fn main() {
         net_config = test_config(&addr, vec![boot_node]);
     }
     let tx_pool = Arc::new(Mutex::new(Pool::new() as Pool<types::SignedTransaction>));
-    let service = match Service::new(ProtocolConfig::default(), net_config, ProtocolId::default(), tx_pool) {
+    let service = match Service::new(
+        ProtocolConfig::default(),
+        net_config,
+        ProtocolId::default(),
+        tx_pool,
+    ) {
         Ok(s) => s,
-        Err(e) => panic!("Error in starting network service: {:?}", e)
+        Err(e) => panic!("Error in starting network service: {:?}", e),
     };
 }

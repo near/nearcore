@@ -1,8 +1,8 @@
-use primitives::traits::{Payload, WitnessSelector};
-use primitives::types::{UID, MessageDataBody};
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 use super::Message;
+use primitives::traits::{Payload, WitnessSelector};
+use primitives::types::{MessageDataBody, UID};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Hash, Clone, Debug)]
 pub struct FakePayload {}
@@ -13,27 +13,34 @@ impl Payload for FakePayload {
     }
 }
 
-pub fn simple_message<'a, W>(owner_uid: UID, epoch: u64, parents: Vec<&'a Message<'a, FakePayload>>,
-    recompute_epoch: bool, starting_epoch: u64, witness_selector: &W) -> Message<'a, FakePayload>
-    where W: WitnessSelector {
+pub fn simple_message<'a, W>(
+    owner_uid: UID,
+    epoch: u64,
+    parents: Vec<&'a Message<'a, FakePayload>>,
+    recompute_epoch: bool,
+    starting_epoch: u64,
+    witness_selector: &W,
+) -> Message<'a, FakePayload>
+where
+    W: WitnessSelector,
+{
     let body = MessageDataBody {
-            owner_uid,
-            parents: (&parents).into_iter().map(|m| m.computed_hash).collect(),
-            epoch,
-            payload: FakePayload {},
-            endorsements: vec![],
-        };
+        owner_uid,
+        parents: (&parents).into_iter().map(|m| m.computed_hash).collect(),
+        epoch,
+        payload: FakePayload {},
+        endorsements: vec![],
+    };
     let hash = {
         let mut hasher = DefaultHasher::new();
         body.hash(&mut hasher);
         hasher.finish()
     };
-    let mut message = Message::new(
-        ::primitives::types::SignedMessageData {
-            owner_sig: 0,
-            hash,
-            body,
-        });
+    let mut message = Message::new(::primitives::types::SignedMessageData {
+        owner_sig: 0,
+        hash,
+        body,
+    });
     message.parents = parents.into_iter().collect();
     message.init(recompute_epoch, starting_epoch, witness_selector);
     message
@@ -99,8 +106,8 @@ macro_rules! simple_messages {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashSet, HashMap};
     use primitives::traits::WitnessSelector;
+    use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;
 
     struct FakeWitnessSelector {
@@ -111,8 +118,8 @@ mod tests {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
                 schedule: map!{
-               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
-               2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}}
+                0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+                2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
             }
         }
     }
