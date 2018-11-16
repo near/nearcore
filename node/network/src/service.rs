@@ -6,7 +6,6 @@ use primitives::traits::GenericResult;
 use protocol::{self, Protocol, ProtocolConfig, Transaction};
 use std::io;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 use substrate_network_libp2p::{
     start_service, NetworkConfiguration, ProtocolId, RegisteredProtocol, Service as NetworkService,

@@ -3,7 +3,6 @@
 extern crate env_logger;
 extern crate futures;
 extern crate libp2p;
-#[macro_use]
 extern crate log;
 extern crate network;
 extern crate parking_lot;
@@ -22,7 +21,6 @@ use network::{
     test_utils::*,
 };
 use primitives::types;
-use clap::{Arg, App};
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
