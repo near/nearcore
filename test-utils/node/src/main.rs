@@ -55,7 +55,7 @@ pub fn main() {
     let is_root = value_t!(matches, "is_root", bool).unwrap();
     let root_port = matches.value_of("root_port").unwrap();
 
-    let mut storage = storage::Storage::new(format!("storage/db-{}/", port));
+    let mut storage = storage::Storage::new(&format!("storage/db-{}/", port));
 
     // start network service
     let addr = create_addr(host, port);
