@@ -1,39 +1,31 @@
-use std::cell::RefCell;
-use std::rc::{Rc};
-
-use primitives::types::{StructHash, MerkleHash, BLSSignature, SignedTransaction};
+use primitives::hash::CryptoHash;
+use primitives::types::{MerkleHash, BLSSignature, SignedTransaction};
 
 use std::collections::{HashMap};
 
-type BlockRef = Rc<RefCell<BeaconBlock>>;
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BeaconBlockHeader{
-    prev_hash: StructHash,
+    prev_hash: CryptoHash,
     merkle_root_tx: MerkleHash,
     merkle_root_state: MerkleHash,
-    // TODO: time?
+    // TODO: time, height?
     signature: BLSSignature,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BeaconBlock{
     header: BeaconBlockHeader,
     transactions: Vec<SignedTransaction>,
-    height: u32,
-    weight: u64,
-    previous: BlockRef,
-    // TODO: state_view
-    hash: StructHash,
+    // TODO: weight
 }
 
 #[derive(Debug)]
 pub struct BeaconChain{
-    // currently active chain
-    chain: Vec<BlockRef>,
-    // all blocks with known ancestry up to the genesis block
-    blocks: HashMap<StructHash, BlockRef>,
-    // blocks with unknown ancestry, indexed by parent hash
-    orphans: HashMap<StructHash, Vec<BlockRef>>,
+    // hash of tip
+    best_hash: CryptoHash,
+    // headers indexed by hash
+    headers: HashMap<CryptoHash, BeaconBlockHeader>,
+    // blocks indexed by hash
+    blocks: HashMap<CryptoHash, BeaconBlock>,
     // TODO: state?
 }
