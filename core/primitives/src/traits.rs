@@ -91,5 +91,5 @@ pub trait StateDbView: Sized {
 pub trait StateTransitionRuntime {
     type StateDbView;
 
-    fn apply(&self, state_view: &mut Self::StateDbView, transactions: &Vec<types::StatedTransaction>) -> (Vec<types::StatedTransaction>, Self::StateDbView);
+    fn apply(&self, state_view: &mut Self::StateDbView, transactions: Vec<types::StatedTransaction>) -> (Vec<types::StatedTransaction>, Self::StateDbView);
 }
