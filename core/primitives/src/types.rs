@@ -122,6 +122,8 @@ pub struct ShardedEpochBlockBody {
 
 // 4. TxFlow-specific structs.
 
+// 4.1 DAG-specific structs.
+
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
@@ -183,4 +185,26 @@ pub struct ConsensusBlockBody<P, C> {
 
     /// The content specific to where the TxFlow is used: in shard or in beacon chain.
     pub content: C,
+}
+
+// 4.2 Gossip-specific structs.
+#[derive(Hash, Debug)]
+pub enum GossipBody<P> {
+    /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
+    Unsolicited(SignedMessageData<P>),
+    /// A reply to an unsolicited gossip with the `SignedMessageData`.
+    UnsolicitedReply(SignedMessageData<P>),
+    /// A request to provide a list of `SignedMessageData`'s with the following hashes.
+    Fetch(Vec<StructHash>),
+    /// A response to the fetch request providing the requested messages.
+    FetchReply(Vec<SignedMessageData<P>>),
+}
+
+/// A single unit of communication between the TxFlow participants.
+#[derive(Hash, Debug)]
+pub struct Gossip<P> {
+    pub sender_uid: UID,
+    pub receiver_uid: UID,
+    pub sender_sig: StructSignature,
+    pub body: GossipBody<P>,
 }
