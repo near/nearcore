@@ -79,21 +79,19 @@ impl Runtime {
         state_view: &mut S,
         transaction: &StatedTransaction,
     ) -> bool {
-        self.get_account(state_view, transaction.transaction.body.sender)
-            .and_then(|mut sender| {
-                self.get_account(state_view, transaction.transaction.body.receiver)
-                    .map(|mut receiver| {
-                        sender.amount -= transaction.transaction.body.amount;
-                        sender.nonce = transaction.transaction.body.nonce;
-                        receiver.amount += transaction.transaction.body.amount;
-                        self.set_account(state_view, transaction.transaction.body.sender, &sender);
-                        self.set_account(
-                            state_view,
-                            transaction.transaction.body.sender,
-                            &receiver,
-                        );
-                    })
-            }).is_some()
+        let sender = self.get_account(state_view, transaction.transaction.body.sender);
+        let receiver = self.get_account(state_view, transaction.transaction.body.receiver);
+        match (sender, receiver) {
+            (Some(mut sender), Some(mut receiver)) => {
+                sender.amount -= transaction.transaction.body.amount;
+                sender.nonce = transaction.transaction.body.nonce;
+                receiver.amount += transaction.transaction.body.amount;
+                self.set_account(state_view, transaction.transaction.body.sender, &sender);
+                self.set_account(state_view, transaction.transaction.body.sender, &receiver);
+                true
+            }
+            _ => false,
+        }
     }
 }
 
