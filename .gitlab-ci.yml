@@ -21,5 +21,5 @@ test:cargo:
     script:
     - rustc --version && cargo --version
     - cargo fmt --all -- --check
-    - cargo clippy --all -- -A clippy::unit_arg -A clippy::if_same_then_else -A clippy::collapsible_if -D warnings
+    - ./scripts/run_clippy.sh
     - cargo test --all --verbose -- --test-threads=1
