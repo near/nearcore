@@ -1,4 +1,6 @@
+use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use super::types;
@@ -14,15 +16,35 @@ pub trait Decode: Sized {
     fn decode(data: &[u8]) -> Option<Self>;
 }
 
+impl<T> Encode for T
+where
+    T: Serialize,
+{
+    fn encode(&self) -> Option<Vec<u8>> {
+        bincode::serialize(&self).ok()
+    }
+}
+
+impl<T> Decode for T
+where
+    T: DeserializeOwned,
+{
+    fn decode(data: &[u8]) -> Option<Self> {
+        bincode::deserialize(data).ok()
+    }
+}
+
 /// trait that abstracts ``Header"
-pub trait Header: Clone + Send + Sync + Encode + Decode + Eq + 'static {
+pub trait Header:
+    Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
+{
     // TODO: add methods
     fn hash(&self) -> CryptoHash;
 }
 
 /// trait that abstracts ``block", ideally could be used for both beacon-chain blocks
 /// and shard-chain blocks
-pub trait Block: Clone + Send + Sync + Encode + Decode + Eq + 'static {
+pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
     type Header;
     type Body;
 
