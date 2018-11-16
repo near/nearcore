@@ -19,5 +19,6 @@ members = [
     "core/txflow",
     "node/cli",
     "node/runtime",
+    "node/service",
     "test-utils/node"
 ]
