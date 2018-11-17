@@ -2,11 +2,24 @@ extern crate bincode;
 extern crate parity_rocksdb;
 extern crate primitives;
 extern crate serde;
+extern crate substrate_primitives;
+extern crate substrate_state_machine;
+extern crate substrate_trie;
+
+#[cfg(test)]
+extern crate hex_literal;
+#[cfg(test)]
+extern crate memory_db;
+#[cfg(test)]
+extern crate trie_db;
 
 use bincode::{deserialize, serialize};
 use parity_rocksdb::{Writable, DB};
 use primitives::hash::CryptoHash;
 use serde::{de::DeserializeOwned, Serialize};
+
+#[cfg(test)]
+mod tests;
 
 pub struct Storage {
     db: DB,
