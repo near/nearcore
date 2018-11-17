@@ -42,8 +42,8 @@ impl Default for Status {
         Status {
             version: 1,
             best_number: 0,
-            best_hash: CryptoHash { 0: [0; 32] },
-            genesis_hash: CryptoHash { 0: [0; 32] },
+            best_hash: CryptoHash::default(),
+            genesis_hash: CryptoHash::default(),
         }
     }
 }

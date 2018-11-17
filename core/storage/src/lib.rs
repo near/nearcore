@@ -5,11 +5,15 @@ extern crate serde;
 extern crate substrate_primitives;
 extern crate substrate_state_machine;
 extern crate substrate_trie;
+extern crate hash_db;
+extern crate hash256_std_hasher;
 
 #[cfg(test)]
 extern crate hex_literal;
 #[cfg(test)]
 extern crate memory_db;
+#[cfg(test)]
+extern crate parity_codec;
 #[cfg(test)]
 extern crate trie_db;
 
@@ -20,8 +24,9 @@ use primitives::types::{DBValue, MerkleHash};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 
-#[cfg(test)]
-mod tests;
+mod substrate_storage;
+
+pub use substrate_storage::{TestBackend, TestBackendTransaction, TestChangesTrieStorage, TestExt};
 
 /// Concrete implementation of StateDbUpdate.
 /// Provides a way to access Storage and record changes with future commit.

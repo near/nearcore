@@ -6,11 +6,13 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 [dependencies]
 serde = "1.0"
 parity-rocksdb = "0.5"
+parity-codec = "2.1"
 primitives = { path = "../primitives" }
 bincode = "1.0.0"
 parking_lot = "0.4"
 
 hash-db = { git = "https://github.com/paritytech/trie", default-features = false }
+hash256-std-hasher = { git = "https://github.com/paritytech/trie", default-features = false }
 trie-db = { git = "https://github.com/paritytech/trie" }
 trie-root = { git = "https://github.com/paritytech/trie", default-features = false }
 memory-db = { git = "https://github.com/paritytech/trie" }
