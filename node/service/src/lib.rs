@@ -5,8 +5,8 @@ extern crate jsonrpc_macros;
 extern crate jsonrpc_minihttp_server;
 extern crate primitives;
 
-mod rpc;
 pub mod config;
+mod rpc;
 
 use client::Client;
 
@@ -16,9 +16,7 @@ pub struct Service {
 
 impl Service {
     pub fn new(client: Client) -> Self {
-        Service {
-            client
-        }
+        Service { client }
     }
     pub fn run(self) {
         let handler = rpc::api::get_handler(self.client);

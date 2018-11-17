@@ -41,12 +41,14 @@ pub fn main() {
                 .long("is_root")
                 .required(true)
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("root_port")
                 .long("root_port")
                 .required(true)
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
     let host = matches.value_of("host").unwrap_or("127.0.0.1");
     let port = matches.value_of("port").unwrap_or("30000");
     let is_root = value_t!(matches, "is_root", bool).unwrap();
@@ -72,7 +74,8 @@ pub fn main() {
         ProtocolId::default(),
         client,
         tx_callback,
-    ).unwrap_or_else(|e| {
+    )
+    .unwrap_or_else(|e| {
         panic!("service failed to start: {:?}", e);
     });
     tokio::run(fut);

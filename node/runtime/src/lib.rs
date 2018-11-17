@@ -7,30 +7,12 @@ extern crate log;
 
 extern crate byteorder;
 extern crate primitives;
+extern crate storage;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;
 use primitives::traits::{StateDbView, StateTransitionRuntime};
-use primitives::types::{AccountId, DBValue, MerkleHash, StatedTransaction};
-
-// TODO: waiting for storage::state_view
-pub struct StateDbViewMock {}
-
-impl StateDbView for StateDbViewMock {
-    fn merkle_root(&self) -> MerkleHash {
-        0
-    }
-    fn get(&self, _key: &[u8]) -> Option<DBValue> {
-        Some(vec![])
-    }
-    fn set(&mut self, _key: &[u8], _value: DBValue) {}
-    fn delete(&mut self, _key: &[u8]) {}
-    fn commit(&mut self) {}
-    fn rollback(&mut self) {}
-    fn finish(&self) -> Self {
-        StateDbViewMock {}
-    }
-}
+use primitives::types::{AccountId, SignedTransaction};
 
 #[derive(Serialize, Deserialize)]
 struct Account {
@@ -78,17 +60,17 @@ impl Runtime {
     fn apply_transaction<S: StateDbView>(
         &self,
         state_view: &mut S,
-        transaction: &StatedTransaction,
+        transaction: &SignedTransaction,
     ) -> bool {
-        let sender = self.get_account(state_view, transaction.transaction.body.sender);
-        let receiver = self.get_account(state_view, transaction.transaction.body.receiver);
+        let sender = self.get_account(state_view, transaction.body.sender);
+        let receiver = self.get_account(state_view, transaction.body.receiver);
         match (sender, receiver) {
             (Some(mut sender), Some(mut receiver)) => {
-                sender.amount -= transaction.transaction.body.amount;
-                sender.nonce = transaction.transaction.body.nonce;
-                receiver.amount += transaction.transaction.body.amount;
-                self.set_account(state_view, transaction.transaction.body.sender, &sender);
-                self.set_account(state_view, transaction.transaction.body.sender, &receiver);
+                sender.amount -= transaction.body.amount;
+                sender.nonce = transaction.body.nonce;
+                receiver.amount += transaction.body.amount;
+                self.set_account(state_view, transaction.body.sender, &sender);
+                self.set_account(state_view, transaction.body.sender, &receiver);
                 true
             }
             _ => false,
@@ -97,12 +79,12 @@ impl Runtime {
 }
 
 impl StateTransitionRuntime for Runtime {
-    type StateDbView = StateDbViewMock;
+    type StateDbView = storage::StateDbView;
     fn apply(
         &self,
         state_view: &mut Self::StateDbView,
-        transactions: Vec<StatedTransaction>,
-    ) -> (Vec<StatedTransaction>, StateDbViewMock) {
+        transactions: Vec<SignedTransaction>,
+    ) -> (Vec<SignedTransaction>, Self::StateDbView) {
         let mut filtered_transactions = vec![];
         for t in transactions.into_iter() {
             if self.apply_transaction(state_view, &t) {

@@ -16,10 +16,31 @@ extern crate trie_db;
 use bincode::{deserialize, serialize};
 use parity_rocksdb::{Writable, DB};
 use primitives::hash::CryptoHash;
+use primitives::types::{DBValue, MerkleHash};
 use serde::{de::DeserializeOwned, Serialize};
 
 #[cfg(test)]
 mod tests;
+
+
+#[derive(Default)]
+pub struct StateDbView {}
+
+impl primitives::traits::StateDbView for StateDbView {
+    fn merkle_root(&self) -> MerkleHash {
+        0
+    }
+    fn get(&self, _key: &[u8]) -> Option<DBValue> {
+        Some(vec![])
+    }
+    fn set(&mut self, _key: &[u8], _value: DBValue) {}
+    fn delete(&mut self, _key: &[u8]) {}
+    fn commit(&mut self) {}
+    fn rollback(&mut self) {}
+    fn finish(&self) -> Self {
+        StateDbView {}
+    }
+}
 
 pub struct Storage {
     db: DB,
@@ -44,5 +65,20 @@ impl Storage {
             Ok(None) => None,
             Err(_e) => None,
         }
+    }
+}
+
+pub struct StateDb {
+    storage: Storage,
+}
+
+impl StateDb {
+    pub fn new(storage: Storage) -> Self {
+        StateDb { storage }
+    }
+
+    pub fn get_state_view(&self) -> StateDbView {
+        let _ = self.storage.put("123");
+        StateDbView::default()
     }
 }

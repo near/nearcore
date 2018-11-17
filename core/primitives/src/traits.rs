@@ -59,7 +59,7 @@ pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq
 }
 
 pub trait Verifier {
-    fn compute_state(&mut self, transactions: &[types::StatedTransaction]) -> types::State;
+    fn compute_state(&mut self, transactions: &[types::SignedTransaction]) -> types::State;
 }
 
 pub trait WitnessSelector {
@@ -125,6 +125,6 @@ pub trait StateTransitionRuntime {
     fn apply(
         &self,
         state_view: &mut Self::StateDbView,
-        transactions: Vec<types::StatedTransaction>,
-    ) -> (Vec<types::StatedTransaction>, Self::StateDbView);
+        transactions: Vec<types::SignedTransaction>,
+    ) -> (Vec<types::SignedTransaction>, Self::StateDbView);
 }

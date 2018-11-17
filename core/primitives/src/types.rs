@@ -72,20 +72,6 @@ impl Default for SignedTransaction {
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub enum TransactionState {
-    Sender,
-    Receiver,
-    SenderRollback,
-    Cancelled,
-}
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub struct StatedTransaction {
-    pub transaction: SignedTransaction,
-    pub state: TransactionState,
-}
-
 // 2. State structs.
 
 #[derive(Hash, Debug)]
@@ -116,8 +102,8 @@ pub struct SignedEpochBlockHeader {
 #[derive(Hash, Debug)]
 pub struct FullEpochBlockBody {
     states: Vec<State>,
-    new_transactions: Vec<StatedTransaction>,
-    cancelled_transactions: Vec<StatedTransaction>,
+    new_transactions: Vec<SignedTransaction>,
+    cancelled_transactions: Vec<SignedTransaction>,
 }
 
 #[derive(Hash, Debug)]
@@ -127,16 +113,16 @@ pub enum MerkleStateNode {
 }
 
 #[derive(Hash, Debug)]
-pub enum MerkleStatedTransactionNode {
+pub enum MerkleSignedTransactionNode {
     Hash(MerkleHash),
-    StatedTransaction(StatedTransaction),
+    SignedTransaction(SignedTransaction),
 }
 
 #[derive(Hash, Debug)]
 pub struct ShardedEpochBlockBody {
     states_subtree: Vec<MerkleStateNode>,
-    new_transactions_subtree: Vec<MerkleStatedTransactionNode>,
-    cancelled_transactions_subtree: Vec<MerkleStatedTransactionNode>,
+    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
+    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
 }
 
 // 4. TxFlow-specific structs.
