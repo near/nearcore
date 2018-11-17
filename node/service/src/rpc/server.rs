@@ -6,7 +6,8 @@ pub fn run_server(io: IoHandler) {
     let server = ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(vec![
             AccessControlAllowOrigin::Null,
-        ])).start_http(&"127.0.0.1:3030".parse().unwrap())
+        ]))
+        .start_http(&"127.0.0.1:3030".parse().unwrap())
         .expect("Unable to start RPC server");
 
     server.wait().unwrap();

@@ -1,7 +1,7 @@
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 
 use client::Client;
-use primitives::types::TransactionBody;
+use primitives::types::{SignedTransaction, TransactionBody};
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -13,7 +13,8 @@ build_rpc_trait! {
 
 impl TransactionApi for Client {
     fn rpc_receive_transaction(&self, t: TransactionBody) -> JsonRpcResult<()> {
-        Ok(self.receive_transaction(&t))
+        let transaction = SignedTransaction::new(123, t);
+        Ok(self.receive_transaction(transaction))
     }
 }
 
@@ -31,11 +32,11 @@ mod tests {
     extern crate primitives;
 
     use self::jsonrpc_test::Rpc;
-    use primitives::types::TransactionBody;
+    use primitives::types::{SignedTransaction, TransactionBody};
 
     #[test]
     fn test_call() {
-        let handler = get_handler(Client::default());
+        let handler = get_handler(Client::new("storage/db-test/"));
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
             nonce: 0,

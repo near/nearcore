@@ -65,7 +65,8 @@ pub fn service_task<T: Transaction, B: Block>(
                 protocol.maintain_peers(&mut NetSyncIo::new(&network_service, protocol_id));
                 Ok(())
             }
-        }).then(|res| {
+        })
+        .then(|res| {
             match res {
                 Ok(()) => (),
                 Err(err) => error!("Error in the propagation timer: {:?}", err),
@@ -101,7 +102,8 @@ pub fn service_task<T: Transaction, B: Block>(
         .and_then(move |_| {
             info!("Networking ended");
             Ok(())
-        }).map_err(|(r, _, _)| r)
+        })
+        .map_err(|(r, _, _)| r)
 }
 
 #[cfg(test)]
@@ -135,7 +137,8 @@ mod tests {
             ProtocolId::default(),
             client,
             tx_callback,
-        ).unwrap();
+        )
+        .unwrap();
         let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
         let mut services = vec![root_service];
         for i in 1..num_services {
@@ -147,7 +150,8 @@ mod tests {
                 ProtocolId::default(),
                 client,
                 tx_callback,
-            ).unwrap();
+            )
+            .unwrap();
             services.push(service);
         }
         services
