@@ -1,6 +1,7 @@
 use io::{NetSyncIo, SyncIo};
-use message::*;
+use message::{self, Message, MessageBody};
 use parking_lot::RwLock;
+use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, GenericResult};
 use rand::{seq, thread_rng};
 use serde::{de::DeserializeOwned, Serialize};
@@ -33,9 +34,18 @@ impl Default for ProtocolConfig {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct PeerInfo {
+    // protocol version
+    protocol_version: u32,
+    // best hash from peer
+    best_hash: CryptoHash,
+    // best block number from peer
+    best_number: u64,
     // information about connected peers
     request_timestamp: Option<time::Instant>,
+    // pending block request
+    block_request: Option<message::BlockRequest>,
 }
 
 pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
@@ -68,7 +78,7 @@ impl<T: Transaction> Protocol<T> {
             .write()
             .insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
-        let status = Status::default();
+        let status = message::Status::default();
         let message: Message<T, B> = Message::new(MessageBody::Status(status));
         self.send_message(net_sync, peer, &message);
     }
@@ -90,7 +100,12 @@ impl<T: Transaction> Protocol<T> {
         let _ = (self.tx_callback)(tx);
     }
 
-    fn on_status_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, status: &Status) {
+    fn on_status_message(
+        &self,
+        net_sync: &mut NetSyncIo,
+        peer: NodeIndex,
+        status: &message::Status,
+    ) {
         if status.version != CURRENT_VERSION {
             debug!(target: "sync", "Version mismatch");
             net_sync.report_peer(
@@ -102,8 +117,13 @@ impl<T: Transaction> Protocol<T> {
             );
             return;
         }
+        // TODO: check whether hashes match
         let peer_info = PeerInfo {
+            protocol_version: status.version,
+            best_hash: status.best_hash,
+            best_number: status.best_number,
             request_timestamp: None,
+            block_request: None,
         };
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);
@@ -113,7 +133,7 @@ impl<T: Transaction> Protocol<T> {
         &self,
         _net_sync: &mut NetSyncIo,
         _peer: NodeIndex,
-        _request: &BlockRequest,
+        _request: &message::BlockRequest,
     ) {
         unimplemented!();
     }
@@ -122,7 +142,7 @@ impl<T: Transaction> Protocol<T> {
         &self,
         _net_sync: &mut NetSyncIo,
         _peer: NodeIndex,
-        _response: &BlockResponse<B>,
+        _response: &message::BlockResponse<B>,
     ) {
         unimplemented!()
     }
@@ -141,6 +161,32 @@ impl<T: Transaction> Protocol<T> {
             MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
             MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, &request),
             MessageBody::BlockResponse(response) => {
+                let request = {
+                    let mut peers = self.peer_info.write();
+                    if let Some(ref mut peer_info) = peers.get_mut(&peer) {
+                        peer_info.request_timestamp = None;
+                        match peer_info.block_request.take() {
+                            Some(r) => r,
+                            None => {
+                                net_sync.report_peer(
+                                    peer,
+                                    Severity::Bad("Unexpected response packet received from peer"),
+                                );
+                                return;
+                            }
+                        }
+                    } else {
+                        net_sync.report_peer(
+                            peer,
+                            Severity::Bad("Unexpected packet received from peer"),
+                        );
+                        return;
+                    }
+                };
+                if request.id != response.id {
+                    trace!(target: "sync", "Ignoring mismatched response packet from {} (expected {} got {})", peer, request.id, response.id);
+                    return;
+                }
                 self.on_block_response(net_sync, peer, &response)
             }
         }
