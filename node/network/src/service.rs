@@ -1,3 +1,4 @@
+use client::Client;
 use error::Error;
 use futures::{self, stream, Future, Stream};
 use io::NetSyncIo;
@@ -16,21 +17,22 @@ use tokio::timer::Interval;
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 #[allow(dead_code)]
-pub struct Service<T> {
+pub struct Service<T, B> {
     network: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<T>>,
+    protocol: Arc<Protocol<T, B>>,
 }
 
-impl<T: Transaction> Service<T> {
-    pub fn new<B: Block>(
+impl<T: Transaction, B: Block> Service<T, B> {
+    pub fn new(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
+        client: Arc<Client<B>>,
         tx_callback: fn(T) -> GenericResult,
-    ) -> Result<(Service<T>, impl Future<Item = (), Error = ()>), Error> {
+    ) -> Result<(Service<T, B>, impl Future<Item = (), Error = ()>), Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
-        let protocol = Arc::new(Protocol::new(config, tx_callback));
+        let protocol = Arc::new(Protocol::new(config, client, tx_callback));
         let service = match start_service(net_config, Some(registered)) {
             Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
@@ -51,7 +53,7 @@ impl<T: Transaction> Service<T> {
 
 pub fn service_task<T: Transaction, B: Block>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<T>>,
+    protocol: Arc<Protocol<T, B>>,
     protocol_id: ProtocolId,
 ) -> impl Future<Item = (), Error = io::Error> {
     // Interval for performing maintenance on the protocol handler.
@@ -78,10 +80,10 @@ pub fn service_task<T: Transaction, B: Block>(
             ServiceEvent::CustomMessage {
                 node_index, data, ..
             } => {
-                protocol.on_message::<B>(&mut net_sync, node_index, &data);
+                protocol.on_message(&mut net_sync, node_index, &data);
             }
             ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_connected::<B>(&mut net_sync, node_index);
+                protocol.on_peer_connected(&mut net_sync, node_index);
             }
             ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                 protocol.on_peer_disconnected(node_index);
@@ -109,11 +111,10 @@ mod tests {
     use std::thread;
     use std::time;
     use test_utils::*;
-    use MockBlock;
 
     fn create_services<T: Transaction>(
         num_services: u32,
-    ) -> Vec<(Service<T>, impl Future<Item = (), Error = ()>)> {
+    ) -> Vec<(Service<T, MockBlock>, impl Future<Item = (), Error = ()>)> {
         let base_address = "/ip4/127.0.0.1/tcp/".to_string();
         let base_port = rand::thread_rng().gen_range(30000, 60000);
         let mut addresses = Vec::new();
@@ -127,20 +128,24 @@ mod tests {
         let secret = create_secret();
         let root_config = test_config_with_secret(&addresses[0], vec![], secret);
         let tx_callback = |_| Ok(());
-        let root_service = Service::new::<MockBlock>(
+        let client = Arc::new(MockClient {});
+        let root_service = Service::new(
             ProtocolConfig::default(),
             root_config,
             ProtocolId::default(),
+            client,
             tx_callback,
         ).unwrap();
         let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
         let mut services = vec![root_service];
         for i in 1..num_services {
             let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
+            let client = Arc::new(MockClient {});
             let service = Service::new(
                 ProtocolConfig::default(),
                 config,
                 ProtocolId::default(),
+                client,
                 tx_callback,
             ).unwrap();
             services.push(service);

@@ -15,9 +15,11 @@ extern crate clap;
 
 use clap::{App, Arg};
 use env_logger::Builder;
-use network::{protocol::ProtocolConfig, service::Service, test_utils::*, MockBlock};
-use primitives::types;
+use std::sync::Arc;
 use substrate_network_libp2p::ProtocolId;
+
+use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
+use primitives::types;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -63,10 +65,12 @@ pub fn main() {
         test_config(&addr, vec![boot_node])
     };
     let tx_callback = |_: types::SignedTransaction| Ok(());
-    let service = Service::new::<MockBlock>(
+    let client = Arc::new(MockClient {});
+    let service = Service::new(
         ProtocolConfig::default(),
         net_config,
         ProtocolId::default(),
+        client,
         tx_callback,
     ).unwrap_or_else(|e| {
         panic!("service failed to start: {:?}", e);
