@@ -1,15 +1,17 @@
-use io::{NetSyncIo, SyncIo};
-use message::{self, Message, MessageBody};
 use parking_lot::RwLock;
-use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Encode, GenericResult};
 use rand::{seq, thread_rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 use std::time;
-/// network protocol
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
+
+use client::Client;
+use io::{NetSyncIo, SyncIo};
+use message::{self, Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::{Block, Decode, Encode, GenericResult};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -52,28 +54,35 @@ pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'sta
 impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
 
 #[allow(dead_code)]
-pub struct Protocol<T> {
+pub struct Protocol<T, B> {
     // TODO: add more fields when we need them
     config: ProtocolConfig,
     // peers that are in the handshaking process
     handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    // backend client
+    client: Arc<Client<B>>,
     // callbacks
     tx_callback: fn(T) -> GenericResult,
 }
 
-impl<T: Transaction> Protocol<T> {
-    pub fn new(config: ProtocolConfig, tx_callback: fn(T) -> GenericResult) -> Protocol<T> {
+impl<T: Transaction, B: Block> Protocol<T, B> {
+    pub fn new(
+        config: ProtocolConfig,
+        client: Arc<Client<B>>,
+        tx_callback: fn(T) -> GenericResult,
+    ) -> Protocol<T, B> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
+            client,
             tx_callback,
         }
     }
 
-    pub fn on_peer_connected<B: Block>(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
+    pub fn on_peer_connected(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
         self.handshaking_peers
             .write()
             .insert(peer, time::Instant::now());
@@ -138,7 +147,7 @@ impl<T: Transaction> Protocol<T> {
         unimplemented!();
     }
 
-    fn on_block_response<B: Block>(
+    fn on_block_response(
         &self,
         _net_sync: &mut NetSyncIo,
         _peer: NodeIndex,
@@ -147,7 +156,7 @@ impl<T: Transaction> Protocol<T> {
         unimplemented!()
     }
 
-    pub fn on_message<B: Block>(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
+    pub fn on_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
         let message: Message<T, B> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
@@ -192,7 +201,7 @@ impl<T: Transaction> Protocol<T> {
         }
     }
 
-    pub fn send_message<B: Block>(
+    pub fn send_message(
         &self,
         net_sync: &mut NetSyncIo,
         node_index: NodeIndex,
@@ -236,10 +245,10 @@ mod tests {
 
     use super::*;
     use primitives::types;
-    use MockBlock;
+    use test_utils::*;
 
-    impl<T: Transaction> Protocol<T> {
-        fn _on_message<B: Block>(&self, data: &[u8]) -> Message<T, B> {
+    impl<T: Transaction, B: Block> Protocol<T, B> {
+        fn _on_message(&self, data: &[u8]) -> Message<T, B> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data),
@@ -253,7 +262,8 @@ mod tests {
         let message: Message<_, MockBlock> = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let callback = |_| Ok(());
-        let protocol = Protocol::new(config, callback);
+        let mock_client = Arc::new(MockClient {});
+        let protocol = Protocol::new(config, mock_client, callback);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }

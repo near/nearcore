@@ -1,10 +1,14 @@
-#![allow(dead_code)]
+#![allow(unused)]
 
-use super::MockBlock;
 use libp2p::{secio, Multiaddr};
-use message::{Message, MessageBody};
-use primitives::types;
 use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
+
+use client::Client;
+use error::Error;
+use message::{Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::{Block, Header};
+use primitives::types;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -56,4 +60,46 @@ pub fn init_logger(debug: bool) {
     }
     builder.filter(None, log::LevelFilter::Info);
     builder.try_init().unwrap_or(());
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MockBlockHeader {}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MockBlock {}
+
+impl Header for MockBlockHeader {
+    fn hash(&self) -> CryptoHash {
+        CryptoHash { 0: [0; 32] }
+    }
+}
+
+impl Block for MockBlock {
+    type Header = MockBlockHeader;
+    type Body = ();
+    fn header(&self) -> &Self::Header {
+        &MockBlockHeader {}
+    }
+    fn body(&self) -> &Self::Body {
+        &()
+    }
+    fn deconstruct(self) -> (Self::Header, Self::Body) {
+        (MockBlockHeader {}, ())
+    }
+    fn new(_header: Self::Header, _body: Self::Body) -> Self {
+        MockBlock {}
+    }
+    fn hash(&self) -> CryptoHash {
+        CryptoHash { 0: [0; 32] }
+    }
+}
+
+pub struct MockClient {}
+
+impl Client<MockBlock> for MockClient {
+    fn get_block(&self, id: &types::BlockId) -> Result<MockBlock, Error> {
+        Ok(MockBlock {})
+    }
+    fn get_header(&self, id: &types::BlockId) -> Result<MockBlockHeader, Error> {
+        Ok(MockBlockHeader {})
+    }
 }
