@@ -15,7 +15,7 @@ use primitives::traits::{StateDbView, StateTransitionRuntime};
 use primitives::types::{AccountId, SignedTransaction};
 
 #[derive(Serialize, Deserialize)]
-struct Account {
+pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: u64,
     pub amount: u64,
@@ -34,7 +34,7 @@ fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
-    fn get_account<S: StateDbView>(
+    pub fn get_account<S: StateDbView>(
         &self,
         state_view: &S,
         account_key: AccountId,
@@ -44,7 +44,7 @@ impl Runtime {
             .and_then(|data| bincode::deserialize(&data).ok())
     }
 
-    fn set_account<S: StateDbView>(
+    pub fn set_account<S: StateDbView>(
         &self,
         state_view: &mut S,
         account_key: AccountId,
