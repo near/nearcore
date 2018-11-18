@@ -6,7 +6,7 @@ extern crate storage;
 use node_runtime::Runtime;
 use parking_lot::RwLock;
 use primitives::traits::StateTransitionRuntime;
-use primitives::types::SignedTransaction;
+use primitives::types::{SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, StateDbView, Storage};
 
 pub struct Client {
@@ -31,5 +31,21 @@ impl Client {
         let mut last_state_view = self.last_state_view.write();
         let (_, new_state_view) = self.runtime.apply(&mut last_state_view, vec![t]);
         *last_state_view = new_state_view;
+    }
+
+    pub fn view_call(&self, v: &ViewCall) -> ViewCallResult {
+        match self
+            .runtime
+            .get_account::<storage::StateDbView>(&self.last_state_view.read(), v.account)
+        {
+            Some(account) => ViewCallResult {
+                account: v.account,
+                amount: account.amount,
+            },
+            None => ViewCallResult {
+                account: v.account,
+                amount: 0,
+            },
+        }
     }
 }

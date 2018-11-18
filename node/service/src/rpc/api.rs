@@ -1,13 +1,16 @@
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 
 use client::Client;
-use primitives::types::{SignedTransaction, TransactionBody};
+use primitives::types::{SignedTransaction, TransactionBody, ViewCall, ViewCallResult};
 
 build_rpc_trait! {
     pub trait TransactionApi {
-        /// Receive new transaction
+        /// Receive new transaction.
         #[rpc(name = "receive_transaction")]
         fn rpc_receive_transaction(&self, TransactionBody) -> JsonRpcResult<()>;
+        /// Call view function.
+        #[rpc(name = "view")]
+        fn rpc_view(&self, ViewCall) -> JsonRpcResult<ViewCallResult>;
     }
 }
 
@@ -15,6 +18,9 @@ impl TransactionApi for Client {
     fn rpc_receive_transaction(&self, t: TransactionBody) -> JsonRpcResult<()> {
         let transaction = SignedTransaction::new(123, t);
         Ok(self.receive_transaction(transaction))
+    }
+    fn rpc_view(&self, v: ViewCall) -> JsonRpcResult<ViewCallResult> {
+        Ok(self.view_call(&v))
     }
 }
 

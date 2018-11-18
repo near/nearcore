@@ -24,6 +24,20 @@ pub enum BlockId {
 
 // 1. Transaction structs.
 
+/// Call view function in the contracts.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ViewCall {
+    pub account: AccountId,
+}
+
+/// Result of view call.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ViewCallResult {
+    pub account: AccountId,
+    pub amount: u64,
+}
+
+/// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct TransactionBody {
     pub nonce: u64,
