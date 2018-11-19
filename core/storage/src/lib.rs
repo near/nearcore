@@ -18,27 +18,50 @@ use parity_rocksdb::{Writable, DB};
 use primitives::hash::CryptoHash;
 use primitives::types::{DBValue, MerkleHash};
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
 
 #[cfg(test)]
 mod tests;
 
-
+/// Concrete implementation of StateDbView.
+/// Provides a way to interact with Storage and record changes with future commit.
 #[derive(Default)]
-pub struct StateDbView {}
+pub struct StateDbView {
+    // QUESTION: How to pass here StateDb so no need to pass it as argument everywhere?
+    committed: HashMap<Vec<u8>, Option<DBValue>>,
+    prospective: HashMap<Vec<u8>, Option<DBValue>>,
+}
 
-impl primitives::traits::StateDbView for StateDbView {
-    fn merkle_root(&self) -> MerkleHash {
+impl StateDbView {
+    pub fn merkle_root(&self) -> MerkleHash {
         0
     }
-    fn get(&self, _key: &[u8]) -> Option<DBValue> {
-        Some(vec![])
+    pub fn get(&self, _state_db: &StateDb, _key: &[u8]) -> Option<DBValue> {
+        match self.prospective.get(_key) {
+            Some(value) => value.clone(),
+            None => match self.committed.get(_key) {
+                Some(value) => value.clone(),
+                None => _state_db.get(_key),
+            },
+        }
     }
-    fn set(&mut self, _key: &[u8], _value: DBValue) {}
-    fn delete(&mut self, _key: &[u8]) {}
-    fn commit(&mut self) {}
-    fn rollback(&mut self) {}
-    fn finish(&self) -> Self {
-        StateDbView {}
+    pub fn set(&mut self, _state_db: &StateDb, _key: &[u8], _value: DBValue) {
+        self.prospective.insert(_key.to_vec(), Some(_value));
+    }
+    pub fn delete(&mut self, _state_db: &StateDb, _key: &[u8]) {
+        self.prospective.insert(_key.to_vec(), None);
+    }
+    pub fn commit(&mut self) {
+        for (key, value) in self.prospective.iter() {
+            self.committed.insert(key.to_vec(), value.clone());
+        }
+        self.prospective = HashMap::new();
+    }
+    pub fn rollback(&mut self) {
+        self.prospective = HashMap::new();
+    }
+    pub fn finish(&self, _state_db: &mut StateDb) -> Self {
+        StateDbView::default()
     }
 }
 
@@ -68,6 +91,7 @@ impl Storage {
     }
 }
 
+#[allow(dead_code)]
 pub struct StateDb {
     storage: Storage,
 }
@@ -76,9 +100,10 @@ impl StateDb {
     pub fn new(storage: Storage) -> Self {
         StateDb { storage }
     }
-
     pub fn get_state_view(&self) -> StateDbView {
-        let _ = self.storage.put("123");
         StateDbView::default()
+    }
+    pub fn get(&self, _key: &[u8]) -> Option<DBValue> {
+        None
     }
 }

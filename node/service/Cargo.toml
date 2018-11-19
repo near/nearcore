@@ -9,6 +9,7 @@ jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }
 
 client = { path = "../client" }
 primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
 
 [dev-dependencies]
 jsonrpc-test = { git = "https://github.com/paritytech/jsonrpc" }
