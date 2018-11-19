@@ -112,8 +112,6 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
 
 #[cfg(test)]
 mod tests {
-
-
     use super::*;
     use std::collections::{HashSet, HashMap};
     use typed_arena::Arena;
