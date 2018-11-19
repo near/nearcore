@@ -1,27 +1,36 @@
+extern crate beacon;
+extern crate network;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
 
+use beacon::chain::BeaconChain;
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use node_runtime::Runtime;
 use parking_lot::RwLock;
-use primitives::types::{MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::hash::{hash_struct, CryptoHash};
+use primitives::types::{BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, Storage};
 
+#[allow(dead_code)]
 pub struct Client {
     state_db: RwLock<StateDb>,
     runtime: Runtime,
     last_root: RwLock<MerkleHash>,
+    beacon_chain: BeaconChain,
 }
 
 impl Client {
     pub fn new(storage: Storage) -> Self {
         let state_db = StateDb::new(storage);
         let state_view = state_db.get_state_view();
+        let genesis_hash = hash_struct(&0);
         Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
+            beacon_chain: BeaconChain::new(genesis_hash),
         }
     }
 
@@ -40,4 +49,23 @@ impl Client {
         self.runtime
             .view(&mut state_db, &self.last_root.read(), view_call)
     }
+}
+
+impl network::client::Client<BeaconBlock> for Client {
+    fn get_block(&self, id: &BlockId) -> Option<&BeaconBlock> {
+        self.beacon_chain.get_block(id)
+    }
+    fn get_header(&self, id: &BlockId) -> Option<&BeaconBlockHeader> {
+        self.beacon_chain.get_header(id)
+    }
+    fn best_hash(&self) -> CryptoHash {
+        self.beacon_chain.best_hash
+    }
+    fn best_number(&self) -> u64 {
+        self.beacon_chain.best_number
+    }
+    fn genesis_hash(&self) -> CryptoHash {
+        self.beacon_chain.genesis_hash
+    }
+    fn import_blocks(&self, _blocks: Vec<BeaconBlock>) {}
 }

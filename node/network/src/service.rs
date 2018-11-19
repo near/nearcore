@@ -128,7 +128,9 @@ mod tests {
         let secret = create_secret();
         let root_config = test_config_with_secret(&addresses[0], vec![], secret);
         let tx_callback = |_| Ok(());
-        let client = Arc::new(MockClient {});
+        let client = Arc::new(MockClient {
+            block: MockBlock {},
+        });
         let root_service = Service::new(
             ProtocolConfig::default(),
             root_config,
@@ -140,7 +142,9 @@ mod tests {
         let mut services = vec![root_service];
         for i in 1..num_services {
             let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-            let client = Arc::new(MockClient {});
+            let client = Arc::new(MockClient {
+                block: MockBlock {},
+            });
             let service = Service::new(
                 ProtocolConfig::default(),
                 config,
