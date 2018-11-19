@@ -16,6 +16,7 @@ members = [
     "core/primitives",
     "core/storage",
     "core/txflow",
+    "core/beacon",
     "node/cli",
     "node/runtime",
     "node/service",
