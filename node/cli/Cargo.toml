@@ -3,5 +3,6 @@ name = "node-cli"
 version = "0.1.0"
 
 [dependencies]
+storage = { path = "../../core/storage" }
 service = { path = "../service" }
 client = { path = "../client" }

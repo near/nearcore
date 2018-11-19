@@ -98,33 +98,3 @@ pub trait TxFlow<P: Payload> {
         subscriber: &Fn(types::ConsensusBlockBody<P, C>),
     ) -> GenericResult;
 }
-
-/// View of State database. Provides a way to get/set values in database and finalize into new view.
-pub trait StateDbView: Sized {
-    /// Returns Merkle root of the original view.
-    fn merkle_root(&self) -> types::MerkleHash;
-    /// Gets the value from given key.
-    fn get(&self, key: &[u8]) -> Option<types::DBValue>;
-    /// Sets the value for given key.
-    fn set(&mut self, key: &[u8], value: types::DBValue);
-    /// Deletes given key.
-    fn delete(&mut self, key: &[u8]);
-    /// Commit current changes into the change set.
-    fn commit(&mut self);
-    /// Roll back non-committed changes.
-    fn rollback(&mut self);
-    /// Finishes the change set and returns new view with updated Merkle root.
-    fn finish(&self) -> Self;
-}
-
-/// Runtime that takes batch of transactions and current state view, applies transactions and
-/// returns new state view with list of valid transactions.
-pub trait StateTransitionRuntime {
-    type StateDbView;
-
-    fn apply(
-        &self,
-        state_view: &mut Self::StateDbView,
-        transactions: Vec<types::SignedTransaction>,
-    ) -> (Vec<types::SignedTransaction>, Self::StateDbView);
-}

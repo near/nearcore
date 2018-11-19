@@ -36,13 +36,15 @@ mod tests {
 
     extern crate jsonrpc_test;
     extern crate primitives;
+    extern crate storage;
 
     use self::jsonrpc_test::Rpc;
     use primitives::types::{SignedTransaction, TransactionBody};
 
     #[test]
     fn test_call() {
-        let handler = get_handler(Client::new("storage/db-test/"));
+        let storage = storage::Storage::new("storage/db-test");
+        let handler = get_handler(Client::new(storage));
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
             nonce: 0,

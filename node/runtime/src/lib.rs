@@ -11,8 +11,8 @@ extern crate storage;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;
-use primitives::traits::{StateDbView, StateTransitionRuntime};
 use primitives::types::{AccountId, SignedTransaction};
+use storage::{StateDb, StateDbView};
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
@@ -34,66 +34,67 @@ fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
-    pub fn get_account<S: StateDbView>(
+    pub fn get_account(
         &self,
-        state_view: &S,
+        state_db: &StateDb,
+        state_view: &StateDbView,
         account_key: AccountId,
     ) -> Option<Account> {
         state_view
-            .get(&account_id_to_bytes(account_key))
+            .get(state_db, &account_id_to_bytes(account_key))
             .and_then(|data| bincode::deserialize(&data).ok())
     }
 
-    pub fn set_account<S: StateDbView>(
+    pub fn set_account(
         &self,
-        state_view: &mut S,
+        state_db: &StateDb,
+        state_view: &mut storage::StateDbView,
         account_key: AccountId,
         account: &Account,
     ) {
         match bincode::serialize(&account) {
-            Ok(data) => state_view.set(&account_id_to_bytes(account_key), data),
+            Ok(data) => state_view.set(state_db, &account_id_to_bytes(account_key), data),
             Err(e) => {
                 error!("error occurred while encoding: {:?}", e);
             }
         }
     }
-    fn apply_transaction<S: StateDbView>(
+    fn apply_transaction(
         &self,
-        state_view: &mut S,
+        state_db: &StateDb,
+        state_view: &mut storage::StateDbView,
         transaction: &SignedTransaction,
     ) -> bool {
-        let sender = self.get_account(state_view, transaction.body.sender);
-        let receiver = self.get_account(state_view, transaction.body.receiver);
+        let sender = self.get_account(state_db, state_view, transaction.body.sender);
+        let receiver = self.get_account(state_db, state_view, transaction.body.receiver);
         match (sender, receiver) {
             (Some(mut sender), Some(mut receiver)) => {
                 sender.amount -= transaction.body.amount;
                 sender.nonce = transaction.body.nonce;
                 receiver.amount += transaction.body.amount;
-                self.set_account(state_view, transaction.body.sender, &sender);
-                self.set_account(state_view, transaction.body.sender, &receiver);
+                self.set_account(state_db, state_view, transaction.body.sender, &sender);
+                self.set_account(state_db, state_view, transaction.body.sender, &receiver);
                 true
             }
             _ => false,
         }
     }
-}
 
-impl StateTransitionRuntime for Runtime {
-    type StateDbView = storage::StateDbView;
-    fn apply(
+    pub fn apply(
         &self,
-        state_view: &mut Self::StateDbView,
+        state_db: &mut StateDb,
+        state_view: &mut StateDbView,
         transactions: Vec<SignedTransaction>,
-    ) -> (Vec<SignedTransaction>, Self::StateDbView) {
+    ) -> (Vec<SignedTransaction>, StateDbView) {
         let mut filtered_transactions = vec![];
         for t in transactions.into_iter() {
-            if self.apply_transaction(state_view, &t) {
+            if self.apply_transaction(state_db, state_view, &t) {
                 state_view.commit();
                 filtered_transactions.push(t);
             } else {
                 state_view.rollback();
             }
         }
-        (filtered_transactions, state_view.finish())
+        (filtered_transactions, state_view.finish(state_db))
     }
 }

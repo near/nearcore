@@ -4,6 +4,7 @@ extern crate jsonrpc_core;
 extern crate jsonrpc_macros;
 extern crate jsonrpc_minihttp_server;
 extern crate primitives;
+extern crate storage;
 
 pub mod config;
 mod rpc;
