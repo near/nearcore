@@ -10,7 +10,7 @@ pub type AccountId = u64;
 /// confused with the multisig.
 pub type StructSignature = u128;
 /// Hash used by a struct implementing the Merkle tree.
-pub type MerkleHash = u64;
+pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = u128;
 /// Database record type.
