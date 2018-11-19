@@ -41,20 +41,20 @@ impl<'a> StateDbUpdate<'a> {
             prospective: HashMap::default(),
         }
     }
-    pub fn get(&self, _key: &[u8]) -> Option<DBValue> {
-        match self.prospective.get(_key) {
+    pub fn get(&self, key: &[u8]) -> Option<DBValue> {
+        match self.prospective.get(key) {
             Some(value) => value.clone(),
-            None => match self.committed.get(_key) {
+            None => match self.committed.get(key) {
                 Some(value) => value.clone(),
-                None => self.state_db.get(self.root, _key),
+                None => self.state_db.get(self.root, key),
             },
         }
     }
-    pub fn set(&mut self, _key: &[u8], _value: DBValue) {
-        self.prospective.insert(_key.to_vec(), Some(_value));
+    pub fn set(&mut self, key: &[u8], value: DBValue) {
+        self.prospective.insert(key.to_vec(), Some(value));
     }
-    pub fn delete(&mut self, _key: &[u8]) {
-        self.prospective.insert(_key.to_vec(), None);
+    pub fn delete(&mut self, key: &[u8]) {
+        self.prospective.insert(key.to_vec(), None);
     }
     pub fn commit(&mut self) {
         for (key, value) in self.prospective.iter() {
