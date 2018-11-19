@@ -1,6 +1,7 @@
 use ext::Externalities;
 
-use wasmi::{self, RuntimeArgs, MemoryRef, Error as WasmiError, Trap, TrapKind};
+use wasmi::{self, RuntimeArgs, RuntimeValue, Error as WasmiError, Trap, TrapKind};
+use memory::Memory;
 
 pub struct RuntimeContext {
     /*
@@ -114,14 +115,14 @@ type Result<T> = ::std::result::Result<T, Error>;
 pub struct Runtime<'a> {
 	ext: &'a mut Externalities,
     context: RuntimeContext,
-    memory: MemoryRef,
+    memory: Memory,
 }
 
 impl<'a> Runtime<'a> {
     pub fn new(
 		ext: &mut Externalities,
         context: RuntimeContext,
-		memory: MemoryRef,
+		memory: Memory,
     ) -> Runtime {
         Runtime {
             ext,
@@ -130,9 +131,29 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn read_buffer(&self, offset: u32) -> Result<Vec<u8>> {
+        let len: u32 = self.memory.get_u32(offset).map_err(|_| Error::MemoryAccessViolation)?;
+        let buf = self.memory.get(offset + 4, len as usize).map_err(|_| Error::MemoryAccessViolation)?;
+		Ok(buf)
+    }
+
 	/// Read from the storage to wasm memory
-	pub fn storage_read(&mut self, args: RuntimeArgs) -> Result<()>
-	{
+	pub fn storage_read_len(&mut self, args: RuntimeArgs) -> Result<RuntimeValue> {
+        /*
+		let key = self.h256_at(args.nth_checked(0)?)?;
+		let val_ptr: u32 = args.nth_checked(1)?;
+
+		let val = self.ext.storage_at(&key).map_err(|_| Error::StorageReadError)?;
+
+		self.adjusted_charge(|schedule| schedule.sload_gas as u64)?;
+
+		self.memory.set(val_ptr as u32, &*val)?;
+        */
+		Ok(RuntimeValue::I32(0))
+	}
+
+	/// Read from the storage to wasm memory
+	pub fn storage_read_into(&mut self, args: RuntimeArgs) -> Result<()> {
         /*
 		let key = self.h256_at(args.nth_checked(0)?)?;
 		let val_ptr: u32 = args.nth_checked(1)?;
@@ -147,29 +168,41 @@ impl<'a> Runtime<'a> {
 	}
 
 	/// Write to storage from wasm memory
-	pub fn storage_write(&mut self, args: RuntimeArgs) -> Result<()>
-	{
-        /*
-		let key = self.h256_at(args.nth_checked(0)?)?;
+	pub fn storage_write(&mut self, args: RuntimeArgs) -> Result<()> {
+		let key_ptr: u32 = args.nth_checked(0)?;
 		let val_ptr: u32 = args.nth_checked(1)?;
 
-		let val = self.h256_at(val_ptr)?;
-		let former_val = self.ext.storage_at(&key).map_err(|_| Error::StorageUpdateError)?;
+		let key = self.read_buffer(key_ptr)?;
+		let val = self.read_buffer(val_ptr)?;
 
-		if former_val == H256::zero() && val != H256::zero() {
-			self.adjusted_charge(|schedule| schedule.sstore_set_gas as u64)?;
-		} else {
-			self.adjusted_charge(|schedule| schedule.sstore_reset_gas as u64)?;
-		}
-
-		self.ext.set_storage(key, val).map_err(|_| Error::StorageUpdateError)?;
-
-		if former_val != H256::zero() && val == H256::zero() {
-			let sstore_clears_schedule = self.schedule().sstore_refund_gas;
-			self.ext.add_sstore_refund(sstore_clears_schedule);
-		}
-        */
+		self.ext.storage_put(&key, &val).map_err(|_| Error::StorageUpdateError)?;
 		Ok(())
+	}
+
+	fn charge_gas(&mut self, amount: u64) -> bool {
+		println!("Charge gas {}", amount);
+		true
+		/*
+		let prev = self.gas_counter;
+		match prev.checked_add(amount) {
+			// gas charge overflow protection
+			None => false,
+			Some(val) if val > self.gas_limit => false,
+			Some(_) => {
+				self.gas_counter = prev + amount;
+				true
+			}
+		}
+		*/
+	}
+
+	pub fn gas(&mut self, args: RuntimeArgs) -> Result<()> {
+		let amount: u32 = args.nth_checked(0)?;
+		if self.charge_gas(amount as u64) {
+			Ok(())
+		} else {
+			Err(Error::GasLimit)
+		}
 	}
 
 }
@@ -199,10 +232,11 @@ mod ext_impl {
 		) -> Result<Option<RuntimeValue>, Trap> {
 			match index {
 				STORAGE_WRITE_FUNC => void!(self.storage_write(args)),
-				STORAGE_READ_FUNC => void!(self.storage_read(args)),
+				STORAGE_READ_LEN_FUNC => some!(self.storage_read_len(args)),
+				STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(args)),
+				GAS_FUNC => void!(self.gas(args)),
                 /*
 				RET_FUNC => void!(self.ret(args)),
-				GAS_FUNC => void!(self.gas(args)),
 				INPUT_LENGTH_FUNC => cast!(self.input_legnth()),
 				FETCH_INPUT_FUNC => void!(self.fetch_input(args)),
 				PANIC_FUNC => void!(self.panic(args)),

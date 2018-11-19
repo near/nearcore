@@ -4,6 +4,7 @@ extern crate pwasm_utils;
 extern crate parity_wasm;
 
 pub mod executor;
+mod memory;
 mod runtime;
 mod resolver;
 mod prepare;

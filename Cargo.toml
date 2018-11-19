@@ -17,6 +17,7 @@ members = [
     "core/storage",
     "core/txflow",
     "core/wasm",
+    "core/wasm/runtest",
     "node/cli",
     "test-utils/node"
 ]
