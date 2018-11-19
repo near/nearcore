@@ -15,7 +15,7 @@ extern crate trie_db;
 
 use bincode::{deserialize, serialize};
 use parity_rocksdb::{Writable, DB};
-use primitives::hash::CryptoHash;
+use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{DBValue, MerkleHash};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -23,32 +23,37 @@ use std::collections::HashMap;
 #[cfg(test)]
 mod tests;
 
-/// Concrete implementation of StateDbView.
-/// Provides a way to interact with Storage and record changes with future commit.
-#[derive(Default)]
-pub struct StateDbView {
-    // QUESTION: How to pass here StateDb so no need to pass it as argument everywhere?
+/// Concrete implementation of StateDbUpdate.
+/// Provides a way to access Storage and record changes with future commit.
+pub struct StateDbUpdate<'a> {
+    state_db: &'a mut StateDb,
+    root: &'a MerkleHash,
     committed: HashMap<Vec<u8>, Option<DBValue>>,
     prospective: HashMap<Vec<u8>, Option<DBValue>>,
 }
 
-impl StateDbView {
-    pub fn merkle_root(&self) -> MerkleHash {
-        0
+impl<'a> StateDbUpdate<'a> {
+    pub fn new(state_db: &'a mut StateDb, root: &'a MerkleHash) -> Self {
+        StateDbUpdate {
+            state_db,
+            root,
+            committed: HashMap::default(),
+            prospective: HashMap::default(),
+        }
     }
-    pub fn get(&self, _state_db: &StateDb, _key: &[u8]) -> Option<DBValue> {
+    pub fn get(&self, _key: &[u8]) -> Option<DBValue> {
         match self.prospective.get(_key) {
             Some(value) => value.clone(),
             None => match self.committed.get(_key) {
                 Some(value) => value.clone(),
-                None => _state_db.get(_key),
+                None => self.state_db.get(self.root, _key),
             },
         }
     }
-    pub fn set(&mut self, _state_db: &StateDb, _key: &[u8], _value: DBValue) {
+    pub fn set(&mut self, _key: &[u8], _value: DBValue) {
         self.prospective.insert(_key.to_vec(), Some(_value));
     }
-    pub fn delete(&mut self, _state_db: &StateDb, _key: &[u8]) {
+    pub fn delete(&mut self, _key: &[u8]) {
         self.prospective.insert(_key.to_vec(), None);
     }
     pub fn commit(&mut self) {
@@ -60,8 +65,14 @@ impl StateDbView {
     pub fn rollback(&mut self) {
         self.prospective = HashMap::new();
     }
-    pub fn finish(&self, _state_db: &mut StateDb) -> Self {
-        StateDbView::default()
+    pub fn finalize(&self) -> MerkleHash {
+        for (key, value) in self.committed.iter() {
+            match value {
+                Some(value) => self.state_db.set(key, value),
+                None => self.state_db.delete(key),
+            }
+        }
+        hash_struct(&0)
     }
 }
 
@@ -100,10 +111,12 @@ impl StateDb {
     pub fn new(storage: Storage) -> Self {
         StateDb { storage }
     }
-    pub fn get_state_view(&self) -> StateDbView {
-        StateDbView::default()
+    pub fn get_state_view(&self) -> MerkleHash {
+        hash_struct(&0)
     }
-    pub fn get(&self, _key: &[u8]) -> Option<DBValue> {
+    pub fn set(&self, _key: &[u8], _value: &[u8]) {}
+    pub fn get(&self, _root: &MerkleHash, _key: &[u8]) -> Option<DBValue> {
         None
     }
+    pub fn delete(&self, _key: &[u8]) {}
 }
