@@ -213,9 +213,10 @@ impl<T: Transaction, B: Block> Protocol<T, B> {
         &self,
         _net_sync: &mut NetSyncIo,
         _peer: NodeIndex,
-        _response: &message::BlockResponse<B>,
+        response: message::BlockResponse<B>,
     ) {
-        unimplemented!()
+        // TODO: validate response
+        self.client.import_blocks(response.blocks);
     }
 
     pub fn on_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
@@ -258,7 +259,7 @@ impl<T: Transaction, B: Block> Protocol<T, B> {
                     trace!(target: "sync", "Ignoring mismatched response packet from {} (expected {} got {})", peer, request.id, response.id);
                     return;
                 }
-                self.on_block_response(net_sync, peer, &response)
+                self.on_block_response(net_sync, peer, response)
             }
         }
     }

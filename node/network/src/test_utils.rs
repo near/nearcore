@@ -115,4 +115,5 @@ impl Client<MockBlock> for MockClient {
     fn genesis_hash(&self) -> CryptoHash {
         CryptoHash { 0: [0; 32] }
     }
+    fn import_blocks(&self, blocks: Vec<MockBlock>) {}
 }

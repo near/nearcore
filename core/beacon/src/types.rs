@@ -1,7 +1,6 @@
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::traits::{Block, Header};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -56,19 +55,4 @@ impl Block for BeaconBlock {
     fn hash(&self) -> CryptoHash {
         self.header.hash()
     }
-}
-
-#[derive(Debug)]
-pub struct BeaconChain {
-    /// hash of tip
-    best_hash: CryptoHash,
-    /// index of tip
-    best_number: u64,
-    /// headers indexed by hash
-    headers: HashMap<CryptoHash, BeaconBlockHeader>,
-    /// blocks indexed by hash
-    hash_to_blocks: HashMap<CryptoHash, BeaconBlock>,
-    /// blocks indexed by number
-    index_to_block: HashMap<u64, BeaconBlock>,
-    // TODO: state?
 }
