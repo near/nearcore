@@ -1,5 +1,6 @@
 #![feature(core_intrinsics)]
 extern crate rand;
+extern crate chrono;
 #[macro_use]
 extern crate futures;
 extern crate typed_arena;

@@ -166,22 +166,24 @@ mod tests {
     pub const COOLDOWN: u64 = 1000;
     pub const FORCED_PING: u64 = 1500;
 
-    struct Accumulator {
-        acc: i64,
-        inc_rx: mpsc::Receiver<i64>,
-        out_tx: mpsc::Sender<i64>,
-        cooldown_delay: Option<Delay>,
-        forced_ping_delay: Option<Delay>,
-    }
+    use chrono::Local;
+
+        struct Accumulator {
+            inc_rx: mpsc::Receiver<i64>,
+            out_tx: mpsc::Sender<i64>,
+            cooldown_delay: Option<Delay>,
+            forced_ping_delay: Option<Delay>,
+            payload_buffer: Vec<i64>,
+        }
 
     impl Accumulator {
-        pub fn new(acc: i64, inc_rx: mpsc::Receiver<i64>, out_tx: mpsc::Sender<i64>) -> Self {
+        pub fn new(inc_rx: mpsc::Receiver<i64>, out_tx: mpsc::Sender<i64>) -> Self {
             Self {
-                acc,
                 inc_rx,
                 out_tx,
                 cooldown_delay: None,
                 forced_ping_delay: None,
+                payload_buffer: vec![],
             }
         }
     }
@@ -190,22 +192,55 @@ mod tests {
         type Item = ();
         type Error = ();
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            let value = match self.inc_rx.poll() {
-                Ok(Async::Ready(Some(value))) => value,
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(None)) => return Ok(Async::Ready(None)),
-                Err(_) => return Err(()),
-            };
-            self.acc += value;
-            let copied_out_tx = self.out_tx.clone();
-            match copied_out_tx.send(self.acc).poll() {
-                Ok(Async::Ready(_)) => Ok(Async::Ready(Some(()))),
-                Ok(Async::NotReady) => Ok(Async::NotReady),
-                Err(_) => {
-                    println!("Receiver of Accumulator output was already deallocated");
-                    Err(())
-                },
+            // Process incoming messages...
+            loop {
+                match self.inc_rx.poll() {
+                    Ok(Async::Ready(Some(value))) => {
+                        println!("{} Received value {}", Local::now().format("%M:%S.%f"), value);
+                        self.payload_buffer.push(value)
+                    },
+                    Ok(Async::NotReady) => break,
+                    Ok(Async::Ready(None)) => {
+                        if self.payload_buffer.is_empty() {
+                            return Ok(Async::Ready(None))
+                        } else {
+                            break;
+                        }
+                    },
+                    Err(_) => {println!("ERR"); return Err(())},
+                }
             }
+            if self.payload_buffer.is_empty() {
+                return Ok(Async::NotReady);
+            }
+
+            // .. but do not output them unless we pass the cooldown.
+            if let Some(ref mut d) = self.cooldown_delay {
+                try_ready!(d.poll().map_err(|_| ()));
+            }
+            println!("{} Cooldown is ok", Local::now().format("%M:%S.%f"));
+
+            if self.payload_buffer.is_empty() {
+                println!("buffer is 0");
+                if let Some(ref mut d) = self.forced_ping_delay {
+                    try_ready!(d.poll().map_err(|_| ()));
+                }
+                println!("{} But forced ping pushes us", Local::now().format("%M:%S.%f"));
+            }
+
+            let copied_out_tx = self.out_tx.clone();
+            let now = std::time::Instant::now();
+            self.cooldown_delay = Some(Delay::new(now + Duration::from_millis(COOLDOWN)));
+            self.forced_ping_delay = Some(Delay::new(now + Duration::from_millis(FORCED_PING)));
+
+
+            let acc: i64 = self.payload_buffer.iter().sum();
+            println!("{} Relaying value {}", Local::now().format("%M:%S.%f"), acc);
+            tokio::spawn(copied_out_tx.send(acc).map(|_|()).map_err(|e| {
+                println!("Relaying error")
+            }));
+            self.payload_buffer.clear();
+            Ok(Async::Ready(Some(())))
         }
     }
 
@@ -225,22 +260,25 @@ mod tests {
         tokio::run(lazy(|| {
             let (inc_tx, inc_rx) = mpsc::channel(1_024);
             let (out_tx, out_rx) = mpsc::channel(1_024);
-            let mut acc = Accumulator::new(0, inc_rx, out_tx);
+            let mut acc = Accumulator::new(inc_rx, out_tx);
             tokio::spawn({
                 let mut v: Vec<i64> = vec![];
-                for i in 0..10 {
-                    let r: i64 = rand::random();
-                    v.push(r.abs() % 10);
+                for i in 1..10 {
+
+                    //v.push(r.abs() % 10);
+                    v.push(1);
                 }
                 stream::iter_ok(v).fold(inc_tx, |inc_tx, el| {
-                    println!("Sending {}", el);
+                    let r: u64 = rand::random();
+                    std::thread::sleep(Duration::from_millis(r % 300));
+                    println!("{} Created {}", Local::now().format("%M:%S.%f"), el);
                     inc_tx.send(el).map_err(|_| ())
                 }).map(|_|())
             });
 
             tokio::spawn(
                 out_rx.for_each(|el| {
-                    println!("Received {}", el);
+                    println!("{} Finally received {}", Local::now().format("%M:%S.%f"), el);
                     Ok(())
                 })
             );
