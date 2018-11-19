@@ -16,6 +16,7 @@ pub type BLSSignature = u128;
 /// Database record type.
 pub type DBValue = Vec<u8>;
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
     Number(u64),
     Hash(CryptoHash),

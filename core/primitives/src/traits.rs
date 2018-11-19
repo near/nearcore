@@ -40,12 +40,15 @@ pub trait Header:
 {
     // TODO: add methods
     fn hash(&self) -> CryptoHash;
+
+    // get block index
+    fn number(&self) -> u64;
 }
 
 /// trait that abstracts ``block", ideally could be used for both beacon-chain blocks
 /// and shard-chain blocks
 pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
-    type Header;
+    type Header: Header;
     type Body;
 
     fn header(&self) -> &Self::Header;
