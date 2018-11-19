@@ -109,7 +109,6 @@ mod tests {
     use std::thread;
     use std::time;
     use test_utils::*;
-    use MockBlock;
 
     fn create_services<T: Transaction>(
         num_services: u32,

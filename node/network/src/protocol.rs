@@ -233,10 +233,9 @@ impl<T: Transaction> Protocol<T> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use primitives::types;
-    use MockBlock;
+    use test_utils::MockBlock;
 
     impl<T: Transaction> Protocol<T> {
         fn _on_message<B: Block>(&self, data: &[u8]) -> Message<T, B> {
@@ -257,5 +256,4 @@ mod tests {
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }
-
 }

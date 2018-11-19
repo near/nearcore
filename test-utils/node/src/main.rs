@@ -15,7 +15,7 @@ extern crate clap;
 
 use clap::{App, Arg};
 use env_logger::Builder;
-use network::{protocol::ProtocolConfig, service::Service, test_utils::*, MockBlock};
+use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use primitives::types;
 use substrate_network_libp2p::ProtocolId;
 
