@@ -1,4 +1,6 @@
-use primitives::{hash::CryptoHash, traits::Block};
+use primitives::hash::CryptoHash;
+use primitives::traits::Block;
+use primitives::types::BlockId;
 
 pub type RequestId = u64;
 
@@ -50,10 +52,12 @@ impl Default for Status {
 pub struct BlockRequest {
     // request id
     pub id: RequestId,
-    // starting from the hash
-    pub from: CryptoHash,
-    // ending at this hash,
-    pub to: CryptoHash,
+    // starting from this id
+    pub from: BlockId,
+    // ending at this id,
+    pub to: Option<BlockId>,
+    // max number of blocks requested
+    pub max: Option<u64>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]

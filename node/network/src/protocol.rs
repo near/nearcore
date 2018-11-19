@@ -11,10 +11,14 @@ use client::Client;
 use io::{NetSyncIo, SyncIo};
 use message::{self, Message, MessageBody};
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Encode, GenericResult};
+use primitives::traits::{Block, Decode, Encode, GenericResult, Header};
+use primitives::types::BlockId;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
+
+// Maximum allowed entries in `BlockResponse`
+const MAX_BLOCK_DATA_RESPONSE: u64 = 128;
 
 /// current version of the protocol
 pub(crate) const CURRENT_VERSION: u32 = 1;
@@ -48,6 +52,8 @@ pub(crate) struct PeerInfo {
     request_timestamp: Option<time::Instant>,
     // pending block request
     block_request: Option<message::BlockRequest>,
+    // next request id
+    next_request_id: u64,
 }
 
 pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
@@ -126,13 +132,40 @@ impl<T: Transaction, B: Block> Protocol<T, B> {
             );
             return;
         }
-        // TODO: check whether hashes match
+        if status.genesis_hash != self.client.genesis_hash() {
+            net_sync.report_peer(
+                peer,
+                Severity::Bad(&format!(
+                    "peer has different genesis hash (ours {:?}, theirs {:?})",
+                    self.client.genesis_hash(),
+                    status.genesis_hash
+                )),
+            );
+            return;
+        }
+
+        // request blocks to catch up if necessary
+        let best_number = self.client.best_number();
+        let mut next_request_id = 0;
+        if status.best_number > best_number {
+            let request = message::BlockRequest {
+                id: next_request_id,
+                from: BlockId::Number(best_number),
+                to: Some(BlockId::Number(status.best_number)),
+                max: None,
+            };
+            next_request_id += 1;
+            let message = Message::new(MessageBody::BlockRequest(request));
+            self.send_message(net_sync, peer, &message);
+        }
+
         let peer_info = PeerInfo {
             protocol_version: status.version,
             best_hash: status.best_hash,
             best_number: status.best_number,
             request_timestamp: None,
             block_request: None,
+            next_request_id,
         };
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);
@@ -140,11 +173,40 @@ impl<T: Transaction, B: Block> Protocol<T, B> {
 
     fn on_block_request(
         &self,
-        _net_sync: &mut NetSyncIo,
-        _peer: NodeIndex,
-        _request: &message::BlockRequest,
+        net_sync: &mut NetSyncIo,
+        peer: NodeIndex,
+        request: message::BlockRequest,
     ) {
-        unimplemented!();
+        let mut blocks = Vec::new();
+        let mut id = request.from;
+        let max = std::cmp::min(
+            request.max.unwrap_or(u64::max_value()),
+            MAX_BLOCK_DATA_RESPONSE,
+        );
+        while let Ok(block) = self.client.get_block(&id) {
+            blocks.push(block);
+            if blocks.len() as u64 >= max {
+                break;
+            }
+            let header = self.client.get_header(&id).unwrap();
+            let block_number = header.number();
+            let block_hash = header.hash();
+            let reach_end = match request.to {
+                Some(BlockId::Number(n)) => block_number == n,
+                Some(BlockId::Hash(h)) => block_hash == h,
+                None => false,
+            };
+            if reach_end {
+                break;
+            }
+            id = BlockId::Number(block_number);
+        }
+        let response = message::BlockResponse {
+            id: request.id,
+            blocks,
+        };
+        let message = Message::new(MessageBody::BlockResponse(response));
+        self.send_message(net_sync, peer, &message);
     }
 
     fn on_block_response(
@@ -168,7 +230,7 @@ impl<T: Transaction, B: Block> Protocol<T, B> {
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
             MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
-            MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, &request),
+            MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, request),
             MessageBody::BlockResponse(response) => {
                 let request = {
                     let mut peers = self.peer_info.write();

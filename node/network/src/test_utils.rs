@@ -71,6 +71,10 @@ impl Header for MockBlockHeader {
     fn hash(&self) -> CryptoHash {
         CryptoHash { 0: [0; 32] }
     }
+
+    fn number(&self) -> u64 {
+        0
+    }
 }
 
 impl Block for MockBlock {
@@ -101,5 +105,14 @@ impl Client<MockBlock> for MockClient {
     }
     fn get_header(&self, id: &types::BlockId) -> Result<MockBlockHeader, Error> {
         Ok(MockBlockHeader {})
+    }
+    fn best_hash(&self) -> CryptoHash {
+        CryptoHash { 0: [0; 32] }
+    }
+    fn best_number(&self) -> u64 {
+        0
+    }
+    fn genesis_hash(&self) -> CryptoHash {
+        CryptoHash { 0: [0; 32] }
     }
 }
