@@ -18,16 +18,9 @@
 //! wasm module before execution.
 
 use types::{Config, PrepareError as Error};
-use std::collections::HashMap;
 use parity_wasm::elements::{self, External, MemoryType, Type};
-use parity_wasm::elements::{FunctionType, ValueType};
 use pwasm_utils::{self, rules};
-
-use wasmi::memory_units::Pages;
-use wasmi::{MemoryRef, MemoryInstance};
-
-
-use runtime::Runtime;
+use memory::Memory;
 
 struct ContractModule<'a> {
 	// An `Option` is used here for loaning (`take()`-ing) the module.
@@ -35,76 +28,6 @@ struct ContractModule<'a> {
 	// the value *must* be `Some`).
 	module: Option<elements::Module>,
 	config: &'a Config,
-}
-
-/// Represents a set of function that defined in this particular environment and
-/// which can be imported and called by the module.
-pub(crate) struct HostFunctionSet {
-	/// Functions which defined in the environment.
-	pub funcs: HashMap<Vec<u8>, HostFunction>,
-}
-impl HostFunctionSet {
-	pub fn new() -> Self {
-		HostFunctionSet {
-			funcs: HashMap::new(),
-		}
-	}
-}
-
-
-#[derive(Clone)]
-pub struct Memory {
-	memref: MemoryRef,
-}
-
-impl Memory {
-	pub fn new(initial: u32, maximum: Option<u32>) -> Result<Memory, Error> {
-		Ok(Memory {
-			memref: MemoryInstance::alloc(
-				Pages(initial as usize),
-				maximum.map(|m| Pages(m as usize)),
-			).map_err(|_| Error::Memory)?,
-		})
-	}
-
-	pub fn get(&self, ptr: u32, buf: &mut [u8]) -> Result<(), Error> {
-		self.memref.get_into(ptr, buf).map_err(|_| Error::Memory)?;
-		Ok(())
-	}
-
-	pub fn set(&self, ptr: u32, value: &[u8]) -> Result<(), Error> {
-		self.memref.set(ptr, value).map_err(|_| Error::Memory)?;
-		Ok(())
-	}
-}
-
-pub(crate) struct HostFunction {
-	// pub(crate) f: fn(&mut Runtime, &[sandbox::TypedValue]) -> Result<sandbox::ReturnValue, sandbox::HostError>,
-	func_type: FunctionType,
-}
-impl HostFunction {
-	/*
-	/// Create a new instance of a host function.
-	pub fn new(
-		func_type: FunctionType,
-		f: fn(&mut Runtime, &[sandbox::TypedValue])
-			-> Result<sandbox::ReturnValue, sandbox::HostError>,
-	) -> Self {
-		HostFunction { func_type, f }
-	}
-
-	/// Returns a function pointer of this host function.
-	pub fn raw_fn_ptr(
-		&self,
-	) -> fn(&mut Runtime, &[sandbox::TypedValue])
-		-> Result<sandbox::ReturnValue, sandbox::HostError> {
-		self.f
-	}
-	*/
-	/// Check if the this function could be invoked with the given function signature.
-	pub fn func_type_matches(&self, func_type: &FunctionType) -> bool {
-		&self.func_type == func_type
-	}
 }
 
 impl<'a> ContractModule<'a> {
@@ -174,7 +97,7 @@ impl<'a> ContractModule<'a> {
 	/// - checks any imported function against defined host functions set, incl.
 	///   their signatures.
 	/// - if there is a memory import, returns it's descriptor
-	fn scan_imports(&self, env: &HostFunctionSet) -> Result<Option<&MemoryType>, Error> {
+	fn scan_imports(&self) -> Result<Option<&MemoryType>, Error> {
 		let module = self
 			.module
 			.as_ref()
@@ -208,6 +131,9 @@ impl<'a> ContractModule<'a> {
 				.get(*type_idx as usize)
 				.ok_or_else(|| Error::Instantiate)?;
 
+			// TODO: Function type check with Env
+			/*
+
 			let ext_func = env
 				.funcs
 				.get(import.field().as_bytes())
@@ -215,6 +141,7 @@ impl<'a> ContractModule<'a> {
 			if !ext_func.func_type_matches(func_ty) {
 				return Err(Error::Instantiate);
 			}
+			*/
 		}
 		Ok(imported_mem_type)
 	}
@@ -246,14 +173,13 @@ pub(super) struct PreparedContract {
 pub(super) fn prepare_contract(
 	original_code: &[u8],
 	config: &Config,
-	env: &HostFunctionSet,
 ) -> Result<PreparedContract, Error> {
 	let mut contract_module = ContractModule::new(original_code, config)?;
 	contract_module.ensure_no_internal_memory()?;
 	contract_module.inject_gas_metering()?;
 	contract_module.inject_stack_height_metering()?;
 
-	let memory = if let Some(memory_type) = contract_module.scan_imports(env)? {
+	let memory = if let Some(memory_type) = contract_module.scan_imports()? {
 		// Inspect the module to extract the initial and maximum page count.
 		let limits = memory_type.limits();
 		match (limits.initial(), limits.maximum()) {

@@ -18,6 +18,7 @@ members = [
     "core/txflow",
     "core/beacon",
     "core/wasm",
+    "core/wasm/runtest",
     "node/cli",
     "node/runtime",
     "node/service",
