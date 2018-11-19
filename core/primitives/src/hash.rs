@@ -1,6 +1,6 @@
-use bincode::serialize;
 use exonum_sodiumoxide::{self as sodiumoxide, crypto::hash::sha256::Digest};
 use serde::Serialize;
+use traits::Encode;
 
 pub type CryptoHash = Digest;
 
@@ -21,5 +21,5 @@ pub fn hash(data: &[u8]) -> CryptoHash {
 }
 
 pub fn hash_struct<T: Serialize>(obj: &T) -> CryptoHash {
-    hash(&serialize(&obj).expect("Serialization failed"))
+    hash(&obj.encode().expect("Serialization failed"))
 }
