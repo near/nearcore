@@ -22,4 +22,5 @@ mod io;
 pub mod message;
 pub mod protocol;
 pub mod service;
+#[cfg(feature = "test-utils")]
 pub mod test_utils;

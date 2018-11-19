@@ -66,7 +66,7 @@ pub fn main() {
     };
     let tx_callback = |_: types::SignedTransaction| Ok(());
     let client = Arc::new(MockClient {});
-    let service = Service::new(
+    let (service, fut) = Service::new(
         ProtocolConfig::default(),
         net_config,
         ProtocolId::default(),
@@ -75,4 +75,5 @@ pub fn main() {
     ).unwrap_or_else(|e| {
         panic!("service failed to start: {:?}", e);
     });
+    tokio::run(fut);
 }

@@ -22,3 +22,6 @@ primitives = { path = "../../core/primitives" }
 [dependencies.bincode]
 version = "1.0"
 features = ["i128"]
+
+[features]
+test-utils = []

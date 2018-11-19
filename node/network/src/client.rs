@@ -15,4 +15,6 @@ pub trait Client<B: Block>: Send + Sync {
     fn best_number(&self) -> u64;
     // genesis hash
     fn genesis_hash(&self) -> CryptoHash;
+    // import blocks
+    fn import_blocks(&self, blocks: Vec<B>);
 }
