@@ -97,14 +97,16 @@ impl Block for MockBlock {
     }
 }
 
-pub struct MockClient {}
+pub struct MockClient {
+    pub block: MockBlock,
+}
 
 impl Client<MockBlock> for MockClient {
-    fn get_block(&self, id: &types::BlockId) -> Result<MockBlock, Error> {
-        Ok(MockBlock {})
+    fn get_block(&self, id: &types::BlockId) -> Option<&MockBlock> {
+        Some(&self.block)
     }
-    fn get_header(&self, id: &types::BlockId) -> Result<MockBlockHeader, Error> {
-        Ok(MockBlockHeader {})
+    fn get_header(&self, id: &types::BlockId) -> Option<&MockBlockHeader> {
+        Some(&self.block.header())
     }
     fn best_hash(&self) -> CryptoHash {
         CryptoHash::default()

@@ -65,7 +65,9 @@ pub fn main() {
         test_config(&addr, vec![boot_node])
     };
     let tx_callback = |_: types::SignedTransaction| Ok(());
-    let client = Arc::new(MockClient {});
+    let client = Arc::new(MockClient {
+        block: MockBlock {},
+    });
     let (service, fut) = Service::new(
         ProtocolConfig::default(),
         net_config,

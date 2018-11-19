@@ -7,4 +7,6 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 parking_lot = "0.4"
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
+beacon = { path = "../../core/beacon" }
+network = { path = "../network" }
 node-runtime = { path = "../runtime" }
