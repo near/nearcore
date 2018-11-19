@@ -19,6 +19,7 @@ const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 pub struct Service<T> {
     network: Arc<Mutex<NetworkService>>,
     protocol: Arc<Protocol<T>>,
+    protocol_id: ProtocolId,
 }
 
 impl<T: Transaction> Service<T> {
@@ -27,7 +28,7 @@ impl<T: Transaction> Service<T> {
         net_config: NetworkConfiguration,
         protocol_id: ProtocolId,
         tx_callback: fn(T) -> GenericResult,
-    ) -> Result<(Service<T>, impl Future<Item = (), Error = ()>), Error> {
+    ) -> Result<Service<T>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, tx_callback));
@@ -35,25 +36,19 @@ impl<T: Transaction> Service<T> {
             Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
         };
-        let task =
-            service_task::<T, B>(service.clone(), protocol.clone(), protocol_id).map_err(|e| {
-                debug!(target: "sub-libp2p", "service error: {:?}", e);
-            });
-        Ok((
-            Service {
-                network: service,
-                protocol,
-            },
-            task,
-        ))
+        Ok(Service {
+            network: service,
+            protocol,
+            protocol_id,
+        })
     }
 }
 
-pub fn service_task<T: Transaction, B: Block>(
+pub fn generate_service_task<T: Transaction, B: Block>(
     network_service: Arc<Mutex<NetworkService>>,
     protocol: Arc<Protocol<T>>,
     protocol_id: ProtocolId,
-) -> impl Future<Item = (), Error = io::Error> {
+) -> impl Future<Item = (), Error = ()> {
     // Interval for performing maintenance on the protocol handler.
     let timer = Interval::new_interval(TICK_TIMEOUT)
         .for_each({
@@ -95,25 +90,28 @@ pub fn service_task<T: Transaction, B: Block>(
     });
     let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> =
         vec![Box::new(timer), Box::new(network)];
+
     futures::select_all(futures)
         .and_then(move |_| {
             info!("Networking ended");
             Ok(())
         }).map_err(|(r, _, _)| r)
+        .map_err(|e| {
+            debug!(target: "sub-libp2p", "service error: {:?}", e);
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use primitives::types::SignedTransaction;
     use rand::Rng;
     use std::thread;
     use std::time;
     use test_utils::*;
     use MockBlock;
 
-    fn create_services<T: Transaction>(
-        num_services: u32,
-    ) -> Vec<(Service<T>, impl Future<Item = (), Error = ()>)> {
+    fn create_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
         let base_address = "/ip4/127.0.0.1/tcp/".to_string();
         let base_port = rand::thread_rng().gen_range(30000, 60000);
         let mut addresses = Vec::new();
@@ -137,7 +135,7 @@ mod tests {
         let mut services = vec![root_service];
         for i in 1..num_services {
             let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-            let service = Service::new(
+            let service = Service::new::<MockBlock>(
                 ProtocolConfig::default(),
                 config,
                 ProtocolId::default(),
@@ -152,8 +150,12 @@ mod tests {
     fn test_send_message() {
         let services = create_services(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
-        let (services, tasks): (Vec<_>, Vec<_>) = services.into_iter().unzip();
-        for task in tasks {
+        for service in services.iter() {
+            let task = generate_service_task::<SignedTransaction, MockBlock>(
+                service.network.clone(),
+                service.protocol.clone(),
+                service.protocol_id,
+            );
             runtime.spawn(task);
         }
         thread::sleep(time::Duration::from_millis(1000));
