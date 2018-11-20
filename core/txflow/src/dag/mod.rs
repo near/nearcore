@@ -1,11 +1,13 @@
 mod message;
+mod reporter;
 
 use primitives::types::*;
 use primitives::traits::{WitnessSelector, Payload};
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap, VecDeque};
 
 use self::message::Message;
+use self::reporter::{MisbehaviourReporter, ViolationType};
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
@@ -24,6 +26,9 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 
     witness_selector: &'a W,
     starting_epoch: u64,
+
+    misbehaviour: MisbehaviourReporter,
+    participant_head: HashMap<UID, StructHash>,
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
@@ -35,6 +40,60 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
             roots: HashSet::new(),
             witness_selector,
             starting_epoch,
+            misbehaviour: MisbehaviourReporter::new(),
+            participant_head: HashMap::new(),
+        }
+    }
+
+    fn find_fork(&self, message: &Message<'a, P>) -> Option<StructHash> {
+        let uid = message.data.body.owner_uid.clone();
+
+        if let Some(last_hash) = self.participant_head.get(&uid) {
+            let mut visited = HashSet::new();
+            let mut queue = VecDeque::new();
+
+            for par in &message.parents {
+                visited.insert(par.computed_hash);
+                queue.push_back(par.clone());
+            }
+
+            // Run BFS to detect if this message sees last message of
+            // participant uid. In case of forks this BFS will explore almost
+            // entire DAG stopping at previous messages from participant uid.
+            // TODO: Prune this BFS (maybe change algorithm to detect forks)
+            while queue.len() > 0 {
+                let cur = queue.pop_front();
+
+                if let Some(cur_message) = cur {
+                    if cur_message.data.body.owner_uid == uid {
+                        if cur_message.computed_hash == *last_hash {
+                            // target message found
+                            return None;
+                        }
+                        else {
+                            // skip messages from participant uid
+                            continue;
+                        }
+                    }
+                    else {
+                        if visited.contains(&cur_message.computed_hash) {
+                            // skip messages already visited
+                            continue;
+                        }
+                        else{
+                            // mark message as visited
+                            visited.insert(cur_message.computed_hash);
+                            queue.push_back(cur_message.clone());
+                        }
+                    }
+                }
+            }
+
+            // If message not found at this point it means it is a fork
+            Some(last_hash.clone())
+        }
+        else {
+            None
         }
     }
 
@@ -48,7 +107,29 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
     }
 
     /// Verify that this message does not violate the protocol.
-    fn verify_message(&self, _message: &Message<'a, P>) -> Result<(), &'static str> {
+    fn verify_message(&mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
+        // Check epoch
+        if message.computed_epoch != message.data.body.epoch {
+            let mb = ViolationType::BadEpoch {
+                message: message.computed_hash.clone()
+            };
+
+            self.misbehaviour.report(mb);
+        }
+
+        let fork_message = self.find_fork(message);
+
+        if let Some(fork_message_hash) = fork_message {
+            let mb = ViolationType::ForkAttempt {
+                message_0: fork_message_hash,
+                message_1: message.computed_hash.clone()
+            };
+
+            self.misbehaviour.report(mb);
+        }
+
+        // TODO: Check correct signature
+
         Ok({})
     }
 
@@ -84,6 +165,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
             self.roots.remove(p);
         }
 
+        self.participant_head.insert(message.data.body.owner_uid, message.computed_hash);
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;
         self.messages.insert(unsafe{&*message_ptr});
         self.roots.insert(unsafe{&*message_ptr});
@@ -145,6 +227,91 @@ mod tests {
         }
         fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+    }
+
+    #[test]
+    fn check_correct_epoch_simple(){
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+
+        // Parent have greater epoch than children
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[1, 2 => a;] => 1, 1 => b;]);
+
+        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone()).is_ok());
+
+        for message in &dag.messages{
+            assert_eq!(message.computed_epoch, 0);
+        }
+
+        // Both messages have invalid epoch number so two reports were made
+        assert_eq!(dag.misbehaviour.violations.len(), 2);
+
+        for violation in &dag.misbehaviour.violations {
+            if let ViolationType::BadEpoch { message: _ } = violation {
+                // expected violation type
+            }
+            else {
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn check_correct_epoch_complex(){
+        // When a message can have epoch k, but since it doesn't have messages
+        // with smaller epochs it creates them.
+
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+
+        let a;
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0; 2, 0;] => 0, 1 => a;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a;] => 3, 1;]);
+
+        for m in &all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
+        }
+
+        for message in &dag.messages{
+            assert_eq!(message.computed_epoch, message.data.body.epoch);
+        }
+
+        assert_eq!(dag.misbehaviour.violations.len(), 0);
+    }
+
+    #[test]
+    fn notice_simple_fork() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0;] => 3, 1;]);
+        simple_bare_messages!(data_arena, all_messages [[2, 0; 1, 0;] => 3, 1;]);
+
+        for m in &all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
+        }
+
+        assert_eq!(dag.misbehaviour.violations.len(), 1);
+
+        let violation = dag.misbehaviour.violations.get(0usize);
+
+        // similar to: assert(isinstance(violation, ForkAttempt))
+        match violation {
+            Some(ViolationType::ForkAttempt{message_0 : _, message_1: _}) => {
+                assert!(true);
+            },
+            _ => {
+                assert!(false);
+            },
         }
     }
 
@@ -241,6 +408,27 @@ mod tests {
             for m in all_messages {
                 assert!(moved_dag.add_existing_message((*m).clone()).is_ok());
             }
+        }
+    }
+
+    #[test]
+    fn correct_signature() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; => b; 0, 0;] => 4, 3;]);
+
+        // Feed messages in DFS order which ensures that the parents are fed before the children.
+        for m in all_messages {
+            dag.add_existing_message((*m).clone());
+        }
+
+        for m in dag.messages {
+            assert_eq!(m.computed_signature, m.data.owner_sig);
         }
     }
 }

@@ -30,6 +30,8 @@ pub struct Message<'a, P: 'a + Payload> {
     pub computed_epoch: u64,
     /// The hash of the message. Depends on the epoch.
     pub computed_hash: types::StructHash,
+    /// The signature of the message. Depends on the epoch
+    pub computed_signature: types::StructSignature,
     /// Computed flag of whether this message is representative.
     computed_is_representative: bool,
     /// Computed flag of whether this message is a kickout.
@@ -113,6 +115,7 @@ impl<'a, P: Payload> Message<'a, P> {
             is_initialized: false,
             computed_epoch: 0,
             computed_hash: 0,
+            computed_signature: 0,
             computed_is_representative: false,
             computed_is_kickout: false,
             computed_is_epoch_leader: false,
@@ -346,6 +349,9 @@ impl<'a, P: Payload> Message<'a, P> {
             self.data.body.hash(&mut hasher);
             hasher.finish()
         };
+
+        // TODO: Compute message signature properly
+        self.computed_signature = 0;
 
         // Compute if this is an epoch leader.
         self.computed_is_epoch_leader = witness_selector.epoch_leader(self.computed_epoch) == owner_uid;
