@@ -18,7 +18,7 @@ pub struct Client {
     state_db: RwLock<StateDb>,
     runtime: Runtime,
     last_root: RwLock<MerkleHash>,
-    beacon_chain: BeaconChain,
+    beacon_chain: RwLock<BeaconChain>,
 }
 
 impl Client {
@@ -30,7 +30,7 @@ impl Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
-            beacon_chain: BeaconChain::new(genesis_hash),
+            beacon_chain: RwLock::new(BeaconChain::new(genesis_hash)),
         }
     }
 
@@ -52,20 +52,25 @@ impl Client {
 }
 
 impl network::client::Client<BeaconBlock> for Client {
-    fn get_block(&self, id: &BlockId) -> Option<&BeaconBlock> {
-        self.beacon_chain.get_block(id)
+    fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
+        self.beacon_chain.read().get_block(id).cloned()
     }
-    fn get_header(&self, id: &BlockId) -> Option<&BeaconBlockHeader> {
-        self.beacon_chain.get_header(id)
+    fn get_header(&self, id: &BlockId) -> Option<BeaconBlockHeader> {
+        self.beacon_chain.read().get_header(id).cloned()
     }
     fn best_hash(&self) -> CryptoHash {
-        self.beacon_chain.best_hash
+        self.beacon_chain.read().best_hash
     }
     fn best_number(&self) -> u64 {
-        self.beacon_chain.best_number
+        self.beacon_chain.read().best_number
     }
     fn genesis_hash(&self) -> CryptoHash {
-        self.beacon_chain.genesis_hash
+        self.beacon_chain.read().genesis_hash
     }
-    fn import_blocks(&self, _blocks: Vec<BeaconBlock>) {}
+    fn import_blocks(&self, blocks: Vec<BeaconBlock>) {
+        let mut beacon_chain = self.beacon_chain.write();
+        for block in blocks {
+            beacon_chain.add_block(block);
+        }
+    }
 }

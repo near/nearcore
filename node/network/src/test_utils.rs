@@ -102,11 +102,11 @@ pub struct MockClient {
 }
 
 impl Client<MockBlock> for MockClient {
-    fn get_block(&self, id: &types::BlockId) -> Option<&MockBlock> {
-        Some(&self.block)
+    fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
+        Some(self.block.clone())
     }
-    fn get_header(&self, id: &types::BlockId) -> Option<&MockBlockHeader> {
-        Some(&self.block.header())
+    fn get_header(&self, id: &types::BlockId) -> Option<MockBlockHeader> {
+        Some(self.block.header().clone())
     }
     fn best_hash(&self) -> CryptoHash {
         CryptoHash::default()

@@ -5,9 +5,9 @@ use primitives::types::BlockId;
 /// abstraction that communicates chain info to network
 pub trait Client<B: Block>: Send + Sync {
     // get block from id
-    fn get_block(&self, id: &BlockId) -> Option<&B>;
+    fn get_block(&self, id: &BlockId) -> Option<B>;
     // get block header from id
-    fn get_header(&self, id: &BlockId) -> Option<&B::Header>;
+    fn get_header(&self, id: &BlockId) -> Option<B::Header>;
     // hash of latest block
     fn best_hash(&self) -> CryptoHash;
     // index of latest block
