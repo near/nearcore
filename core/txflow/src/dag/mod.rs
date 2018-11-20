@@ -154,18 +154,33 @@ mod tests {
         let mut dag = DAG::new(0, 0, &selector);
 
         // Parent have greater epoch than children
+<<<<<<< HEAD
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[1, 2 => a;] => 1, 1 => b;]);
 
         // TODO: Check that epoch number is correctly calculated
         assert!(dag.add_existing_message((*a).clone()).is_ok());
         assert!(dag.add_existing_message((*b).clone()).is_ok());
+=======
+        simple_bare_messages!(data_arena, all_messages [[1, 2;] => 1, 1;]);
+
+        let mut ok = true;
+
+        for m in all_messages {
+            assert_eq!(dag.add_existing_message((*m).clone()).is_ok(), ok);
+            ok = !ok;
+        }
+>>>>>>> f8f5a231f72a288c2613ea454f01dda823c27f45
     }
 
     #[test]
     fn check_correct_epoch_complex(){
         // When a message can have epoch k, but since it doesn't have messages
+<<<<<<< HEAD
         // with smaller epochs it creates them.
+=======
+        // with smaller epochs it creates them
+>>>>>>> f8f5a231f72a288c2613ea454f01dda823c27f45
 
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
@@ -183,12 +198,23 @@ mod tests {
         simple_bare_messages!(data_arena, all_messages [[=> d; => b;] => 1, 2 => f;]);
         simple_bare_messages!(data_arena, all_messages [[=> d; => b;] => 1, 1 => g;]);
 
+<<<<<<< HEAD
         // TODO: Check that correct epoch is computed
         assert!(dag.add_existing_message((*f).clone()).is_ok());
     }
 
     #[test]
     #[ignore]
+=======
+        // Incorrect epoch
+        assert!(dag.add_existing_message((*f).clone()).is_err());
+
+        // Correct epoch
+        assert!(dag.add_existing_message((*g).clone()).is_ok());
+    }
+
+    #[test]
+>>>>>>> f8f5a231f72a288c2613ea454f01dda823c27f45
     fn notice_simple_fork() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
@@ -204,9 +230,13 @@ mod tests {
         }
 
         simple_bare_messages!(data_arena, all_messages [[=> a; => b;] => 3, 2 => c;]);
+<<<<<<< HEAD
 
         // TODO: Check report of fork
         assert!(dag.add_existing_message((*c).clone()).is_ok());
+=======
+        assert!(dag.add_existing_message((*c).clone()).is_err());
+>>>>>>> f8f5a231f72a288c2613ea454f01dda823c27f45
     }
 
     #[test]
