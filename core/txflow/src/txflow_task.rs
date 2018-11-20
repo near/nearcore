@@ -65,23 +65,55 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         self.dag.take();
     }
 
+    /// Process the candidate that now has all necessary parent messages.
+    fn process_passing_candidate(&mut self, message: SignedMessageData<P>) -> HashSet<UID> {
+
+    }
+
     /// Processes the incoming candidate. Returns a set of peers that should receive a reply.
     /// Even if the message itself was not requesting a reply it might have enabled some messages
     /// in `candidates` to be added to the `dag` and these other messages might require a reply.
-    fn process_incoming_candidate(&mut self, message: SignedMessageData<P>, reply_required: bool)
+    fn process_incoming_candidate(&mut self, message: SignedMessageData<P>, reply_to: Option<UID>)
         -> HashSet<UID> {
-        if self.candidates.contains_key(&message)
-            || self.dag.expect(UNINITIALIZED_DAG_ERR).contains_message(&message.hash) {
-           return if reply_required {set!{message.body.owner_uid}} else {HashSet::new()};
+        // This function computes result in the optimistic scenario -- when this message does not
+        // have unknown parents.
+        let optimistic_result_fn = ||
+            if let Some(uid) = reply_to {
+            set!{uid} } else {
+            HashSet::new() };
+
+        // Check one of the optimistic scenarios when we already know this message, but we still
+        // reply on the request.
+        if self.dag.expect(UNINITIALIZED_DAG_ERR).contains_message(&message.hash) {
+            return optimistic_result_fn();
+        } else if self.candidates.contains_key(&message) {
+            // This message is already in the candidates, but we might still need to update required
+            // replies.
+            if let Some(uid) = reply_to {
+                self.required_replies.entry(message.hash).or_insert_with(|| HashSet::new())
+                    .insert(uid);
+            }
+            // No replies needed to be send right now.
+            return HashSet::new();
+        } else {
+            let unknown_hashes: Vec<UID> = message.body.parents.into_iter().filter(
+                |h| !self.dag.expect(UNINITIALIZED_DAG_ERR).contains_message(&h)).collect();
+            if unknown_hashes.is_empty() {
+                let result = optimistic_result_fn();
+
+            } else {
+
+            }
         }
+
         HashSet::new()
     }
 
     /// Take care of the gossip received from the network.
     fn process_gossip(&mut self, gossip: Gossip<P>) -> HashSet<UID> {
         match gossip.body {
-            GossipBody::Unsolicited(message) => self.process_incoming_candidate(message, true),
-            GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, false),
+            GossipBody::Unsolicited(message) => self.process_incoming_candidate(message, Some(gossip.sender_uid)),
+            GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, None),
             GossipBody::Fetch(ref mut hashes) => {
                 let reply_messages: Vec<_> =
                 hashes.into_iter().filter_map(
@@ -106,7 +138,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                 // Return the union of all peers that should receive a reply.
                 messages.drain(..).fold(HashSet::new(), |acc, m|
                     {
-                        let mut res = self.process_incoming_candidate(m, false);
+                        let mut res = self.process_incoming_candidate(m, None);
                         res.extend(acc.into_iter().map(|e| e.clone()));
                         res
                     }
@@ -121,8 +153,6 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     type Item = ();
     type Error = ();
-
-
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         // Process new gossips.
         let mut end_of_gossips = false;
@@ -148,7 +178,6 @@ impl<'a, P: Payload, W: WitnessSelector> Future for TxFlowTask<'a, P, W> {
     // This stream does not produce anything, it is meant to be run as a standalone task.
     type Item = ();
     type Error = ();
-
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         // Check if DAG needs to be created.
         if self.dag.is_none() {
