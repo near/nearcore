@@ -1,7 +1,4 @@
-use std::sync::Arc;
 use wasmi::{Error as WasmiError, Trap};
-
-type Bytes = Vec<u8>;
 
 #[derive(Debug, PartialEq, Eq)]
 /// Error that can occur while preparing or executing wasm smart-contract.
@@ -46,8 +43,12 @@ pub enum PrepareError {
 /// Wrapped error
 #[derive(Debug)]
 pub enum Error {
+	BadUtf8,
+
     Prepare(PrepareError),
+
 	Interpreter(WasmiError),
+
 	Trap(Trap),
 }
 
@@ -86,9 +87,12 @@ pub struct Config {
 	/// how the stack frame cost is calculated.
 	pub max_stack_height: u32,
 
-	//// What is the maximal memory pages amount is allowed to have for
+	/// What is the maximal memory pages amount is allowed to have for
 	/// a contract.
 	pub max_memory_pages: u32,
+
+	/// Gas limit of the one contract call
+	pub gas_limit: u64,
 }
 
 impl Default for Config {
@@ -99,6 +103,7 @@ impl Default for Config {
 			return_data_per_byte_cost: 1,
 			max_stack_height: 64 * 1024,
 			max_memory_pages: 16,
+			gas_limit: 128 * 1024,
 		}
 	}
 }

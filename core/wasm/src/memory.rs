@@ -7,6 +7,7 @@ pub struct Memory {
 	pub memref: MemoryRef,
 }
 
+#[allow(unused)]
 impl Memory {
 	pub fn new(initial: u32, maximum: Option<u32>) -> Result<Memory, Error> {
 		Ok(Memory {
