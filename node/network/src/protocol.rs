@@ -188,7 +188,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             request.max.unwrap_or(u64::max_value()),
             MAX_BLOCK_DATA_RESPONSE,
         );
-        while let Ok(block) = self.client.get_block(&id) {
+        while let Some(block) = self.client.get_block(&id) {
             blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
@@ -336,7 +336,7 @@ mod tests {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message: Message<_, MockBlock> = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let mock_client = Arc::new(MockClient {});
+        let mock_client = Arc::new(MockClient::default());
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn test_on_transaction_message() {
         let config = ProtocolConfig::default();
-        let mock_client = Arc::new(MockClient {});
+        let mock_client = Arc::new(MockClient::default());
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
 
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));

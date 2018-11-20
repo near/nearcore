@@ -1,16 +1,17 @@
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Header};
+use primitives::types::BlockId;
 use std::collections::HashMap;
 use types::{BeaconBlock, BeaconBlockHeader};
 
 #[derive(Debug)]
 pub struct BeaconChain {
     /// genesis hash
-    genesis_hash: CryptoHash,
+    pub genesis_hash: CryptoHash,
     /// hash of tip
-    best_hash: CryptoHash,
+    pub best_hash: CryptoHash,
     /// index of tip
-    best_number: u64,
+    pub best_number: u64,
     /// headers indexed by hash
     headers: HashMap<CryptoHash, BeaconBlockHeader>,
     /// blocks indexed by hash
@@ -39,5 +40,19 @@ impl BeaconChain {
         self.best_number = header.number();
         self.headers.insert(block_hash, header);
         self.hash_to_blocks.insert(block_hash, block);
+    }
+
+    pub fn get_block(&self, id: &BlockId) -> Option<&BeaconBlock> {
+        match id {
+            BlockId::Number(_num) => None,
+            BlockId::Hash(hash) => self.hash_to_blocks.get(hash),
+        }
+    }
+
+    pub fn get_header(&self, id: &BlockId) -> Option<&BeaconBlockHeader> {
+        match id {
+            BlockId::Number(_num) => None,
+            BlockId::Hash(hash) => self.headers.get(hash),
+        }
     }
 }

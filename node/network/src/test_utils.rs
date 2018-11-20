@@ -93,19 +93,23 @@ pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockPro
     let secret = create_secret();
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
     let handler = MockProtocolHandler::default();
-    let client = Arc::new(MockClient {});
+    let mock_client = Arc::new(MockClient::default());
     let root_service = Service::new(
         ProtocolConfig::default(),
         root_config,
         handler,
-        client.clone(),
+        mock_client.clone(),
     ).unwrap();
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-        let service =
-            Service::new(ProtocolConfig::default(), config, handler, client.clone()).unwrap();
+        let service = Service::new(
+            ProtocolConfig::default(),
+            config,
+            handler,
+            mock_client.clone(),
+        ).unwrap();
         services.push(service);
     }
     services
@@ -113,7 +117,7 @@ pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockPro
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MockBlockHeader {}
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MockBlock {}
 
 impl Header for MockBlockHeader {
@@ -147,14 +151,16 @@ impl Block for MockBlock {
 }
 
 #[derive(Default)]
-pub struct MockClient {}
+pub struct MockClient {
+    pub block: MockBlock,
+}
 
 impl Client<MockBlock> for MockClient {
-    fn get_block(&self, id: &types::BlockId) -> Result<MockBlock, Error> {
-        Ok(MockBlock {})
+    fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
+        Some(self.block.clone())
     }
-    fn get_header(&self, id: &types::BlockId) -> Result<MockBlockHeader, Error> {
-        Ok(MockBlockHeader {})
+    fn get_header(&self, id: &types::BlockId) -> Option<MockBlockHeader> {
+        Some(self.block.header().clone())
     }
     fn best_hash(&self) -> CryptoHash {
         CryptoHash::default()

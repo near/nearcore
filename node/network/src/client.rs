@@ -1,4 +1,3 @@
-use error::Error;
 use primitives::hash::CryptoHash;
 use primitives::traits::Block;
 use primitives::types::BlockId;
@@ -6,9 +5,9 @@ use primitives::types::BlockId;
 /// abstraction that communicates chain info to network
 pub trait Client<B: Block>: Send + Sync + 'static {
     // get block from id
-    fn get_block(&self, id: &BlockId) -> Result<B, Error>;
+    fn get_block(&self, id: &BlockId) -> Option<B>;
     // get block header from id
-    fn get_header(&self, id: &BlockId) -> Result<B::Header, Error>;
+    fn get_header(&self, id: &BlockId) -> Option<B::Header>;
     // hash of latest block
     fn best_hash(&self) -> CryptoHash;
     // index of latest block
