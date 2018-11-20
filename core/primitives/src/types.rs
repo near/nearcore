@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived from the user's public key.
@@ -171,6 +172,19 @@ impl<P> Hash for SignedMessageData<P> {
     }
 }
 
+impl<P> Borrow<StructHash> for SignedMessageData<P> {
+    fn borrow(&self) -> &StructHash {
+        &self.hash
+    }
+}
+
+impl<P> PartialEq for SignedMessageData<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl<P> Eq for SignedMessageData<P> {}
 
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {

@@ -38,6 +38,15 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
     }
 
+    pub fn contains_message(&self, hash: &StructHash) -> bool {
+        self.messages.contains(hash)
+    }
+
+    /// Create a copy of the message data from the dag given hash.
+    pub fn copy_message_data_by_hash(&self, hash: &StructHash) -> Option<SignedMessageData<P>> {
+       self.messages.get(hash).map(|m| m.data.clone())
+    }
+
     /// Verify that this message does not violate the protocol.
     fn verify_message(&self, _message: &Message<'a, P>) -> Result<(), &'static str> {
         Ok({})

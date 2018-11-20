@@ -1,11 +1,14 @@
+use std::collections::{HashSet, HashMap};
 use futures::sync::mpsc;
-use futures::{Future, Poll, Async, Stream, stream};
+use futures::{Future, Poll, Async, Stream, stream, Sink};
 
-use primitives::types::{UID, Gossip};
+use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, StructHash};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
 
-// A single message can be 
+static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
+
+// A single message can be
 // 1) received message in a gossip, if has unknown parents:
 
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
@@ -19,15 +22,29 @@ pub struct TxFlowTask<'a, P: Payload, W: WitnessSelector> {
     messages_sender: mpsc::Sender<Gossip<P>>,
     witness_selector: Box<W>,
     dag: Option<Box<DAG<'a, P, W>>>,
+
+    /// Buffer for the incoming payloads.
+    payload_buffer: Vec<P>,
+    /// Received message for which some parents are not in the DAG yet
+    /// -> hashes of the parents that are not in the DAG yet.
+    candidates: HashMap<SignedMessageData<P>, HashSet<StructHash>>,
+    /// The transpose of `candidates`.
+    /// Hash of the parent message that we are missing
+    /// -> hashes of the messages that depend on it.
+    missing_messages: HashMap<StructHash, HashSet<StructHash>>,
+    /// Some received messages require a reply to whoever send them to us. This
+    /// structure stores this knowledge, so once this message ends up in the DAG
+    /// we can send a reply to the sender.
+    required_replies: HashMap<StructHash, UID>,
 }
 
 impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     pub fn new(owner_uid: UID,
-           starting_epoch: u64,
-           messages_receiver: mpsc::Receiver<Gossip<P>>,
-           payload_receiver: mpsc::Receiver<P>,
-           messages_sender: mpsc::Sender<Gossip<P>>,
-           witness_selector: W) -> Self {
+               starting_epoch: u64,
+               messages_receiver: mpsc::Receiver<Gossip<P>>,
+               payload_receiver: mpsc::Receiver<P>,
+               messages_sender: mpsc::Sender<Gossip<P>>,
+               witness_selector: W) -> Self {
         Self {
             owner_uid,
             starting_epoch,
@@ -36,7 +53,94 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             messages_sender,
             witness_selector: Box::new(witness_selector),
             dag: None,
+            payload_buffer: vec![],
+            candidates: HashMap::new(),
+            missing_messages: HashMap::new(),
+            required_replies: HashMap::new(),
         }
+    }
+
+    /// Drop the current TxFlow DAG.
+    pub fn drop_dag(&mut self) {
+        self.dag.take();
+    }
+
+    /// Processes the incoming candidate. Returns a set of peers that should receive a reply.
+    /// Even if the message itself was not requesting a reply it might have enabled some messages
+    /// in `candidates` to be added to the `dag` and these other messages might require a reply.
+    fn process_incoming_candidate(&mut self, message: SignedMessageData<P>, reply_required: bool)
+        -> HashSet<UID> {
+        if self.candidates.contains_key(&message)
+            || self.dag.expect(UNINITIALIZED_DAG_ERR).contains_message(&message.hash) {
+           return if reply_required {set!{message.body.owner_uid}} else {HashSet::new()};
+        }
+        HashSet::new()
+    }
+
+    /// Take care of the gossip received from the network.
+    fn process_gossip(&mut self, gossip: Gossip<P>) -> HashSet<UID> {
+        match gossip.body {
+            GossipBody::Unsolicited(message) => self.process_incoming_candidate(message, true),
+            GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, false),
+            GossipBody::Fetch(ref mut hashes) => {
+                let reply_messages: Vec<_> =
+                hashes.into_iter().filter_map(
+                    |h| self.dag.expect(UNINITIALIZED_DAG_ERR)
+                        .copy_message_data_by_hash(h)).collect();
+                let reply = Gossip {
+                    sender_uid: self.owner_uid,
+                    receiver_uid: gossip.sender_uid,
+                    sender_sig: 0,  // TODO: Sign it.
+                    body: GossipBody::FetchReply(reply_messages)
+                };
+                let copied_tx = self.messages_sender.clone();
+                tokio::spawn(copied_tx.send(reply).map(|_|()).map_err(|e| {
+                    error!("Failed to reply to the fetch {}", e)
+                }));
+                // This gossip only requires for an information and does not modify the dag
+                // therefore now candidates are getting added to the dag that in turn might require
+                // a reply.
+                HashSet::new()
+            },
+            GossipBody::FetchReply(ref mut messages) => {
+                // Return the union of all peers that should receive a reply.
+                messages.drain(..).fold(HashSet::new(), |acc, m|
+                    {
+                        let mut res = self.process_incoming_candidate(m, false);
+                        res.extend(acc.into_iter().map(|e| e.clone()));
+                        res
+                    }
+                )
+            },
+        }
+    }
+}
+
+// TxFlowTask can be used as a stream, where each element produced by the stream corresponds to
+// an individual step of the algorithm.
+impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
+    type Item = ();
+    type Error = ();
+
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        // Process new gossips.
+        let mut end_of_gossips = false;
+        loop {
+            match self.messages_receiver.poll() {
+                Ok(Async::Ready(Some(gossip))) => self.process_gossip(gossip),
+                Ok(Async::NotReady) => break,
+                Ok(Async::Ready(None)) => {
+                    // End of the stream that feeds the gossips.
+                    end_of_gossips = true;
+                    break;
+                }
+                Err(err) => panic!("Receiving messages failed {:?}", err),
+            }
+        }
+
+        // Collect new payloads
+        let mut end_of_payloads = false;
     }
 }
 

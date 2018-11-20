@@ -9,6 +9,7 @@ impl Payload for FakePayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
+    fn union_update(&mut self, other: Self) { }
 }
 
 pub fn simple_bare_message(owner_uid: UID, epoch: u64,
