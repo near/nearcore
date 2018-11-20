@@ -190,7 +190,17 @@ mod tests {
             assert_eq!(message.computed_epoch, 0);
         }
 
-        assert_ne!(dag.misbehaviour.violations.len(), 0);
+        // Both messages have invalid epoch number so two reports were made
+        assert_eq!(dag.misbehaviour.violations.len(), 2);
+
+        for violation in &dag.misbehaviour.violations {
+            if let ViolationType::BadEpoch { message: _ } = violation {
+                // expected violation type
+            }
+            else {
+                assert!(false);
+            }
+        }
     }
 
     #[test]
