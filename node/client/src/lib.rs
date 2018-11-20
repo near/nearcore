@@ -13,6 +13,7 @@ use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::GenericResult;
 use primitives::types::{BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use std::sync::Arc;
 use storage::{StateDb, Storage};
 
 #[allow(dead_code)]
@@ -24,8 +25,8 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(storage: Storage) -> Self {
-        let state_db = StateDb::new(storage);
+    pub fn new(storage: &Arc<Storage>) -> Self {
+        let state_db = StateDb::new(&storage.clone());
         let state_view = state_db.get_state_view();
         let genesis_hash = CryptoHash::default();
         Client {

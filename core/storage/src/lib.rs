@@ -1,5 +1,6 @@
 extern crate bincode;
 extern crate parity_rocksdb;
+extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 extern crate substrate_primitives;
@@ -13,12 +14,11 @@ extern crate memory_db;
 #[cfg(test)]
 extern crate trie_db;
 
-use bincode::{deserialize, serialize};
 use parity_rocksdb::{Writable, DB};
-use primitives::hash::CryptoHash;
+use parking_lot::RwLock;
 use primitives::types::{DBValue, MerkleHash};
-use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
@@ -76,26 +76,46 @@ impl<'a> StateDbUpdate<'a> {
     }
 }
 
-pub struct Storage {
+pub trait Storage: Send + Sync {
+    fn set(&self, key: &[u8], value: &[u8]);
+    fn get(&self, key: &[u8]) -> Option<DBValue>;
+}
+
+#[derive(Default)]
+pub struct MemoryStorage {
+    db: RwLock<HashMap<Vec<u8>, DBValue>>,
+}
+
+impl Storage for MemoryStorage {
+    fn set(&self, key: &[u8], value: &[u8]) {
+        self.db.write().insert(key.to_vec(), value.to_vec());
+    }
+    fn get(&self, key: &[u8]) -> Option<DBValue> {
+        match self.db.read().get(key) {
+            Some(value) => Some(value.to_vec()),
+            None => None,
+        }
+    }
+}
+
+pub struct DiskStorage {
     db: DB,
 }
 
-impl Storage {
+impl DiskStorage {
     pub fn new(path: &str) -> Self {
         let db = DB::open_default(&path).unwrap();
-        Storage { db }
+        DiskStorage { db }
     }
+}
 
-    pub fn put<T: Serialize>(&self, obj: T) -> CryptoHash {
-        let header_data = serialize(&obj).unwrap();
-        let header_key = primitives::hash::hash(&header_data);
-        self.db.put(header_key.as_ref(), &header_data).ok();
-        header_key
+impl Storage for DiskStorage {
+    fn set(&self, key: &[u8], value: &[u8]) {
+        self.db.put(key, value).ok();
     }
-
-    pub fn get<T: DeserializeOwned>(&self, key: CryptoHash) -> Option<T> {
-        match self.db.get(key.as_ref()) {
-            Ok(Some(value)) => deserialize(&value).unwrap(),
+    fn get(&self, key: &[u8]) -> Option<DBValue> {
+        match self.db.get(key) {
+            Ok(Some(value)) => Some(value.to_vec()),
             Ok(None) => None,
             Err(_e) => None,
         }
@@ -104,12 +124,14 @@ impl Storage {
 
 #[allow(dead_code)]
 pub struct StateDb {
-    storage: Storage,
+    storage: Arc<Storage>,
 }
 
 impl StateDb {
-    pub fn new(storage: Storage) -> Self {
-        StateDb { storage }
+    pub fn new(storage: &Arc<Storage>) -> Self {
+        StateDb {
+            storage: storage.clone(),
+        }
     }
     pub fn get_state_view(&self) -> MerkleHash {
         MerkleHash::default()

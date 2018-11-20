@@ -22,7 +22,7 @@ pub struct Account {
 }
 
 #[derive(Default)]
-pub struct Runtime {}
+pub struct Runtime;
 
 fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
     let mut bytes = vec![];

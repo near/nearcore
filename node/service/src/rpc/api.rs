@@ -50,9 +50,9 @@ mod tests {
 
     #[test]
     fn test_call() {
-        let storage = Storage::new("storage/db");
+        let storage: Arc<storage::Storage> = Arc::new(storage::MemoryStorage::default());
         let rpc_impl = RpcImpl {
-            client: Arc::new(Client::new(storage)),
+            client: Arc::new(Client::new(&storage.clone())),
         };
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);

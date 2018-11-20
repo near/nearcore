@@ -14,11 +14,12 @@ use primitives::types::SignedTransaction;
 use service::network_handler::NetworkHandler;
 use service::run_service;
 use std::sync::Arc;
-use storage::Storage;
+use storage::{DiskStorage, Storage};
 
 pub fn run() {
-    let storage = Storage::new("storage/db/");
-    let client = Arc::new(Client::new(storage));
+    // TODO: add argument parsing into service/config.rs.
+    let storage: Arc<Storage> = Arc::new(DiskStorage::new("storage/db/"));
+    let client = Arc::new(Client::new(&storage.clone()));
     let network_handler = NetworkHandler {
         client: client.clone(),
     };
