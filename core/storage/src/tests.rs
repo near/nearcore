@@ -30,7 +30,7 @@ fn test_db() -> (MemoryDB<Blake2Hasher>, H256) {
 fn create_triedb() {
     let (mut memdb, mut root) = test_db();
     println!("trie root is {:?}", root);
-    let mut trie = TrieDBMut::<Blake2Hasher>::from_existing(&mut memdb, &mut root);
+    let _ = TrieDBMut::<Blake2Hasher>::from_existing(&mut memdb, &mut root);
 }
 
 #[test]

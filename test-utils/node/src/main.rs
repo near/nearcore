@@ -1,25 +1,20 @@
-#![allow(unused_mut, unused_variables)]
-
 extern crate env_logger;
 extern crate futures;
-extern crate libp2p;
 extern crate log;
 extern crate network;
 extern crate parking_lot;
-extern crate primitives;
 extern crate storage;
-extern crate substrate_network_libp2p;
 extern crate tokio;
 #[macro_use]
 extern crate clap;
+extern crate primitives;
 
 use clap::{App, Arg};
 use env_logger::Builder;
-use std::sync::Arc;
-use substrate_network_libp2p::ProtocolId;
-
+use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
-use primitives::types;
+use primitives::types::SignedTransaction;
+use std::sync::Arc;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -52,7 +47,7 @@ pub fn main() {
     let is_root = value_t!(matches, "is_root", bool).unwrap();
     let root_port = matches.value_of("root_port").unwrap();
 
-    let mut storage = storage::Storage::new(&format!("storage/db-{}/", port));
+    let _ = storage::Storage::new(&format!("storage/db-{}/", port));
 
     // start network service
     let addr = create_addr(host, port);
@@ -64,18 +59,16 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let tx_callback = |_: types::SignedTransaction| Ok(());
-    let client = Arc::new(MockClient {
-        block: MockBlock {},
-    });
-    let (service, fut) = Service::new(
+    let client = Arc::new(MockClient::default());
+    let service = Service::new(
         ProtocolConfig::default(),
         net_config,
-        ProtocolId::default(),
-        client,
-        tx_callback,
-    ).unwrap_or_else(|e| {
-        panic!("service failed to start: {:?}", e);
-    });
-    tokio::run(fut);
+        MockProtocolHandler::default(),
+        client.clone(),
+    ).unwrap();
+    let task = generate_service_task::<MockBlock, SignedTransaction, MockProtocolHandler>(
+        service.network.clone(),
+        service.protocol.clone(),
+    );
+    tokio::run(task);
 }

@@ -7,9 +7,11 @@ extern crate storage;
 
 use beacon::chain::BeaconChain;
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
+use network::protocol::Transaction;
 use node_runtime::Runtime;
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
+use primitives::traits::GenericResult;
 use primitives::types::{BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, Storage};
 
@@ -48,6 +50,11 @@ impl Client {
         let mut state_db = self.state_db.write();
         self.runtime
             .view(&mut state_db, &self.last_root.read(), view_call)
+    }
+
+    pub fn handle_signed_transaction<T: Transaction>(&self, t: &T) -> GenericResult {
+        println!("{:?}", t);
+        Ok(())
     }
 }
 
