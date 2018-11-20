@@ -1,18 +1,17 @@
-use call::Callback;
-
 use ext::Externalities;
-use wasmi::{self, MemoryRef};
+use wasmi;
 
 use resolver::EnvModuleResolver;
 use prepare;
 
-use runtime::{self, Runtime, RuntimeContext};
+use runtime::{Runtime, RuntimeContext};
 use types::*;
 
 pub fn execute(
 	code: &[u8],
-	input_data: &[u8],
-	output_data: &mut Vec<u8>,
+    method_name: &[u8],
+	_input_data: &[u8],
+	_output_data: &mut Vec<u8>,
     ext: &mut Externalities,
 	config: &Config,
 ) -> Result<(), Error> {
@@ -43,15 +42,17 @@ pub fn execute(
             */
         },
         memory,
+        config.gas_limit,
     );
     
 
     let module_instance = module_instance.run_start(&mut runtime).map_err(Error::Trap)?;
 
+    let method_name = ::std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
     // let invoke_result = module_instance.invoke_export("call", &[], &mut runtime)?;
     let _result = module_instance.invoke_export(
-            "put_int",
-            &[wasmi::RuntimeValue::I32(8), wasmi::RuntimeValue::I32(64)],
+            method_name,
+            &[],
             &mut runtime,
         )?;
  

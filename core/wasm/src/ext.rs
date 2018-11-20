@@ -73,5 +73,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 pub trait Externalities {
     fn wasm_costs(&self) -> &WasmCosts;
 
-	fn storage_put(&self, key: &[u8], value: &[u8]) -> Result<()>;
+	fn storage_put(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
+
+	fn storage_get(&self, key: &[u8]) -> Result<Option<&[u8]>>;
 }

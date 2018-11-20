@@ -10,4 +10,3 @@ mod resolver;
 mod prepare;
 pub mod types;
 pub mod ext;
-pub mod call;

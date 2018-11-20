@@ -14,6 +14,7 @@ pub struct RuntimeContext {
 }
 
 /// User trap in native code
+#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
 	/// Storage read error
@@ -114,8 +115,10 @@ type Result<T> = ::std::result::Result<T, Error>;
 
 pub struct Runtime<'a> {
 	ext: &'a mut Externalities,
-    context: RuntimeContext,
+    _context: RuntimeContext,
     memory: Memory,
+	gas_counter: u64,
+	gas_limit: u64,
 }
 
 impl<'a> Runtime<'a> {
@@ -123,11 +126,14 @@ impl<'a> Runtime<'a> {
 		ext: &mut Externalities,
         context: RuntimeContext,
 		memory: Memory,
+		gas_limit: u64,
     ) -> Runtime {
         Runtime {
             ext,
-            context,
+            _context: context,
             memory,
+			gas_counter: 0,
+			gas_limit,
         }
     }
 
@@ -139,31 +145,28 @@ impl<'a> Runtime<'a> {
 
 	/// Read from the storage to wasm memory
 	pub fn storage_read_len(&mut self, args: RuntimeArgs) -> Result<RuntimeValue> {
-        /*
-		let key = self.h256_at(args.nth_checked(0)?)?;
-		let val_ptr: u32 = args.nth_checked(1)?;
+		let key_ptr: u32 = args.nth_checked(0)?;
 
-		let val = self.ext.storage_at(&key).map_err(|_| Error::StorageReadError)?;
+		let key = self.read_buffer(key_ptr)?;
+		let val = self.ext.storage_get(&key).map_err(|_| Error::StorageUpdateError)?;
+		let len = match val {
+			Some(v) => v.len(),
+			None => 0,
+		};
 
-		self.adjusted_charge(|schedule| schedule.sload_gas as u64)?;
-
-		self.memory.set(val_ptr as u32, &*val)?;
-        */
-		Ok(RuntimeValue::I32(0))
+		Ok(RuntimeValue::I32(len as i32))
 	}
 
 	/// Read from the storage to wasm memory
 	pub fn storage_read_into(&mut self, args: RuntimeArgs) -> Result<()> {
-        /*
-		let key = self.h256_at(args.nth_checked(0)?)?;
+		let key_ptr: u32 = args.nth_checked(0)?;
 		let val_ptr: u32 = args.nth_checked(1)?;
 
-		let val = self.ext.storage_at(&key).map_err(|_| Error::StorageReadError)?;
-
-		self.adjusted_charge(|schedule| schedule.sload_gas as u64)?;
-
-		self.memory.set(val_ptr as u32, &*val)?;
-        */
+		let key = self.read_buffer(key_ptr)?;
+		let val = self.ext.storage_get(&key).map_err(|_| Error::StorageUpdateError)?;
+		if let Some(buf) = val {
+			self.memory.set(val_ptr, buf).map_err(|_| Error::MemoryAccessViolation)?;
+		}
 		Ok(())
 	}
 
@@ -174,15 +177,13 @@ impl<'a> Runtime<'a> {
 
 		let key = self.read_buffer(key_ptr)?;
 		let val = self.read_buffer(val_ptr)?;
+		// TODO: Charge gas for storage
 
 		self.ext.storage_put(&key, &val).map_err(|_| Error::StorageUpdateError)?;
 		Ok(())
 	}
 
 	fn charge_gas(&mut self, amount: u64) -> bool {
-		println!("Charge gas {}", amount);
-		true
-		/*
 		let prev = self.gas_counter;
 		match prev.checked_add(amount) {
 			// gas charge overflow protection
@@ -193,7 +194,6 @@ impl<'a> Runtime<'a> {
 				true
 			}
 		}
-		*/
 	}
 
 	pub fn gas(&mut self, args: RuntimeArgs) -> Result<()> {
@@ -219,10 +219,11 @@ mod ext_impl {
 	macro_rules! some {
 		{ $e: expr } => { { Ok(Some($e?)) } }
 	}
-
+	/*
 	macro_rules! cast {
 		{ $e: expr } => { { Ok(Some($e)) } }
 	}
+	*/
 
 	impl<'a> Externals for super::Runtime<'a> {
 		fn invoke_index(

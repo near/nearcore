@@ -127,7 +127,7 @@ impl<'a> ContractModule<'a> {
 				_ => continue,
 			};
 
-			let Type::Function(ref func_ty) = types
+			let Type::Function(ref _func_ty) = types
 				.get(*type_idx as usize)
 				.ok_or_else(|| Error::Instantiate)?;
 
