@@ -1,5 +1,5 @@
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
 
 extern crate wasm;
 
@@ -39,12 +39,10 @@ impl Externalities for MyExt {
             }
         }
     }
-    
 }
 
 fn main() {
-    let wasm_binary = fs::read("res/wasm_with_mem.wasm")
-        .expect("Unable to read file");
+    let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
 
     let input_data = [0u8; 0];
     let mut output_data = Vec::new();

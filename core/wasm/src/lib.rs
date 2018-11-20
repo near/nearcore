@@ -1,12 +1,12 @@
-extern crate wasmi;
+extern crate parity_wasm;
 extern crate primitives;
 extern crate pwasm_utils;
-extern crate parity_wasm;
+extern crate wasmi;
 
 pub mod executor;
-mod memory;
-mod runtime;
-mod resolver;
-mod prepare;
-pub mod types;
 pub mod ext;
+mod memory;
+mod prepare;
+mod resolver;
+mod runtime;
+pub mod types;
