@@ -188,14 +188,13 @@ impl<'a, P: Payload> Message<'a, P> {
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
-    fn prev_epoch(&'a self, starting_epoch: &'a u64) -> &'a u64 {
+    fn prev_epoch(&'a self) -> Option<&'a u64> {
         // Iterate over past messages that were created by the current owner and return their max
-        // epoch. If such message not found then return starting_epoch.
+        // epoch.
         self.approved_epochs
             .filter_by_owner(self.data.body.owner_uid)
             .map(|(epoch, _)| epoch)
             .max()
-            .unwrap_or(starting_epoch)
     }
 
     /// Determines whether the epoch of the current message should increase.
@@ -206,11 +205,10 @@ impl<'a, P: Payload> Message<'a, P> {
         match self.approved_epochs.filter_by_epoch(prev_epoch) {
             None => false,
             Some(epoch_messages) => {
-                let owner_uid = self.data.body.owner_uid;
                 let total_witnesses = witness_selector.epoch_witnesses(prev_epoch);
                 let mut existing_witnesses: HashSet<u64> =
                     epoch_messages.messages_by_owner.keys().cloned().collect();
-                existing_witnesses.insert(owner_uid);
+                //existing_witnesses.insert(owner_uid);
                 (total_witnesses & &existing_witnesses).len() > total_witnesses.len() * 2 / 3
             }
         }
@@ -397,11 +395,14 @@ impl<'a, P: Payload> Message<'a, P> {
 
         // Compute epoch, if required.
         self.computed_epoch = if recompute_epoch {
-            let prev_epoch = self.prev_epoch(&starting_epoch);
-            if self.should_promote(*prev_epoch, witness_selector) {
-                *prev_epoch + 1
+            if let Some(prev_epoch) = self.prev_epoch() {
+                if self.should_promote(*prev_epoch, witness_selector) {
+                    *prev_epoch + 1
+                } else {
+                    *prev_epoch
+                }
             } else {
-                *prev_epoch
+                starting_epoch
             }
         } else {
             self.data.body.epoch
@@ -459,6 +460,7 @@ impl<'a, P: Payload> Message<'a, P> {
 #[cfg(test)]
 #[macro_use]
 mod testing_utils;
+mod generated_tests;
 
 #[cfg(test)]
 mod tests {
@@ -496,9 +498,19 @@ mod tests {
         let arena = Arena::new();
         let selector = FakeWitnessSelector::new();
         let root;
-        simple_messages!(0, &selector, arena [[0, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        simple_messages!(0, &selector, arena [[0, 0, false; 1, 0, false; 3, 0, false;] => 3, 0, true => root;]);
         // The data.epoch, which is 0, is ignored because it is recomputed.
         assert_eq!(root.computed_epoch, 1);
+    }
+
+    #[test]
+    fn epoch_no_promo() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let root;
+        simple_messages!(0, &selector, arena [[0, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        // The data.epoch, which is 0, is ignored because it is recomputed.
+        assert_eq!(root.computed_epoch, 0);
     }
 
     #[test]
@@ -506,8 +518,17 @@ mod tests {
         let arena = Arena::new();
         let selector = FakeWitnessSelector::new();
         let root;
-        simple_messages!(0, &selector, arena [[4, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        simple_messages!(0, &selector, arena [[3, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
         assert_eq!(root.computed_epoch, 1);
+    }
+
+    #[test]
+    fn epoch_borderline_no_skip_zero() {
+        let arena = Arena::new();
+        let selector = FakeWitnessSelector::new();
+        let root;
+        simple_messages!(0, &selector, arena [[4, 0, false; 1, 0, false; 2, 0, false;] => 3, 0, true => root;]);
+        assert_eq!(root.computed_epoch, 0);
     }
 
     #[test]

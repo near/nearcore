@@ -1,4 +1,4 @@
-mod message;
+pub mod message;
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;

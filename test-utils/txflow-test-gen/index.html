@@ -1,0 +1,256 @@
+<html>
+<head>
+<script src=txflow.js></script>
+<style>
+body {
+    font-family: Helvetica;
+    font-size: 10px;
+}
+</style>
+</head>
+
+<body>
+<br>
+<div id='buttons' style='z-index: 5; position: absolute; left: 0px; top: 0px'></div>
+<canvas id='here' style='position: absolute; top: 60px;'></canvas>
+<div id='serializer_holder' style='position: fixed; top: 60px;'>
+<button onclick='delete_node()'>Delete Node</button> <button onclick='if (num_users < 26) num_users ++; refresh(); serialize();'>Add User</button> <button onclick='if (num_users > 1) num_users --; refresh(); serialize();'>Remove User</button><br><br>
+<b>Comment:</b><br>
+<textarea id='comment' rows=8 cols=40 onkeyup='serialize()'></textarea><br>
+<b>Serialized:</b><br>
+<textarea id='serializer' rows=8 cols=40></textarea><br>
+<table cellspacing=0 cellpadding=0 width=100%><tr><td>
+<button onclick='deserialize()'>Deserialize</button></td><td align=right>
+<input id='rust_fn_name' placeholder='Fn name' style='width:70px' onkeyup='serialize()'>
+<button onclick='show_rust()'>Gen Rust Test</button></td></tr></table>
+</div>
+<div id='annot' style='position: absolute; top: 60px; pointer-events: none'></div>
+</body>
+
+<script>
+
+var names = ['Alice', 'Bob', 'Carol', 'Dave', 'Elaine', 'Frank', 'George', 'Hans', 'Irene', 'Jason', 'Kate', 'Lance', 'Matthew', 'Nancy', 'Oliver', 'Peter', 'QQ', 'Ralph', 'Sarah', 'Tim', 'Usman', 'Victor', 'Whitney', 'Xavier', 'Yasmine', 'Zach'];
+var num_users = 4;
+var graph = [];
+var nodes = undefined;
+
+var set_click_listener = function(btn, owner_id) {
+    btn.onclick = function() {
+        var new_graph = [];
+        var parents = [];
+        for (var i = 0; i < graph.length; ++ i) {
+            if (!graph[i].selected) {
+                new_graph.push(graph[i]);
+            }
+        }
+        for (var i = 0; i < nodes.length; ++ i) {
+            if (nodes[i].selected) {
+                parents.push(nodes[i]);
+                nodes[i].selected = false;
+            }
+        }
+        var new_node = create_node(owner_id, parents);
+        new_node.selected = true;
+        new_graph.push(new_node);
+        graph = new_graph;
+        refresh();
+        window.scroll(0, 1e9);
+    };
+}
+
+var here = document.getElementById('here');
+var annot = document.getElementById('annot');
+here.onclick = function(e) {
+    var x = e.pageX - here.offsetLeft;
+    var y = e.pageY - here.offsetTop;
+
+    for (var node_idx = 0; node_idx < nodes.length; ++ node_idx) {
+        var node = nodes[node_idx];
+        var coords = node.coords;
+
+        if (x >= coords.l && x <= coords.l + coords.w && y >= coords.t && y <= coords.t + coords.h) {
+            node.selected = !node.selected;
+            refresh();
+            return;
+        }
+    }
+}
+
+var refresh = function() {
+    document.getElementById('buttons').innerHTML = '';
+    var buttons = [];
+    for (var i = 0; i < num_users; ++ i) {
+        var btn = document.createElement('button');
+        btn.innerHTML = names[i];
+        document.getElementById('buttons').appendChild(btn);
+        buttons.push(btn);
+    }
+
+    var selected = [];
+
+    nodes = toposort(graph);
+
+    var user_l = render_graph(here, graph, num_users);
+
+    for (var i = 0; i < nodes.length; ++ i) {
+        if (nodes[i].selected) {
+            selected.push(nodes[i]);
+        }
+    }
+    var annotations = selected.length == 0 ? {} : compute_annotations(selected, num_users);
+
+    annot.innerHTML = '';
+    for (var annotation_idx in annotations) {
+        var annotation = annotations[annotation_idx];
+
+        var node = annotation.node;
+        var a = document.createElement('div');
+        a.style.position = 'absolute';
+        a.style.left = node.coords.l + 'px';
+        a.style.top = node.coords.t + 'px';
+        a.style.width = node.coords.w + 'px';
+        a.style.height = node.coords.h + 'px';
+
+        var flags = "";
+        if (annotation.representative >= 0) {
+            flags += "<b>R" + annotation.representative + "</b><small>(";
+            var first = true;
+            for (var key in annotation.endorsements) {
+                if (!first) flags += ',';
+                first = false;
+                flags += names[key][0];
+            }
+            flags += ")</small> ";
+        }
+        if (annotation.kickout) flags += "<b>K</b>";
+        a.innerHTML = '<small>(v' + node.uid + ')</small> <u>' + names[node.owner] + '</u><br>Epoch: ' + annotation.epoch + "<br>" + flags;
+
+        annot.appendChild(a);
+    }
+
+    for (var i = 0; i < num_users; ++ i) {
+        var btn = buttons[i];
+        btn.style.position = 'fixed';
+        btn.style.top = '5px';
+        btn.style.left = user_l[i] + 'px';
+
+        set_click_listener(btn, i);
+    }
+
+    serialize();
+    document.getElementById('serializer_holder').style.left = here.offsetWidth + 'px';
+}
+ 
+var delete_node = function() {
+    for (var node_idx = 0; node_idx < nodes.length; ++ node_idx) {
+        var node = nodes[node_idx];
+        if (!node.selected) continue;
+
+        for (var child_idx = 0; child_idx < node.children.length; ++ child_idx) {
+            var idx = node.children[child_idx].parents.indexOf(node);
+            node.children[child_idx].parents.splice(idx, 1);
+        }
+        for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
+            var idx = node.parents[parent_idx].children.indexOf(node);
+            node.parents[parent_idx].children.splice(idx, 1);
+            if (node.parents[parent_idx].children.length == 0) {
+                graph.push(node.parents[parent_idx]);
+            }
+        }
+        var idx = graph.indexOf(node);
+        if (idx >= 0) {
+            graph.splice(idx, 1);
+        }
+    }
+    refresh();
+}
+
+var serialize = function() {
+    document.getElementById('serializer').value = JSON.stringify({'s': serialize_txflow(graph), 'n': num_users, 'c': document.getElementById('comment').value, 'f': document.getElementById('rust_fn_name').value});
+}
+
+var deserialize = function() {
+    last_node_uid = 0;
+    var s = JSON.parse(document.getElementById('serializer').value);
+    console.log(s);
+    graph = deserialize_txflow(s.s);
+    num_users = s.n;
+    document.getElementById('comment').value = s.c;
+    document.getElementById('rust_fn_name').value = s.f;
+    refresh();
+}
+
+var gen_rust = function() {
+    var annotations = compute_annotations(graph, num_users);
+
+    var a_mapping = {};
+
+    for (var aidx = 0; aidx < annotations.length; ++ aidx) {
+        a_mapping[annotations[aidx].node.uid] = annotations[aidx];
+    }
+
+    var indent = "         ";
+    var var_names = [];
+    for (var i = 0; i < nodes.length; ++ i) {
+        var_names.push("v" + nodes[i].uid);
+    }
+    var s = "    #[test]\n    fn generated_" + document.getElementById('rust_fn_name').value + "() {\n" + indent + "/* " + document.getElementById('comment').value + " */\n\n" + indent + "/* " + document.getElementById('serializer').value + " */\n"  + indent + "let arena = Arena::new();\n" + indent + "let selector = FakeNonContinuousWitnessSelector::new(" + num_users + ");\n"
+    if (var_names.length > 1) {
+        s += indent + "let (" + var_names.join(',') + ");\n";
+    }
+    else {
+        s += indent + "let " + var_names[0] + ";\n";
+    }
+    for (var i = 0; i < nodes.length; ++ i) {
+        var node = nodes[i];
+        s += indent + 'simple_messages!(0, &selector, arena [';
+        if (node.parents.length > 0) {
+            var parent_names = [];
+            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
+                parent_names.push('=> v' + node.parents[parent_idx].uid + '; ');
+            }
+            s += '[' + parent_names.join('') + '] => ';
+        }
+        // use 0 for epoch, and `true` to recompute the epochs
+        s += node.owner + ', 0, true => ' + var_names[i] + ';]);\n'
+    }
+
+    s += '\n';
+
+    for (var i = 0; i < nodes.length; ++ i) {
+        var node = nodes[i];
+        var a = a_mapping[node.uid];
+        s += indent + 'assert_eq!(' + var_names[i] + '.computed_epoch, ' + a.epoch + ');\n';
+        s += indent + 'assert_eq!(' + var_names[i] + '.computed_is_representative, ' + (a.representative >= 0 ? 'true' : 'false') + ');\n';
+        s += indent + 'assert_eq!(' + var_names[i] + '.computed_is_kickout, ' + (a.kickout ? 'true' : 'false') + ');\n';
+    }
+
+    s += "    }\n"
+    return s;
+}
+
+var show_rust = function() {
+    var s = gen_rust();
+    var txt = document.createElement('textarea');
+
+    txt.style.position = 'fixed';
+    txt.style.left = '20px';
+    txt.style.top = '20px';
+    txt.style.width = '600px';
+    txt.style.height = '400px';
+    txt.style.zIndex = 10;
+
+    txt.value = s;
+
+    document.body.appendChild(txt);
+    txt.focus();
+
+    txt.onblur = function() { document.body.removeChild(txt); }
+}
+
+refresh();
+
+</script>
+
+</html>
+

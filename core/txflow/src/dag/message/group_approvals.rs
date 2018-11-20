@@ -154,7 +154,7 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
                 let witnesses: HashSet<u64> =
                     _approvals.messages_by_owner.keys().cloned().collect();
                 let num_missing =
-                    epoch_witnesses.len() * 2 / 3 + 1 - (&witnesses & epoch_witnesses).len();
+                    (epoch_witnesses.len() * 2 / 3 + 1) as i64 - ((&witnesses & epoch_witnesses).len() as i64);
                 if num_missing == 1 {
                     let one_more_approval =
                         match complementary_approvals.messages_by_epoch.get(epoch) {
