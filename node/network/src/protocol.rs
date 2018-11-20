@@ -184,7 +184,7 @@ impl<T: Transaction, B: Block> Protocol<T, B> {
             MAX_BLOCK_DATA_RESPONSE,
         );
         while let Some(block) = self.client.get_block(&id) {
-            blocks.push(block.clone());
+            blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
             }

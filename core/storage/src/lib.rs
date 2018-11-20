@@ -15,7 +15,7 @@ extern crate trie_db;
 
 use bincode::{deserialize, serialize};
 use parity_rocksdb::{Writable, DB};
-use primitives::hash::{hash_struct, CryptoHash};
+use primitives::hash::CryptoHash;
 use primitives::types::{DBValue, MerkleHash};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -72,7 +72,7 @@ impl<'a> StateDbUpdate<'a> {
                 None => self.state_db.delete(key),
             }
         }
-        hash_struct(&0)
+        MerkleHash::default()
     }
 }
 
@@ -112,7 +112,7 @@ impl StateDb {
         StateDb { storage }
     }
     pub fn get_state_view(&self) -> MerkleHash {
-        hash_struct(&0)
+        MerkleHash::default()
     }
     pub fn set(&self, _key: &[u8], _value: &[u8]) {}
     pub fn get(&self, _root: &MerkleHash, _key: &[u8]) -> Option<DBValue> {
