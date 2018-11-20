@@ -1,14 +1,10 @@
-#![allow(unused_mut, unused_variables)]
-
 extern crate env_logger;
 extern crate futures;
-extern crate libp2p;
 extern crate log;
 extern crate network;
 extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
-extern crate substrate_network_libp2p;
 extern crate tokio;
 #[macro_use]
 extern crate clap;
@@ -17,7 +13,6 @@ use clap::{App, Arg};
 use env_logger::Builder;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*, MockBlock};
 use primitives::types;
-use substrate_network_libp2p::ProtocolId;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -50,7 +45,7 @@ pub fn main() {
     let is_root = value_t!(matches, "is_root", bool).unwrap();
     let root_port = matches.value_of("root_port").unwrap();
 
-    let mut storage = storage::Storage::new(&format!("storage/db-{}/", port));
+    let _ = storage::Storage::new(&format!("storage/db-{}/", port));
 
     // start network service
     let addr = create_addr(host, port);
@@ -63,12 +58,8 @@ pub fn main() {
         test_config(&addr, vec![boot_node])
     };
     let tx_callback = |_: types::SignedTransaction| Ok(());
-    let service = Service::new::<MockBlock>(
-        ProtocolConfig::default(),
-        net_config,
-        ProtocolId::default(),
-        tx_callback,
-    ).unwrap_or_else(|e| {
-        panic!("service failed to start: {:?}", e);
-    });
+    let _ = Service::new::<MockBlock>(ProtocolConfig::default(), net_config, tx_callback)
+        .unwrap_or_else(|e| {
+            panic!("service failed to start: {:?}", e);
+        });
 }

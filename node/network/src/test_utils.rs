@@ -4,6 +4,9 @@ use super::MockBlock;
 use libp2p::{secio, Multiaddr};
 use message::{Message, MessageBody};
 use primitives::types;
+use protocol::{ProtocolConfig, Transaction};
+use rand::Rng;
+use service::Service;
 use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
@@ -56,4 +59,31 @@ pub fn init_logger(debug: bool) {
     }
     builder.filter(None, log::LevelFilter::Info);
     builder.try_init().unwrap_or(());
+}
+
+pub fn create_test_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
+    let base_address = "/ip4/127.0.0.1/tcp/".to_string();
+    let base_port = rand::thread_rng().gen_range(30000, 60000);
+    let mut addresses = Vec::new();
+    for i in 0..num_services {
+        let port = base_port + i;
+        addresses.push(base_address.clone() + &port.to_string());
+    }
+    // spin up a root service that does not have bootnodes and
+    // have other services have this service as their boot node
+    // may want to abstract this out to enable different configurations
+    let secret = create_secret();
+    let root_config = test_config_with_secret(&addresses[0], vec![], secret);
+    let tx_callback = |_| Ok(());
+    let root_service =
+        Service::new::<MockBlock>(ProtocolConfig::default(), root_config, tx_callback).unwrap();
+    let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
+    let mut services = vec![root_service];
+    for i in 1..num_services {
+        let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
+        let service =
+            Service::new::<MockBlock>(ProtocolConfig::default(), config, tx_callback).unwrap();
+        services.push(service);
+    }
+    services
 }

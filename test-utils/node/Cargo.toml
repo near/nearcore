@@ -10,13 +10,11 @@ path = "src/main.rs"
 clap = "2.32.0"
 env_logger = "0.5"
 futures = "0.1"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "d961e656a74d1bab5366d371a06f9e10d5f4a6c5", default-features = false, features = ["secio-rsa", "secio-secp256k1"] }
 log = "0.4"
 parking_lot = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
 tokio = "0.1"
 
 network = { path = "../../node/network" }

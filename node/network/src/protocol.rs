@@ -17,6 +17,7 @@ const REQUEST_WAIT: u64 = 60;
 /// current version of the protocol
 pub(crate) const CURRENT_VERSION: u32 = 1;
 
+#[derive(Clone, Copy)]
 pub struct ProtocolConfig {
     // config information goes here
     pub protocol_id: ProtocolId,
@@ -54,7 +55,7 @@ impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + 
 #[allow(dead_code)]
 pub struct Protocol<T> {
     // TODO: add more fields when we need them
-    config: ProtocolConfig,
+    pub config: ProtocolConfig,
     // peers that are in the handshaking process
     handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     // info about peers
@@ -88,11 +89,11 @@ impl<T: Transaction> Protocol<T> {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn sample_peers(&self, num_to_sample: usize) -> Vec<usize> {
+    pub fn sample_peers(&self, num_to_sample: usize) -> Result<Vec<NodeIndex>, Vec<NodeIndex>> {
         let mut rng = thread_rng();
         let peer_info = self.peer_info.read();
         let owned_peers = peer_info.keys().cloned();
-        seq::sample_iter(&mut rng, owned_peers, num_to_sample).unwrap()
+        seq::sample_iter(&mut rng, owned_peers, num_to_sample)
     }
 
     fn on_transaction_message(&self, tx: T) {
