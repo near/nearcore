@@ -4,6 +4,4 @@ version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
-primitives = { path = "../primitives" }
-storage = { path = "../storage" }
-runtime = { path = "../runtime" }
+primitives = { path = "../../core/primitives" }

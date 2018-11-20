@@ -10,12 +10,16 @@ variables:
 cache:
     key: "${CI_JOB_NAME}"
     paths:
-        - ./target/
-        - ./.cargo/
+        - target/
+        - cargo/
 
 test:cargo:
     stage: test
+    before_script:
+    - rustup component add clippy-preview
+    - rustup component add rustfmt-preview
     script:
     - rustc --version && cargo --version
-    - cargo test --all --verbose -- --test-threads=1
-
+    - cargo fmt --all -- --check
+    - ./scripts/run_clippy.sh
+    - cargo test --all --verbose

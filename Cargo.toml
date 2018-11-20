@@ -9,15 +9,19 @@ path = "node/src/main.rs"
 
 [dependencies]
 node-cli = { path = "./node/cli" }
+node-runtime = { path = "./node/runtime" }
 
 [workspace]
 members = [
-    "core/network",
     "core/primitives",
     "core/storage",
     "core/txflow",
     "core/wasm",
     "core/wasm/runtest",
+    "core/beacon",
     "node/cli",
+    "node/runtime",
+    "node/service",
+    "node/network",
     "test-utils/node"
 ]
