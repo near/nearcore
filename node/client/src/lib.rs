@@ -9,7 +9,7 @@ use beacon::chain::BeaconChain;
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use node_runtime::Runtime;
 use parking_lot::RwLock;
-use primitives::hash::{hash_struct, CryptoHash};
+use primitives::hash::CryptoHash;
 use primitives::types::{BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, Storage};
 
@@ -25,7 +25,7 @@ impl Client {
     pub fn new(storage: Storage) -> Self {
         let state_db = StateDb::new(storage);
         let state_view = state_db.get_state_view();
-        let genesis_hash = hash_struct(&0);
+        let genesis_hash = CryptoHash::default();
         Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
