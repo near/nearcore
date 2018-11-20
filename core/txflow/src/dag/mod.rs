@@ -403,4 +403,25 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn correct_signature() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; => b; 0, 0;] => 4, 3;]);
+
+        // Feed messages in DFS order which ensures that the parents are fed before the children.
+        for m in all_messages {
+            dag.add_existing_message((*m).clone());
+        }
+
+        for m in dag.messages {
+            assert_eq!(m.computed_signature, m.data.owner_sig);
+        }
+    }
 }
