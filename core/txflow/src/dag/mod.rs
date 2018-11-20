@@ -4,7 +4,7 @@ mod reporter;
 use primitives::types::*;
 use primitives::traits::{WitnessSelector, Payload};
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap, VecDeque};
 
 use self::message::Message;
 use self::reporter::{MisbehaviourReporter, ViolationType};
@@ -27,7 +27,8 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     witness_selector: &'a W,
     starting_epoch: u64,
 
-    misbehaviour: MisbehaviourReporter
+    misbehaviour: MisbehaviourReporter,
+    participant_head: HashMap<UID, StructHash>,
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
@@ -40,11 +41,60 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
             witness_selector,
             starting_epoch,
             misbehaviour: MisbehaviourReporter::new(),
+            participant_head: HashMap::new(),
         }
     }
 
-    fn find_fork(&mut self, message: &Message<'a, P>) -> Option<StructHash> {
-        None
+    fn find_fork(&self, message: &Message<'a, P>) -> Option<StructHash> {
+        let uid = message.data.body.owner_uid.clone();
+
+        if let Some(last_hash) = self.participant_head.get(&uid) {
+            let mut visited = HashSet::new();
+            let mut queue = VecDeque::new();
+
+            for par in &message.parents {
+                visited.insert(par.computed_hash);
+                queue.push_back(par.clone());
+            }
+
+            // Run BFS to detect if this message sees last message of
+            // participant uid. In case of forks this BFS will explore almost
+            // entire DAG stopping at previous messages from participant uid.
+            // TODO: Prune this BFS (maybe change algorithm to detect forks)
+            while queue.len() > 0 {
+                let cur = queue.pop_front();
+
+                if let Some(cur_message) = cur {
+                    if cur_message.data.body.owner_uid == uid {
+                        if cur_message.computed_hash == *last_hash {
+                            // target message found
+                            return None;
+                        }
+                        else {
+                            // skip messages from participant uid
+                            continue;
+                        }
+                    }
+                    else {
+                        if visited.contains(&cur_message.computed_hash) {
+                            // skip messages already visited
+                            continue;
+                        }
+                        else{
+                            // mark message as visited
+                            visited.insert(cur_message.computed_hash);
+                            queue.push_back(cur_message.clone());
+                        }
+                    }
+                }
+            }
+
+            // If message not found at this point it means it is a fork
+            Some(last_hash.clone())
+        }
+        else {
+            None
+        }
     }
 
     /// Verify that this message does not violate the protocol.
@@ -106,6 +156,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
             self.roots.remove(p);
         }
 
+        self.participant_head.insert(message.data.body.owner_uid, message.computed_hash);
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;
         self.messages.insert(unsafe{&*message_ptr});
         self.roots.insert(unsafe{&*message_ptr});
@@ -242,11 +293,19 @@ mod tests {
             assert!(dag.add_existing_message((*m).clone()).is_ok());
         }
 
-        println!("Misbehaviours");
-        for reports in dag.misbehaviour.violations {
-            println!("{:?}", reports);
-        }
+        assert_eq!(dag.misbehaviour.violations.len(), 1);
 
+        let violation = dag.misbehaviour.violations.get(0usize);
+
+        // similar to: assert(isinstance(violation, ForkAttempt))
+        match violation {
+            Some(ViolationType::ForkAttempt{message_0 : _, message_1: _}) => {
+                assert!(true);
+            },
+            _ => {
+                assert!(false);
+            },
+        }
     }
 
     #[test]
