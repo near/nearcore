@@ -7,10 +7,14 @@ extern crate storage;
 extern crate tokio;
 #[macro_use]
 extern crate clap;
+extern crate primitives;
 
 use clap::{App, Arg};
 use env_logger::Builder;
-use network::{protocol::ProtocolConfig, service::Service, test_utils::*, MockBlock};
+use network::service::generate_service_task;
+use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
+use primitives::types::SignedTransaction;
+use std::sync::Arc;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -55,9 +59,16 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let protocol_handler = MockProtocolHandler::default();
-    let _ = Service::new::<MockBlock>(ProtocolConfig::default(), net_config, protocol_handler)
-        .unwrap_or_else(|e| {
-            panic!("service failed to start: {:?}", e);
-        });
+    let client = Arc::new(MockClient::default());
+    let service = Service::new(
+        ProtocolConfig::default(),
+        net_config,
+        MockProtocolHandler::default(),
+        client.clone(),
+    ).unwrap();
+    let task = generate_service_task::<MockBlock, SignedTransaction, MockProtocolHandler>(
+        service.network.clone(),
+        service.protocol.clone(),
+    );
+    tokio::run(task);
 }

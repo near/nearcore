@@ -8,3 +8,16 @@ serde = "1.0"
 parity-rocksdb = "0.5"
 primitives = { path = "../primitives" }
 bincode = "1.0.0"
+parking_lot = "0.4"
+
+hash-db = { git = "https://github.com/paritytech/trie", default-features = false }
+trie-db = { git = "https://github.com/paritytech/trie" }
+trie-root = { git = "https://github.com/paritytech/trie", default-features = false }
+memory-db = { git = "https://github.com/paritytech/trie" }
+
+substrate-state-machine = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
+substrate-trie = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
+substrate-primitives = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
+
+[dev-dependencies]
+hex-literal = "0.1.1"

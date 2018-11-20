@@ -10,12 +10,13 @@ pub type AccountId = u64;
 /// confused with the multisig.
 pub type StructSignature = u128;
 /// Hash used by a struct implementing the Merkle tree.
-pub type MerkleHash = u64;
+pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = u128;
 /// Database record type.
 pub type DBValue = Vec<u8>;
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
     Number(u64),
     Hash(CryptoHash),
@@ -23,7 +24,21 @@ pub enum BlockId {
 
 // 1. Transaction structs.
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// Call view function in the contracts.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ViewCall {
+    pub account: AccountId,
+}
+
+/// Result of view call.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ViewCallResult {
+    pub account: AccountId,
+    pub amount: u64,
+}
+
+/// TODO: Call non-view function in the contracts.
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct TransactionBody {
     pub nonce: u64,
     pub sender: AccountId,
@@ -48,7 +63,7 @@ impl Default for TransactionBody {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
     hash: CryptoHash,
@@ -69,20 +84,6 @@ impl Default for SignedTransaction {
     fn default() -> Self {
         SignedTransaction::new(0, TransactionBody::default())
     }
-}
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub enum TransactionState {
-    Sender,
-    Receiver,
-    SenderRollback,
-    Cancelled,
-}
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub struct StatedTransaction {
-    pub transaction: SignedTransaction,
-    pub state: TransactionState,
 }
 
 // 2. State structs.
@@ -115,8 +116,8 @@ pub struct SignedEpochBlockHeader {
 #[derive(Hash, Debug)]
 pub struct FullEpochBlockBody {
     states: Vec<State>,
-    new_transactions: Vec<StatedTransaction>,
-    cancelled_transactions: Vec<StatedTransaction>,
+    new_transactions: Vec<SignedTransaction>,
+    cancelled_transactions: Vec<SignedTransaction>,
 }
 
 #[derive(Hash, Debug)]
@@ -126,16 +127,16 @@ pub enum MerkleStateNode {
 }
 
 #[derive(Hash, Debug)]
-pub enum MerkleStatedTransactionNode {
+pub enum MerkleSignedTransactionNode {
     Hash(MerkleHash),
-    StatedTransaction(StatedTransaction),
+    SignedTransaction(SignedTransaction),
 }
 
 #[derive(Hash, Debug)]
 pub struct ShardedEpochBlockBody {
     states_subtree: Vec<MerkleStateNode>,
-    new_transactions_subtree: Vec<MerkleStatedTransactionNode>,
-    cancelled_transactions_subtree: Vec<MerkleStatedTransactionNode>,
+    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
+    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
 }
 
 // 4. TxFlow-specific structs.

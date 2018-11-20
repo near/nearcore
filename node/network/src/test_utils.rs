@@ -1,15 +1,21 @@
-#![allow(dead_code)]
+#![allow(unused)]
 
-use super::MockBlock;
 use libp2p::{secio, Multiaddr};
+use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
+
+use client::Client;
+use error::Error;
 use message::{Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::Block;
 use primitives::traits::GenericResult;
+use primitives::traits::Header;
 use primitives::types;
 use protocol::ProtocolHandler;
 use protocol::{ProtocolConfig, Transaction};
 use rand::Rng;
 use service::Service;
-use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
+use std::sync::Arc;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -73,9 +79,7 @@ impl ProtocolHandler for MockProtocolHandler {
     }
 }
 
-pub fn create_test_services<H: ProtocolHandler>(
-    num_services: u32,
-) -> Vec<Service<MockProtocolHandler>> {
+pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = rand::thread_rng().gen_range(30000, 60000);
     let mut addresses = Vec::new();
@@ -89,15 +93,77 @@ pub fn create_test_services<H: ProtocolHandler>(
     let secret = create_secret();
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
     let handler = MockProtocolHandler::default();
-    let root_service =
-        Service::new::<MockBlock>(ProtocolConfig::default(), root_config, handler).unwrap();
+    let client = Arc::new(MockClient {});
+    let root_service = Service::new(
+        ProtocolConfig::default(),
+        root_config,
+        handler,
+        client.clone(),
+    ).unwrap();
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
         let service =
-            Service::new::<MockBlock>(ProtocolConfig::default(), config, handler).unwrap();
+            Service::new(ProtocolConfig::default(), config, handler, client.clone()).unwrap();
         services.push(service);
     }
     services
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MockBlockHeader {}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MockBlock {}
+
+impl Header for MockBlockHeader {
+    fn hash(&self) -> CryptoHash {
+        CryptoHash::default()
+    }
+
+    fn number(&self) -> u64 {
+        0
+    }
+}
+
+impl Block for MockBlock {
+    type Header = MockBlockHeader;
+    type Body = ();
+    fn header(&self) -> &Self::Header {
+        &MockBlockHeader {}
+    }
+    fn body(&self) -> &Self::Body {
+        &()
+    }
+    fn deconstruct(self) -> (Self::Header, Self::Body) {
+        (MockBlockHeader {}, ())
+    }
+    fn new(_header: Self::Header, _body: Self::Body) -> Self {
+        MockBlock {}
+    }
+    fn hash(&self) -> CryptoHash {
+        CryptoHash::default()
+    }
+}
+
+#[derive(Default)]
+pub struct MockClient {}
+
+impl Client<MockBlock> for MockClient {
+    fn get_block(&self, id: &types::BlockId) -> Result<MockBlock, Error> {
+        Ok(MockBlock {})
+    }
+    fn get_header(&self, id: &types::BlockId) -> Result<MockBlockHeader, Error> {
+        Ok(MockBlockHeader {})
+    }
+    fn best_hash(&self) -> CryptoHash {
+        CryptoHash::default()
+    }
+    fn best_number(&self) -> u64 {
+        0
+    }
+    fn genesis_hash(&self) -> CryptoHash {
+        CryptoHash::default()
+    }
+    fn import_blocks(&self, blocks: Vec<MockBlock>) {}
 }
