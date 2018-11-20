@@ -7,38 +7,21 @@ extern crate log;
 
 extern crate byteorder;
 extern crate primitives;
+extern crate storage;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;
-use primitives::traits::{StateDbView, StateTransitionRuntime};
-use primitives::types::{AccountId, DBValue, MerkleHash, StatedTransaction};
-
-// TODO: waiting for storage::state_view
-pub struct StateDbViewMock {}
-
-impl StateDbView for StateDbViewMock {
-    fn merkle_root(&self) -> MerkleHash {
-        0
-    }
-    fn get(&self, _key: &[u8]) -> Option<DBValue> {
-        Some(vec![])
-    }
-    fn set(&mut self, _key: &[u8], _value: DBValue) {}
-    fn delete(&mut self, _key: &[u8]) {}
-    fn commit(&mut self) {}
-    fn rollback(&mut self) {}
-    fn finish(&self) -> Self {
-        StateDbViewMock {}
-    }
-}
+use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use storage::{StateDb, StateDbUpdate};
 
 #[derive(Serialize, Deserialize)]
-struct Account {
+pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: u64,
     pub amount: u64,
 }
 
+#[derive(Default)]
 pub struct Runtime {}
 
 fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
@@ -51,66 +34,85 @@ fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
-    fn get_account<S: StateDbView>(
+    pub fn get_account(
         &self,
-        state_view: &S,
+        state_update: &mut StateDbUpdate,
         account_key: AccountId,
     ) -> Option<Account> {
-        state_view
+        state_update
             .get(&account_id_to_bytes(account_key))
             .and_then(|data| bincode::deserialize(&data).ok())
     }
 
-    fn set_account<S: StateDbView>(
+    pub fn set_account(
         &self,
-        state_view: &mut S,
+        state_update: &mut StateDbUpdate,
         account_key: AccountId,
         account: &Account,
     ) {
         match bincode::serialize(&account) {
-            Ok(data) => state_view.set(&account_id_to_bytes(account_key), data),
+            Ok(data) => state_update.set(&account_id_to_bytes(account_key), data),
             Err(e) => {
                 error!("error occurred while encoding: {:?}", e);
             }
         }
     }
-    fn apply_transaction<S: StateDbView>(
+    fn apply_transaction(
         &self,
-        state_view: &mut S,
-        transaction: &StatedTransaction,
+        state_update: &mut StateDbUpdate,
+        transaction: &SignedTransaction,
     ) -> bool {
-        let sender = self.get_account(state_view, transaction.transaction.body.sender);
-        let receiver = self.get_account(state_view, transaction.transaction.body.receiver);
+        let sender = self.get_account(state_update, transaction.body.sender);
+        let receiver = self.get_account(state_update, transaction.body.receiver);
         match (sender, receiver) {
             (Some(mut sender), Some(mut receiver)) => {
-                sender.amount -= transaction.transaction.body.amount;
-                sender.nonce = transaction.transaction.body.nonce;
-                receiver.amount += transaction.transaction.body.amount;
-                self.set_account(state_view, transaction.transaction.body.sender, &sender);
-                self.set_account(state_view, transaction.transaction.body.sender, &receiver);
+                sender.amount -= transaction.body.amount;
+                sender.nonce = transaction.body.nonce;
+                receiver.amount += transaction.body.amount;
+                self.set_account(state_update, transaction.body.sender, &sender);
+                self.set_account(state_update, transaction.body.sender, &receiver);
                 true
             }
             _ => false,
         }
     }
-}
 
-impl StateTransitionRuntime for Runtime {
-    type StateDbView = StateDbViewMock;
-    fn apply(
+    pub fn apply(
         &self,
-        state_view: &mut Self::StateDbView,
-        transactions: Vec<StatedTransaction>,
-    ) -> (Vec<StatedTransaction>, StateDbViewMock) {
+        state_db: &mut StateDb,
+        root: &MerkleHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> (Vec<SignedTransaction>, MerkleHash) {
         let mut filtered_transactions = vec![];
+        let mut state_update = StateDbUpdate::new(state_db, root);
         for t in transactions.into_iter() {
-            if self.apply_transaction(state_view, &t) {
-                state_view.commit();
+            if self.apply_transaction(&mut state_update, &t) {
+                state_update.commit();
                 filtered_transactions.push(t);
             } else {
-                state_view.rollback();
+                state_update.rollback();
             }
         }
-        (filtered_transactions, state_view.finish())
+        let state_view = state_update.finalize();
+        (filtered_transactions, state_view)
+    }
+
+    pub fn view(
+        &self,
+        state_db: &mut StateDb,
+        root: &MerkleHash,
+        view_call: &ViewCall,
+    ) -> ViewCallResult {
+        let mut state_update = StateDbUpdate::new(state_db, root);
+        match self.get_account(&mut state_update, view_call.account) {
+            Some(account) => ViewCallResult {
+                account: view_call.account,
+                amount: account.amount,
+            },
+            None => ViewCallResult {
+                account: view_call.account,
+                amount: 0,
+            },
+        }
     }
 }

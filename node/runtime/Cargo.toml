@@ -10,3 +10,4 @@ bincode = "1.0.0"
 log = "0.4"
 byteorder = "1.2"
 primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }

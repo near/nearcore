@@ -1,25 +1,38 @@
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 
 use client::Client;
-use primitives::types::TransactionBody;
+use primitives::types::{SignedTransaction, TransactionBody, ViewCall, ViewCallResult};
+use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait TransactionApi {
-        /// Receive new transaction
+        /// Receive new transaction.
         #[rpc(name = "receive_transaction")]
         fn rpc_receive_transaction(&self, TransactionBody) -> JsonRpcResult<()>;
+        /// Call view function.
+        #[rpc(name = "view")]
+        fn rpc_view(&self, ViewCall) -> JsonRpcResult<ViewCallResult>;
     }
 }
 
-impl TransactionApi for Client {
+pub struct RpcImpl {
+    pub client: Arc<Client>,
+}
+
+impl TransactionApi for RpcImpl {
     fn rpc_receive_transaction(&self, t: TransactionBody) -> JsonRpcResult<()> {
-        Ok(self.receive_transaction(&t))
+        let transaction = SignedTransaction::new(123, t);
+        Ok(self.client.receive_transaction(transaction))
+    }
+
+    fn rpc_view(&self, v: ViewCall) -> JsonRpcResult<ViewCallResult> {
+        Ok(self.client.view_call(&v))
     }
 }
 
-pub fn get_handler(client: Client) -> IoHandler {
+pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
     let mut io = IoHandler::new();
-    io.extend_with(client.to_delegate());
+    io.extend_with(rpc_impl.to_delegate());
     io
 }
 
@@ -29,13 +42,19 @@ mod tests {
 
     extern crate jsonrpc_test;
     extern crate primitives;
+    extern crate storage;
 
     use self::jsonrpc_test::Rpc;
     use primitives::types::TransactionBody;
+    use storage::Storage;
 
     #[test]
     fn test_call() {
-        let handler = get_handler(Client::default());
+        let storage = Storage::new("storage/db");
+        let rpc_impl = RpcImpl {
+            client: Arc::new(Client::new(storage)),
+        };
+        let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
             nonce: 0,

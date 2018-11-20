@@ -4,4 +4,10 @@ version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
+parking_lot = "0.4"
+
+beacon = { path = "../../core/beacon" }
+network = { path = "../network" }
+node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }

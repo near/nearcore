@@ -25,12 +25,12 @@ pub trait SyncIo {
     fn report_peer(&mut self, who: NodeIndex, reason: Severity);
     /// Send a packet to a peer.
     fn send(&mut self, who: NodeIndex, data: Vec<u8>);
+    /// Returns information on p2p session
+    fn peer_id(&self, who: NodeIndex) -> Option<PeerId>;
     /// Returns peer identifier string
     fn peer_debug_info(&self, who: NodeIndex) -> String {
         who.to_string()
     }
-    /// Returns information on p2p session
-    fn peer_id(&self, who: NodeIndex) -> Option<PeerId>;
 }
 
 /// Wraps the network service.
