@@ -24,6 +24,12 @@ impl AsMut<[u8]> for CryptoHash {
     }
 }
 
+impl heapsize::HeapSizeOf for CryptoHash {
+    fn heap_size_of_children(&self) -> usize {
+        0
+    }
+}
+
 /// Calculates a hash of a bytes slice.
 ///
 /// # Examples

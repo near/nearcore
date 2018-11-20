@@ -13,6 +13,8 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, StateDbUpdate};
+use storage::{MemoryDB, TestBackend, TestBackendTransaction, TestChangesTrieStorage, TestExt};
+use storage::{Externalities, OverlayedChanges, Backend};
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
@@ -36,22 +38,22 @@ fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
 impl Runtime {
     pub fn get_account(
         &self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TestExt,
         account_key: AccountId,
     ) -> Option<Account> {
         state_update
-            .get(&account_id_to_bytes(account_key))
+            .storage(&account_id_to_bytes(account_key))
             .and_then(|data| bincode::deserialize(&data).ok())
     }
 
     pub fn set_account(
         &self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TestExt,
         account_key: AccountId,
         account: &Account,
     ) {
         match bincode::serialize(&account) {
-            Ok(data) => state_update.set(&account_id_to_bytes(account_key), data),
+            Ok(data) => state_update.set_storage(account_id_to_bytes(account_key), data),
             Err(e) => {
                 error!("error occurred while encoding: {:?}", e);
             }
@@ -59,7 +61,7 @@ impl Runtime {
     }
     fn apply_transaction(
         &self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TestExt,
         transaction: &SignedTransaction,
     ) -> bool {
         let sender = self.get_account(state_update, transaction.body.sender);
@@ -79,31 +81,42 @@ impl Runtime {
 
     pub fn apply(
         &self,
-        state_db: &mut StateDb,
-        root: &MerkleHash,
+        backend: &TestBackend,
         transactions: Vec<SignedTransaction>,
-    ) -> (Vec<SignedTransaction>, MerkleHash) {
+    ) -> (Vec<SignedTransaction>, TestBackendTransaction, MerkleHash) {
         let mut filtered_transactions = vec![];
-        let mut state_update = StateDbUpdate::new(state_db, root);
+        let mut overlay = OverlayedChanges::default();
+
         for t in transactions.into_iter() {
-            if self.apply_transaction(&mut state_update, &t) {
-                state_update.commit();
-                filtered_transactions.push(t);
+            let success = {
+                let mut state_update = TestExt::new(&mut overlay, backend, None);
+                self.apply_transaction(&mut state_update, &t)
+            };
+
+            if success {
+                overlay.commit_prospective();
             } else {
-                state_update.rollback();
+                overlay.discard_prospective();
             }
         }
-        let state_view = state_update.finalize();
-        (filtered_transactions, state_view)
+
+        {
+            let mut state_update = TestExt::new(&mut overlay, backend, None);
+
+            let root = state_update.storage_root();
+            let (storage_transaction, _changes_trie_transaction) = state_update.transaction();
+
+            (filtered_transactions, storage_transaction, root)
+        }
     }
 
     pub fn view(
         &self,
-        state_db: &mut StateDb,
-        root: &MerkleHash,
+        backend: &TestBackend,
         view_call: &ViewCall,
     ) -> ViewCallResult {
-        let mut state_update = StateDbUpdate::new(state_db, root);
+        let mut overlay = OverlayedChanges::default();
+        let mut state_update = TestExt::new(&mut overlay, backend, None);
         match self.get_account(&mut state_update, view_call.account) {
             Some(account) => ViewCallResult {
                 account: view_call.account,

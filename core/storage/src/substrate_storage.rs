@@ -1,4 +1,4 @@
-use substrate_primitives::{hash::H256, Blake2Hasher};
+use substrate_primitives::{hash::H256};
 use substrate_trie::NodeCodec;
 
 use primitives::hash::CryptoHash;
@@ -7,40 +7,42 @@ use hash256_std_hasher::Hash256StdHasher;
 
 /// Concrete implementation of Hasher using Blake2b 256-bit hashes
 #[derive(Debug)]
-pub struct HomeMadeHasher;
+pub struct Sha256Hasher;
 
-impl Hasher for HomeMadeHasher {
+impl Hasher for Sha256Hasher {
     type Out = CryptoHash;
     type StdHasher = Hash256StdHasher;
     const LENGTH: usize = 32;
     fn hash(x: &[u8]) -> Self::Out {
         primitives::hash::hash(x)
+        //H256::from((primitives::hash::hash(x).0).0)
     }
 }
 
 #[cfg(test)]
 use trie_db::TrieMut;
 
-use substrate_state_machine::{
+pub use substrate_state_machine::{
     Backend, Ext, Externalities, InMemoryChangesTrieStorage, OverlayedChanges,
     TrieBackend,
 };
 
-type MemoryDB<H> = memory_db::MemoryDB<H, trie_db::DBValue>;
+pub type MemoryDB = memory_db::MemoryDB<Sha256Hasher, trie_db::DBValue>;
 
-pub type TestBackend = TrieBackend<MemoryDB<Blake2Hasher>, Blake2Hasher>;
-pub type TestBackendTransaction = MemoryDB<Blake2Hasher>;
-pub type TestChangesTrieStorage = InMemoryChangesTrieStorage<Blake2Hasher>;
-pub type TestExt<'a> = Ext<'a, Blake2Hasher, TestBackend, TestChangesTrieStorage>;
+// TODO: backend should not own MemoryDB
+pub type TestBackend = TrieBackend<MemoryDB, Sha256Hasher>;
+pub type TestBackendTransaction = MemoryDB;
+pub type TestChangesTrieStorage = InMemoryChangesTrieStorage<Sha256Hasher>;
+pub type TestExt<'a> = Ext<'a, Sha256Hasher, TestBackend, TestChangesTrieStorage>;
 
 #[cfg(test)]
 mod tests {
     type TrieDBMut<'a, H> = trie_db::TrieDBMut<'a, H, NodeCodec<H>>;
     use super::*;
 
-    fn test_db() -> (MemoryDB<Blake2Hasher>, H256) {
-        let mut root = H256::default();
-        let mut mdb = MemoryDB::<Blake2Hasher>::default(); // TODO: use new() to be more correct
+    fn test_db() -> (MemoryDB, CryptoHash) {
+        let mut root = CryptoHash::default();
+        let mut mdb = MemoryDB::default(); // TODO: use new() to be more correct
         {
             let mut trie = TrieDBMut::new(&mut mdb, &mut root);
             trie.insert(b"key", b"value").expect("insert failed");
@@ -57,7 +59,7 @@ mod tests {
     fn state_transition(
         backend: &TestBackend,
         overlay: &mut OverlayedChanges,
-    ) -> (TestBackendTransaction, H256) {
+    ) -> (TestBackendTransaction, CryptoHash) {
         let root = *backend.root();
         println!("root before changes is {:?}", root);
 

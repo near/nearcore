@@ -26,7 +26,8 @@ use std::collections::HashMap;
 
 mod substrate_storage;
 
-pub use substrate_storage::{TestBackend, TestBackendTransaction, TestChangesTrieStorage, TestExt};
+pub use substrate_storage::{MemoryDB, TestBackend, TestBackendTransaction, TestChangesTrieStorage, TestExt};
+pub use substrate_storage::{Externalities, OverlayedChanges, Backend};
 
 /// Concrete implementation of StateDbUpdate.
 /// Provides a way to access Storage and record changes with future commit.

@@ -7,37 +7,44 @@ use node_runtime::Runtime;
 use parking_lot::RwLock;
 use primitives::types::{MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, Storage};
+use storage::{MemoryDB, TestBackend, TestBackendTransaction, TestChangesTrieStorage, TestExt};
+use storage::{Externalities, OverlayedChanges, Backend};
+use std::cell::RefCell;
+
 
 pub struct Client {
-    state_db: RwLock<StateDb>,
+    backend: RwLock<TestBackend>,
     runtime: Runtime,
-    last_root: RwLock<MerkleHash>,
 }
 
 impl Client {
     pub fn new(storage: Storage) -> Self {
-        let state_db = StateDb::new(storage);
-        let state_view = state_db.get_state_view();
+        let state_db = MemoryDB::default();
+        let last_root = Default::default();
         Client {
             runtime: Runtime::default(),
-            state_db: RwLock::new(state_db),
-            last_root: RwLock::new(state_view),
+            backend: RwLock::new(TestBackend::new(state_db, last_root)),
         }
     }
 
     pub fn receive_transaction(&self, t: SignedTransaction) {
         println!("{:?}", t);
         // TODO: Put into the non-existent pool or TxFlow?
-        let mut state_db = self.state_db.write();
-        let (_, new_root) = self
+        let guard = self.backend.write();
+        let (_, backend_transaction, new_root) = self
             .runtime
-            .apply(&mut state_db, &self.last_root.read(), vec![t]);
-        *self.last_root.write() = new_root;
+            .apply(&guard, vec![t]);
+
+        // TODO: apply backend transaction and modify backend
+        //self.state_db.replace(backend.into_storage());
+        //self.last_root = new_root;
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        let mut state_db = self.state_db.write();
-        self.runtime
-            .view(&mut state_db, &self.last_root.read(), view_call)
+        //let backend = TestBackend::new(self.state_db, self.last_root);
+        let guard = self.backend.write();
+        let ret = self.runtime
+            .view(&guard, view_call);
+        ret
     }
 }

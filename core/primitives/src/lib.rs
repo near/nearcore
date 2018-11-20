@@ -3,6 +3,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate bincode;
 extern crate exonum_sodiumoxide;
+extern crate heapsize;
 
 pub mod hash;
 pub mod signature;
