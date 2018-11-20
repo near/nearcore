@@ -162,7 +162,6 @@ impl<'a> Runtime<'a> {
         }
     }
 
-
     /// Read from the storage to wasm memory
     pub fn storage_read_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let key_ptr: u32 = args.nth_checked(0)?;
