@@ -1,6 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use futures::sync::mpsc;
 use futures::{Future, Poll, Async, Stream, stream, Sink};
+use std::borrow::{BorrowMut, Borrow};
 
 use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, StructHash};
 use primitives::traits::{Payload, WitnessSelector};
@@ -35,7 +36,7 @@ pub struct TxFlowTask<'a, P: Payload, W: WitnessSelector> {
     /// Some received messages require a reply to whoever send them to us. This
     /// structure stores this knowledge, so once this message ends up in the DAG
     /// we can send a reply to the sender.
-    required_replies: HashMap<StructHash, UID>,
+    required_replies: HashMap<StructHash, HashSet<UID>>,
 }
 
 impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
@@ -65,9 +66,33 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         self.dag.take();
     }
 
-    /// Process the candidate that now has all necessary parent messages.
-    fn process_passing_candidate(&mut self, message: SignedMessageData<P>) -> HashSet<UID> {
+    /// Mutable reference to the DAG.
+    fn dag_as_mut(&mut self) -> &mut DAG<'a, P, W>{
+        self.dag.as_mut().expect(UNINITIALIZED_DAG_ERR).borrow_mut()
+    }
 
+    /// Immutable reference to the DAG.
+    fn dag_as_ref(&self) -> &DAG<'a, P, W>{
+        self.dag.as_ref().expect(UNINITIALIZED_DAG_ERR).borrow()
+    }
+
+    /// Process the candidate that now has all necessary parent messages. Add it to the dag
+    /// and check whether it makes other candidates passing.
+    fn process_passing_candidate(&mut self, message: SignedMessageData<P>) -> HashSet<UID> {
+        let hash = message.hash;
+        {
+            if let Err(e) = self.dag_as_mut().add_existing_message(message) {
+                panic!("Attempted to add invalid message to the DAG")
+            }
+        }
+
+        // Check if there are other candidates that depend on this candidate.
+//        let mut newly_passing_dependents = vec![];
+//        let mut new_replies = HashSet::new();
+        if let Some(dependents) = self.missing_messages.get(&hash) {
+        }
+
+        HashSet::new()
     }
 
     /// Processes the incoming candidate. Returns a set of peers that should receive a reply.
@@ -75,17 +100,12 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// in `candidates` to be added to the `dag` and these other messages might require a reply.
     fn process_incoming_candidate(&mut self, message: SignedMessageData<P>, reply_to: Option<UID>)
         -> HashSet<UID> {
-        // This function computes result in the optimistic scenario -- when this message does not
-        // have unknown parents.
-        let optimistic_result_fn = ||
-            if let Some(uid) = reply_to {
-            set!{uid} } else {
-            HashSet::new() };
-
         // Check one of the optimistic scenarios when we already know this message, but we still
         // reply on the request.
-        if self.dag.expect(UNINITIALIZED_DAG_ERR).contains_message(&message.hash) {
-            return optimistic_result_fn();
+        if self.dag_as_ref().contains_message(&message.hash) {
+            if let Some(uid) = reply_to {
+                set!{uid} } else {
+                HashSet::new() }
         } else if self.candidates.contains_key(&message) {
             // This message is already in the candidates, but we might still need to update required
             // replies.
@@ -94,30 +114,47 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                     .insert(uid);
             }
             // No replies needed to be send right now.
-            return HashSet::new();
+            HashSet::new()
         } else {
-            let unknown_hashes: Vec<UID> = message.body.parents.into_iter().filter(
-                |h| !self.dag.expect(UNINITIALIZED_DAG_ERR).contains_message(&h)).collect();
+            let mut unknown_hashes: Vec<UID> = (&message.body.parents).into_iter().filter_map(
+                |h| if self.dag_as_ref().contains_message(h) {
+                        None } else {
+                        Some(*h)
+                    } ).collect();
             if unknown_hashes.is_empty() {
-                let result = optimistic_result_fn();
-
+                // This candidate is passing. It might have made other candidates passing and these
+                // candidates were requesting their replies.
+                let mut result = self.process_passing_candidate(message);
+                if let Some(uid) = reply_to {
+                    result.insert(uid);
+                }
+                result
             } else {
-
+                // This candidates is not passing, and since it cannot be added to the DAG yet,
+                // there are no replies needed. Update the tracking containers.
+                for p in &unknown_hashes {
+                    self.missing_messages.entry(*p).or_insert_with(|| HashSet::new())
+                        .insert(message.hash);
+                }
+                if let Some(uid) = reply_to {
+                    self.required_replies.entry(message.hash).or_insert_with(|| HashSet::new())
+                        .insert(uid);
+                }
+                self.candidates.insert(message, unknown_hashes.drain(..).collect());
+                HashSet::new()
             }
         }
-
-        HashSet::new()
     }
 
     /// Take care of the gossip received from the network.
-    fn process_gossip(&mut self, gossip: Gossip<P>) -> HashSet<UID> {
+    fn process_gossip(&mut self, mut gossip: Gossip<P>) -> HashSet<UID> {
         match gossip.body {
             GossipBody::Unsolicited(message) => self.process_incoming_candidate(message, Some(gossip.sender_uid)),
             GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, None),
             GossipBody::Fetch(ref mut hashes) => {
                 let reply_messages: Vec<_> =
                 hashes.into_iter().filter_map(
-                    |h| self.dag.expect(UNINITIALIZED_DAG_ERR)
+                    |h| self.dag_as_ref()
                         .copy_message_data_by_hash(h)).collect();
                 let reply = Gossip {
                     sender_uid: self.owner_uid,
@@ -148,31 +185,31 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     }
 }
 
-// TxFlowTask can be used as a stream, where each element produced by the stream corresponds to
-// an individual step of the algorithm.
-impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        // Process new gossips.
-        let mut end_of_gossips = false;
-        loop {
-            match self.messages_receiver.poll() {
-                Ok(Async::Ready(Some(gossip))) => self.process_gossip(gossip),
-                Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) => {
-                    // End of the stream that feeds the gossips.
-                    end_of_gossips = true;
-                    break;
-                }
-                Err(err) => panic!("Receiving messages failed {:?}", err),
-            }
-        }
+//// TxFlowTask can be used as a stream, where each element produced by the stream corresponds to
+//// an individual step of the algorithm.
+//impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
+//    type Item = ();
+//    type Error = ();
+//    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+//        // Process new gossips.
+//        let mut end_of_gossips = false;
+//        loop {
+//            match self.messages_receiver.poll() {
+//                Ok(Async::Ready(Some(gossip))) => self.process_gossip(gossip),
+//                Ok(Async::NotReady) => break,
+//                Ok(Async::Ready(None)) => {
+//                    // End of the stream that feeds the gossips.
+//                    end_of_gossips = true;
+//                    break;
+//                }
+//                Err(err) => panic!("Receiving messages failed {:?}", err),
+//            }
+//        }
 
-        // Collect new payloads
-        let mut end_of_payloads = false;
-    }
-}
+//        // Collect new payloads
+//        let mut end_of_payloads = false;
+//    }
+//}
 
 impl<'a, P: Payload, W: WitnessSelector> Future for TxFlowTask<'a, P, W> {
     // This stream does not produce anything, it is meant to be run as a standalone task.
