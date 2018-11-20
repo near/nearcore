@@ -4,28 +4,22 @@ use std::collections::HashMap;
 extern crate wasm;
 
 use wasm::executor;
-use wasm::ext::{WasmCosts, Externalities, Result};
+use wasm::ext::{Externalities, Result};
 use wasm::types::Config;
 
 struct MyExt {
-    wasm_costs: WasmCosts,
     storage: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl MyExt {
     pub fn new() -> MyExt {
         MyExt {
-            wasm_costs: WasmCosts::default(),
             storage: HashMap::new(),
         }
     }
 }
 
 impl Externalities for MyExt {
-    fn wasm_costs(&self) -> &WasmCosts {
-        &self.wasm_costs
-    }
-
     fn storage_put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
         self.storage.insert(Vec::from(key), Vec::from(value));
