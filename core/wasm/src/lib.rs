@@ -1,5 +1,4 @@
 extern crate parity_wasm;
-extern crate primitives;
 extern crate pwasm_utils;
 extern crate wasmi;
 

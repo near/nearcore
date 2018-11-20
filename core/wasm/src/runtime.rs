@@ -149,8 +149,22 @@ impl<'a> Runtime<'a> {
         Ok(buf)
     }
 
+    fn charge_gas(&mut self, amount: u64) -> bool {
+        let prev = self.gas_counter;
+        match prev.checked_add(amount) {
+            // gas charge overflow protection
+            None => false,
+            Some(val) if val > self.gas_limit => false,
+            Some(_) => {
+                self.gas_counter = prev + amount;
+                true
+            }
+        }
+    }
+
+
     /// Read from the storage to wasm memory
-    pub fn storage_read_len(&mut self, args: RuntimeArgs) -> Result<RuntimeValue> {
+    pub fn storage_read_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let key_ptr: u32 = args.nth_checked(0)?;
 
         let key = self.read_buffer(key_ptr)?;
@@ -167,7 +181,7 @@ impl<'a> Runtime<'a> {
     }
 
     /// Read from the storage to wasm memory
-    pub fn storage_read_into(&mut self, args: RuntimeArgs) -> Result<()> {
+    pub fn storage_read_into(&mut self, args: &RuntimeArgs) -> Result<()> {
         let key_ptr: u32 = args.nth_checked(0)?;
         let val_ptr: u32 = args.nth_checked(1)?;
 
@@ -185,7 +199,7 @@ impl<'a> Runtime<'a> {
     }
 
     /// Write to storage from wasm memory
-    pub fn storage_write(&mut self, args: RuntimeArgs) -> Result<()> {
+    pub fn storage_write(&mut self, args: &RuntimeArgs) -> Result<()> {
         let key_ptr: u32 = args.nth_checked(0)?;
         let val_ptr: u32 = args.nth_checked(1)?;
 
@@ -199,22 +213,9 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn charge_gas(&mut self, amount: u64) -> bool {
-        let prev = self.gas_counter;
-        match prev.checked_add(amount) {
-            // gas charge overflow protection
-            None => false,
-            Some(val) if val > self.gas_limit => false,
-            Some(_) => {
-                self.gas_counter = prev + amount;
-                true
-            }
-        }
-    }
-
-    pub fn gas(&mut self, args: RuntimeArgs) -> Result<()> {
+    pub fn gas(&mut self, args: &RuntimeArgs) -> Result<()> {
         let amount: u32 = args.nth_checked(0)?;
-        if self.charge_gas(amount as u64) {
+        if self.charge_gas(u64::from(amount)) {
             Ok(())
         } else {
             Err(Error::GasLimit)
@@ -247,10 +248,10 @@ mod ext_impl {
             args: RuntimeArgs,
         ) -> Result<Option<RuntimeValue>, Trap> {
             match index {
-                STORAGE_WRITE_FUNC => void!(self.storage_write(args)),
-                STORAGE_READ_LEN_FUNC => some!(self.storage_read_len(args)),
-                STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(args)),
-                GAS_FUNC => void!(self.gas(args)),
+                STORAGE_WRITE_FUNC => void!(self.storage_write(&args)),
+                STORAGE_READ_LEN_FUNC => some!(self.storage_read_len(&args)),
+                STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(&args)),
+                GAS_FUNC => void!(self.gas(&args)),
                 /*
 				RET_FUNC => void!(self.ret(args)),
 				INPUT_LENGTH_FUNC => cast!(self.input_legnth()),
