@@ -52,7 +52,7 @@ impl<'a> ContractModule<'a> {
             .expect("On entry to the function `module` can't be None; qed");
         if module
             .memory_section()
-            .map_or(false, |ms| ms.entries().len() > 0)
+            .map_or(false, |ms| !ms.entries().is_empty())
         {
             return Err(Error::InternalMemoryDeclared);
         }
@@ -118,9 +118,9 @@ impl<'a> ContractModule<'a> {
                 return Err(Error::Instantiate);
             }
 
-            let type_idx = match import.external() {
-                &External::Function(ref type_idx) => type_idx,
-                &External::Memory(ref memory_type) => {
+            let type_idx = match *import.external() {
+                External::Function(ref type_idx) => type_idx,
+                External::Memory(ref memory_type) => {
                     imported_mem_type = Some(memory_type);
                     continue;
                 }

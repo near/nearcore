@@ -9,7 +9,7 @@ pub(crate) struct EnvModuleResolver {
 impl EnvModuleResolver {
     /// New import resolver with specifed maximum amount of inital memory (in wasm pages = 64kb)
     pub fn with_memory(memory: Memory) -> EnvModuleResolver {
-        EnvModuleResolver { memory: memory }
+        EnvModuleResolver { memory }
     }
 }
 
