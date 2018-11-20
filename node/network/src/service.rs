@@ -2,7 +2,8 @@ use error::Error;
 use futures::{self, stream, Future, Stream};
 use io::NetSyncIo;
 use parking_lot::Mutex;
-use primitives::traits::{Block, GenericResult};
+use primitives::traits::Block;
+use protocol::ProtocolHandler;
 use protocol::{self, Protocol, ProtocolConfig, Transaction};
 use std::io;
 use std::sync::Arc;
@@ -16,18 +17,18 @@ use tokio::timer::Interval;
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 #[allow(dead_code)]
-pub struct Service<T> {
+pub struct Service<H: ProtocolHandler> {
     pub network: Arc<Mutex<NetworkService>>,
-    pub protocol: Arc<Protocol<T>>,
+    pub protocol: Arc<Protocol<H>>,
 }
 
-impl<T: Transaction> Service<T> {
+impl<H: ProtocolHandler> Service<H> {
     pub fn new<B: Block>(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
-        tx_callback: fn(T) -> GenericResult,
-    ) -> Result<Service<T>, Error> {
-        let protocol = Arc::new(Protocol::new(config, tx_callback));
+        handler: H,
+    ) -> Result<Service<H>, Error> {
+        let protocol = Arc::new(Protocol::new(config, handler));
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
         let service = match start_service(net_config, Some(registered)) {
@@ -41,9 +42,9 @@ impl<T: Transaction> Service<T> {
     }
 }
 
-pub fn generate_service_task<T: Transaction, B: Block>(
+pub fn generate_service_task<T: Transaction, B: Block, H: ProtocolHandler>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<T>>,
+    protocol: Arc<Protocol<H>>,
 ) -> impl Future<Item = (), Error = ()> {
     // Interval for performing maintenance on the protocol handler.
     let timer = Interval::new_interval(TICK_TIMEOUT)
@@ -72,10 +73,10 @@ pub fn generate_service_task<T: Transaction, B: Block>(
             ServiceEvent::CustomMessage {
                 node_index, data, ..
             } => {
-                protocol.on_message::<B>(&mut net_sync, node_index, &data);
+                protocol.on_message::<T, B>(&mut net_sync, node_index, &data);
             }
             ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_connected::<B>(&mut net_sync, node_index);
+                protocol.on_peer_connected::<T, B>(&mut net_sync, node_index);
             }
             ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                 protocol.on_peer_disconnected(node_index);
@@ -111,10 +112,10 @@ mod tests {
 
     #[test]
     fn test_send_message() {
-        let services = create_test_services(2);
+        let services = create_test_services::<MockProtocolHandler>(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         for service in services.iter() {
-            let task = generate_service_task::<SignedTransaction, MockBlock>(
+            let task = generate_service_task::<SignedTransaction, MockBlock, MockProtocolHandler>(
                 service.network.clone(),
                 service.protocol.clone(),
             );

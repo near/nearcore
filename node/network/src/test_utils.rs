@@ -3,7 +3,9 @@
 use super::MockBlock;
 use libp2p::{secio, Multiaddr};
 use message::{Message, MessageBody};
+use primitives::traits::GenericResult;
 use primitives::types;
+use protocol::ProtocolHandler;
 use protocol::{ProtocolConfig, Transaction};
 use rand::Rng;
 use service::Service;
@@ -61,7 +63,19 @@ pub fn init_logger(debug: bool) {
     builder.try_init().unwrap_or(());
 }
 
-pub fn create_test_services<T: Transaction>(num_services: u32) -> Vec<Service<T>> {
+#[derive(Default, Clone, Copy)]
+pub struct MockProtocolHandler {}
+
+impl ProtocolHandler for MockProtocolHandler {
+    fn handle_transaction<T: Transaction>(&self, t: &T) -> GenericResult {
+        println!("{:?}", t);
+        Ok(())
+    }
+}
+
+pub fn create_test_services<H: ProtocolHandler>(
+    num_services: u32,
+) -> Vec<Service<MockProtocolHandler>> {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = rand::thread_rng().gen_range(30000, 60000);
     let mut addresses = Vec::new();
@@ -74,15 +88,15 @@ pub fn create_test_services<T: Transaction>(num_services: u32) -> Vec<Service<T>
     // may want to abstract this out to enable different configurations
     let secret = create_secret();
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-    let tx_callback = |_| Ok(());
+    let handler = MockProtocolHandler::default();
     let root_service =
-        Service::new::<MockBlock>(ProtocolConfig::default(), root_config, tx_callback).unwrap();
+        Service::new::<MockBlock>(ProtocolConfig::default(), root_config, handler).unwrap();
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
         let service =
-            Service::new::<MockBlock>(ProtocolConfig::default(), config, tx_callback).unwrap();
+            Service::new::<MockBlock>(ProtocolConfig::default(), config, handler).unwrap();
         services.push(service);
     }
     services

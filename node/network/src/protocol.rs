@@ -53,7 +53,7 @@ pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'sta
 impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
 
 #[allow(dead_code)]
-pub struct Protocol<T> {
+pub struct Protocol<H: ProtocolHandler> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     // peers that are in the handshaking process
@@ -61,20 +61,28 @@ pub struct Protocol<T> {
     // info about peers
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     // callbacks
-    tx_callback: fn(T) -> GenericResult,
+    handler: Option<Box<H>>,
 }
 
-impl<T: Transaction> Protocol<T> {
-    pub fn new(config: ProtocolConfig, tx_callback: fn(T) -> GenericResult) -> Protocol<T> {
+pub trait ProtocolHandler: Send + Sync + 'static {
+    fn handle_transaction<T: Transaction>(&self, transaction: &T) -> GenericResult;
+}
+
+impl<H: ProtocolHandler> Protocol<H> {
+    pub fn new(config: ProtocolConfig, handler: H) -> Protocol<H> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
-            tx_callback,
+            handler: Some(Box::new(handler)),
         }
     }
 
-    pub fn on_peer_connected<B: Block>(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
+    pub fn on_peer_connected<T: Transaction, B: Block>(
+        &self,
+        net_sync: &mut NetSyncIo,
+        peer: NodeIndex,
+    ) {
         self.handshaking_peers
             .write()
             .insert(peer, time::Instant::now());
@@ -96,9 +104,13 @@ impl<T: Transaction> Protocol<T> {
         seq::sample_iter(&mut rng, owned_peers, num_to_sample)
     }
 
-    fn on_transaction_message(&self, tx: T) {
+    pub fn on_transaction_message<T: Transaction>(&self, tx: &T) {
         //TODO: communicate to consensus
-        let _ = (self.tx_callback)(tx);
+        self.handler
+            .as_ref()
+            .unwrap()
+            .handle_transaction(tx)
+            .unwrap();
     }
 
     fn on_status_message(
@@ -148,7 +160,12 @@ impl<T: Transaction> Protocol<T> {
         unimplemented!()
     }
 
-    pub fn on_message<B: Block>(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
+    pub fn on_message<T: Transaction, B: Block>(
+        &self,
+        net_sync: &mut NetSyncIo,
+        peer: NodeIndex,
+        data: &[u8],
+    ) {
         let message: Message<T, B> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
@@ -158,7 +175,7 @@ impl<T: Transaction> Protocol<T> {
             }
         };
         match message.body {
-            MessageBody::Transaction(tx) => self.on_transaction_message(tx),
+            MessageBody::Transaction(tx) => self.on_transaction_message(&tx),
             MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
             MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, &request),
             MessageBody::BlockResponse(response) => {
@@ -193,7 +210,7 @@ impl<T: Transaction> Protocol<T> {
         }
     }
 
-    pub fn send_message<B: Block>(
+    pub fn send_message<T: Transaction, B: Block>(
         &self,
         net_sync: &mut NetSyncIo,
         node_index: NodeIndex,
@@ -234,13 +251,13 @@ impl<T: Transaction> Protocol<T> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use primitives::types;
+    use test_utils::MockProtocolHandler;
     use MockBlock;
 
-    impl<T: Transaction> Protocol<T> {
-        fn _on_message<B: Block>(&self, data: &[u8]) -> Message<T, B> {
+    impl<H: ProtocolHandler> Protocol<H> {
+        fn _on_message<T: Transaction, B: Block>(&self, data: &[u8]) -> Message<T, B> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data),
@@ -253,10 +270,18 @@ mod tests {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
         let message: Message<_, MockBlock> = Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
-        let callback = |_| Ok(());
-        let protocol = Protocol::new(config, callback);
+        let protocol = Protocol::new(config, MockProtocolHandler::default());
         let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
         assert_eq!(message, decoded);
     }
 
+    #[test]
+    fn test_on_transaction_message() {
+        let config = ProtocolConfig::default();
+        let protocol = Protocol::new(config, MockProtocolHandler::default());
+
+        let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
+        let message: MessageBody<_, MockBlock> = MessageBody::Transaction(tx);
+        protocol.on_transaction_message(&message);
+    }
 }

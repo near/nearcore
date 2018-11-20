@@ -2,6 +2,7 @@ use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 
 use client::Client;
 use primitives::types::TransactionBody;
+use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -11,15 +12,19 @@ build_rpc_trait! {
     }
 }
 
-impl TransactionApi for Client {
+pub struct RpcImpl {
+    pub client: Arc<Client>,
+}
+
+impl TransactionApi for RpcImpl {
     fn rpc_receive_transaction(&self, t: TransactionBody) -> JsonRpcResult<()> {
-        Ok(self.receive_transaction(&t))
+        Ok(self.client.receive_transaction(&t))
     }
 }
 
-pub fn get_handler(client: Client) -> IoHandler {
+pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
     let mut io = IoHandler::new();
-    io.extend_with(client.to_delegate());
+    io.extend_with(rpc_impl.to_delegate());
     io
 }
 
@@ -35,7 +40,10 @@ mod tests {
 
     #[test]
     fn test_call() {
-        let handler = get_handler(Client::default());
+        let rpc_impl = RpcImpl {
+            client: Arc::new(Client::default()),
+        };
+        let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
             nonce: 0,

@@ -3,4 +3,7 @@ name = "node-cli"
 version = "0.1.0"
 
 [dependencies]
+client = { path = "../client" }
+network = { path = "../network" }
+primitives = { path = "../../core/primitives" }
 service = { path = "../service" }

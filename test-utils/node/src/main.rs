@@ -3,7 +3,6 @@ extern crate futures;
 extern crate log;
 extern crate network;
 extern crate parking_lot;
-extern crate primitives;
 extern crate storage;
 extern crate tokio;
 #[macro_use]
@@ -12,7 +11,6 @@ extern crate clap;
 use clap::{App, Arg};
 use env_logger::Builder;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*, MockBlock};
-use primitives::types;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -57,8 +55,8 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let tx_callback = |_: types::SignedTransaction| Ok(());
-    let _ = Service::new::<MockBlock>(ProtocolConfig::default(), net_config, tx_callback)
+    let protocol_handler = MockProtocolHandler::default();
+    let _ = Service::new::<MockBlock>(ProtocolConfig::default(), net_config, protocol_handler)
         .unwrap_or_else(|e| {
             panic!("service failed to start: {:?}", e);
         });
