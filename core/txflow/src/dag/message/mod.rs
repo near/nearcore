@@ -467,8 +467,32 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;
 
+    struct FakeNonContinuousWitnessSelector {
+        num_users: u64,
+        users: HashSet<UID>,
+    }
+
     struct FakeWitnessSelector {
         schedule: HashMap<u64, HashSet<UID>>,
+    }
+
+    impl FakeNonContinuousWitnessSelector {
+        fn new(num_users:u64) -> Self {
+            let mut users = set!{0};
+            for i in 1..num_users {
+                users.insert(i);
+            }
+            Self { num_users, users }
+        }
+    }
+
+    impl WitnessSelector for FakeNonContinuousWitnessSelector {
+        fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<u64> {
+            &self.users
+        }
+        fn epoch_leader(&self, epoch: u64) -> u64 {
+            epoch % self.num_users
+        }
     }
 
     impl FakeWitnessSelector {
@@ -542,5 +566,22 @@ mod tests {
         assert!(root.computed_is_epoch_leader); // ... and it is an epoch leader ...
         assert!(!root.computed_is_representative); // ... but the prev repr is missing, so it is not a repr...
         assert!(root.computed_is_kickout); // ... but a kickout.
+    }
+
+    #[test]
+    fn generated_simple_test() {
+        /* The simplest test (one representative node from Alice, one non-representative from Bob) */
+        let arena = Arena::new();
+        let selector = FakeNonContinuousWitnessSelector::new(4);
+        let (v0,v1);
+        simple_messages!(0, &selector, arena [0, 0, true => v0;]);
+        simple_messages!(0, &selector, arena [1, 0, true => v1;]);
+
+        assert_eq!(v0.computed_epoch, 0);
+        assert_eq!(v0.computed_is_representative, true);
+        assert_eq!(v0.computed_is_kickout, false);
+        assert_eq!(v1.computed_epoch, 0);
+        assert_eq!(v1.computed_is_representative, false);
+        assert_eq!(v1.computed_is_kickout, false);
     }
 }
