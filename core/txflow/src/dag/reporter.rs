@@ -19,15 +19,15 @@ impl MisbehaviourReporter {
 
 /// TODO: Enumerate all violations and implement evidence to check that the
 /// misbehaviour really took place.
+#[derive(Debug)]
 pub enum ViolationType {
     BadEpoch {
         message: StructHash,
     },
 
-    SignatureNotFound,
+    InvalidSignature,
 
     ForkAttempt {
-        framed_participant: UID,
         message_0: StructHash,
         message_1: StructHash,
     },

@@ -43,6 +43,10 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
     }
 
+    fn find_fork(&mut self, message: &Message<'a, P>) -> Option<StructHash> {
+        None
+    }
+
     /// Verify that this message does not violate the protocol.
     fn verify_message(&mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
         // Check epoch
@@ -54,8 +58,18 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
             self.misbehaviour.report(mb);
         }
 
-        // TODO: Check signature
-        // TODO: Check not fork
+        let fork_message = self.find_fork(message);
+
+        if let Some(fork_message_hash) = fork_message {
+            let mb = ViolationType::ForkAttempt {
+                message_0: fork_message_hash,
+                message_1: message.computed_hash.clone()
+            };
+
+            self.misbehaviour.report(mb);
+        }
+
+        // TODO: Check correct signature
 
         Ok({})
     }
@@ -201,29 +215,28 @@ mod tests {
             assert_eq!(message.computed_epoch, message.data.body.epoch);
         }
 
-        // TODO: Check misbehaviour reporter is empty
+        assert_eq!(dag.misbehaviour.violations.len(), 0);
     }
 
     #[test]
-    #[ignore]
     fn notice_simple_fork() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag = DAG::new(0, 0, &selector);
 
-        let (a, b, c);
-        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0;] => 1, 1 => a;]);
-        simple_bare_messages!(data_arena, all_messages [[2, 0; 1, 0;] => 1, 1 => b;]);
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0;] => 3, 1;]);
+        simple_bare_messages!(data_arena, all_messages [[2, 0; 1, 0;] => 3, 1;]);
 
         for m in &all_messages {
             assert!(dag.add_existing_message((*m).clone()).is_ok());
         }
 
-        simple_bare_messages!(data_arena, all_messages [[=> a; => b;] => 3, 2 => c;]);
+        println!("Misbehaviours");
+        for reports in dag.misbehaviour.violations {
+            println!("{:?}", reports);
+        }
 
-        // TODO: Check report of fork
-        assert!(dag.add_existing_message((*c).clone()).is_ok());
     }
 
     #[test]
