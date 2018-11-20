@@ -170,7 +170,7 @@ var serialize = function() {
 }
 
 var deserialize = function() {
-    last_node_id = 0;
+    last_node_uid = 0;
     var s = JSON.parse(document.getElementById('serializer').value);
     console.log(s);
     graph = deserialize_txflow(s.s);
@@ -194,7 +194,7 @@ var gen_rust = function() {
     for (var i = 0; i < nodes.length; ++ i) {
         var_names.push("v" + nodes[i].uid);
     }
-    var s = "    #[test]\n    fn generated_" + document.getElementById('rust_fn_name').value + "() {\n" + indent + "/* " + document.getElementById('comment').value + " */\n" + indent + "let arena = Arena::new();\n" + indent + "let selector = FakeNonContinuousWitnessSelector::new(" + num_users + ");\n"
+    var s = "    #[test]\n    fn generated_" + document.getElementById('rust_fn_name').value + "() {\n" + indent + "/* " + document.getElementById('comment').value + " */\n\n" + indent + "/* " + document.getElementById('serializer').value + " */\n"  + indent + "let arena = Arena::new();\n" + indent + "let selector = FakeNonContinuousWitnessSelector::new(" + num_users + ");\n"
     if (var_names.length > 1) {
         s += indent + "let (" + var_names.join(',') + ");\n";
     }
