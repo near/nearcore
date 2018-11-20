@@ -1,4 +1,5 @@
 mod message;
+mod reporter;
 
 use primitives::types::*;
 use primitives::traits::{WitnessSelector, Payload};
@@ -6,6 +7,7 @@ use primitives::traits::{WitnessSelector, Payload};
 use std::collections::HashSet;
 
 use self::message::Message;
+use self::reporter::{MisbehaviourReporter, ViolationType};
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
@@ -24,6 +26,8 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 
     witness_selector: &'a W,
     starting_epoch: u64,
+
+    misbehaviour: MisbehaviourReporter
 }
 
 impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
@@ -35,6 +39,7 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
             roots: HashSet::new(),
             witness_selector,
             starting_epoch,
+            misbehaviour: MisbehaviourReporter::new(),
         }
     }
 
