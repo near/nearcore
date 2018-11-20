@@ -69,7 +69,7 @@ pub struct MockBlock {}
 
 impl Header for MockBlockHeader {
     fn hash(&self) -> CryptoHash {
-        CryptoHash { 0: [0; 32] }
+        CryptoHash::default()
     }
 
     fn number(&self) -> u64 {
@@ -93,7 +93,7 @@ impl Block for MockBlock {
         MockBlock {}
     }
     fn hash(&self) -> CryptoHash {
-        CryptoHash { 0: [0; 32] }
+        CryptoHash::default()
     }
 }
 
@@ -107,13 +107,13 @@ impl Client<MockBlock> for MockClient {
         Ok(MockBlockHeader {})
     }
     fn best_hash(&self) -> CryptoHash {
-        CryptoHash { 0: [0; 32] }
+        CryptoHash::default()
     }
     fn best_number(&self) -> u64 {
         0
     }
     fn genesis_hash(&self) -> CryptoHash {
-        CryptoHash { 0: [0; 32] }
+        CryptoHash::default()
     }
     fn import_blocks(&self, blocks: Vec<MockBlock>) {}
 }
