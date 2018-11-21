@@ -4,23 +4,16 @@ use std::fs;
 extern crate wasm;
 
 use wasm::executor;
-use wasm::ext::{Externalities, Result};
+use wasm::ext::{External, Result};
 use wasm::types::Config;
 
+#[derive(Default)]
 struct MyExt {
     storage: HashMap<Vec<u8>, Vec<u8>>,
 }
 
-impl MyExt {
-    pub fn new() -> MyExt {
-        MyExt {
-            storage: HashMap::new(),
-        }
-    }
-}
-
-impl Externalities for MyExt {
-    fn storage_put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+impl External for MyExt {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
         self.storage.insert(Vec::from(key), Vec::from(value));
         Ok(())
@@ -46,7 +39,7 @@ fn main() {
 
     let input_data = [0u8; 0];
     let mut output_data = Vec::new();
-    let mut ext = MyExt::new();
+    let mut ext = MyExt::default();
     let config = Config::default();
 
     let result = executor::execute(

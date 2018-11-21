@@ -1,4 +1,4 @@
-use ext::Externalities;
+use ext::External;
 
 use memory::Memory;
 use wasmi::{self, Error as WasmiError, RuntimeArgs, RuntimeValue, Trap, TrapKind};
@@ -114,7 +114,7 @@ impl ::std::fmt::Display for Error {
 type Result<T> = ::std::result::Result<T, Error>;
 
 pub struct Runtime<'a> {
-    ext: &'a mut Externalities,
+    ext: &'a mut External,
     _context: RuntimeContext,
     memory: Memory,
     gas_counter: u64,
@@ -123,7 +123,7 @@ pub struct Runtime<'a> {
 
 impl<'a> Runtime<'a> {
     pub fn new(
-        ext: &mut Externalities,
+        ext: &mut External,
         context: RuntimeContext,
         memory: Memory,
         gas_limit: u64,
@@ -207,7 +207,7 @@ impl<'a> Runtime<'a> {
         // TODO: Charge gas for storage
 
         self.ext
-            .storage_put(&key, &val)
+            .storage_set(&key, &val)
             .map_err(|_| Error::StorageUpdateError)?;
         Ok(())
     }
