@@ -24,7 +24,7 @@ pub struct Client {
     state_db: RwLock<StateDb>,
     runtime: Runtime,
     last_root: RwLock<MerkleHash>,
-    beacon_chain: RwLock<Blockchain<BeaconBlock>>,
+    beacon_chain: Blockchain<BeaconBlock>,
     // transaction pool (put here temporarily)
     tx_pool: RwLock<Vec<SignedTransaction>>,
 }
@@ -44,7 +44,7 @@ impl Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
-            beacon_chain: RwLock::new(Blockchain::new(chain_config, genesis, storage)),
+            beacon_chain: Blockchain::new(chain_config, genesis, storage),
             tx_pool: RwLock::new(vec![]),
         }
     }
@@ -69,39 +69,38 @@ impl Client {
 
 impl network::client::Client<BeaconBlock, SignedTransaction> for Client {
     fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
-        self.beacon_chain.read().get_block(id)
+        self.beacon_chain.get_block(id)
     }
     fn get_header(&self, id: &BlockId) -> Option<BeaconBlockHeader> {
-        self.beacon_chain.read().get_header(id)
+        self.beacon_chain.get_header(id)
     }
     fn best_hash(&self) -> CryptoHash {
-        let best_block = self.beacon_chain.read().best_block();
+        let best_block = self.beacon_chain.best_block();
         best_block.hash()
     }
     fn best_index(&self) -> u64 {
-        let best_block = self.beacon_chain.read().best_block();
+        let best_block = self.beacon_chain.best_block();
         best_block.header().index
     }
     fn genesis_hash(&self) -> CryptoHash {
-        self.beacon_chain.read().genesis_hash
+        self.beacon_chain.genesis_hash
     }
     fn import_blocks(&self, blocks: Vec<BeaconBlock>) {
-        let mut beacon_chain = self.beacon_chain.write();
         for block in blocks {
-            beacon_chain.insert_block(block);
+            self.beacon_chain.insert_block(block);
         }
     }
     fn prod_block(&self) -> BeaconBlock {
         // TODO: compute actual merkle root and state, as well as signature, and
         // use some reasonable fork-choice rule
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
-        let header = BeaconBlockHeader {
-            prev_hash: self.beacon_chain.read().best_hash,
-            merkle_root_tx: CryptoHash::default(),
-            merkle_root_state: CryptoHash::default(),
-            signature: BLSSignature::default(),
-            index: self.beacon_chain.read().best_number,
-        };
-        BeaconBlock::new(header, transactions)
+        let parent_hash = self.best_hash();
+        let index = self.best_index();
+        BeaconBlock::new(
+            index + 1,
+            parent_hash,
+            BLSSignature::default(),
+            transactions,
+        )
     }
 }

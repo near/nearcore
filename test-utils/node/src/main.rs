@@ -65,7 +65,7 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let storage = storage::Storage::new(&format!("storage/db-{}/", port));
+    let storage = Arc::new(storage::DiskStorage::new(&format!("storage/db-{}/", port)));
     let client = Arc::new(Client::new(storage));
     let protocol_config = if is_root {
         ProtocolConfig::new_with_default_id(special_secret())
