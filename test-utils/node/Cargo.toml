@@ -21,3 +21,4 @@ network = { path = "../../node/network", features = ["test-utils"] }
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 client = { path = "../../node/client" }
+service = { path = "../../node/service" }

@@ -283,7 +283,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
                 self.on_block_response(net_sync, peer, response)
             }
             MessageBody::BlockAnnounce(h) => {
-                trace!(target: "sync", "receive block header: {:?}", h);
+                debug!(target: "sync", "receive block header: {:?}", h);
                 // header is actually block for now
                 self.client.import_blocks(vec![h.header]);
             }
@@ -331,10 +331,10 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
     /// produce blocks
     /// some super fake logic: if the node has a specific key,
     /// then it produces and broadcasts the block
-    pub fn prod_block(&self, net_sync: &mut NetSyncIo, transactions: Vec<T>) {
+    pub fn prod_block(&self, net_sync: &mut NetSyncIo) {
         let special_secret = test_utils::special_secret();
         if special_secret == self.config.secret {
-            let block = self.client.prod_block(transactions);
+            let block = self.client.prod_block();
             let block_announce = message::BlockAnnounce {
                 // for now we send the entire block
                 header: block.clone(),

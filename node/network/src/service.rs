@@ -107,7 +107,7 @@ where
         .for_each({
             move |_| {
                 let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
-                protocol.prod_block(&mut net_sync, vec![]);
+                protocol.prod_block(&mut net_sync);
                 Ok(())
             }
         }).then(|res| {
