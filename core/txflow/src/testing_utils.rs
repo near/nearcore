@@ -10,6 +10,8 @@ impl Payload for FakePayload {
         Ok(())
     }
     fn union_update(&mut self, other: Self) { }
+    fn is_empty(&self) -> bool {true}
+    fn new() -> Self {Self{}}
 }
 
 pub fn simple_bare_message(owner_uid: UID, epoch: u64,

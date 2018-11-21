@@ -12,6 +12,8 @@ impl Payload for FakePayload {
         Ok(())
     }
     fn union_update(&mut self, other: Self) { }
+    fn is_empty(&self) -> bool { false }
+    fn new() -> Self { Self { } }
 }
 
 pub fn simple_message<'a, W>(owner_uid: UID, epoch: u64, parents: Vec<&'a Message<'a, FakePayload>>,

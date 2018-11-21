@@ -54,6 +54,9 @@ pub trait Payload: Hash + Clone + Send + 'static {
     fn verify(&self) -> GenericResult;
     // Merge content from another payload into this one.
     fn union_update(&mut self, other: Self);
+    fn is_empty(&self) -> bool;
+    // Creates empty payload.
+    fn new() -> Self;
 }
 
 pub trait TxFlow<P: Payload>{

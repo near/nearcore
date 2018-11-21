@@ -97,6 +97,10 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
     }
 
+    pub fn has_dangling_roots(&self) -> bool {
+        self.roots.len() > 1
+    }
+
     pub fn contains_message(&self, hash: &StructHash) -> bool {
         self.messages.contains(hash)
     }
