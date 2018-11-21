@@ -23,13 +23,13 @@ use primitives::traits::Block;
 use rpc::api::RpcImpl;
 use std::sync::Arc;
 
-pub fn run_service<B: Block, T: Transaction, H: ProtocolHandler>(
+pub fn run_service<B: Block, T: Transaction, H: ProtocolHandler<T>>(
     client: Arc<Client>,
-    network: &NetworkService<B, H, T>,
+    network: &NetworkService<B, T, H>,
 ) {
     init_logger(true);
     let network_task =
-        generate_service_task::<B, H, T>(network.network.clone(), network.protocol.clone());
+        generate_service_task::<B, T, H>(network.network.clone(), network.protocol.clone());
 
     let rpc_impl = RpcImpl { client };
     let rpc_handler = rpc::api::get_handler(rpc_impl);

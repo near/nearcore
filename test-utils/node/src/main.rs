@@ -73,7 +73,7 @@ pub fn main() {
         MockProtocolHandler::default(),
         client.clone(),
     ).unwrap();
-    let task = generate_service_task::<_, MockProtocolHandler, SignedTransaction>(
+    let task = generate_service_task::<_, SignedTransaction, MockProtocolHandler>(
         service.network.clone(),
         service.protocol.clone(),
     );

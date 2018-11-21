@@ -77,7 +77,7 @@ pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'sta
 impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
 
 #[allow(dead_code)]
-pub struct Protocol<B: Block, H: ProtocolHandler, T: Transaction> {
+pub struct Protocol<B: Block, T: Transaction, H: ProtocolHandler<T>> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     // peers that are in the handshaking process
@@ -90,12 +90,12 @@ pub struct Protocol<B: Block, H: ProtocolHandler, T: Transaction> {
     handler: Option<Box<H>>,
 }
 
-pub trait ProtocolHandler: Send + Sync + 'static {
-    fn handle_transaction<T: Transaction>(&self, transaction: &T) -> GenericResult;
+pub trait ProtocolHandler<T>: Send + Sync + 'static {
+    fn handle_transaction(&self, transaction: T) -> GenericResult;
 }
 
-impl<B: Block, H: ProtocolHandler, T: Transaction> Protocol<B, H, T> {
-    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B, T>>) -> Protocol<B, H, T> {
+impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
+    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B, T>>) -> Protocol<B, T, H> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
@@ -127,7 +127,7 @@ impl<B: Block, H: ProtocolHandler, T: Transaction> Protocol<B, H, T> {
         seq::sample_iter(&mut rng, owned_peers, num_to_sample)
     }
 
-    pub fn on_transaction_message(&self, tx: &T) {
+    pub fn on_transaction_message(&self, tx: T) {
         //TODO: communicate to consensus
         self.handler
             .as_ref()
@@ -250,7 +250,7 @@ impl<B: Block, H: ProtocolHandler, T: Transaction> Protocol<B, H, T> {
             }
         };
         match message.body {
-            MessageBody::Transaction(tx) => self.on_transaction_message(&tx),
+            MessageBody::Transaction(tx) => self.on_transaction_message(tx),
             MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
             MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, request),
             MessageBody::BlockResponse(response) => {
@@ -356,7 +356,7 @@ mod tests {
     use primitives::types;
     use test_utils::*;
 
-    impl<B: Block, H: ProtocolHandler, T: Transaction> Protocol<B, H, T> {
+    impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         fn _on_message(&self, data: &[u8]) -> Message<T, B, B::Header> {
             match Decode::decode(data) {
                 Some(m) => m,
@@ -384,6 +384,6 @@ mod tests {
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
 
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
-        protocol.on_transaction_message(&tx);
+        protocol.on_transaction_message(tx);
     }
 }

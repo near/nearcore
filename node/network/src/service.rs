@@ -18,18 +18,18 @@ use tokio::timer::Interval;
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 const BLOCK_PROD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub struct Service<B: Block, H: ProtocolHandler, T: Transaction> {
+pub struct Service<B: Block, T: Transaction, H: ProtocolHandler<T>> {
     pub network: Arc<Mutex<NetworkService>>,
-    pub protocol: Arc<Protocol<B, H, T>>,
+    pub protocol: Arc<Protocol<B, T, H>>,
 }
 
-impl<B: Block, H: ProtocolHandler, T: Transaction> Service<B, H, T> {
+impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Service<B, T, H> {
     pub fn new(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
         client: Arc<Client<B, T>>,
-    ) -> Result<Service<B, H, T>, Error> {
+    ) -> Result<Service<B, T, H>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, handler, client));
@@ -44,14 +44,14 @@ impl<B: Block, H: ProtocolHandler, T: Transaction> Service<B, H, T> {
     }
 }
 
-pub fn generate_service_task<B, H, T>(
+pub fn generate_service_task<B, T, H>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<B, H, T>>,
+    protocol: Arc<Protocol<B, T, H>>,
 ) -> impl Future<Item = (), Error = ()>
 where
     B: Block,
-    H: ProtocolHandler,
     T: Transaction,
+    H: ProtocolHandler<T>,
 {
     // Interval for performing maintenance on the protocol handler.
     let timer = Interval::new_interval(TICK_TIMEOUT)
@@ -147,7 +147,7 @@ mod tests {
         let services = create_test_services(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         for service in services.iter() {
-            let task = generate_service_task::<MockBlock, MockProtocolHandler, SignedTransaction>(
+            let task = generate_service_task::<MockBlock, SignedTransaction, MockProtocolHandler>(
                 service.network.clone(),
                 service.protocol.clone(),
             );

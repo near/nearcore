@@ -4,10 +4,11 @@ extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
+#[macro_use]
+extern crate log;
 
 use beacon::chain::{Blockchain, ChainConfig};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use network::protocol::Transaction;
 use node_runtime::Runtime;
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
@@ -24,6 +25,8 @@ pub struct Client {
     runtime: Runtime,
     last_root: RwLock<MerkleHash>,
     beacon_chain: RwLock<Blockchain<BeaconBlock>>,
+    // transaction pool (put here temporarily)
+    tx_pool: RwLock<Vec<SignedTransaction>>,
 }
 
 impl Client {
@@ -42,17 +45,21 @@ impl Client {
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
             beacon_chain: RwLock::new(Blockchain::new(chain_config, genesis, storage)),
+            tx_pool: RwLock::new(vec![]),
         }
     }
 
     pub fn receive_transaction(&self, t: SignedTransaction) {
-        println!("{:?}", t);
-        // TODO: Put into the non-existent pool or TxFlow?
+        debug!(target: "client", "receive transaction {:?}", t);
+        // TODO: have some real logic here
         let mut state_db = self.state_db.write();
-        let (_, new_root) = self
+        let (mut filtered_tx, new_root) = self
             .runtime
             .apply(&mut state_db, &self.last_root.read(), vec![t]);
         *self.last_root.write() = new_root;
+        if filtered_tx.len() > 0 {
+            self.tx_pool.write().push(filtered_tx.remove(0));
+        }
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
@@ -61,8 +68,9 @@ impl Client {
             .view(&mut state_db, &self.last_root.read(), view_call)
     }
 
-    pub fn handle_signed_transaction<T: Transaction>(&self, t: &T) -> GenericResult {
-        println!("{:?}", t);
+    pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {
+        debug!(target: "client", "handle transaction {:?}", t);
+        self.tx_pool.write().push(t);
         Ok(())
     }
 }
@@ -91,7 +99,12 @@ impl network::client::Client<BeaconBlock, SignedTransaction> for Client {
             beacon_chain.insert_block(block);
         }
     }
+    /// We do not remove the transaction variable for now 
+    /// due to the need to change type parameter in client, protocol, service, etc
+    /// if we do so. Will need to clean this up when we stabilize the interface
+    #[allow(unused)]
     fn prod_block(&self, transactions: Vec<SignedTransaction>) -> BeaconBlock {
+        let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
         BeaconBlock::new(BeaconBlockHeader::default(), transactions)
     }
 }
