@@ -8,7 +8,7 @@ use std::sync::Arc;
 use storage::Storage;
 use types::{BeaconBlock, BeaconBlockHeader};
 
-const BEACON_CHAIN_BEST_BLOCK: &[u8] = b"beacon_best";
+const BEACON_CHAIN_BEST_BLOCK: &[u8] = b"best";
 
 pub struct BeaconChain {
     /// Storage backend.
@@ -18,11 +18,11 @@ pub struct BeaconChain {
     /// Tip of the known chain.
     best_block: RwLock<BeaconBlock>,
     /// Headers indexed by hash
-    headers: RwLock<HashMap<CryptoHash, BeaconBlockHeader>>,
+    headers: RwLock<HashMap<Vec<u8>, BeaconBlockHeader>>,
     /// Blocks indexed by hash
-    hash_to_blocks: RwLock<HashMap<CryptoHash, BeaconBlock>>,
+    blocks: RwLock<HashMap<Vec<u8>, BeaconBlock>>,
     /// Block index to hash map.
-    index_to_hash: RwLock<HashMap<u64, CryptoHash>>,
+    index_to_hash: RwLock<HashMap<Vec<u8>, CryptoHash>>,
     // TODO: state?
 }
 
@@ -34,6 +34,39 @@ fn index_to_bytes(index: u64) -> Vec<u8> {
     bytes
 }
 
+fn write_with_cache<T: Clone + Encode>(
+    storage: &Arc<Storage>,
+    col: u32,
+    cache: &RwLock<HashMap<Vec<u8>, T>>,
+    key: &[u8],
+    value: &T,
+) {
+    let data = Encode::encode(value).expect("Error serializing data");
+    cache.write().insert(key.to_vec(), value.clone());
+    storage.set(col, key, &data);
+}
+
+fn read_with_cache<T: Clone + Decode>(
+    storage: &Arc<Storage>,
+    col: u32,
+    cache: &RwLock<HashMap<Vec<u8>, T>>,
+    key: &[u8],
+) -> Option<T> {
+    {
+        let read = cache.read();
+        if let Some(v) = read.get(key) {
+            return Some(v.clone());
+        }
+    }
+
+    // TODO: use columns here.
+    Decode::decode(&storage.get(col, key)?).map(|value: T| {
+        let mut write = cache.write();
+        write.insert(key.to_vec(), value.clone());
+        value
+    })
+}
+
 impl BeaconChain {
     pub fn new(genesis: BeaconBlock, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.hash();
@@ -42,12 +75,15 @@ impl BeaconChain {
             genesis_hash,
             best_block: RwLock::new(genesis.clone()),
             headers: RwLock::new(HashMap::new()),
-            hash_to_blocks: RwLock::new(HashMap::new()),
+            blocks: RwLock::new(HashMap::new()),
             index_to_hash: RwLock::new(HashMap::new()),
         };
 
         // Load best block hash from storage.
-        let best_block_hash = match bc.storage.get(BEACON_CHAIN_BEST_BLOCK) {
+        let best_block_hash = match bc
+            .storage
+            .get(storage::COL_BEACON_BEST_BLOCK, BEACON_CHAIN_BEST_BLOCK)
+        {
             Some(best_hash) => CryptoHash::new(&best_hash),
             _ => {
                 // Insert genesis block into cache.
@@ -73,7 +109,9 @@ impl BeaconChain {
 
     /// Check if block already is known.
     pub fn is_known(&self, hash: &CryptoHash) -> bool {
-        self.hash_to_blocks.read().contains_key(hash) || self.storage.exists(hash.as_ref())
+        self.headers.read().contains_key(hash.as_ref()) || self
+            .storage
+            .exists(storage::COL_BEACON_HEADERS, hash.as_ref())
     }
 
     /// Inserts a verified block.
@@ -85,25 +123,46 @@ impl BeaconChain {
         }
 
         // Store block in db.
-        let block_bytes = Encode::encode(&block).expect("Error serializing block");
-        //        let block_header_bytes =
-        //            Encode::encode(&block.header()).expect("Error serializing block header");
-        self.storage.set(block_hash.as_ref(), &block_bytes);
-        // TODO: use different column.
-        //        self.storage.set(block_hash.as_ref(), &block_header_bytes);
-        self.storage
-            .set(&index_to_bytes(block.header.index), block_hash.as_ref());
-
-        // Insert into cache.
-        self.hash_to_blocks
-            .write()
-            .insert(block_hash, block.clone());
-        self.headers
-            .write()
-            .insert(block_hash, block.header.clone());
-        self.index_to_hash
-            .write()
-            .insert(block.header.index, block_hash);
+        write_with_cache(
+            &self.storage,
+            storage::COL_BEACON_BLOCKS,
+            &self.blocks,
+            block_hash.as_ref(),
+            &block,
+        );
+        write_with_cache(
+            &self.storage,
+            storage::COL_BEACON_HEADERS,
+            &self.headers,
+            block_hash.as_ref(),
+            &block.header,
+        );
+        write_with_cache(
+            &self.storage,
+            storage::COL_BEACON_INDEX,
+            &self.index_to_hash,
+            &index_to_bytes(block.header.index),
+            &block_hash,
+        );
+        //        let block_bytes = Encode::encode(&block).expect("Error serializing block");
+        //        //        let block_header_bytes =
+        //        //            Encode::encode(&block.header()).expect("Error serializing block header");
+        //        self.storage.set(block_hash.as_ref(), &block_bytes);
+        //        // TODO: use different column.
+        //        //        self.storage.set(block_hash.as_ref(), &block_header_bytes);
+        //        self.storage
+        //            .set(&index_to_bytes(block.header.index), block_hash.as_ref());
+        //
+        //        // Insert into cache.
+        //        self.hash_to_blocks
+        //            .write()
+        //            .insert(block_hash, block.clone());
+        //        self.headers
+        //            .write()
+        //            .insert(block_hash.as_ref().to_vec(), block.header.clone());
+        //        self.index_to_hash
+        //            .write()
+        //            .insert(block.header.index, block_hash);
 
         let maybe_parent = self.get_header(&BlockId::Hash(block.header.prev_hash));
         if let Some(_parent_details) = maybe_parent {
@@ -111,8 +170,11 @@ impl BeaconChain {
             if block.header.index > self.best_block.read().header.index {
                 let mut best_block = self.best_block.write();
                 *best_block = block;
-                self.storage
-                    .set(BEACON_CHAIN_BEST_BLOCK, block_hash.as_ref());
+                self.storage.set(
+                    storage::COL_BEACON_BEST_BLOCK,
+                    BEACON_CHAIN_BEST_BLOCK,
+                    block_hash.as_ref(),
+                );
             }
             false
         } else {
@@ -121,57 +183,45 @@ impl BeaconChain {
     }
 
     fn get_block_hash_by_index(&self, index: u64) -> Option<CryptoHash> {
-        match self.index_to_hash.read().get(&index) {
-            Some(value) => Some(*value),
-            None => match self.storage.get(&index_to_bytes(index)) {
-                Some(value) => Some(CryptoHash::new(&value)),
-                _ => None,
-            },
-        }
+        read_with_cache(
+            &self.storage,
+            storage::COL_BEACON_INDEX,
+            &self.index_to_hash,
+            &index_to_bytes(index),
+        )
     }
 
     fn get_block_by_hash(&self, block_hash: &CryptoHash) -> Option<BeaconBlock> {
-        {
-            let hash_to_blocks = self.hash_to_blocks.read();
-            if let Some(value) = hash_to_blocks.get(block_hash) {
-                return Some(value.clone());
-            }
-        }
-
-        match self.storage.get(block_hash.as_ref()) {
-            Some(value) => {
-                let r: Option<BeaconBlock> = Decode::decode(&value);
-                match r {
-                    Some(block) => {
-                        let result = Some(block.clone());
-                        self.hash_to_blocks.write().insert(*block_hash, block);
-                        result
-                    }
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
+        read_with_cache(
+            &self.storage,
+            storage::COL_BEACON_BLOCKS,
+            &self.blocks,
+            block_hash.as_ref(),
+        )
     }
 
     pub fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
         match id {
-            BlockId::Number(num) => match self.get_block_hash_by_index(*num) {
-                Some(hash) => self.get_block_by_hash(&hash),
-                _ => None,
-            },
+            BlockId::Number(num) => self.get_block_by_hash(&self.get_block_hash_by_index(*num)?),
             BlockId::Hash(hash) => self.get_block_by_hash(hash),
         }
     }
 
+    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<BeaconBlockHeader> {
+        read_with_cache(
+            &self.storage,
+            storage::COL_BEACON_HEADERS,
+            &self.headers,
+            block_hash.as_ref(),
+        )
+    }
+
     pub fn get_header(&self, id: &BlockId) -> Option<BeaconBlockHeader> {
-        let headers = self.headers.read();
         match id {
-            BlockId::Number(_num) => None,
-            BlockId::Hash(hash) => match headers.get(hash) {
-                Some(value) => Some(value.clone()),
-                _ => None,
-            },
+            BlockId::Number(num) => {
+                self.get_block_header_by_hash(&self.get_block_hash_by_index(*num)?)
+            }
+            BlockId::Hash(hash) => self.get_block_header_by_hash(hash),
         }
     }
 }
