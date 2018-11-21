@@ -5,6 +5,10 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
 futures = "0.1"
-primitives = { path = "../primitives" }
 serde = "1.0"
 serde_derive = "1.0"
+byteorder = "1.2"
+parking_lot = "0.4"
+
+primitives = { path = "../primitives" }
+storage = { path = "../storage" }

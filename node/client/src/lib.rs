@@ -11,8 +11,10 @@ use network::protocol::Transaction;
 use node_runtime::Runtime;
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
-use primitives::traits::GenericResult;
-use primitives::types::{BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::traits::{Block, GenericResult};
+use primitives::types::{
+    BLSSignature, BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
+};
 use std::sync::Arc;
 use storage::{StateDb, Storage};
 
@@ -28,12 +30,12 @@ impl Client {
     pub fn new(storage: &Arc<Storage>) -> Self {
         let state_db = StateDb::new(&storage.clone());
         let state_view = state_db.get_state_view();
-        let genesis_hash = CryptoHash::default();
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
         Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
-            beacon_chain: RwLock::new(BeaconChain::new(genesis_hash)),
+            beacon_chain: RwLock::new(BeaconChain::new(genesis, storage.clone())),
         }
     }
 
@@ -61,16 +63,18 @@ impl Client {
 
 impl network::client::Client<BeaconBlock> for Client {
     fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
-        self.beacon_chain.read().get_block(id).cloned()
+        self.beacon_chain.read().get_block(id)
     }
     fn get_header(&self, id: &BlockId) -> Option<BeaconBlockHeader> {
-        self.beacon_chain.read().get_header(id).cloned()
+        self.beacon_chain.read().get_header(id)
     }
     fn best_hash(&self) -> CryptoHash {
-        self.beacon_chain.read().best_hash
+        let best_block = self.beacon_chain.read().best_block();
+        best_block.hash()
     }
     fn best_number(&self) -> u64 {
-        self.beacon_chain.read().best_number
+        let best_block = self.beacon_chain.read().best_block();
+        best_block.header().index
     }
     fn genesis_hash(&self) -> CryptoHash {
         self.beacon_chain.read().genesis_hash
@@ -78,7 +82,7 @@ impl network::client::Client<BeaconBlock> for Client {
     fn import_blocks(&self, blocks: Vec<BeaconBlock>) {
         let mut beacon_chain = self.beacon_chain.write();
         for block in blocks {
-            beacon_chain.add_block(block);
+            beacon_chain.insert_block(block);
         }
     }
 }

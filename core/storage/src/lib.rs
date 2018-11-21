@@ -79,11 +79,14 @@ impl<'a> StateDbUpdate<'a> {
 pub trait Storage: Send + Sync {
     fn set(&self, key: &[u8], value: &[u8]);
     fn get(&self, key: &[u8]) -> Option<DBValue>;
+    fn exists(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
 }
 
 #[derive(Default)]
 pub struct MemoryStorage {
-    db: RwLock<HashMap<Vec<u8>, DBValue>>,
+    pub db: RwLock<HashMap<Vec<u8>, DBValue>>,
 }
 
 impl Storage for MemoryStorage {

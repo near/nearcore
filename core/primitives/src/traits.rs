@@ -30,7 +30,7 @@ where
     T: DeserializeOwned,
 {
     fn decode(data: &[u8]) -> Option<Self> {
-        bincode::deserialize(data).ok()
+        Some(bincode::deserialize(data).expect("Serialize")) //.ok()
     }
 }
 
