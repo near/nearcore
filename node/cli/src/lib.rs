@@ -19,7 +19,7 @@ use storage::{DiskStorage, Storage};
 pub fn run() {
     // TODO: add argument parsing into service/config.rs.
     let storage: Arc<Storage> = Arc::new(DiskStorage::new("storage/db/"));
-    let client = Arc::new(Client::new(&storage.clone()));
+    let client = Arc::new(Client::new(storage));
     let network_handler = NetworkHandler {
         client: client.clone(),
     };
