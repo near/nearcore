@@ -21,7 +21,7 @@ pub struct BeaconChain {
     headers: RwLock<HashMap<Vec<u8>, BeaconBlockHeader>>,
     /// Blocks indexed by hash
     blocks: RwLock<HashMap<Vec<u8>, BeaconBlock>>,
-    /// Block index to hash map.
+    /// Maps block index to hash.
     index_to_hash: RwLock<HashMap<Vec<u8>, CryptoHash>>,
     // TODO: state?
 }
@@ -144,25 +144,6 @@ impl BeaconChain {
             &index_to_bytes(block.header.index),
             &block_hash,
         );
-        //        let block_bytes = Encode::encode(&block).expect("Error serializing block");
-        //        //        let block_header_bytes =
-        //        //            Encode::encode(&block.header()).expect("Error serializing block header");
-        //        self.storage.set(block_hash.as_ref(), &block_bytes);
-        //        // TODO: use different column.
-        //        //        self.storage.set(block_hash.as_ref(), &block_header_bytes);
-        //        self.storage
-        //            .set(&index_to_bytes(block.header.index), block_hash.as_ref());
-        //
-        //        // Insert into cache.
-        //        self.hash_to_blocks
-        //            .write()
-        //            .insert(block_hash, block.clone());
-        //        self.headers
-        //            .write()
-        //            .insert(block_hash.as_ref().to_vec(), block.header.clone());
-        //        self.index_to_hash
-        //            .write()
-        //            .insert(block.header.index, block_hash);
 
         let maybe_parent = self.get_header(&BlockId::Hash(block.header.prev_hash));
         if let Some(_parent_details) = maybe_parent {
