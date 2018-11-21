@@ -1,25 +1,25 @@
 use primitives::hash::CryptoHash;
-use primitives::traits::Block;
 use primitives::types::BlockId;
 
 pub type RequestId = u64;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum MessageBody<T, B> {
+pub enum MessageBody<T, B, H> {
     //TODO: add different types of messages here
     Transaction(T),
     Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),
+    BlockAnnounce(BlockAnnounce<H>),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Message<T, B> {
-    pub body: MessageBody<T, B>,
+pub struct Message<T, B, H> {
+    pub body: MessageBody<T, B, H>,
 }
 
-impl<T, B: Block> Message<T, B> {
-    pub fn new(body: MessageBody<T, B>) -> Message<T, B> {
+impl<T, B, H> Message<T, B, H> {
+    pub fn new(body: MessageBody<T, B, H>) -> Message<T, B, H> {
         Message { body }
     }
 }
@@ -66,4 +66,10 @@ pub struct BlockResponse<Block> {
     pub id: RequestId,
     // block data
     pub blocks: Vec<Block>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlockAnnounce<H> {
+    // New block header
+    pub header: H,
 }

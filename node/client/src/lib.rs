@@ -67,7 +67,7 @@ impl Client {
     }
 }
 
-impl network::client::Client<BeaconBlock> for Client {
+impl network::client::Client<BeaconBlock, SignedTransaction> for Client {
     fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
         self.beacon_chain.read().get_block(id)
     }
@@ -90,5 +90,8 @@ impl network::client::Client<BeaconBlock> for Client {
         for block in blocks {
             beacon_chain.insert_block(block);
         }
+    }
+    fn prod_block(&self, transactions: Vec<SignedTransaction>) -> BeaconBlock {
+        BeaconBlock::new(BeaconBlockHeader::default(), transactions)
     }
 }

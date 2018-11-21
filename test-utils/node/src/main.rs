@@ -7,9 +7,11 @@ extern crate storage;
 extern crate tokio;
 #[macro_use]
 extern crate clap;
+extern crate client;
 extern crate primitives;
 
 use clap::{App, Arg};
+use client::Client;
 use env_logger::Builder;
 use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
@@ -23,6 +25,7 @@ fn create_addr(host: &str, port: &str) -> String {
 pub fn main() {
     let mut builder = Builder::new();
     builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
+    builder.filter(Some("sync"), log::LevelFilter::Debug);
     builder.filter(Some("main"), log::LevelFilter::Debug);
     builder.filter(None, log::LevelFilter::Info);
     builder.init();
@@ -51,20 +54,26 @@ pub fn main() {
     let addr = create_addr(host, port);
     let root_addr = create_addr(host, root_port);
     let net_config = if is_root {
-        test_config_with_secret(&addr, vec![], create_secret())
+        test_config_with_secret(&addr, vec![], special_secret())
     } else {
-        let boot_node = root_addr + "/p2p/" + &raw_key_to_peer_id_str(create_secret());
+        let boot_node = root_addr + "/p2p/" + &raw_key_to_peer_id_str(special_secret());
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let client = Arc::new(MockClient::default());
+    let storage = storage::Storage::new(&format!("storage/db-{}/", port));
+    let client = Arc::new(Client::new(storage));
+    let protocol_config = if is_root {
+        ProtocolConfig::new_with_default_id(special_secret())
+    } else {
+        ProtocolConfig::default()
+    };
     let service = Service::new(
-        ProtocolConfig::default(),
+        protocol_config,
         net_config,
         MockProtocolHandler::default(),
         client.clone(),
     ).unwrap();
-    let task = generate_service_task::<MockBlock, SignedTransaction, MockProtocolHandler>(
+    let task = generate_service_task::<_, MockProtocolHandler, SignedTransaction>(
         service.network.clone(),
         service.protocol.clone(),
     );

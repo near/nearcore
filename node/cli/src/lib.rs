@@ -8,8 +8,6 @@ use client::Client;
 use network::protocol::ProtocolConfig;
 use network::service::NetworkConfiguration;
 use network::service::Service as NetworkService;
-use network::test_utils::MockBlock;
-use network::test_utils::MockClient;
 use primitives::types::SignedTransaction;
 use service::network_handler::NetworkHandler;
 use service::run_service;
@@ -23,12 +21,11 @@ pub fn run() {
     let network_handler = NetworkHandler {
         client: client.clone(),
     };
-    let network_client = Arc::new(MockClient::default());
     let network = NetworkService::new(
         ProtocolConfig::default(),
         NetworkConfiguration::default(),
         network_handler,
-        network_client,
+        client.clone(),
     ).unwrap();
-    run_service::<MockBlock, SignedTransaction, NetworkHandler>(client.clone(), &network);
+    run_service::<_, SignedTransaction, _>(client.clone(), &network);
 }
