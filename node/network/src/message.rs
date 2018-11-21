@@ -10,7 +10,7 @@ pub enum MessageBody<T, B, H> {
     Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),
-    BlockAnnounce(BlockAnnounce<H>),
+    BlockAnnounce(BlockAnnounce<B, H>),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -69,7 +69,8 @@ pub struct BlockResponse<Block> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BlockAnnounce<H> {
-    // New block header
-    pub header: H,
+pub enum BlockAnnounce<B, H> {
+    // Announce either header or the entire block
+    Header(H),
+    Block(B),
 }

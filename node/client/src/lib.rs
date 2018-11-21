@@ -51,15 +51,7 @@ impl Client {
 
     pub fn receive_transaction(&self, t: SignedTransaction) {
         debug!(target: "client", "receive transaction {:?}", t);
-        // TODO: have some real logic here
-        let mut state_db = self.state_db.write();
-        let (mut filtered_tx, new_root) = self
-            .runtime
-            .apply(&mut state_db, &self.last_root.read(), vec![t]);
-        *self.last_root.write() = new_root;
-        if !filtered_tx.is_empty() {
-            self.tx_pool.write().push(filtered_tx.remove(0));
-        }
+        self.tx_pool.write().push(t);
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
@@ -101,7 +93,7 @@ impl network::client::Client<BeaconBlock, SignedTransaction> for Client {
     }
     fn prod_block(&self) -> BeaconBlock {
         // TODO: compute actual merkle root and state, as well as signature, and
-        // use some reasonable fork-choice rule 
+        // use some reasonable fork-choice rule
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
         let header = BeaconBlockHeader {
             prev_hash: self.beacon_chain.read().best_hash,

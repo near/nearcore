@@ -282,10 +282,15 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
                 }
                 self.on_block_response(net_sync, peer, response)
             }
-            MessageBody::BlockAnnounce(h) => {
-                debug!(target: "sync", "receive block header: {:?}", h);
+            MessageBody::BlockAnnounce(ann) => {
+                debug!(target: "sync", "receive block announcement: {:?}", ann);
                 // header is actually block for now
-                self.client.import_blocks(vec![h.header]);
+                match ann {
+                    message::BlockAnnounce::Block(b) => {
+                        self.client.import_blocks(vec![b]);
+                    }
+                    _ => unimplemented!(),
+                }
             }
         }
     }
@@ -335,10 +340,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         let special_secret = test_utils::special_secret();
         if special_secret == self.config.secret {
             let block = self.client.prod_block();
-            let block_announce = message::BlockAnnounce {
-                // for now we send the entire block
-                header: block.clone(),
-            };
+            let block_announce = message::BlockAnnounce::Block(block.clone());
             let message: Message<T, B, B> =
                 Message::new(MessageBody::BlockAnnounce(block_announce));
             let peer_info = self.peer_info.read();
