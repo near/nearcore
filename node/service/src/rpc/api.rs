@@ -46,13 +46,12 @@ mod tests {
 
     use self::jsonrpc_test::Rpc;
     use primitives::types::TransactionBody;
-    use storage::Storage;
 
     #[test]
     fn test_call() {
-        let storage: Arc<storage::Storage> = Arc::new(storage::MemoryStorage::default());
+        let storage = Arc::new(storage::MemoryStorage::default());
         let rpc_impl = RpcImpl {
-            client: Arc::new(Client::new(&storage.clone())),
+            client: Arc::new(Client::new(storage)),
         };
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
