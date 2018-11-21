@@ -26,7 +26,7 @@ use std::sync::Arc;
 mod tests;
 
 pub const COL_STATE: u32 = 0;
-pub const COL_BEACON_BEST_BLOCK: u32 = 1;
+pub const COL_BEACON_EXTRA: u32 = 1;
 pub const COL_BEACON_BLOCKS: u32 = 2;
 pub const COL_BEACON_HEADERS: u32 = 3;
 pub const COL_BEACON_INDEX: u32 = 4;

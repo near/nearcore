@@ -43,17 +43,17 @@ impl Default for ProtocolConfig {
 
 #[allow(dead_code)]
 pub(crate) struct PeerInfo {
-    // protocol version
+    /// Protocol version.
     protocol_version: u32,
-    // best hash from peer
+    /// best hash from peer.
     best_hash: CryptoHash,
-    // best block number from peer
-    best_number: u64,
-    // information about connected peers
+    /// Best block index from peer.
+    best_index: u64,
+    /// Information about connected peers.
     request_timestamp: Option<time::Instant>,
-    // pending block request
+    /// Pending block request.
     block_request: Option<message::BlockRequest>,
-    // next request id
+    /// Next request id.
     next_request_id: u64,
 }
 
@@ -150,13 +150,13 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         }
 
         // request blocks to catch up if necessary
-        let best_number = self.client.best_number();
+        let best_index = self.client.best_index();
         let mut next_request_id = 0;
-        if status.best_number > best_number {
+        if status.best_index > best_index {
             let request = message::BlockRequest {
                 id: next_request_id,
-                from: BlockId::Number(best_number),
-                to: Some(BlockId::Number(status.best_number)),
+                from: BlockId::Number(best_index),
+                to: Some(BlockId::Number(status.best_index)),
                 max: None,
             };
             next_request_id += 1;
@@ -167,7 +167,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         let peer_info = PeerInfo {
             protocol_version: status.version,
             best_hash: status.best_hash,
-            best_number: status.best_number,
+            best_index: status.best_index,
             request_timestamp: None,
             block_request: None,
             next_request_id,
@@ -194,17 +194,17 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
                 break;
             }
             let header = self.client.get_header(&id).unwrap();
-            let block_number = header.number();
+            let block_index = header.index();
             let block_hash = header.hash();
             let reach_end = match request.to {
-                Some(BlockId::Number(n)) => block_number == n,
+                Some(BlockId::Number(n)) => block_index == n,
                 Some(BlockId::Hash(h)) => block_hash == h,
                 None => false,
             };
             if reach_end {
                 break;
             }
-            id = BlockId::Number(block_number);
+            id = BlockId::Number(block_index);
         }
         let response = message::BlockResponse {
             id: request.id,

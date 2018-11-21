@@ -34,18 +34,22 @@ where
     }
 }
 
-/// trait that abstracts ``Header"
+/// Trait that abstracts ``Header"
 pub trait Header:
     Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
 {
     // TODO: add methods
+    /// Returns hash of the full block.
     fn hash(&self) -> CryptoHash;
 
-    // get block index
-    fn number(&self) -> u64;
+    /// Returns block index.
+    fn index(&self) -> u64;
+
+    /// Returns hash of parent block.
+    fn parent_hash(&self) -> CryptoHash;
 }
 
-/// trait that abstracts ``block", ideally could be used for both beacon-chain blocks
+/// Trait that abstracts ``block", ideally could be used for both beacon-chain blocks
 /// and shard-chain blocks
 pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
     type Header: Header;

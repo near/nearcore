@@ -1,26 +1,41 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Encode};
+use primitives::traits::{Block, Decode, Encode, Header};
 use primitives::types::BlockId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use storage::Storage;
-use types::{BeaconBlock, BeaconBlockHeader};
 
-const BEACON_CHAIN_BEST_BLOCK: &[u8] = b"best";
+const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
-pub struct BeaconChain {
+/// Configure the chain.
+#[derive(Clone)]
+pub struct ChainConfig {
+    /// Column in storage for extra information.
+    pub extra_col: u32,
+    /// Column in storage for blocks.
+    pub block_col: u32,
+    /// Column in storage for headers.
+    pub header_col: u32,
+    /// Column in storage for index.
+    pub index_col: u32,
+}
+
+/// General blockchain container.
+pub struct Blockchain<B: Block> {
+    /// Chain configuration.
+    chain_config: ChainConfig,
     /// Storage backend.
     storage: Arc<Storage>,
     /// Genesis hash
     pub genesis_hash: CryptoHash,
     /// Tip of the known chain.
-    best_block: RwLock<BeaconBlock>,
+    best_block: RwLock<B>,
     /// Headers indexed by hash
-    headers: RwLock<HashMap<Vec<u8>, BeaconBlockHeader>>,
+    headers: RwLock<HashMap<Vec<u8>, B::Header>>,
     /// Blocks indexed by hash
-    blocks: RwLock<HashMap<Vec<u8>, BeaconBlock>>,
+    blocks: RwLock<HashMap<Vec<u8>, B>>,
     /// Maps block index to hash.
     index_to_hash: RwLock<HashMap<Vec<u8>, CryptoHash>>,
     // TODO: state?
@@ -67,10 +82,11 @@ fn read_with_cache<T: Clone + Decode>(
     })
 }
 
-impl BeaconChain {
-    pub fn new(genesis: BeaconBlock, storage: Arc<Storage>) -> Self {
+impl<B: Block> Blockchain<B> {
+    pub fn new(chain_config: ChainConfig, genesis: B, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.hash();
-        let mut bc = BeaconChain {
+        let mut bc = Blockchain {
+            chain_config,
             storage,
             genesis_hash,
             best_block: RwLock::new(genesis.clone()),
@@ -82,7 +98,7 @@ impl BeaconChain {
         // Load best block hash from storage.
         let best_block_hash = match bc
             .storage
-            .get(storage::COL_BEACON_BEST_BLOCK, BEACON_CHAIN_BEST_BLOCK)
+            .get(bc.chain_config.extra_col, BLOCKCHAIN_BEST_BLOCK)
         {
             Some(best_hash) => CryptoHash::new(&best_hash),
             _ => {
@@ -103,7 +119,7 @@ impl BeaconChain {
         bc
     }
 
-    pub fn best_block(&self) -> BeaconBlock {
+    pub fn best_block(&self) -> B {
         self.best_block.read().clone()
     }
 
@@ -111,12 +127,12 @@ impl BeaconChain {
     pub fn is_known(&self, hash: &CryptoHash) -> bool {
         self.headers.read().contains_key(hash.as_ref()) || self
             .storage
-            .exists(storage::COL_BEACON_HEADERS, hash.as_ref())
+            .exists(self.chain_config.header_col, hash.as_ref())
     }
 
     /// Inserts a verified block.
     /// Returns true if block is disconnected.
-    pub fn insert_block(&mut self, block: BeaconBlock) -> bool {
+    pub fn insert_block(&mut self, block: B) -> bool {
         let block_hash = block.hash();
         if self.is_known(&block_hash) {
             return false;
@@ -125,35 +141,35 @@ impl BeaconChain {
         // Store block in db.
         write_with_cache(
             &self.storage,
-            storage::COL_BEACON_BLOCKS,
+            self.chain_config.block_col,
             &self.blocks,
             block_hash.as_ref(),
             &block,
         );
         write_with_cache(
             &self.storage,
-            storage::COL_BEACON_HEADERS,
+            self.chain_config.header_col,
             &self.headers,
             block_hash.as_ref(),
-            &block.header,
+            &block.header(),
         );
         write_with_cache(
             &self.storage,
-            storage::COL_BEACON_INDEX,
+            self.chain_config.index_col,
             &self.index_to_hash,
-            &index_to_bytes(block.header.index),
+            &index_to_bytes(block.header().index()),
             &block_hash,
         );
 
-        let maybe_parent = self.get_header(&BlockId::Hash(block.header.prev_hash));
+        let maybe_parent = self.get_header(&BlockId::Hash(block.header().parent_hash()));
         if let Some(_parent_details) = maybe_parent {
             // TODO: rewind parents if they were not processed somehow?
-            if block.header.index > self.best_block.read().header.index {
+            if block.header().index() > self.best_block.read().header().index() {
                 let mut best_block = self.best_block.write();
                 *best_block = block;
                 self.storage.set(
-                    storage::COL_BEACON_BEST_BLOCK,
-                    BEACON_CHAIN_BEST_BLOCK,
+                    self.chain_config.extra_col,
+                    BLOCKCHAIN_BEST_BLOCK,
                     block_hash.as_ref(),
                 );
             }
@@ -166,38 +182,38 @@ impl BeaconChain {
     fn get_block_hash_by_index(&self, index: u64) -> Option<CryptoHash> {
         read_with_cache(
             &self.storage,
-            storage::COL_BEACON_INDEX,
+            self.chain_config.index_col,
             &self.index_to_hash,
             &index_to_bytes(index),
         )
     }
 
-    fn get_block_by_hash(&self, block_hash: &CryptoHash) -> Option<BeaconBlock> {
+    fn get_block_by_hash(&self, block_hash: &CryptoHash) -> Option<B> {
         read_with_cache(
             &self.storage,
-            storage::COL_BEACON_BLOCKS,
+            self.chain_config.block_col,
             &self.blocks,
             block_hash.as_ref(),
         )
     }
 
-    pub fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
+    pub fn get_block(&self, id: &BlockId) -> Option<B> {
         match id {
             BlockId::Number(num) => self.get_block_by_hash(&self.get_block_hash_by_index(*num)?),
             BlockId::Hash(hash) => self.get_block_by_hash(hash),
         }
     }
 
-    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<BeaconBlockHeader> {
+    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::Header> {
         read_with_cache(
             &self.storage,
-            storage::COL_BEACON_HEADERS,
+            self.chain_config.header_col,
             &self.headers,
             block_hash.as_ref(),
         )
     }
 
-    pub fn get_header(&self, id: &BlockId) -> Option<BeaconBlockHeader> {
+    pub fn get_header(&self, id: &BlockId) -> Option<B::Header> {
         match id {
             BlockId::Number(num) => {
                 self.get_block_header_by_hash(&self.get_block_hash_by_index(*num)?)
@@ -214,12 +230,19 @@ mod tests {
     use primitives::types::BLSSignature;
     use std::sync::Arc;
     use storage::MemoryStorage;
+    use types::BeaconBlock;
 
     #[test]
     fn test_genesis() {
         let storage = Arc::new(MemoryStorage::default());
+        let chain_config = ChainConfig {
+            extra_col: 0,
+            header_col: 1,
+            block_col: 2,
+            index_col: 3,
+        };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
-        let bc = BeaconChain::new(genesis.clone(), storage);
+        let bc = Blockchain::new(chain_config, genesis.clone(), storage);
         assert_eq!(
             bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(),
             genesis
@@ -230,14 +253,20 @@ mod tests {
     #[test]
     fn test_restart_chain() {
         let storage = Arc::new(MemoryStorage::default());
+        let chain_config = ChainConfig {
+            extra_col: 0,
+            header_col: 1,
+            block_col: 2,
+            index_col: 3,
+        };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
-        let mut bc = BeaconChain::new(genesis.clone(), storage.clone());
+        let mut bc = Blockchain::new(chain_config.clone(), genesis.clone(), storage.clone());
         let block1 = BeaconBlock::new(1, genesis.hash(), BLSSignature::default(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
         assert_eq!(bc.best_block().header.index, 1);
         // Create new blockchain that reads from the same storage.
-        let other_bc = BeaconChain::new(genesis.clone(), storage.clone());
+        let other_bc = Blockchain::new(chain_config, genesis.clone(), storage.clone());
         assert_eq!(other_bc.best_block().hash(), block1.hash());
         assert_eq!(other_bc.best_block().header.index, 1);
         assert_eq!(

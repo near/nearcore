@@ -4,12 +4,14 @@ use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
-    pub prev_hash: CryptoHash,
+    /// Parent hash.
+    pub parent_hash: CryptoHash,
+    /// Block index.
+    pub index: u64,
     pub merkle_root_tx: MerkleHash,
     pub merkle_root_state: MerkleHash,
     // TODO: time, height?
     pub signature: BLSSignature,
-    pub index: u64,
 }
 
 impl Header for BeaconBlockHeader {
@@ -17,8 +19,12 @@ impl Header for BeaconBlockHeader {
         hash_struct(&self)
     }
 
-    fn number(&self) -> u64 {
+    fn index(&self) -> u64 {
         self.index
+    }
+
+    fn parent_hash(&self) -> CryptoHash {
+        self.parent_hash
     }
 }
 
@@ -32,13 +38,13 @@ pub struct BeaconBlock {
 impl BeaconBlock {
     pub fn new(
         index: u64,
-        prev_hash: CryptoHash,
+        parent_hash: CryptoHash,
         signature: BLSSignature,
         transactions: Vec<SignedTransaction>,
     ) -> Self {
         BeaconBlock {
             header: BeaconBlockHeader {
-                prev_hash,
+                parent_hash,
                 merkle_root_tx: MerkleHash::default(),
                 merkle_root_state: MerkleHash::default(),
                 signature,

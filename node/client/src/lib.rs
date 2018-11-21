@@ -5,7 +5,7 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
 
-use beacon::chain::BeaconChain;
+use beacon::chain::{Blockchain, ChainConfig};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use network::protocol::Transaction;
 use node_runtime::Runtime;
@@ -23,19 +23,25 @@ pub struct Client {
     state_db: RwLock<StateDb>,
     runtime: Runtime,
     last_root: RwLock<MerkleHash>,
-    beacon_chain: RwLock<BeaconChain>,
+    beacon_chain: RwLock<Blockchain<BeaconBlock>>,
 }
 
 impl Client {
     pub fn new(storage: &Arc<Storage>) -> Self {
         let state_db = StateDb::new(&storage.clone());
         let state_view = state_db.get_state_view();
+        let chain_config = ChainConfig {
+            extra_col: storage::COL_BEACON_EXTRA,
+            header_col: storage::COL_BEACON_HEADERS,
+            block_col: storage::COL_BEACON_BLOCKS,
+            index_col: storage::COL_BEACON_INDEX,
+        };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
         Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
-            beacon_chain: RwLock::new(BeaconChain::new(genesis, storage.clone())),
+            beacon_chain: RwLock::new(Blockchain::new(chain_config, genesis, storage.clone())),
         }
     }
 
@@ -72,7 +78,7 @@ impl network::client::Client<BeaconBlock> for Client {
         let best_block = self.beacon_chain.read().best_block();
         best_block.hash()
     }
-    fn best_number(&self) -> u64 {
+    fn best_index(&self) -> u64 {
         let best_block = self.beacon_chain.read().best_block();
         best_block.header().index
     }
