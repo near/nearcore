@@ -22,6 +22,8 @@ use primitives::types::{
 use std::sync::Arc;
 use storage::{StateDb, Storage};
 
+pub mod chain_spec;
+
 #[allow(dead_code)]
 pub struct Client {
     state_db: RwLock<StateDb>,

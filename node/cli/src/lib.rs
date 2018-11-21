@@ -2,6 +2,11 @@ extern crate beacon;
 extern crate client;
 extern crate network;
 extern crate primitives;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+#[cfg_attr(test, macro_use)]
+extern crate serde_json;
 extern crate service;
 extern crate storage;
 
@@ -14,6 +19,8 @@ use service::network_handler::NetworkHandler;
 use service::run_service;
 use std::sync::Arc;
 use storage::{DiskStorage, Storage};
+
+mod chain_spec;
 
 pub fn run() {
     // TODO: add argument parsing into service/config.rs.
