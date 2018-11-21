@@ -8,6 +8,7 @@ use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
 
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
+static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
 
 // A single message can be
 // 1) received message in a gossip, if has unknown parents:
@@ -87,12 +88,24 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         }
 
         // Check if there are other candidates that depend on this candidate.
-//        let mut newly_passing_dependents = vec![];
-//        let mut new_replies = HashSet::new();
-        if let Some(dependents) = self.missing_messages.get(&hash) {
+        let mut newly_passing_dependents = vec![];
+        if let Some(dependents) = self.missing_messages.remove(&hash) {
+            for d in dependents {
+                if self.candidates.get(&d).expect(CANDIDATES_OUT_OF_SYNC_ERR).len() == 1 {
+                    // This candidate is now able to pass.
+                    newly_passing_dependents.push(d);
+                }
+            }
         }
-
-        HashSet::new()
+        let mut new_replies = HashSet::new();
+        for d in &newly_passing_dependents {
+            let (passing_candidate, _) = self.candidates.remove_entry(d).expect(CANDIDATES_OUT_OF_SYNC_ERR);
+            if let Some(replies) = self.required_replies.remove(d) {
+                new_replies.extend(replies);
+            }
+            self.process_passing_candidate(passing_candidate);
+        }
+        new_replies
     }
 
     /// Processes the incoming candidate. Returns a set of peers that should receive a reply.
