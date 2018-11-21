@@ -1,9 +1,10 @@
 use primitives::hash::CryptoHash;
 use primitives::traits::Block;
 use primitives::types::BlockId;
+use protocol::Transaction;
 
 /// abstraction that communicates chain info to network
-pub trait Client<B: Block>: Send + Sync + 'static {
+pub trait Client<B: Block, T: Transaction>: Send + Sync + 'static {
     // get block from id
     fn get_block(&self, id: &BlockId) -> Option<B>;
     // get block header from id
@@ -16,4 +17,6 @@ pub trait Client<B: Block>: Send + Sync + 'static {
     fn genesis_hash(&self) -> CryptoHash;
     // import blocks
     fn import_blocks(&self, blocks: Vec<B>);
+    // produce block (Put here for now due to trait constraints, might want to change in the future)
+    fn prod_block(&self, transactions: Vec<T>) -> B;
 }

@@ -44,6 +44,12 @@ pub fn create_secret() -> Secret {
     secret
 }
 
+pub fn special_secret() -> Secret {
+    let mut secret: Secret = [1; 32];
+    secret[31] = 0;
+    secret
+}
+
 pub fn raw_key_to_peer_id(raw_key: Secret) -> PeerId {
     let secret_key = secio::SecioKeyPair::secp256k1_raw_key(&raw_key)
         .expect("key with correct len should always be valid");
@@ -55,7 +61,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<types::SignedTransaction, MockBlock> {
+pub fn fake_tx_message() -> Message<types::SignedTransaction, MockBlock, MockBlock> {
     let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
     Message::new(MessageBody::Transaction(tx))
 }
@@ -79,7 +85,9 @@ impl ProtocolHandler for MockProtocolHandler {
     }
 }
 
-pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
+pub fn create_test_services(
+    num_services: u32,
+) -> Vec<Service<MockBlock, MockProtocolHandler, types::SignedTransaction>> {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = rand::thread_rng().gen_range(30000, 60000);
     let mut addresses = Vec::new();
@@ -158,7 +166,7 @@ pub struct MockClient {
     pub block: MockBlock,
 }
 
-impl Client<MockBlock> for MockClient {
+impl Client<MockBlock, types::SignedTransaction> for MockClient {
     fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
         Some(self.block.clone())
     }
@@ -175,4 +183,8 @@ impl Client<MockBlock> for MockClient {
         CryptoHash::default()
     }
     fn import_blocks(&self, blocks: Vec<MockBlock>) {}
+
+    fn prod_block(&self, transactions: Vec<types::SignedTransaction>) -> MockBlock {
+        MockBlock {}
+    }
 }

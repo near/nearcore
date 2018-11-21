@@ -2,7 +2,7 @@ use primitives::hash::{hash_struct, CryptoHash};
 use primitives::traits::{Block, Header};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 pub struct BeaconBlockHeader {
     /// Parent hash.
     pub parent_hash: CryptoHash,

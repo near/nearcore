@@ -16,22 +16,23 @@ use substrate_network_libp2p::{
 use tokio::timer::Interval;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
+const BLOCK_PROD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub struct Service<B: Block, H: ProtocolHandler> {
+pub struct Service<B: Block, H: ProtocolHandler, T: Transaction> {
     pub network: Arc<Mutex<NetworkService>>,
-    pub protocol: Arc<Protocol<B, H>>,
+    pub protocol: Arc<Protocol<B, H, T>>,
 }
 
-impl<B: Block, H: ProtocolHandler> Service<B, H> {
+impl<B: Block, H: ProtocolHandler, T: Transaction> Service<B, H, T> {
     pub fn new(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
-        client: Arc<Client<B>>,
-    ) -> Result<Service<B, H>, Error> {
-        let protocol = Arc::new(Protocol::new(config, handler, client));
+        client: Arc<Client<B, T>>,
+    ) -> Result<Service<B, H, T>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
+        let protocol = Arc::new(Protocol::new(config, handler, client));
         let service = match start_service(net_config, Some(registered)) {
             Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
@@ -43,14 +44,14 @@ impl<B: Block, H: ProtocolHandler> Service<B, H> {
     }
 }
 
-pub fn generate_service_task<B, T, H>(
+pub fn generate_service_task<B, H, T>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<B, H>>,
+    protocol: Arc<Protocol<B, H, T>>,
 ) -> impl Future<Item = (), Error = ()>
 where
-    T: Transaction,
     B: Block,
     H: ProtocolHandler,
+    T: Transaction,
 {
     // Interval for performing maintenance on the protocol handler.
     let timer = Interval::new_interval(TICK_TIMEOUT)
@@ -71,31 +72,57 @@ where
             };
             Ok(())
         });
+
+    // events handler
     let network_service1 = network_service.clone();
-    let network = stream::poll_fn(move || network_service1.lock().poll()).for_each(move |event| {
-        let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
-        debug!(target: "sub-libp2p", "event: {:?}", event);
-        match event {
-            ServiceEvent::CustomMessage {
-                node_index, data, ..
-            } => {
-                protocol.on_message::<T>(&mut net_sync, node_index, &data);
-            }
-            ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_connected::<T>(&mut net_sync, node_index);
-            }
-            ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
-                protocol.on_peer_disconnected(node_index);
-            }
-            _ => {
-                debug!("TODO");
-                ()
-            }
-        };
-        Ok(())
+    let network = stream::poll_fn(move || network_service1.lock().poll()).for_each({
+        let network_service = network_service.clone();
+        let protocol = protocol.clone();
+        move |event| {
+            let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
+            debug!(target: "sub-libp2p", "event: {:?}", event);
+            match event {
+                ServiceEvent::CustomMessage {
+                    node_index, data, ..
+                } => {
+                    protocol.on_message(&mut net_sync, node_index, &data);
+                }
+                ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
+                    protocol.on_peer_connected(&mut net_sync, node_index);
+                }
+                ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
+                    protocol.on_peer_disconnected(node_index);
+                }
+                _ => {
+                    debug!("TODO");
+                    ()
+                }
+            };
+            Ok(())
+        }
     });
-    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> =
-        vec![Box::new(timer), Box::new(network)];
+
+    // block producing logic (fake for now)
+    let block_production = Interval::new_interval(BLOCK_PROD_TIMEOUT)
+        .for_each({
+            move |_| {
+                let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
+                protocol.prod_block(&mut net_sync, vec![]);
+                Ok(())
+            }
+        }).then(|res| {
+            match res {
+                Ok(()) => (),
+                Err(err) => error!("Error in the block_production {:?}", err),
+            };
+            Ok(())
+        });
+
+    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
+        Box::new(timer),
+        Box::new(network),
+        Box::new(block_production),
+    ];
 
     futures::select_all(futures)
         .and_then(move |_| {
@@ -120,7 +147,7 @@ mod tests {
         let services = create_test_services(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         for service in services.iter() {
-            let task = generate_service_task::<MockBlock, SignedTransaction, MockProtocolHandler>(
+            let task = generate_service_task::<MockBlock, MockProtocolHandler, SignedTransaction>(
                 service.network.clone(),
                 service.protocol.clone(),
             );
