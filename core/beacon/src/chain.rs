@@ -85,7 +85,7 @@ fn read_with_cache<T: Clone + Decode>(
 impl<B: Block> Blockchain<B> {
     pub fn new(chain_config: ChainConfig, genesis: B, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.hash();
-        let mut bc = Blockchain {
+        let bc = Blockchain {
             chain_config,
             storage,
             genesis_hash,
@@ -132,7 +132,7 @@ impl<B: Block> Blockchain<B> {
 
     /// Inserts a verified block.
     /// Returns true if block is disconnected.
-    pub fn insert_block(&mut self, block: B) -> bool {
+    pub fn insert_block(&self, block: B) -> bool {
         let block_hash = block.hash();
         if self.is_known(&block_hash) {
             return false;
@@ -260,7 +260,7 @@ mod tests {
             index_col: 3,
         };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
-        let mut bc = Blockchain::new(chain_config.clone(), genesis.clone(), storage.clone());
+        let bc = Blockchain::new(chain_config.clone(), genesis.clone(), storage.clone());
         let block1 = BeaconBlock::new(1, genesis.hash(), BLSSignature::default(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
