@@ -4,6 +4,9 @@ use primitives::types::BlockId;
 use protocol::Transaction;
 
 /// abstraction that communicates chain info to network
+/// note: T is currently used, but we keep it here for now
+/// due to the trouble of removing it (need to change protocol, service, etc)
+/// until we figure out how to organize client, protocol, and service properly
 pub trait Client<B: Block, T: Transaction>: Send + Sync + 'static {
     // get block from id
     fn get_block(&self, id: &BlockId) -> Option<B>;
@@ -18,5 +21,5 @@ pub trait Client<B: Block, T: Transaction>: Send + Sync + 'static {
     // import blocks
     fn import_blocks(&self, blocks: Vec<B>);
     // produce block (Put here for now due to trait constraints, might want to change in the future)
-    fn prod_block(&self, transactions: Vec<T>) -> B;
+    fn prod_block(&self) -> B;
 }

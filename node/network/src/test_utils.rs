@@ -184,7 +184,7 @@ impl Client<MockBlock, types::SignedTransaction> for MockClient {
     }
     fn import_blocks(&self, blocks: Vec<MockBlock>) {}
 
-    fn prod_block(&self, transactions: Vec<types::SignedTransaction>) -> MockBlock {
+    fn prod_block(&self) -> MockBlock {
         MockBlock {}
     }
 }

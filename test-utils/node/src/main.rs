@@ -9,14 +9,19 @@ extern crate tokio;
 extern crate clap;
 extern crate client;
 extern crate primitives;
+extern crate service;
 
 use clap::{App, Arg};
 use client::Client;
 use env_logger::Builder;
+use futures::{Future, Stream};
 use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use primitives::types::SignedTransaction;
+use service::network_handler::NetworkHandler;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::timer::Interval;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -67,15 +72,23 @@ pub fn main() {
     } else {
         ProtocolConfig::default()
     };
-    let service = Service::new(
-        protocol_config,
-        net_config,
-        MockProtocolHandler::default(),
-        client.clone(),
-    ).unwrap();
-    let task = generate_service_task::<_, SignedTransaction, MockProtocolHandler>(
-        service.network.clone(),
-        service.protocol.clone(),
-    );
+    let network_handler = NetworkHandler {
+        client: client.clone(),
+    };
+    let service =
+        Service::new(protocol_config, net_config, network_handler, client.clone()).unwrap();
+    let task = generate_service_task(service.network.clone(), service.protocol.clone());
+    // produce some fake transactions once in a while
+    let tx_period = Duration::from_millis(1000);
+    let fake_tx_task = Interval::new_interval(tx_period)
+        .for_each({
+            let client = client.clone();
+            move |_| {
+                let tx = SignedTransaction::default();
+                client.receive_transaction(tx);
+                Ok(())
+            }
+        }).map_err(|_| ());
+    let task = task.select(fake_tx_task).then(|_| Ok(()));
     tokio::run(task);
 }

@@ -57,7 +57,7 @@ impl Client {
             .runtime
             .apply(&mut state_db, &self.last_root.read(), vec![t]);
         *self.last_root.write() = new_root;
-        if filtered_tx.len() > 0 {
+        if !filtered_tx.is_empty() {
             self.tx_pool.write().push(filtered_tx.remove(0));
         }
     }
@@ -99,12 +99,17 @@ impl network::client::Client<BeaconBlock, SignedTransaction> for Client {
             beacon_chain.insert_block(block);
         }
     }
-    /// We do not remove the transaction variable for now 
-    /// due to the need to change type parameter in client, protocol, service, etc
-    /// if we do so. Will need to clean this up when we stabilize the interface
-    #[allow(unused)]
-    fn prod_block(&self, transactions: Vec<SignedTransaction>) -> BeaconBlock {
+    fn prod_block(&self) -> BeaconBlock {
+        // TODO: compute actual merkle root and state, as well as signature, and
+        // use some reasonable fork-choice rule 
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
-        BeaconBlock::new(BeaconBlockHeader::default(), transactions)
+        let header = BeaconBlockHeader {
+            prev_hash: self.beacon_chain.read().best_hash,
+            merkle_root_tx: CryptoHash::default(),
+            merkle_root_state: CryptoHash::default(),
+            signature: BLSSignature::default(),
+            index: self.beacon_chain.read().best_number,
+        };
+        BeaconBlock::new(header, transactions)
     }
 }
