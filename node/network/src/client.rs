@@ -11,7 +11,7 @@ pub trait Client<B: Block>: Send + Sync + 'static {
     // hash of latest block
     fn best_hash(&self) -> CryptoHash;
     // index of latest block
-    fn best_number(&self) -> u64;
+    fn best_index(&self) -> u64;
     // genesis hash
     fn genesis_hash(&self) -> CryptoHash;
     // import blocks

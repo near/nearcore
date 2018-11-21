@@ -27,13 +27,13 @@ impl<T, B: Block> Message<T, B> {
 /// status sent on connection
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
-    // protocol version
+    /// Protocol version.
     pub version: u32,
-    // best block number
-    pub best_number: u64,
-    // best block hash
+    /// Best block index.
+    pub best_index: u64,
+    /// Best block hash.
     pub best_hash: CryptoHash,
-    // genesis hash
+    /// Genesis hash.
     pub genesis_hash: CryptoHash,
 }
 
@@ -41,7 +41,7 @@ impl Default for Status {
     fn default() -> Self {
         Status {
             version: 1,
-            best_number: 0,
+            best_index: 0,
             best_hash: CryptoHash::default(),
             genesis_hash: CryptoHash::default(),
         }

@@ -125,8 +125,11 @@ impl Header for MockBlockHeader {
         CryptoHash::default()
     }
 
-    fn number(&self) -> u64 {
+    fn index(&self) -> u64 {
         0
+    }
+    fn parent_hash(&self) -> CryptoHash {
+        CryptoHash::default()
     }
 }
 
@@ -165,7 +168,7 @@ impl Client<MockBlock> for MockClient {
     fn best_hash(&self) -> CryptoHash {
         CryptoHash::default()
     }
-    fn best_number(&self) -> u64 {
+    fn best_index(&self) -> u64 {
         0
     }
     fn genesis_hash(&self) -> CryptoHash {
