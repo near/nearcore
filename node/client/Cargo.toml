@@ -5,6 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
 parking_lot = "0.4"
+log = "0.4"
 
 beacon = { path = "../../core/beacon" }
 network = { path = "../network" }

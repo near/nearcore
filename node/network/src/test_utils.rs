@@ -78,8 +78,8 @@ pub fn init_logger(debug: bool) {
 #[derive(Default, Clone, Copy)]
 pub struct MockProtocolHandler {}
 
-impl ProtocolHandler for MockProtocolHandler {
-    fn handle_transaction<T: Transaction>(&self, t: &T) -> GenericResult {
+impl ProtocolHandler<types::SignedTransaction> for MockProtocolHandler {
+    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
         println!("{:?}", t);
         Ok(())
     }
@@ -87,7 +87,7 @@ impl ProtocolHandler for MockProtocolHandler {
 
 pub fn create_test_services(
     num_services: u32,
-) -> Vec<Service<MockBlock, MockProtocolHandler, types::SignedTransaction>> {
+) -> Vec<Service<MockBlock, types::SignedTransaction, MockProtocolHandler>> {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = rand::thread_rng().gen_range(30000, 60000);
     let mut addresses = Vec::new();

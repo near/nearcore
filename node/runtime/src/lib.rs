@@ -8,6 +8,7 @@ extern crate log;
 extern crate byteorder;
 extern crate primitives;
 extern crate storage;
+extern crate network;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;
@@ -85,7 +86,7 @@ impl Runtime {
     ) -> (Vec<SignedTransaction>, MerkleHash) {
         let mut filtered_transactions = vec![];
         let mut state_update = StateDbUpdate::new(state_db, root);
-        for t in transactions.into_iter() {
+        for t in transactions {
             if self.apply_transaction(&mut state_update, &t) {
                 state_update.commit();
                 filtered_transactions.push(t);
