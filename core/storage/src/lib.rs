@@ -151,9 +151,9 @@ pub struct StateDb {
 }
 
 impl StateDb {
-    pub fn new(storage: &Arc<Storage>) -> Self {
+    pub fn new(storage: Arc<Storage>) -> Self {
         StateDb {
-            storage: storage.clone(),
+            storage,
         }
     }
     pub fn get_state_view(&self) -> MerkleHash {

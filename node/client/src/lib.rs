@@ -27,8 +27,8 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(storage: &Arc<Storage>) -> Self {
-        let state_db = StateDb::new(&storage.clone());
+    pub fn new(storage: Arc<Storage>) -> Self {
+        let state_db = StateDb::new(storage.clone());
         let state_view = state_db.get_state_view();
         let chain_config = ChainConfig {
             extra_col: storage::COL_BEACON_EXTRA,
@@ -41,7 +41,7 @@ impl Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
-            beacon_chain: RwLock::new(Blockchain::new(chain_config, genesis, storage.clone())),
+            beacon_chain: RwLock::new(Blockchain::new(chain_config, genesis, storage)),
         }
     }
 
