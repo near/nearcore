@@ -18,10 +18,14 @@ members = [
     "core/txflow",
     "core/wasm",
     "core/wasm/runtest",
+    "core/wasm/runtest/generate-wasm/import-memory",
     "core/beacon",
     "node/cli",
     "node/runtime",
     "node/service",
     "node/network",
     "test-utils/node"
+]
+exclude = [
+    "core/wasm/runtest/generate-wasm/to-wasm",
 ]
