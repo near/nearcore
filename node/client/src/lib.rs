@@ -67,7 +67,7 @@ impl Client {
     }
 }
 
-impl network::client::Client<BeaconBlock, SignedTransaction> for Client {
+impl network::client::Client<BeaconBlock> for Client {
     fn get_block(&self, id: &BlockId) -> Option<BeaconBlock> {
         self.beacon_chain.get_block(id)
     }

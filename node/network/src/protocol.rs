@@ -13,6 +13,7 @@ use message::{self, Message, MessageBody};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, GenericResult, Header as BlockHeader};
 use primitives::types::BlockId;
+use std::marker::PhantomData;
 use test_utils;
 
 /// time to wait (secs) for a request
@@ -85,9 +86,11 @@ pub struct Protocol<B: Block, T: Transaction, H: ProtocolHandler<T>> {
     // info about peers
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     // backend client
-    client: Arc<Client<B, T>>,
+    client: Arc<Client<B>>,
     // callbacks
     handler: Option<Box<H>>,
+    // phantom data for keep T
+    phantom: PhantomData<T>,
 }
 
 pub trait ProtocolHandler<T>: Send + Sync + 'static {
@@ -95,13 +98,14 @@ pub trait ProtocolHandler<T>: Send + Sync + 'static {
 }
 
 impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
-    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B, T>>) -> Protocol<B, T, H> {
+    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B>>) -> Protocol<B, T, H> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
             handler: Some(Box::new(handler)),
             client,
+            phantom: PhantomData,
         }
     }
 

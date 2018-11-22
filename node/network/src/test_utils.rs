@@ -166,7 +166,7 @@ pub struct MockClient {
     pub block: MockBlock,
 }
 
-impl Client<MockBlock, types::SignedTransaction> for MockClient {
+impl Client<MockBlock> for MockClient {
     fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
         Some(self.block.clone())
     }
