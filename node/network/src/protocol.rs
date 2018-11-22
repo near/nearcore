@@ -109,13 +109,17 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         }
     }
 
-    pub fn on_peer_connected(&self, net_sync: &mut NetSyncIo, peer: NodeIndex) {
+    pub fn on_peer_connected<Header: BlockHeader>(
+        &self,
+        net_sync: &mut NetSyncIo,
+        peer: NodeIndex,
+    ) {
         self.handshaking_peers
             .write()
             .insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
         let status = message::Status::default();
-        let message: Message<T, B, B> = Message::new(MessageBody::Status(status));
+        let message: Message<_, _, Header> = Message::new(MessageBody::Status(status));
         self.send_message(net_sync, peer, &message);
     }
 
@@ -140,7 +144,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
             .unwrap();
     }
 
-    fn on_status_message(
+    fn on_status_message<Header: BlockHeader>(
         &self,
         net_sync: &mut NetSyncIo,
         peer: NodeIndex,
@@ -180,7 +184,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
                 max: None,
             };
             next_request_id += 1;
-            let message: Message<T, B, B> = Message::new(MessageBody::BlockRequest(request));
+            let message: Message<_, _, Header> = Message::new(MessageBody::BlockRequest(request));
             self.send_message(net_sync, peer, &message);
         }
 
@@ -196,7 +200,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         self.handshaking_peers.write().remove(&peer);
     }
 
-    fn on_block_request(
+    fn on_block_request<Header: BlockHeader>(
         &self,
         net_sync: &mut NetSyncIo,
         peer: NodeIndex,
@@ -230,7 +234,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
             id: request.id,
             blocks,
         };
-        let message: Message<T, B, B> = Message::new(MessageBody::BlockResponse(response));
+        let message: Message<_, _, Header> = Message::new(MessageBody::BlockResponse(response));
         self.send_message(net_sync, peer, &message);
     }
 
@@ -244,8 +248,13 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         self.client.import_blocks(response.blocks);
     }
 
-    pub fn on_message(&self, net_sync: &mut NetSyncIo, peer: NodeIndex, data: &[u8]) {
-        let message: Message<T, B, B> = match Decode::decode(data) {
+    pub fn on_message<Header: BlockHeader>(
+        &self,
+        net_sync: &mut NetSyncIo,
+        peer: NodeIndex,
+        data: &[u8],
+    ) {
+        let message: Message<_, _, Header> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
                 debug!("cannot decode message: {:?}", data);
@@ -255,8 +264,12 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         };
         match message.body {
             MessageBody::Transaction(tx) => self.on_transaction_message(tx),
-            MessageBody::Status(status) => self.on_status_message(net_sync, peer, &status),
-            MessageBody::BlockRequest(request) => self.on_block_request(net_sync, peer, request),
+            MessageBody::Status(status) => {
+                self.on_status_message::<Header>(net_sync, peer, &status)
+            }
+            MessageBody::BlockRequest(request) => {
+                self.on_block_request::<Header>(net_sync, peer, request)
+            }
             MessageBody::BlockResponse(response) => {
                 let request = {
                     let mut peers = self.peer_info.write();
@@ -299,11 +312,11 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         }
     }
 
-    pub fn send_message(
+    pub fn send_message<Header: BlockHeader>(
         &self,
         net_sync: &mut NetSyncIo,
         node_index: NodeIndex,
-        message: &Message<T, B, B>,
+        message: &Message<T, B, Header>,
     ) {
         match Encode::encode(message) {
             Some(data) => {
@@ -340,12 +353,12 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
     /// produce blocks
     /// some super fake logic: if the node has a specific key,
     /// then it produces and broadcasts the block
-    pub fn prod_block(&self, net_sync: &mut NetSyncIo) {
+    pub fn prod_block<Header: BlockHeader>(&self, net_sync: &mut NetSyncIo) {
         let special_secret = test_utils::special_secret();
         if special_secret == self.config.secret {
             let block = self.client.prod_block();
             let block_announce = message::BlockAnnounce::Block(block.clone());
-            let message: Message<T, B, B> =
+            let message: Message<_, _, Header> =
                 Message::new(MessageBody::BlockAnnounce(block_announce));
             let peer_info = self.peer_info.read();
             for peer in peer_info.keys() {
