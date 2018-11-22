@@ -16,6 +16,11 @@ pub fn deserialize_chain_spec(config: &str) -> Result<ChainSpec, Error> {
     serde_json::from_str(config).map(|ChainSpecDeserializer(c)| c)
 }
 
+pub fn get_default_chain_spec() -> Result<ChainSpec, Error> {
+    let data = include_bytes!("../res/default_chain.json");
+    serde_json::from_slice(data).map(|ChainSpecDeserializer(c)| c)
+}
+
 #[test]
 fn test_deserialize() {
     let data = json!({

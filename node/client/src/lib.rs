@@ -21,6 +21,7 @@ use primitives::types::{
 };
 use std::sync::Arc;
 use storage::{StateDb, Storage};
+use chain_spec::ChainSpec;
 
 pub mod chain_spec;
 
@@ -37,7 +38,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(storage: Arc<Storage>) -> Self {
+    pub fn new(storage: Arc<Storage>, _chain_spec: &ChainSpec) -> Self {
         let state_db = StateDb::new(storage.clone());
         let state_view = state_db.get_state_view();
         let chain_config = ChainConfig {
