@@ -152,9 +152,7 @@ pub struct StateDb {
 
 impl StateDb {
     pub fn new(storage: Arc<Storage>) -> Self {
-        StateDb {
-            storage,
-        }
+        StateDb { storage }
     }
     pub fn get_state_view(&self) -> MerkleHash {
         MerkleHash::default()

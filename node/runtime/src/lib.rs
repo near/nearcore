@@ -6,9 +6,9 @@ extern crate bincode;
 extern crate log;
 
 extern crate byteorder;
+extern crate network;
 extern crate primitives;
 extern crate storage;
-extern crate network;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;

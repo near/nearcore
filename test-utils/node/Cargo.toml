@@ -22,3 +22,4 @@ primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 client = { path = "../../node/client" }
 service = { path = "../../node/service" }
+beacon = { path = "../../core/beacon" }

@@ -1,9 +1,11 @@
+extern crate beacon;
 extern crate client;
 extern crate network;
 extern crate primitives;
 extern crate service;
 extern crate storage;
 
+use beacon::types::BeaconBlockHeader;
 use client::Client;
 use network::protocol::ProtocolConfig;
 use network::service::NetworkConfiguration;
@@ -27,5 +29,5 @@ pub fn run() {
         network_handler,
         client.clone(),
     ).unwrap();
-    run_service::<_, SignedTransaction, _>(client.clone(), &network);
+    run_service::<_, SignedTransaction, _, BeaconBlockHeader>(client.clone(), &network);
 }

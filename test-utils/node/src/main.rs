@@ -7,10 +7,12 @@ extern crate storage;
 extern crate tokio;
 #[macro_use]
 extern crate clap;
+extern crate beacon;
 extern crate client;
 extern crate primitives;
 extern crate service;
 
+use beacon::types::BeaconBlockHeader;
 use clap::{App, Arg};
 use client::Client;
 use env_logger::Builder;
@@ -77,7 +79,10 @@ pub fn main() {
     };
     let service =
         Service::new(protocol_config, net_config, network_handler, client.clone()).unwrap();
-    let task = generate_service_task(service.network.clone(), service.protocol.clone());
+    let task = generate_service_task::<_, _, _, BeaconBlockHeader>(
+        service.network.clone(),
+        service.protocol.clone(),
+    );
     // produce some fake transactions once in a while
     let tx_period = Duration::from_millis(1000);
     let fake_tx_task = Interval::new_interval(tx_period)
