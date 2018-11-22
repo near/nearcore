@@ -1,4 +1,3 @@
-#![feature(core_intrinsics)]
 #[macro_use]
 extern crate log;
 extern crate rand;
