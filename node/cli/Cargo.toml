@@ -4,6 +4,7 @@ version = "0.1.0"
 
 [dependencies]
 beacon = { path = "../../core/beacon" }
+clap = "2.32.0"
 client = { path = "../client" }
 network = { path = "../network", features = ["test-utils"] }
 primitives = { path = "../../core/primitives" }
