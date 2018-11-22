@@ -127,6 +127,10 @@ mod tests {
         fn epoch_leader(&self, epoch: u64) -> u64 {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
+        
+        fn random_witness(&self, epoch: u64) -> u64 {
+            unimplemented!()
+        }
     }
 
     #[test]

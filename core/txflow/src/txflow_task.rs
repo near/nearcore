@@ -1,14 +1,20 @@
-use std::collections::{HashSet, HashMap};
-use futures::sync::mpsc;
-use futures::{Future, Poll, Async, Stream, stream, Sink};
 use std::borrow::{BorrowMut, Borrow};
+use std::collections::{HashSet, HashMap};
+use std::mem;
+use std::time::{Instant, Duration};
 
-use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, StructHash};
+use futures::{Future, Poll, Async, Stream, stream, Sink};
+use futures::sync::mpsc;
+use tokio::timer::Delay;
+
+use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, StructHash, MessageDataBody};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
 
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
 static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
+const COOLDOWN_MS: u64 = 1000;
+const FORCED_GOSSIP_MS: u64 = 1500;
 
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
 /// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
@@ -22,8 +28,6 @@ pub struct TxFlowTask<'a, P: Payload, W: WitnessSelector> {
     witness_selector: Box<W>,
     dag: Option<Box<DAG<'a, P, W>>>,
 
-    /// Buffer for the incoming payloads.
-    payload_buffer: Vec<P>,
     /// Received message for which some parents are not in the DAG yet
     /// -> hashes of the parents that are not in the DAG yet.
     candidates: HashMap<SignedMessageData<P>, HashSet<StructHash>>,
@@ -34,9 +38,19 @@ pub struct TxFlowTask<'a, P: Payload, W: WitnessSelector> {
     /// Some received messages require a reply to whoever send them to us. This
     /// structure stores this knowledge, so once this message ends up in the DAG
     /// we can send a reply to the sender.
-    required_replies: HashMap<StructHash, HashSet<UID>>,
+    future_replies: HashMap<StructHash, HashSet<UID>>,
 
-    // TODO: Add mockable timers.
+    /// A set of UID to which we should reply with a gossip ASAP.
+    pending_replies: HashSet<UID>,
+    /// The payload that we have accumulated so far. We should put this payload into a gossip ASAP.
+    pending_payload: P,
+
+    /// Timer that determines the minimum time that we should not gossip after the given message
+    /// for the sake of not spamming the network with small packages.
+    cooldown_delay: Option<Delay>,
+    /// Timer that determines that maximum time allowed without gossip. Even if by the end of the
+    /// timer we do not have any new payload or new messages we gossip the old root message anyway.
+    forced_gossip_delay: Option<Delay>,
 }
 
 impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
@@ -54,10 +68,13 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             messages_sender,
             witness_selector: Box::new(witness_selector),
             dag: None,
-            payload_buffer: vec![],
             candidates: HashMap::new(),
             missing_messages: HashMap::new(),
-            required_replies: HashMap::new(),
+            future_replies: HashMap::new(),
+            pending_replies: HashSet::new(),
+            pending_payload: P::new(),
+            cooldown_delay: None,
+            forced_gossip_delay: None,
         }
     }
 
@@ -107,7 +124,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         let mut new_replies = HashSet::new();
         for d in &newly_passing_dependents {
             let (passing_candidate, _) = self.candidates.remove_entry(d).expect(CANDIDATES_OUT_OF_SYNC_ERR);
-            if let Some(replies) = self.required_replies.remove(d) {
+            if let Some(replies) = self.future_replies.remove(d) {
                 new_replies.extend(replies);
             }
             self.process_passing_candidate(passing_candidate);
@@ -132,7 +149,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             // This message is already in the candidates, but we might still need to update required
             // replies.
             if let Some(uid) = reply_to {
-                self.required_replies.entry(message.hash).or_insert_with(|| HashSet::new())
+                self.future_replies.entry(message.hash).or_insert_with(|| HashSet::new())
                     .insert(uid);
             }
             // No replies needed to be send right now.
@@ -159,7 +176,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                         .insert(message.hash);
                 }
                 if let Some(uid) = reply_to {
-                    self.required_replies.entry(message.hash).or_insert_with(|| HashSet::new())
+                    self.future_replies.entry(message.hash).or_insert_with(|| HashSet::new())
                         .insert(uid);
                 }
                 self.candidates.insert(message, unknown_hashes.drain().collect());
@@ -218,8 +235,6 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         // Process new gossips.
         let mut end_of_gossips = false;
-        // Set of UIDs to which we need to reply.
-        let mut replies = HashSet::new();
         // UID from which we should request a fetch -> hashes that should be fetched.
         let mut fetch_requests = HashMap::new();
         loop {
@@ -227,7 +242,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 Ok(Async::Ready(Some(gossip))) => {
                     let sender_uid = gossip.sender_uid;
                     let (mut new_replies, mut new_hashes) = self.process_gossip(gossip);
-                    replies.extend(new_replies.drain());
+                    // Update set of UIDs to which we need to reply.
+                    self.pending_replies.extend(new_replies.drain());
                     fetch_requests.entry(sender_uid).or_insert_with(|| HashSet::new())
                         .extend(new_hashes.drain());
                 },
@@ -243,10 +259,9 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
 
         // Collect new payloads
         let mut end_of_payloads = false;
-        let mut payloads = P::new();
         loop {
             match self.payload_receiver.poll() {
-                Ok(Async::Ready(Some(payload))) => payloads.union_update(payload),
+                Ok(Async::Ready(Some(payload))) => self.pending_payload.union_update(payload),
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the payloads.
@@ -268,17 +283,65 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             self.send_gossip(reply);
         }
 
-        // Create a new root, if needed.
-        if !payloads.is_empty() || self.dag_as_ref().has_dangling_roots() {
-            let new_message = self.dag_as_mut().create_root_message(payloads, vec![]);
-            let unsolicited = Gossip {
-                sender_uid: self.owner_uid,
-                receiver_uid: 0,  // TODO: Random receiver.
-                sender_sig: 0,  // TODO: Sign it.
-                body: GossipBody::Unsolicited(new_message.data.clone())
-            };
-            self.send_gossip(unsolicited);
+        // The following code should be executed only if the cooldown has passed.
+        if let Some(ref mut d) = self.cooldown_delay {
+            try_ready!(d.poll().map_err(|e| error!("Cooldown timer error {}", e)));
         }
+
+        // The following section maybe creates a new root and sends it to some witnesses.
+        // Check whether this is still a single old root.
+        let only_old_root = self.dag_as_ref().is_current_owner_root();
+        let mut new_gossip_body = None;
+        if !self.pending_payload.is_empty() || !only_old_root {
+            // Drain the current payload.
+            let payload = mem::replace(&mut self.pending_payload, P::new());
+            let new_message = self.dag_as_mut().create_root_message(payload, vec![]);
+            new_gossip_body = Some(&new_message.data);
+        } else if let Some(ref mut d) = self.forced_gossip_delay {
+            // There are no payloads or dangling roots.
+            try_ready!(d.poll().map_err(|e| error!("Forced gossip timer error {}", e)));
+        } else {
+            // This situation happens when we just started TxFlow and haven't received any payloads
+            // or gossip. In this case the `forced_gossip_delay` is None.
+            return Ok(Async::Ready(None));
+        }
+
+        {
+            let gossip_body = new_gossip_body.unwrap_or_else(||
+                // There are no new payloads or dangling roots, but we are forced to gossip.
+                // So we are gossiping the current root.
+                self.dag_as_ref().current_root_data().expect("Expected only one root")
+            );
+
+            // First send gossip to a random witness.
+            let random_witness = self.witness_selector.random_witness(gossip_body.body.epoch);
+            {
+                let gossip = Gossip {
+                    sender_uid: self.owner_uid,
+                    receiver_uid: random_witness,
+                    sender_sig: 0,  // TODO: Sign it.
+                    body: GossipBody::Unsolicited(gossip_body.clone())
+                };
+                self.send_gossip(gossip)
+            }
+
+            // Then, send it to whoever has requested it.
+            for w in &self.pending_replies {
+                let gossip = Gossip {
+                    sender_uid: self.owner_uid,
+                    receiver_uid: *w,
+                    sender_sig: 0,  // TODO: Sign it.
+                    body: GossipBody::UnsolicitedReply(gossip_body.clone())
+                };
+                self.send_gossip(gossip)
+            }
+        }
+        self.pending_replies.clear();
+
+        // Reset the timers.
+        let now = Instant::now();
+        self.cooldown_delay = Some(Delay::new(now + Duration::from_millis(COOLDOWN_MS)));
+        self.forced_gossip_delay = Some(Delay::new(now + Duration::from_millis(FORCED_GOSSIP_MS)));
 
         // If the gossip stream and the payload stream are closed then we are done.
         if end_of_gossips && end_of_payloads {
@@ -287,35 +350,19 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     }
 }
 
+// A simple wrapper around stream so that we can use it as a future.
 impl<'a, P: Payload, W: WitnessSelector> Future for TxFlowTask<'a, P, W> {
-    // This stream does not produce anything, it is meant to be run as a standalone task.
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        // Check if DAG needs to be created.
-        if self.dag.is_none() {
-            let witness_ptr = self.witness_selector.as_ref() as *const W;
-            // Since we are controlling the creation of the DAG by encapsulating it here
-            // this code is safe.
-            self.dag = Some(Box::new(
-                DAG::new(self.owner_uid, self.starting_epoch, unsafe {&*witness_ptr})));
-        }
-
-        loop {
-            let res = self.messages_receiver.poll();
-            let incoming_gossip = match res {
-                Ok(Async::Ready(Some(gossip))) => gossip,
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(None)) => break,
-                _ => break,
-            };
-            //self.messages_sender.send(incoming_gossip);
-        }
+        try_ready!(
+             (self as &mut Stream<Item=Self::Item, Error=Self::Error>)
+            .for_each(|_| Ok(())).poll());
         Ok(Async::Ready(()))
     }
 }
 
-
+// TODO: The following code is used for experimentation and should be cleaned up.
 #[cfg(test)]
 mod tests {
     use tokio;
@@ -351,6 +398,9 @@ mod tests {
         }
         fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+        fn random_witness(&self, epoch: u64) -> u64 {
+            unimplemented!()
         }
     }
 

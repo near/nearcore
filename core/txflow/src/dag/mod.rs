@@ -97,8 +97,25 @@ impl<'a, P: 'a + Payload, W:'a+ WitnessSelector> DAG<'a, P, W> {
         }
     }
 
+    /// Whether there is one root only and it was created by the current owner.
+    pub fn is_current_owner_root(&self) -> bool {
+        self.current_root_data()
+            .map(|d| d.body.owner_uid == self.owner_uid)
+            .unwrap_or(false)
+    }
+
+    /// Return true if there are several roots.
     pub fn has_dangling_roots(&self) -> bool {
         self.roots.len() > 1
+    }
+
+    /// If there is one root it returns its data.
+    pub fn current_root_data(&self) -> Option<&SignedMessageData<P>> {
+        if self.roots.len() == 1 {
+            self.roots.iter().next().map(|m| &m.data)
+        } else {
+            None
+        }
     }
 
     pub fn contains_message(&self, hash: &StructHash) -> bool {
@@ -231,6 +248,9 @@ mod tests {
         }
         fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+        fn random_witness(&self, epoch: u64) -> u64 {
+            unimplemented!()
         }
     }
 

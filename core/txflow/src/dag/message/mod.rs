@@ -416,6 +416,9 @@ mod tests {
         fn epoch_leader(&self, epoch: u64) -> u64 {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
+        fn random_witness(&self, epoch: u64) -> u64 {
+            unimplemented!()
+        }
     }
 
     // TODO: For promo tests below, report incorrectly provided epoch as an adversarial behavior.
