@@ -9,7 +9,7 @@ impl Payload for FakePayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
-    fn union_update(&mut self, other: Self) { }
+    fn union_update(&mut self, _other: Self) { }
     fn is_empty(&self) -> bool {true}
     fn new() -> Self {Self{}}
 }

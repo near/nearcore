@@ -249,7 +249,7 @@ mod tests {
         fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
-        fn random_witness(&self, epoch: u64) -> u64 {
+        fn random_witness(&self, _epoch: u64) -> u64 {
             unimplemented!()
         }
     }
@@ -448,7 +448,7 @@ mod tests {
 
         // Feed messages in DFS order which ensures that the parents are fed before the children.
         for m in all_messages {
-            dag.add_existing_message((*m).clone());
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
         }
 
         for m in dag.messages {
