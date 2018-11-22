@@ -1,3 +1,10 @@
 [package]
 name = "node-cli"
 version = "0.1.0"
+
+[dependencies]
+client = { path = "../client" }
+network = { path = "../network", features = ["test-utils"] }
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+service = { path = "../service" }

@@ -14,16 +14,18 @@ impl Payload for FakePayload {
     fn new() -> Self {Self{}}
 }
 
-pub fn simple_bare_message(owner_uid: UID, epoch: u64,
-                           parents: Vec<&::primitives::types::SignedMessageData<FakePayload>>)
-    -> ::primitives::types::SignedMessageData<FakePayload> {
+pub fn simple_bare_message(
+    owner_uid: UID,
+    epoch: u64,
+    parents: Vec<&::primitives::types::SignedMessageData<FakePayload>>,
+) -> ::primitives::types::SignedMessageData<FakePayload> {
     let body = ::primitives::types::MessageDataBody {
-            owner_uid,
-            parents: parents.into_iter().map(|m| m.hash).collect(),
-            epoch,
-            payload: ::testing_utils::FakePayload {},
-            endorsements: vec![],
-        };
+        owner_uid,
+        parents: parents.into_iter().map(|m| m.hash).collect(),
+        epoch,
+        payload: ::testing_utils::FakePayload {},
+        endorsements: vec![],
+    };
     let hash = {
         let mut hasher = ::std::collections::hash_map::DefaultHasher::new();
         body.hash(&mut hasher);
@@ -147,7 +149,8 @@ mod tests {
         let arena = Arena::new();
         let mut all = vec![];
         let a;
-        let v = simple_bare_messages!(arena, all [[0, 0 => a; 1, 2;] => 2, 3; [0, 1; 2, 3;] => 3, 4;]);
+        let v =
+            simple_bare_messages!(arena, all [[0, 0 => a; 1, 2;] => 2, 3; [0, 1; 2, 3;] => 3, 4;]);
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].body.parents.len(), 2);
     }

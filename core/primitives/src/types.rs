@@ -1,71 +1,90 @@
+use hash::{hash_struct, CryptoHash};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
+/// Account identifier. Provides access to user's state.
+pub type AccountId = u64;
 // TODO: Separate cryptographic hash from the hashmap hash.
-/// Hash of a struct that can be used to verify the signature on the struct. Not to be confused with
-/// the hash used in the container like HashMap. Currently we conflate them.
-pub type StructHash = u64;
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
 pub type StructSignature = u128;
 /// Hash used by a struct implementing the Merkle tree.
-pub type MerkleHash = u64;
+pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = u128;
+/// Database record type.
+pub type DBValue = Vec<u8>;
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum BlockId {
+    Number(u64),
+    Hash(CryptoHash),
+}
 
 // 1. Transaction structs.
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// Call view function in the contracts.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ViewCall {
+    pub account: AccountId,
+}
+
+/// Result of view call.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ViewCallResult {
+    pub account: AccountId,
+    pub amount: u64,
+}
+
+/// TODO: Call non-view function in the contracts.
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct TransactionBody {
-    nonce: u64,
-    sender_uid: UID,
-    receiver_uid: UID,
-    amount: u64,
+    pub nonce: u64,
+    pub sender: AccountId,
+    pub receiver: AccountId,
+    pub amount: u64,
 }
 
 impl TransactionBody {
-    pub fn new(nonce: u64, sender_uid: UID, receiver_uid: UID, amount: u64) -> TransactionBody {
+    pub fn new(nonce: u64, sender: AccountId, receiver: AccountId, amount: u64) -> TransactionBody {
         TransactionBody {
             nonce,
-            sender_uid,
-            receiver_uid,
+            sender,
+            receiver,
             amount,
         }
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug)]
+impl Default for TransactionBody {
+    fn default() -> Self {
+        TransactionBody::new(0, 0, 0, 0)
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     sender_sig: StructSignature,
-    hash: StructHash,
+    hash: CryptoHash,
     pub body: TransactionBody,
 }
 
 impl SignedTransaction {
-    pub fn new(sender_sig: StructSignature, hash: StructHash, body: TransactionBody) -> SignedTransaction {
+    pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
         SignedTransaction {
             sender_sig,
-            hash,
+            hash: hash_struct(&body),
             body,
         }
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub enum TransactionState {
-    Sender,
-    Receiver,
-    SenderRollback,
-    Cancelled,
-}
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub struct StatedTransaction {
-    transaction: SignedTransaction,
-    state: TransactionState,
+impl Default for SignedTransaction {
+    fn default() -> Self {
+        SignedTransaction::new(0, TransactionBody::default())
+    }
 }
 
 // 2. State structs.
@@ -82,7 +101,7 @@ pub struct EpochBlockHeader {
     pub shard_id: u32,
     pub verifier_epoch: u64,
     pub txflow_epoch: u64,
-    pub prev_header_hash: StructHash,
+    pub prev_header_hash: CryptoHash,
 
     pub states_merkle_root: MerkleHash,
     pub new_transactions_merkle_root: MerkleHash,
@@ -98,8 +117,8 @@ pub struct SignedEpochBlockHeader {
 #[derive(Hash, Debug)]
 pub struct FullEpochBlockBody {
     states: Vec<State>,
-    new_transactions: Vec<StatedTransaction>,
-    cancelled_transactions: Vec<StatedTransaction>,
+    new_transactions: Vec<SignedTransaction>,
+    cancelled_transactions: Vec<SignedTransaction>,
 }
 
 #[derive(Hash, Debug)]
@@ -109,19 +128,21 @@ pub enum MerkleStateNode {
 }
 
 #[derive(Hash, Debug)]
-pub enum MerkleStatedTransactionNode {
+pub enum MerkleSignedTransactionNode {
     Hash(MerkleHash),
-    StatedTransaction(StatedTransaction),
+    SignedTransaction(SignedTransaction),
 }
 
 #[derive(Hash, Debug)]
 pub struct ShardedEpochBlockBody {
     states_subtree: Vec<MerkleStateNode>,
-    new_transactions_subtree: Vec<MerkleStatedTransactionNode>,
-    cancelled_transactions_subtree: Vec<MerkleStatedTransactionNode>,
+    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
+    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
 }
 
 // 4. TxFlow-specific structs.
+
+pub type TxFlowHash = u64;
 
 // 4.1 DAG-specific structs.
 
@@ -131,7 +152,7 @@ pub struct ShardedEpochBlockBody {
 #[derive(Hash, Debug, Clone)]
 pub struct Endorsement {
     pub epoch: u64,
-    pub signature: BLSSignature
+    pub signature: BLSSignature,
 }
 
 #[derive(Hash, Debug)]
@@ -140,17 +161,14 @@ pub struct InShardPayload {
     pub epoch_block_header: Option<SignedEpochBlockHeader>,
 }
 
-
 #[derive(Hash, Debug)]
-pub struct BeaconChainPayload {
-
-}
+pub struct BeaconChainPayload {}
 
 #[derive(Hash, Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: UID,
-    pub parents: Vec<StructHash>,
+    pub parents: Vec<TxFlowHash>,
     pub epoch: u64,
     pub payload: P,
     /// Optional endorsement of this or other representative block.
@@ -162,7 +180,7 @@ pub struct SignedMessageData<P> {
     /// Signature of the hash.
     pub owner_sig: StructSignature,
     /// Hash of the body.
-    pub hash: StructHash,
+    pub hash: TxFlowHash,
     pub body: MessageDataBody<P>,
 }
 
@@ -172,8 +190,8 @@ impl<P> Hash for SignedMessageData<P> {
     }
 }
 
-impl<P> Borrow<StructHash> for SignedMessageData<P> {
-    fn borrow(&self) -> &StructHash {
+impl<P> Borrow<TxFlowHash> for SignedMessageData<P> {
+    fn borrow(&self) -> &TxFlowHash {
         &self.hash
     }
 }
@@ -188,8 +206,8 @@ impl<P> Eq for SignedMessageData<P> {}
 
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {
-    pub body_hash: StructHash,
-    pub prev_block_body_hash: StructHash,
+    pub body_hash: CryptoHash,
+    pub prev_block_body_hash: CryptoHash,
 }
 
 #[derive(Hash, Debug)]

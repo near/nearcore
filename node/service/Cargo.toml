@@ -1,0 +1,19 @@
+[package]
+name = "service"
+version = "0.1.0"
+
+[dependencies]
+futures = "0.1.25"
+jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
+jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
+jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }
+parking_lot = "0.6.4"
+tokio = "0.1.11"
+
+client = { path = "../client" }
+network = { path = "../network" }
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+
+[dev-dependencies]
+jsonrpc-test = { git = "https://github.com/paritytech/jsonrpc" }

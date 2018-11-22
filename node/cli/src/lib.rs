@@ -1,3 +1,31 @@
-pub fn run() {
+extern crate client;
+extern crate network;
+extern crate primitives;
+extern crate service;
+extern crate storage;
 
+use client::Client;
+use network::protocol::ProtocolConfig;
+use network::service::NetworkConfiguration;
+use network::service::Service as NetworkService;
+use primitives::types::SignedTransaction;
+use service::network_handler::NetworkHandler;
+use service::run_service;
+use std::sync::Arc;
+use storage::{DiskStorage, Storage};
+
+pub fn run() {
+    // TODO: add argument parsing into service/config.rs.
+    let storage: Arc<Storage> = Arc::new(DiskStorage::new("storage/db/"));
+    let client = Arc::new(Client::new(storage));
+    let network_handler = NetworkHandler {
+        client: client.clone(),
+    };
+    let network = NetworkService::new(
+        ProtocolConfig::default(),
+        NetworkConfiguration::default(),
+        network_handler,
+        client.clone(),
+    ).unwrap();
+    run_service::<_, SignedTransaction, _>(client.clone(), &network);
 }
