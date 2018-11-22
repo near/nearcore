@@ -28,7 +28,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Service<B, T, H> {
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
-        client: Arc<Client<B, T>>,
+        client: Arc<Client<B>>,
     ) -> Result<Service<B, T, H>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
