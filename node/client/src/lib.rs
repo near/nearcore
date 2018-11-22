@@ -23,6 +23,11 @@ use primitives::types::{
     BlockId, SignedTransaction, ViewCall, ViewCallResult,
 };
 use storage::{StateDb, Storage};
+use beacon::chain::{BlockChain, ChainConfig};
+use beacon::authority::{AuthorityConfig, Authority};
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
+use node_runtime::Runtime;
+use import_queue::ImportQueue;
 
 mod import_queue;
 
