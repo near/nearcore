@@ -11,7 +11,7 @@ mod tests {
     }
 
     impl FakeNonContinuousWitnessSelector {
-        fn new(num_users:u64) -> Self {
+        fn new(num_users: u64) -> Self {
             let mut users = set!{0};
             for i in 1..num_users {
                 users.insert(i);
@@ -27,6 +27,9 @@ mod tests {
         fn epoch_leader(&self, epoch: u64) -> u64 {
             epoch % self.num_users
         }
+        fn random_witness(&self, _epoch: u64) -> u64 {
+            unimplemented!()
+        }
     }
 
     #[test]
@@ -36,7 +39,7 @@ mod tests {
         /* {"s":[{"owner":0,"parents":[]},{"owner":1,"parents":[]},{"owner":2,"parents":[0,1]},{"owner":1,"parents":[2]}],"n":4,"c":"Simple test with two representative messages and no kickouts","f":"simple_test"} */
         let arena = Arena::new();
         let selector = FakeNonContinuousWitnessSelector::new(4);
-        let (v0,v1,v2,v3);
+        let (v0, v1, v2, v3);
         simple_messages!(0, &selector, arena [0, 0, true => v0;]);
         simple_messages!(0, &selector, arena [1, 0, true => v1;]);
         simple_messages!(0, &selector, arena [[=> v0; => v1; ] => 2, 0, true => v2;]);
@@ -63,7 +66,7 @@ mod tests {
         /* {"s":[{"owner":1,"parents":[]},{"owner":2,"parents":[0]},{"owner":3,"parents":[1]},{"owner":0,"parents":[2]},{"owner":1,"parents":[3]},{"owner":1,"parents":[3]},{"owner":2,"parents":[4]},{"owner":0,"parents":[4,5]},{"owner":3,"parents":[5]},{"owner":2,"parents":[5,6]}],"n":4,"c":"Representative message fork from Bob, testing endorsements","f":"bob_fork"} */
         let arena = Arena::new();
         let selector = FakeNonContinuousWitnessSelector::new(4);
-        let (v4,v5,v6,v7,v8,v9,v10,v11,v12,v13);
+        let (v4, v5, v6, v7, v8, v9, v10, v11, v12, v13);
         simple_messages!(0, &selector, arena [1, 0, true => v4;]);
         simple_messages!(0, &selector, arena [[=> v4; ] => 2, 0, true => v5;]);
         simple_messages!(0, &selector, arena [[=> v5; ] => 3, 0, true => v6;]);
@@ -114,7 +117,7 @@ mod tests {
         /* {"s":[{"owner":1,"parents":[]},{"owner":0,"parents":[0]},{"owner":2,"parents":[1]},{"owner":3,"parents":[2]},{"owner":1,"parents":[2]},{"owner":2,"parents":[3,4]}],"n":4,"c":"This used to panic","f":"used_to_panic"} */
         let arena = Arena::new();
         let selector = FakeNonContinuousWitnessSelector::new(4);
-        let (v0,v1,v2,v3,v4,v5);
+        let (v0, v1, v2, v3, v4, v5);
         simple_messages!(0, &selector, arena [1, 0, true => v0;]);
         simple_messages!(0, &selector, arena [[=> v0; ] => 0, 0, true => v1;]);
         simple_messages!(0, &selector, arena [[=> v1; ] => 2, 0, true => v2;]);
@@ -149,7 +152,32 @@ mod tests {
         /* {"s":[{"owner":1,"parents":[]},{"owner":0,"parents":[0]},{"owner":2,"parents":[1]},{"owner":3,"parents":[2]},{"owner":1,"parents":[2]},{"owner":2,"parents":[3,4]},{"owner":0,"parents":[4]},{"owner":1,"parents":[5]},{"owner":0,"parents":[6,7]},{"owner":3,"parents":[8]},{"owner":3,"parents":[9]},{"owner":1,"parents":[10]},{"owner":3,"parents":[11]},{"owner":2,"parents":[11]},{"owner":3,"parents":[12,13]},{"owner":1,"parents":[12,13]},{"owner":2,"parents":[15]},{"owner":1,"parents":[14,16]},{"owner":2,"parents":[14,16]},{"owner":3,"parents":[14,16]},{"owner":1,"parents":[17,18,19]},{"owner":2,"parents":[20]},{"owner":3,"parents":[20]},{"owner":1,"parents":[21,22]}],"n":4,"c":"Some kickout messages","f":"kickouts"} */
         let arena = Arena::new();
         let selector = FakeNonContinuousWitnessSelector::new(4);
-        let (v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v14,v15,v16,v17,v18,v19,v20,v21,v22,v23);
+        let (
+            v0,
+            v1,
+            v2,
+            v3,
+            v4,
+            v5,
+            v6,
+            v7,
+            v8,
+            v9,
+            v10,
+            v11,
+            v12,
+            v13,
+            v14,
+            v15,
+            v16,
+            v17,
+            v18,
+            v19,
+            v20,
+            v21,
+            v22,
+            v23,
+        );
         simple_messages!(0, &selector, arena [1, 0, true => v0;]);
         simple_messages!(0, &selector, arena [[=> v0; ] => 0, 0, true => v1;]);
         simple_messages!(0, &selector, arena [[=> v1; ] => 2, 0, true => v2;]);

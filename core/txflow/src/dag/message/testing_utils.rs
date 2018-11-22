@@ -11,9 +11,13 @@ impl Payload for FakePayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
-    fn union_update(&mut self, _other: Self) { }
-    fn is_empty(&self) -> bool { false }
-    fn new() -> Self { Self { } }
+    fn union_update(&mut self, _other: Self) {}
+    fn is_empty(&self) -> bool {
+        false
+    }
+    fn new() -> Self {
+        Self {}
+    }
 }
 
 pub fn simple_message<'a, W>(
@@ -134,7 +138,7 @@ mod tests {
         fn epoch_leader(&self, epoch: u64) -> u64 {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
-        
+
         fn random_witness(&self, _epoch: u64) -> u64 {
             unimplemented!()
         }

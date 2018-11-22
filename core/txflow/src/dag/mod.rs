@@ -59,12 +59,12 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         }
     }
 
-    pub fn contains_message(&self, hash: &StructHash) -> bool {
+    pub fn contains_message(&self, hash: &TxFlowHash) -> bool {
         self.messages.contains(hash)
     }
 
     /// Create a copy of the message data from the dag given hash.
-    pub fn copy_message_data_by_hash(&self, hash: &StructHash) -> Option<SignedMessageData<P>> {
+    pub fn copy_message_data_by_hash(&self, hash: &TxFlowHash) -> Option<SignedMessageData<P>> {
        self.messages.get(hash).map(|m| m.data.clone())
     }
 
@@ -85,7 +85,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
 
         // Wrap message data and connect to the parents so that the verification can be run.
         let mut message = Box::new(Message::new(message_data));
-        let parent_hashes: Vec<StructHash> = message.data.body.parents.iter().cloned().collect();
+        let parent_hashes: Vec<TxFlowHash> = message.data.body.parents.iter().cloned().collect();
 
         for p_hash in parent_hashes {
             if let Some(&p) = self.messages.get(&p_hash) {

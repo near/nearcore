@@ -22,13 +22,13 @@ impl MisbehaviourReporter {
 #[derive(Debug)]
 pub enum ViolationType {
     BadEpoch {
-        message: StructHash,
+        message: TxFlowHash,
     },
 
     InvalidSignature,
 
     ForkAttempt {
-        message_0: StructHash,
-        message_1: StructHash,
+        message_0: TxFlowHash,
+        message_1: TxFlowHash,
     },
 }

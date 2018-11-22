@@ -7,7 +7,7 @@ use futures::{Future, Poll, Async, Stream, Sink};
 use futures::sync::mpsc;
 use tokio::timer::Delay;
 
-use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, StructHash};
+use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
 
@@ -30,15 +30,15 @@ pub struct TxFlowTask<'a, P: Payload, W: WitnessSelector> {
 
     /// Received message for which some parents are not in the DAG yet
     /// -> hashes of the parents that are not in the DAG yet.
-    candidates: HashMap<SignedMessageData<P>, HashSet<StructHash>>,
+    candidates: HashMap<SignedMessageData<P>, HashSet<TxFlowHash>>,
     /// The transpose of `candidates`.
     /// Hash of the parent message that we are missing
     /// -> hashes of the messages that depend on it.
-    missing_messages: HashMap<StructHash, HashSet<StructHash>>,
+    missing_messages: HashMap<TxFlowHash, HashSet<TxFlowHash>>,
     /// Some received messages require a reply to whoever send them to us. This
     /// structure stores this knowledge, so once this message ends up in the DAG
     /// we can send a reply to the sender.
-    future_replies: HashMap<StructHash, HashSet<UID>>,
+    future_replies: HashMap<TxFlowHash, HashSet<UID>>,
 
     /// A set of UID to which we should reply with a gossip ASAP.
     pending_replies: HashSet<UID>,
@@ -138,7 +138,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// Even if the message itself was not requesting a reply it might have enabled some messages
     /// in `candidates` to be added to the `dag` and these other messages might require a reply.
     fn process_incoming_candidate(&mut self, message: SignedMessageData<P>, reply_to: Option<UID>)
-        -> (HashSet<UID>, HashSet<StructHash>) {
+        -> (HashSet<UID>, HashSet<TxFlowHash>) {
         // Check one of the optimistic scenarios when we already know this message, but we still
         // reply on the request.
         if self.dag_as_ref().contains_message(&message.hash) {
@@ -155,7 +155,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             // No replies needed to be send right now.
             (HashSet::new(), HashSet::new())
         } else {
-            let mut unknown_hashes: HashSet<StructHash> = (&message.body.parents).into_iter().filter_map(
+            let mut unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).into_iter().filter_map(
                 |h| if self.dag_as_ref().contains_message(h) {
                         None } else {
                         Some(*h)
@@ -189,7 +189,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// Returns:
     /// * set of the UIDs to which we should send a reply;
     /// * set of hashes that can be fetched from the given message sender.
-    fn process_gossip(&mut self, mut gossip: Gossip<P>) -> (HashSet<UID>, HashSet<StructHash>) {
+    fn process_gossip(&mut self, mut gossip: Gossip<P>) -> (HashSet<UID>, HashSet<TxFlowHash>) {
         match gossip.body {
             GossipBody::Unsolicited(message) => self.process_incoming_candidate(message, Some(gossip.sender_uid)),
             GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, None),

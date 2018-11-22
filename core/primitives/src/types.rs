@@ -227,7 +227,7 @@ pub enum GossipBody<P> {
     /// A reply to an unsolicited gossip with the `SignedMessageData`.
     UnsolicitedReply(SignedMessageData<P>),
     /// A request to provide a list of `SignedMessageData`'s with the following hashes.
-    Fetch(Vec<StructHash>),
+    Fetch(Vec<TxFlowHash>),
     /// A response to the fetch request providing the requested messages.
     FetchReply(Vec<SignedMessageData<P>>),
 }

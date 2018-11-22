@@ -277,9 +277,10 @@ impl<'a, P: Payload> Message<'a, P> {
     where
         W: WitnessSelector,
     {
-        self.computed_epoch > 0 && !self
-            .approved_representatives
-            .contains_epoch(self.computed_epoch - 1)
+        self.computed_epoch > 0
+            && !self
+                .approved_representatives
+                .contains_epoch(self.computed_epoch - 1)
     }
 
     /// Determines whether this message serves as an endorsement to some representatives.
