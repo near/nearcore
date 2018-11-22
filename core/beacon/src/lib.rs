@@ -8,3 +8,4 @@ extern crate storage;
 
 pub mod chain;
 pub mod types;
+pub mod authority;

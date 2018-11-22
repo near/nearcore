@@ -7,18 +7,25 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
 
+use std::sync::Arc;
+
+use parking_lot::RwLock;
+
+use beacon::authority::{Authority, AuthorityConfig};
 use beacon::chain::{BlockChain, ChainConfig};
+use beacon::chain::{BlockChain, ChainConfig};
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
+use import_queue::ImportQueue;
 use node_runtime::Runtime;
-use parking_lot::RwLock;
+use node_runtime::Runtime;
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, GenericResult};
+use primitives::traits::{Block, GenericResult, Signer};
 use primitives::types::{
     BlockId, BLSSignature, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
 };
-use std::sync::Arc;
 use storage::{StateDb, Storage};
 
 mod import_queue;
@@ -29,9 +36,10 @@ pub mod test_utils;
 
 #[allow(dead_code)]
 pub struct Client {
+    signer: Arc<Signer>,
     state_db: RwLock<StateDb>,
     runtime: Runtime,
-    last_root: RwLock<MerkleHash>,
+    authority: Authority,
     beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
     tx_pool: RwLock<Vec<SignedTransaction>>,
@@ -40,21 +48,24 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(storage: Arc<Storage>, _chain_spec: &ChainSpec) -> Self {
+    pub fn new(_chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
         let state_db = StateDb::new(storage.clone());
-        let state_view = state_db.get_state_view();
         let chain_config = ChainConfig {
             extra_col: storage::COL_BEACON_EXTRA,
             header_col: storage::COL_BEACON_HEADERS,
             block_col: storage::COL_BEACON_BLOCKS,
             index_col: storage::COL_BEACON_INDEX,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), vec![]);
+        let beacon_chain = BlockChain::new(chain_config, genesis, storage);
+        let authority_config = AuthorityConfig { initial_authorities: vec![signer.public_key()], epoch_length: 10 };
+        let authority = Authority::new(authority_config, &beacon_chain);
         Client {
-            runtime: Runtime::default(),
+            signer,
             state_db: RwLock::new(state_db),
-            last_root: RwLock::new(state_view),
-            beacon_chain: BlockChain::new(chain_config, genesis, storage),
+            beacon_chain,
+            runtime: Runtime::default(),
+            authority,
             tx_pool: RwLock::new(vec![]),
             import_queue: RwLock::new(ImportQueue::new()),
         }
@@ -68,7 +79,7 @@ impl Client {
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
         let mut state_db = self.state_db.write();
         self.runtime
-            .view(&mut state_db, &self.last_root.read(), view_call)
+            .view(&mut state_db, &self.beacon_chain.best_block().header().merkle_root_state, view_call)
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {
@@ -163,27 +174,30 @@ impl network::client::Client<BeaconBlock> for Client {
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
         let parent_hash = self.best_hash();
         let index = self.best_index();
-        BeaconBlock::new(
+        let mut block = BeaconBlock::new(
             index + 1,
             parent_hash,
-            BLSSignature::default(),
             transactions,
-        )
+        );
+        block.sign(&self.signer);
+        block
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use parking_lot::Mutex;
+
     // test with protocol
     use network::client::Client as NetworkClient;
     use network::io::NetSyncIo;
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
     use network::test_utils;
-    use parking_lot::Mutex;
     use primitives::hash::hash_struct;
     use primitives::traits::GenericResult;
-    use super::*;
     use test_utils::generate_test_client;
+
+    use super::*;
 
     #[test]
     fn test_import_queue_empty() {

@@ -8,3 +8,4 @@ pub mod hash;
 pub mod signature;
 pub mod traits;
 pub mod types;
+pub mod signer;

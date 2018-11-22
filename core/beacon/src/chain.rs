@@ -227,7 +227,6 @@ impl<B: Block> BlockChain<B> {
 mod tests {
     use super::*;
 
-    use primitives::types::BLSSignature;
     use std::sync::Arc;
     use storage::MemoryStorage;
     use types::BeaconBlock;
@@ -241,7 +240,7 @@ mod tests {
             block_col: 2,
             index_col: 3,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), vec![]);
         let bc = BlockChain::new(chain_config, genesis.clone(), storage);
         assert_eq!(
             bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(),
@@ -259,9 +258,9 @@ mod tests {
             block_col: 2,
             index_col: 3,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
+        let genesis = BeaconBlock::new(0, CryptoHash::default(),  vec![]);
         let bc = BlockChain::new(chain_config.clone(), genesis.clone(), storage.clone());
-        let block1 = BeaconBlock::new(1, genesis.hash(), BLSSignature::default(), vec![]);
+        let block1 = BeaconBlock::new(1, genesis.hash(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
         assert_eq!(bc.best_block().header.index, 1);

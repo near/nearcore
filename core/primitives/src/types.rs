@@ -1,6 +1,8 @@
-use hash::{hash_struct, CryptoHash};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+
+use hash::{CryptoHash, hash_struct};
+use signature::Signature;
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
@@ -13,7 +15,7 @@ pub type StructSignature = u128;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
-pub type BLSSignature = u128;
+pub type BLSSignature = Signature;
 /// Database record type.
 pub type DBValue = Vec<u8>;
 

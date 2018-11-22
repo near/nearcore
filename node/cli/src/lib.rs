@@ -11,19 +11,22 @@ extern crate serde_json;
 extern crate service;
 extern crate storage;
 
-use beacon::types::BeaconBlockHeader;
-use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
-use clap::{App, Arg};
-use client::Client;
-use network::protocol::ProtocolConfig;
-use network::service::{NetworkConfiguration, Service as NetworkService};
-use primitives::traits::GenericResult;
-use service::network_handler::NetworkHandler;
-use service::run_service;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use clap::{App, Arg};
+
+use beacon::types::BeaconBlockHeader;
+use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
+use client::Client;
+use network::protocol::ProtocolConfig;
+use network::service::{NetworkConfiguration, Service as NetworkService};
+use primitives::signer::InMemorySigner;
+use primitives::traits::GenericResult;
+use service::network_handler::NetworkHandler;
+use service::run_service;
 use storage::{DiskStorage, Storage};
 
 pub mod chain_spec;
@@ -57,7 +60,8 @@ fn start_service(
     let storage: Arc<Storage> = Arc::new(
         DiskStorage::new(&storage_path.to_string_lossy())
     );
-    let client = Arc::new(Client::new(storage, &chain_spec));
+    let signer = Arc::new(InMemorySigner::new());
+    let client = Arc::new(Client::new( &chain_spec, storage, signer));
     let network_handler = NetworkHandler {
         client: client.clone(),
     };

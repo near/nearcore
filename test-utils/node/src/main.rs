@@ -22,6 +22,7 @@ use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use network::service::generate_service_task;
 use node_cli::chain_spec::get_default_chain_spec;
 use primitives::types::SignedTransaction;
+use primitives::signer::InMemorySigner;
 use service::network_handler::NetworkHandler;
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,7 +72,8 @@ pub fn main() {
     };
     let chain_spec = get_default_chain_spec().unwrap();
     let storage = Arc::new(storage::DiskStorage::new(&format!("storage/db-{}/", port)));
-    let client = Arc::new(Client::new(storage, &chain_spec));
+    let signer = Arc::new(InMemorySigner::new());
+    let client = Arc::new(Client::new(&chain_spec, storage, signer));
     let protocol_config = if is_root {
         ProtocolConfig::new_with_default_id(special_secret())
     } else {

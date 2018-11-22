@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use chain_spec::ChainSpec;
 use Client;
-use std::sync::Arc;
+use primitives::signer::InMemorySigner;
 use storage::MemoryStorage;
 
 pub fn generate_test_client() -> Client {
@@ -9,5 +11,6 @@ pub fn generate_test_client() -> Client {
         balances: vec!(),
         initial_authorities: vec!(),
     };
-    Client::new(storage, &chain_spec)
+    let signer = InMemorySigner::default();
+    Client::new(&chain_spec, storage, signer)
 }
