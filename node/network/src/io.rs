@@ -19,7 +19,7 @@ use std::sync::Arc;
 use substrate_network_libp2p::{NodeIndex, PeerId, ProtocolId, Service, Severity};
 
 /// IO interface for the syncing handler.
-/// Provides peer connection management and an interface to the blockchain client.
+/// Provides peer connection management and an interface to the BlockChain client.
 pub trait SyncIo {
     /// Report a peer for misbehaviour.
     fn report_peer(&mut self, who: NodeIndex, reason: Severity);

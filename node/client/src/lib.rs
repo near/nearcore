@@ -7,7 +7,7 @@ extern crate storage;
 #[macro_use]
 extern crate log;
 
-use beacon::chain::{Blockchain, ChainConfig};
+use beacon::chain::{BlockChain, ChainConfig};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use node_runtime::Runtime;
 use parking_lot::RwLock;
@@ -24,9 +24,11 @@ pub struct Client {
     state_db: RwLock<StateDb>,
     runtime: Runtime,
     last_root: RwLock<MerkleHash>,
-    beacon_chain: Blockchain<BeaconBlock>,
+    beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
     tx_pool: RwLock<Vec<SignedTransaction>>,
+    // import queue for receiving blocks
+    import_queue: RwLock<Vec<BeaconBlock>>,
 }
 
 impl Client {
@@ -44,8 +46,9 @@ impl Client {
             runtime: Runtime::default(),
             state_db: RwLock::new(state_db),
             last_root: RwLock::new(state_view),
-            beacon_chain: Blockchain::new(chain_config, genesis, storage),
+            beacon_chain: BlockChain::new(chain_config, genesis, storage),
             tx_pool: RwLock::new(vec![]),
+            import_queue: RwLock::new(vec![]),
         }
     }
 
@@ -64,6 +67,32 @@ impl Client {
         debug!(target: "client", "handle transaction {:?}", t);
         self.tx_pool.write().push(t);
         Ok(())
+    }
+
+    #[allow(unused)]
+    fn validate_signature(&self, block: &BeaconBlock) -> bool {
+        // TODO: validate multisig
+        true
+    }
+
+    /// import a block. Returns true if it is successfully imported to the chain
+    fn import_block(&self, block: BeaconBlock) -> bool {
+        let parent_hash = block.header.parent_hash;
+        if self.beacon_chain.is_known(&parent_hash) && self.validate_signature(&block) {
+            let mut state_db = self.state_db.write();
+            let transactions = block.transactions;
+            let last_root = self.last_root.read();
+            let (_, new_root) = self.runtime.apply(&mut state_db, &last_root, transactions);
+            if new_root != block.header.merkle_root_tx {
+                // TODO: something bad happened, what should we do
+                unimplemented!();
+            }
+            true
+        }
+        else {
+            self.import_queue.write().push(block);
+            false
+        }
     }
 }
 
@@ -87,7 +116,14 @@ impl network::client::Client<BeaconBlock> for Client {
     }
     fn import_blocks(&self, blocks: Vec<BeaconBlock>) {
         for block in blocks {
-            self.beacon_chain.insert_block(block);
+            // might not be the most efficient way to do this
+            // also related to fork choice rule
+            if self.import_block(block) {
+                let old_queue = std::mem::replace(&mut *self.import_queue.write(), vec![]);
+                for b in old_queue {
+                    self.import_block(b);
+                }
+            }
         }
     }
     fn prod_block(&self) -> BeaconBlock {
