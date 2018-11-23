@@ -59,8 +59,8 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         }
     }
 
-    pub fn contains_message(&self, hash: &TxFlowHash) -> bool {
-        self.messages.contains(hash)
+    pub fn contains_message(&self, hash: TxFlowHash) -> bool {
+        self.messages.contains(&hash)
     }
 
     /// Create a copy of the message data from the dag given hash.

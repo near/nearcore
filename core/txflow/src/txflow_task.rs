@@ -141,7 +141,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         -> (HashSet<UID>, HashSet<TxFlowHash>) {
         // Check one of the optimistic scenarios when we already know this message, but we still
         // reply on the request.
-        if self.dag_as_ref().contains_message(&message.hash) {
+        if self.dag_as_ref().contains_message(message.hash) {
             if let Some(uid) = reply_to {
                 (set!{uid}, HashSet::new()) } else {
                 (HashSet::new(), HashSet::new()) }
@@ -156,7 +156,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             (HashSet::new(), HashSet::new())
         } else {
             let mut unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).into_iter().filter_map(
-                |h| if self.dag_as_ref().contains_message(h) {
+                |h| if self.dag_as_ref().contains_message(*h) {
                         None } else {
                         Some(*h)
                     } ).collect();
