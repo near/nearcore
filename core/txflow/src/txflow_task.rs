@@ -149,7 +149,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             // This message is already in the candidates, but we might still need to update required
             // replies.
             if let Some(uid) = reply_to {
-                self.future_replies.entry(message.hash).or_insert_with(|| HashSet::new())
+                self.future_replies.entry(message.hash).or_insert_with(HashSet::new)
                     .insert(uid);
             }
             // No replies needed to be send right now.
@@ -172,11 +172,11 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                 // This candidates is not passing, and since it cannot be added to the DAG yet,
                 // there are no replies needed. Update the tracking containers.
                 for p in &unknown_hashes {
-                    self.missing_messages.entry(*p).or_insert_with(|| HashSet::new())
+                    self.missing_messages.entry(*p).or_insert_with(HashSet::new)
                         .insert(message.hash);
                 }
                 if let Some(uid) = reply_to {
-                    self.future_replies.entry(message.hash).or_insert_with(|| HashSet::new())
+                    self.future_replies.entry(message.hash).or_insert_with(HashSet::new)
                         .insert(uid);
                 }
                 self.candidates.insert(message, unknown_hashes.drain().collect());
@@ -185,7 +185,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         }
     }
 
-    /// Take care of the gossip received from the network.
+    /// Take care of the gossip received from the network. Partially destroys the gossip.
     /// Returns:
     /// * set of the UIDs to which we should send a reply;
     /// * set of hashes that can be fetched from the given message sender.
@@ -195,7 +195,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, None),
             GossipBody::Fetch(ref mut hashes) => {
                 let reply_messages: Vec<_> =
-                hashes.into_iter().filter_map(
+                hashes.drain(..).filter_map(
                     |h| self.dag_as_ref()
                         .copy_message_data_by_hash(h)).collect();
                 let reply = Gossip {
@@ -251,7 +251,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                     let (mut new_replies, mut new_hashes) = self.process_gossip(gossip);
                     // Update set of UIDs to which we need to reply.
                     self.pending_replies.extend(new_replies.drain());
-                    fetch_requests.entry(sender_uid).or_insert_with(|| HashSet::new())
+                    fetch_requests.entry(sender_uid).or_insert_with(HashSet::new)
                         .extend(new_hashes.drain());
                 },
                 Ok(Async::NotReady) => break,
