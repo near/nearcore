@@ -1,4 +1,5 @@
 mod message;
+mod reporter;
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;
@@ -6,6 +7,7 @@ use primitives::types::*;
 use std::collections::HashSet;
 
 use self::message::Message;
+use self::reporter::{MisbehaviourReporter, ViolationType};
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
@@ -24,6 +26,8 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 
     witness_selector: &'a W,
     starting_epoch: u64,
+
+    misbehaviour: MisbehaviourReporter,
 }
 
 impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
@@ -35,6 +39,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
             roots: HashSet::new(),
             witness_selector,
             starting_epoch,
+            misbehaviour: MisbehaviourReporter::new(),
         }
     }
 
@@ -76,7 +81,16 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
     }
 
     /// Verify that this message does not violate the protocol.
-    fn verify_message(&mut self, _message: &Message<'a, P>) -> Result<(), &'static str> {
+    fn verify_message(&mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
+        // Check epoch
+        if message.computed_epoch != message.data.body.epoch {
+            let mb = ViolationType::BadEpoch {
+                message: message.computed_hash.clone(),
+            };
+
+            self.misbehaviour.report(mb);
+        }
+
         Ok({})
     }
 
@@ -185,6 +199,63 @@ mod tests {
     }
 
     #[test]
+    fn incorrect_epoch_simple() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+
+        // Parent have greater epoch than children
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[1, 2 => a;] => 1, 1 => b;]);
+
+        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone()).is_ok());
+
+        for message in &dag.messages {
+            assert_eq!(message.computed_epoch, 0);
+        }
+
+        // Both messages have invalid epoch number so two reports were made
+        assert_eq!(dag.misbehaviour.violations.len(), 2);
+
+        for violation in &dag.misbehaviour.violations {
+            if let ViolationType::BadEpoch { message: _ } = violation {
+                // expected violation type
+            } else {
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn correct_epoch_complex() {
+        // When a message can have epoch k, but since it doesn't have messages
+        // with smaller epochs it creates them.
+
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0; 3, 0;] => 0, 1 => a;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a;] => 3, 2 => b;]);
+
+        for m in &all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
+        }
+
+        for message in &dag.messages {
+            if message.computed_hash != b.hash {
+                assert_eq!(message.computed_epoch, message.data.body.epoch);
+            }
+            else{
+                assert_eq!(message.computed_epoch, 1);
+            }
+        }
+    }
+
     fn feed_complex_topology() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
