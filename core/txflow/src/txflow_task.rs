@@ -19,7 +19,7 @@ const FORCED_GOSSIP_MS: u64 = 1500;
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
 /// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
 /// and consensuses. Currently produces only stream of gossips, TODO stream of consensuses.
-pub struct TxFlowTask<'a, P: Payload, W: WitnessSelector> {
+pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     owner_uid: UID,
     starting_epoch: u64,
     messages_receiver: mpsc::Receiver<Gossip<P>>,

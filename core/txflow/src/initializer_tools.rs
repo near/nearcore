@@ -5,6 +5,7 @@
 /// let m = map!{0 => 1, 2 => 3};
 /// assert_eq!(m.len(), 2);
 /// ```
+#[allow(unused_macros)]
 macro_rules! map(
         { $($key:expr => $value:expr),+ } => {
             {
@@ -24,6 +25,7 @@ macro_rules! map(
 /// let s = set!{2, 1};
 /// assert_eq!(s.len(), 2);
 /// ```
+#[allow(unused_macros)]
 macro_rules! set(
         { $($el:expr),+ } => {
             {
@@ -46,6 +48,7 @@ macro_rules! set(
 /// assert_eq!(b, &2);
 /// assert_eq!(c, &3);
 /// ```
+#[allow(unused_macros)]
 macro_rules! tuplet {
     { ($y:ident $(, $x:ident)*) = $v:expr } => {
         let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]) );
