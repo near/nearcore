@@ -98,13 +98,19 @@ pub struct MemoryStorage {
 }
 
 impl MemoryStorage {
+    pub fn new() -> Self {
+        MemoryStorage {
+            db: RwLock::new(HashMap::new()),
+        }
+    }
+
     fn get_key(col: u32, key: &[u8]) -> Vec<u8> {
-        let mut fullkey = vec![];
-        fullkey
+        let mut full_key = vec![];
+        full_key
             .write_u32::<LittleEndian>(col)
             .expect("Writing integer to bytes failed");
-        fullkey.extend_from_slice(key);
-        fullkey
+        full_key.extend_from_slice(key);
+        full_key
     }
 }
 

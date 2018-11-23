@@ -78,19 +78,29 @@ impl Client {
     /// import a block. Returns true if it is successfully imported to the chain
     fn import_block(&self, block: BeaconBlock) -> bool {
         let parent_hash = block.header.parent_hash;
-        if self.beacon_chain.is_known(&parent_hash) && self.validate_signature(&block) {
+        let is_known_block = self.beacon_chain.is_known(&block.hash());
+        if !is_known_block
+            && self.beacon_chain.is_known(&parent_hash)
+            && self.validate_signature(&block)
+        {
             let mut state_db = self.state_db.write();
-            let transactions = block.transactions;
+            let (header, transactions) = block.deconstruct();
             let last_root = self.last_root.read();
-            let (_, new_root) = self.runtime.apply(&mut state_db, &last_root, transactions);
-            if new_root != block.header.merkle_root_tx {
+            let (filtered_transactions, new_root) =
+                self.runtime.apply(&mut state_db, &last_root, transactions);
+            if new_root != header.merkle_root_tx {
                 // TODO: something bad happened, what should we do
                 unimplemented!();
             }
+            // Do we want all transactions to be in the block?
+            let block = Block::new(header, filtered_transactions);
+            self.beacon_chain.insert_block(block);
             true
-        }
-        else {
+        } else if !is_known_block {
             self.import_queue.write().push(block);
+            false
+        } else {
+            // the block is already known, discard it?
             false
         }
     }
@@ -139,4 +149,52 @@ impl network::client::Client<BeaconBlock> for Client {
             transactions,
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use primitives::hash::hash_struct;
+    use storage::MemoryStorage;
+
+    #[test]
+    fn test_import_queue_empty() {
+        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let parent_hash = client.beacon_chain.genesis_hash;
+        let block1 = BeaconBlock::new(1, parent_hash, 0, vec![SignedTransaction::default()]);
+        client.import_block(block1);
+        assert_eq!(client.import_queue.read().len(), 0);
+    }
+
+    #[test]
+    fn test_import_queue_non_empty() {
+        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let parent_hash = client.beacon_chain.genesis_hash;
+        let block1 = BeaconBlock::new(1, hash_struct(&1), 0, vec![]);
+        client.import_block(block1);
+        assert_eq!(client.import_queue.read().len(), 1);
+        let block2 = BeaconBlock::new(1, parent_hash, 0, vec![]);
+        client.import_block(block2);
+        assert_eq!(client.import_queue.read().len(), 1);
+    }
+
+    #[test]
+    fn test_duplicate_import() {
+        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let parent_hash = client.beacon_chain.genesis_hash;
+        let block0 = BeaconBlock::new(0, parent_hash, 0, vec![]);
+        client.import_block(block0);
+        assert_eq!(client.import_queue.read().len(), 0);
+    }
+
+    #[test]
+    fn test_import_blocks() {
+        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let parent_hash = client.beacon_chain.genesis_hash;
+        let block1 = BeaconBlock::new(1, parent_hash, 0, vec![SignedTransaction::default()]);
+        let block2 = BeaconBlock::new(2, block1.hash(), 0, vec![SignedTransaction::default()]);
+        network::client::Client::import_blocks(&client, vec![block1, block2]);
+        assert_eq!(client.import_queue.read().len(), 0);
+    }
+
 }
