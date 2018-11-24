@@ -319,7 +319,13 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         } else {
             // This situation happens when we just started TxFlow and haven't received any payloads
             // or gossip. In this case the `forced_gossip_delay` is None.
-            return Ok(Async::NotReady);
+            return if end_of_gossips && end_of_payloads {
+                // In rare cases, like in unit tests that run TxFlowTask in async mode
+                // the input streams are dropped even before the task that runs TxFlowTask
+                // is spawned. This if-clause covers it.
+            Ok(Async::Ready(None)) } else {
+             Ok(Async::NotReady)
+            };
         }
 
         {
@@ -414,26 +420,25 @@ mod tests {
         }
     }
 
-// TODO: Fix this.
-//    #[test]
-//    fn empty_start_stop_async() {
-//        // Start TxFlowTask, but do not feed anything.
-//        // The input channels drop and end immediately and so should TxFlowTask
-//        // without producing anything.
-//        tokio::run(lazy(|| {
-//            let owner_uid = 0;
-//            let starting_epoch = 0;
-//            let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
-//            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
-//            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
-//            let selector = FakeWitnessSelector::new();
-//            let task = TxFlowTask::<FakePayload, _>::new(
-//                owner_uid, starting_epoch, inc_gossip_rx,
-//                inc_payload_rx, out_gossip_tx, selector);
-//            tokio::spawn(task.for_each(|_| Ok(())));
-//            Ok(())
-//        }));
-//    }
+    #[test]
+    fn empty_start_stop_async() {
+        // Start TxFlowTask, but do not feed anything.
+        // The input channels drop and end immediately and so should TxFlowTask
+        // without producing anything.
+        tokio::run(lazy(|| {
+            let owner_uid = 0;
+            let starting_epoch = 0;
+            let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
+            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
+            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+            let selector = FakeWitnessSelector::new();
+            let task = TxFlowTask::<FakePayload, _>::new(
+                owner_uid, starting_epoch, inc_gossip_rx,
+                inc_payload_rx, out_gossip_tx, selector);
+            tokio::spawn(task.for_each(|_| Ok(())));
+            Ok(())
+        }));
+    }
 
     #[derive(Hash, Clone, Debug)]
     struct SimplePayload {
