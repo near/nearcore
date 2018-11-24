@@ -142,11 +142,14 @@ var compute_annotations = function(graph, num_users) {
     annotate_user_levels(nodes);
     var annotations = [];
     var mapping = {};
-    
+
+    // This list contains objects of form [epoch, node] to enable easy sorting
+    var epoch_blocks_endorsed = [];
+
     for (var node_idx = 0; node_idx < nodes.length; ++ node_idx) {
         var node = nodes[node_idx];
         var owner = node.owner;
-        var a = {'node' : node, 'endorsements': {}};
+        var a = {'node' : node, 'endorsements': {}, 'largest_kickout_promise': -1};
 
         annotations.push(a);
         mapping[node.uid] = a;
@@ -157,7 +160,8 @@ var compute_annotations = function(graph, num_users) {
             largest_epoch[i] = -1;
             largest_kickout[i] = -1;
         }
-        var largest_representative = 0;
+        var largest_representative = -1;
+        var largest_previous_kickout_promise = -1;
 
         var visited = {};
         var dfs = function(node) {
@@ -189,34 +193,13 @@ var compute_annotations = function(graph, num_users) {
                     largest_kickout[node.owner] = a.epoch;
                 }
             }
+
+            if (node.owner == owner && a.largest_kickout_promise > largest_previous_kickout_promise) {
+                largest_previous_kickout_promise = a.largest_kickout_promise;
+            }
         }
         dfs(node);
         
-        var dfs_endorse = function(node) {
-            if (visited[node.uid] !== 1) {
-                return;
-            }
-            visited[node.uid] = 2;
-
-            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
-                var parent_ = node.parents[parent_idx];
-                dfs_endorse(parent_);
-            }
-
-            var ok = true;
-            for (var idx = 0; idx < node.owner_level_nodes.length; ++ idx ) {
-                var conflict_node = node.owner_level_nodes[idx];
-                if (conflict_node.uid != node.uid && visited[conflict_node.uid]) {
-                    ok = false;
-                }
-            }
-
-            if (ok) {
-                mapping[node.uid].endorsements[owner] = true;
-            }
-        }
-        dfs_endorse(node);
-
         var same_epoch = 0;
         for (var i = 0; i < num_users; ++ i) {
             if (largest_epoch[i] >= largest_epoch[node.owner]) {
@@ -235,6 +218,10 @@ var compute_annotations = function(graph, num_users) {
                 }
                 else if (largest_representative < a.epoch) {
                     a.kickout = true;
+
+                    if (a.epoch > largest_kickout[owner]) {
+                        largest_kickout[owner] = a.epoch;
+                    }
                 }
             }
         }
@@ -276,6 +263,99 @@ var compute_annotations = function(graph, num_users) {
                 }
             }
         }
+
+        var dfs_endorse = function(node) {
+            if (visited[node.uid] !== 1) {
+                return;
+            }
+            visited[node.uid] = 2;
+
+            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
+                var parent_ = node.parents[parent_idx];
+                dfs_endorse(parent_);
+            }
+
+            if (mapping[node.uid].representative > -1) {
+                var ok = largest_previous_kickout_promise <= mapping[node.uid].representative;
+                for (var idx = 0; idx < node.owner_level_nodes.length; ++ idx ) {
+                    var conflict_node = node.owner_level_nodes[idx];
+                    if (conflict_node.uid != node.uid && visited[conflict_node.uid]) {
+                        ok = false;
+                    }
+                }
+
+                if (ok) {
+                    var num_endorsements = 0;
+                    for (var endorser in mapping[node.uid].endorsements) {
+                        ++ num_endorsements;
+                    }
+                    var was_epoch_block = num_endorsements > Math.floor(num_users * 2 / 3);
+
+                    if (mapping[node.uid].endorsements[owner] === undefined) {
+                        ++ num_endorsements;
+                    }
+                    var is_epoch_block = num_endorsements > Math.floor(num_users * 2 / 3);
+
+                    if (is_epoch_block && !was_epoch_block) {
+                        epoch_blocks_endorsed.push([mapping[node.uid].representative, node]);
+                    }
+
+                    mapping[node.uid].endorsements[owner] = true;
+                }
+            }
+        }
+        dfs_endorse(node);
+
+        a.largest_kickout_promise = largest_kickout[owner];
+    }
+
+    var last_epoch_block = -1;
+    epoch_blocks_endorsed.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
+    for (var i = 0; i < epoch_blocks_endorsed.length; ++ i) {
+        var epoch = epoch_blocks_endorsed[i][0];
+        var node = epoch_blocks_endorsed[i][1];
+        var a = mapping[node.uid];
+
+        a.epoch_block = true;
+
+        var visited = {};
+        var dfs_epoch = function(node) {
+            var ret = [-1, null]
+            if (visited[node.uid] !== undefined) {
+                return visited[node.uid];
+            }
+
+            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
+                var parent_ = node.parents[parent_idx];
+                var cand = dfs_epoch(parent_);
+                if (cand[0] > ret[0]) ret = cand;
+            }
+            
+            if (mapping[node.uid].representative > last_epoch_block && !mapping[node.uid].epoch_block) {
+                if (mapping[node.uid].representative > ret[0]) {
+                    ret = [mapping[node.uid].representative, node];
+                }
+            }
+
+            visited[node.uid] = ret;
+            return ret;
+        }
+
+        var dfs_from = node;
+        var iter = 0;
+        while (dfs_from) {
+            mapping[dfs_from.uid].epoch_block = true;
+            var mp = dfs_epoch(dfs_from);
+            visited = {};
+            dfs_from = mp[1];
+            ++ iter;
+            if (iter > 1000) {
+                console.error("Annotating epochs blocks entered an infinite loop?");
+                break;
+            }
+        }
+
+        last_epoch_block = epoch;
     }
 
     return annotations;
