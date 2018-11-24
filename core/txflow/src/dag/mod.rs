@@ -45,6 +45,13 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
             .unwrap_or(false)
     }
 
+    /// There is one or more roots (meaning it is not a very start of the DAG with no messages)
+    /// and at least one of these roots is not by the current owner.
+    pub fn is_root_not_updated(&self) -> bool {
+        !self.roots.is_empty()
+            && (&self.roots).iter().any(|m| m.data.body.owner_uid != self.owner_uid)
+    }
+
     /// Return true if there are several roots.
     pub fn has_dangling_roots(&self) -> bool {
         self.roots.len() > 1
@@ -123,7 +130,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
                 hash: 0,  // Will populate once the epoch is computed.
                 body: MessageDataBody {
                     owner_uid: self.owner_uid,
-                    parents: (&self.roots).into_iter().map(|m| m.computed_hash).collect(),
+                    parents: (&self.roots).iter().map(|m| m.computed_hash).collect(),
                     epoch: 0,  // Will be computed later.
                     payload,
                     endorsements,

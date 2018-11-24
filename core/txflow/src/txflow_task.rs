@@ -51,6 +51,10 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// Timer that determines that maximum time allowed without gossip. Even if by the end of the
     /// timer we do not have any new payload or new messages we gossip the old root message anyway.
     forced_gossip_delay: Option<Delay>,
+
+    /// Whether this task is allowed to spawn other tasks.
+    /// The default is `true`, while `false` is used for debugging.
+    can_spawn: bool,
 }
 
 impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
@@ -75,6 +79,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             pending_payload: P::new(),
             cooldown_delay: None,
             forced_gossip_delay: None,
+            can_spawn: true,
         }
     }
 
@@ -96,9 +101,15 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// Sends a gossip by spawning a separate task.
     fn send_gossip(&self, gossip: Gossip<P>) {
         let copied_tx = self.messages_sender.clone();
-        tokio::spawn(copied_tx.send(gossip).map(|_| ()).map_err(|e| {
-            error!("Failed to send a gossip {:?}", e)
-        }));
+        if self.can_spawn {
+            tokio::spawn(copied_tx.send(gossip).map(|_| ()).map_err(|e| {
+                error!("Failed to send a gossip {:?}", e)
+            }));
+        } else {
+            if let Err(e) = copied_tx.send(gossip).wait() {
+                error!("Failed to send a gossip {:?}", e)
+            };
+        }
     }
 
     /// Process the candidate that now has all necessary parent messages. Add it to the dag
@@ -155,7 +166,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             // No replies needed to be send right now.
             (HashSet::new(), HashSet::new())
         } else {
-            let mut unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).into_iter().filter_map(
+            let mut unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).iter().filter_map(
                 |h| if self.dag_as_ref().contains_message(*h) {
                         None } else {
                         Some(*h)
@@ -296,10 +307,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         }
 
         // The following section maybe creates a new root and sends it to some witnesses.
-        // Check whether this is still a single old root.
-        let only_old_root = self.dag_as_ref().is_current_owner_root();
         let mut new_gossip_body = None;
-        if !self.pending_payload.is_empty() || !only_old_root {
+        if !self.pending_payload.is_empty() || self.dag_as_ref().is_root_not_updated() {
             // Drain the current payload.
             let payload = mem::replace(&mut self.pending_payload, P::new());
             let new_message = self.dag_as_mut().create_root_message(payload, vec![]);
@@ -310,7 +319,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         } else {
             // This situation happens when we just started TxFlow and haven't received any payloads
             // or gossip. In this case the `forced_gossip_delay` is None.
-            return Ok(Async::Ready(None));
+            return Ok(Async::NotReady);
         }
 
         {
@@ -351,21 +360,129 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         self.forced_gossip_delay = Some(Delay::new(now + Duration::from_millis(FORCED_GOSSIP_MS)));
 
         // If the gossip stream and the payload stream are closed then we are done.
+        // This is very useful for unit tests that start TxFlowTask through spawn.
         if end_of_gossips && end_of_payloads {
             Ok(Async::Ready(None)) } else {
             Ok(Async::Ready(Some(()))) }
     }
 }
 
-// A simple wrapper around stream so that we can use it as a future.
-impl<'a, P: Payload, W: WitnessSelector> Future for TxFlowTask<'a, P, W> {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        try_ready!(
-             (self as &mut Stream<Item=Self::Item, Error=Self::Error>)
-            .for_each(|_| Ok(())).poll());
-        Ok(Async::Ready(()))
+#[cfg(test)]
+mod tests {
+    use super::TxFlowTask;
+    use std::collections::{HashSet, HashMap};
+    use futures::future::*;
+    use futures::{Stream, Future};
+    use futures::sync::mpsc;
+    use tokio::prelude::*;  // For `timeout` combinator.
+
+    use primitives::types::{UID, Gossip, GossipBody};
+    use primitives::traits::{Payload, WitnessSelector};
+    use testing_utils::FakePayload;
+
+    struct FakeWitnessSelector {
+        schedule: HashMap<u64, HashSet<UID>>,
+        next_random_witness: UID,
+    }
+
+    impl FakeWitnessSelector {
+        fn new() -> FakeWitnessSelector {
+            FakeWitnessSelector {
+                schedule: map!{
+               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+               2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
+                next_random_witness: 0,
+            }
+        }
+
+        // Will be used in the future unit tests.
+        #[allow(dead_code)]
+        fn set_next_random_witness(&mut self, uid: UID) {
+            self.next_random_witness = uid;
+        }
+    }
+
+    impl WitnessSelector for FakeWitnessSelector {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+            self.schedule.get(&epoch).unwrap()
+        }
+        fn epoch_leader(&self, epoch: u64) -> UID {
+            *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+        fn random_witness(&self, _epoch: u64) -> u64 {
+            self.next_random_witness
+        }
+    }
+
+// TODO: Fix this.
+//    #[test]
+//    fn empty_start_stop_async() {
+//        // Start TxFlowTask, but do not feed anything.
+//        // The input channels drop and end immediately and so should TxFlowTask
+//        // without producing anything.
+//        tokio::run(lazy(|| {
+//            let owner_uid = 0;
+//            let starting_epoch = 0;
+//            let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
+//            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
+//            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+//            let selector = FakeWitnessSelector::new();
+//            let task = TxFlowTask::<FakePayload, _>::new(
+//                owner_uid, starting_epoch, inc_gossip_rx,
+//                inc_payload_rx, out_gossip_tx, selector);
+//            tokio::spawn(task.for_each(|_| Ok(())));
+//            Ok(())
+//        }));
+//    }
+
+    #[derive(Hash, Clone, Debug)]
+    struct SimplePayload {
+        content: u64,
+    }
+
+    impl SimplePayload {
+        pub fn add_content(&mut self, content: u64) {
+            self.content += content;
+        }
+    }
+
+    impl Payload for SimplePayload {
+        fn verify(&self) -> Result<(), &'static str> { Ok(()) }
+
+        fn union_update(&mut self, other: Self) { self.content += other.content; }
+
+        fn is_empty(&self) -> bool { self.content == 0 }
+
+        fn new() -> Self { Self {content: 0} }
+    }
+
+    #[test]
+    fn one_payload_sync() {
+        // A simple demonstration on how to test input/output of the TxFlowTask synchronously.
+        let owner_uid = 0;
+        let starting_epoch = 0;
+        let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
+        let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
+        let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1_024);
+        let selector = FakeWitnessSelector::new();
+        let mut task = TxFlowTask::<SimplePayload, _>::new(
+            owner_uid, starting_epoch, inc_gossip_rx,
+            inc_payload_rx, out_gossip_tx, selector);
+        task.can_spawn = false;
+
+        let mut one_payload = SimplePayload::new();
+        one_payload.add_content(10);
+        // Send the payload.
+        inc_payload_tx.send(one_payload).wait().expect("Unsuccessful payload sending.");
+        // Make exactly one step.
+        task.wait().next();
+
+        // Wait for the payload.
+        if let Some(Ok(Gossip {body: GossipBody::Unsolicited(body), ..})) = out_gossip_rx.wait().next() {
+            assert_eq!(body.body.payload.content, 10);
+        } else {
+            panic!("Expected gossiped payload")
+        }
     }
 }
 
