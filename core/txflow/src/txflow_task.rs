@@ -323,8 +323,16 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 // In rare cases, like in unit tests that run TxFlowTask in async mode
                 // the input streams are dropped even before the task that runs TxFlowTask
                 // is spawned. This if-clause covers it.
-            Ok(Async::Ready(None)) } else {
-             Ok(Async::NotReady)
+                Ok(Async::Ready(None)) } else {
+                // It is important that this line executes only when at least one of the sub-futures
+                // returns NotReady, because it would break the executor notification system, and
+                // this future would hung indefinitely.
+                // Since we reached this line of code we broke out from the two loops that collect
+                // the payload and the incoming gossip. Each of those two loops breaks when either
+                // the stream has ended or the stream is NotReady. Since we are in the else-arm
+                // it is not the case when both streams have ended, and so at least one stream has
+                // returned NotReady.
+                Ok(Async::NotReady)
             };
         }
 
