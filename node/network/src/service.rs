@@ -5,7 +5,7 @@ use io::NetSyncIo;
 use parking_lot::Mutex;
 use primitives::traits::{Block, Header as BlockHeader};
 use protocol::ProtocolHandler;
-use protocol::{self, Protocol, ProtocolConfig, Transaction};
+use protocol::{self, Protocol, ProtocolConfig};
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,18 +18,18 @@ use tokio::timer::Interval;
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 const BLOCK_PROD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub struct Service<B: Block, T: Transaction, H: ProtocolHandler<T>> {
+pub struct Service<B: Block, H: ProtocolHandler> {
     pub network: Arc<Mutex<NetworkService>>,
-    pub protocol: Arc<Protocol<B, T, H>>,
+    pub protocol: Arc<Protocol<B, H>>,
 }
 
-impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Service<B, T, H> {
+impl<B: Block, H: ProtocolHandler> Service<B, H> {
     pub fn new(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
         client: Arc<Client<B>>,
-    ) -> Result<Service<B, T, H>, Error> {
+    ) -> Result<Service<B, H>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, handler, client));
@@ -44,14 +44,13 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Service<B, T, H> {
     }
 }
 
-pub fn generate_service_task<B, T, H, Header>(
+pub fn generate_service_task<B, H, Header>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<B, T, H>>,
+    protocol: Arc<Protocol<B, H>>,
 ) -> impl Future<Item = (), Error = ()>
 where
     B: Block,
-    T: Transaction,
-    H: ProtocolHandler<T>,
+    H: ProtocolHandler,
     Header: BlockHeader,
 {
     // Interval for performing maintenance on the protocol handler.
@@ -138,7 +137,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use primitives::types::SignedTransaction;
     use std::thread;
     use std::time;
     use test_utils::*;
@@ -148,12 +146,10 @@ mod tests {
         let services = create_test_services(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         for service in services.iter() {
-            let task = generate_service_task::<
-                MockBlock,
-                SignedTransaction,
-                MockProtocolHandler,
-                MockBlockHeader,
-            >(service.network.clone(), service.protocol.clone());
+            let task = generate_service_task::<MockBlock, MockProtocolHandler, MockBlockHeader>(
+                service.network.clone(),
+                service.protocol.clone(),
+            );
             runtime.spawn(task);
         }
         thread::sleep(time::Duration::from_millis(1000));

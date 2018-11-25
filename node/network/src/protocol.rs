@@ -1,8 +1,6 @@
 use parking_lot::RwLock;
 use rand::{seq, thread_rng};
-use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::sync::Arc;
 use std::time;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
@@ -12,8 +10,7 @@ use io::{NetSyncIo, SyncIo};
 use message::{self, Message, MessageBody};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, GenericResult, Header as BlockHeader};
-use primitives::types::BlockId;
-use std::marker::PhantomData;
+use primitives::types::{BlockId, SignedTransaction};
 use test_utils;
 
 /// time to wait (secs) for a request
@@ -74,11 +71,8 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-pub trait Transaction: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
-impl<T> Transaction for T where T: Send + Sync + Serialize + DeserializeOwned + Debug + 'static {}
-
 #[allow(dead_code)]
-pub struct Protocol<B: Block, T: Transaction, H: ProtocolHandler<T>> {
+pub struct Protocol<B: Block, H: ProtocolHandler> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     // peers that are in the handshaking process
@@ -90,22 +84,20 @@ pub struct Protocol<B: Block, T: Transaction, H: ProtocolHandler<T>> {
     // callbacks
     handler: Option<Box<H>>,
     // phantom data for keep T
-    phantom: PhantomData<T>,
 }
 
-pub trait ProtocolHandler<T>: Send + Sync + 'static {
-    fn handle_transaction(&self, transaction: T) -> GenericResult;
+pub trait ProtocolHandler: Send + Sync + 'static {
+    fn handle_transaction(&self, transaction: SignedTransaction) -> GenericResult;
 }
 
-impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
-    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B>>) -> Protocol<B, T, H> {
+impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
+    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B>>) -> Protocol<B, H> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
             handler: Some(Box::new(handler)),
             client,
-            phantom: PhantomData,
         }
     }
 
@@ -119,7 +111,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
             .insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
         let status = message::Status::default();
-        let message: Message<_, _, Header> = Message::new(MessageBody::Status(status));
+        let message: Message<_, Header> = Message::new(MessageBody::Status(status));
         self.send_message(net_sync, peer, &message);
     }
 
@@ -135,7 +127,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         seq::sample_iter(&mut rng, owned_peers, num_to_sample)
     }
 
-    pub fn on_transaction_message(&self, tx: T) {
+    pub fn on_transaction_message(&self, tx: SignedTransaction) {
         //TODO: communicate to consensus
         self.handler
             .as_ref()
@@ -184,7 +176,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
                 max: None,
             };
             next_request_id += 1;
-            let message: Message<_, _, Header> = Message::new(MessageBody::BlockRequest(request));
+            let message: Message<_, Header> = Message::new(MessageBody::BlockRequest(request));
             self.send_message(net_sync, peer, &message);
         }
 
@@ -234,7 +226,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
             id: request.id,
             blocks,
         };
-        let message: Message<_, _, Header> = Message::new(MessageBody::BlockResponse(response));
+        let message: Message<_, Header> = Message::new(MessageBody::BlockResponse(response));
         self.send_message(net_sync, peer, &message);
     }
 
@@ -254,7 +246,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         peer: NodeIndex,
         data: &[u8],
     ) {
-        let message: Message<_, _, Header> = match Decode::decode(data) {
+        let message: Message<_, Header> = match Decode::decode(data) {
             Some(m) => m,
             _ => {
                 debug!("cannot decode message: {:?}", data);
@@ -316,7 +308,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         &self,
         net_sync: &mut NetSyncIo,
         node_index: NodeIndex,
-        message: &Message<T, B, Header>,
+        message: &Message<B, Header>,
     ) {
         match Encode::encode(message) {
             Some(data) => {
@@ -358,7 +350,7 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
         if special_secret == self.config.secret {
             let block = self.client.prod_block();
             let block_announce = message::BlockAnnounce::Block(block.clone());
-            let message: Message<_, _, Header> =
+            let message: Message<_, Header> =
                 Message::new(MessageBody::BlockAnnounce(block_announce));
             let peer_info = self.peer_info.read();
             for peer in peer_info.keys() {
@@ -375,8 +367,8 @@ mod tests {
     use primitives::types;
     use test_utils::*;
 
-    impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Protocol<B, T, H> {
-        fn _on_message(&self, data: &[u8]) -> Message<T, B, B::Header> {
+    impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
+        fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
             match Decode::decode(data) {
                 Some(m) => m,
                 _ => panic!("cannot decode message: {:?}", data),
@@ -387,7 +379,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
-        let message: Message<types::SignedTransaction, MockBlock, MockBlockHeader> =
+        let message: Message<MockBlock, MockBlockHeader> =
             Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
         let mock_client = Arc::new(MockClient::default());

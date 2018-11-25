@@ -79,7 +79,7 @@ pub fn main() {
     };
     let service =
         Service::new(protocol_config, net_config, network_handler, client.clone()).unwrap();
-    let task = generate_service_task::<_, _, _, BeaconBlockHeader>(
+    let task = generate_service_task::<_, _, BeaconBlockHeader>(
         service.network.clone(),
         service.protocol.clone(),
     );
