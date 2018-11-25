@@ -1,12 +1,12 @@
 use primitives::hash::CryptoHash;
-use primitives::types::BlockId;
+use primitives::types::{BlockId, SignedTransaction};
 
 pub type RequestId = u64;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum MessageBody<T, B, H> {
+pub enum MessageBody<B, H> {
     //TODO: add different types of messages here
-    Transaction(T),
+    Transaction(SignedTransaction),
     Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),
@@ -14,12 +14,12 @@ pub enum MessageBody<T, B, H> {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Message<T, B, H> {
-    pub body: MessageBody<T, B, H>,
+pub struct Message<B, H> {
+    pub body: MessageBody<B, H>,
 }
 
-impl<T, B, H> Message<T, B, H> {
-    pub fn new(body: MessageBody<T, B, H>) -> Message<T, B, H> {
+impl<B, H> Message<B, H> {
+    pub fn new(body: MessageBody<B, H>) -> Message<B, H> {
         Message { body }
     }
 }

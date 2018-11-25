@@ -10,7 +10,6 @@ use client::Client;
 use network::protocol::ProtocolConfig;
 use network::service::NetworkConfiguration;
 use network::service::Service as NetworkService;
-use primitives::types::SignedTransaction;
 use service::network_handler::NetworkHandler;
 use service::run_service;
 use std::sync::Arc;
@@ -29,5 +28,5 @@ pub fn run() {
         network_handler,
         client.clone(),
     ).unwrap();
-    run_service::<_, SignedTransaction, _, BeaconBlockHeader>(client.clone(), &network);
+    run_service::<_, _, BeaconBlockHeader>(client.clone(), &network);
 }

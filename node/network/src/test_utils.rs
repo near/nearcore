@@ -11,8 +11,7 @@ use primitives::traits::Block;
 use primitives::traits::GenericResult;
 use primitives::traits::Header;
 use primitives::types;
-use protocol::ProtocolHandler;
-use protocol::{ProtocolConfig, Transaction};
+use protocol::{ProtocolConfig, ProtocolHandler};
 use rand::Rng;
 use service::Service;
 use std::sync::Arc;
@@ -61,7 +60,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<types::SignedTransaction, MockBlock, MockBlockHeader> {
+pub fn fake_tx_message() -> Message<MockBlock, MockBlockHeader> {
     let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
     Message::new(MessageBody::Transaction(tx))
 }
@@ -78,16 +77,14 @@ pub fn init_logger(debug: bool) {
 #[derive(Default, Clone, Copy)]
 pub struct MockProtocolHandler {}
 
-impl ProtocolHandler<types::SignedTransaction> for MockProtocolHandler {
+impl ProtocolHandler for MockProtocolHandler {
     fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
         println!("{:?}", t);
         Ok(())
     }
 }
 
-pub fn create_test_services(
-    num_services: u32,
-) -> Vec<Service<MockBlock, types::SignedTransaction, MockProtocolHandler>> {
+pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = rand::thread_rng().gen_range(30000, 60000);
     let mut addresses = Vec::new();
