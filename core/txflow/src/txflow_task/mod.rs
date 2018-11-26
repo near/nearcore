@@ -29,6 +29,8 @@ const FORCED_GOSSIP_MS: u64 = 1500;
 pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector, S: 'a + SpawnerLike = Spawner> {
     owner_uid: UID,
     starting_epoch: u64,
+    /// The size of the random sample of witnesses that we draw every time we gossip.
+    gossip_size: usize,
     messages_receiver: mpsc::Receiver<Gossip<P>>,
     payload_receiver: mpsc::Receiver<P>,
     messages_sender: mpsc::Sender<Gossip<P>>,
@@ -66,6 +68,7 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector, S: 'a + Spaw
 impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> TxFlowTask<'a, P, W, S> {
     pub fn new(owner_uid: UID,
                starting_epoch: u64,
+               gossip_size: usize,
                messages_receiver: mpsc::Receiver<Gossip<P>>,
                payload_receiver: mpsc::Receiver<P>,
                messages_sender: mpsc::Sender<Gossip<P>>,
@@ -73,6 +76,7 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> TxFlowTask<'a, P, 
         Self {
             owner_uid,
             starting_epoch,
+            gossip_size,
             messages_receiver,
             payload_receiver,
             messages_sender,
@@ -341,12 +345,13 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> Stream for TxFlowT
                 self.dag_as_ref().current_root_data().expect("Expected only one root")
             );
 
-            // First send gossip to a random witness.
-            let random_witness = self.witness_selector.random_witness(gossip_body.body.epoch);
-            {
+            // First send gossip to random witnesses.
+            let random_witnesses = self.witness_selector.random_witnesses(
+                gossip_body.body.epoch, self.gossip_size);
+            for w in &random_witnesses {
                 let gossip = Gossip {
                     sender_uid: self.owner_uid,
-                    receiver_uid: random_witness,
+                    receiver_uid: *w,
                     sender_sig: 0,  // TODO: Sign it.
                     body: GossipBody::Unsolicited(gossip_body.clone())
                 };
@@ -354,10 +359,10 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> Stream for TxFlowT
             }
 
             // Then, send it to whoever has requested it.
-            for w in &self.pending_replies {
+            for w in &self.pending_replies - &random_witnesses {
                 let gossip = Gossip {
                     sender_uid: self.owner_uid,
-                    receiver_uid: *w,
+                    receiver_uid: w,
                     sender_sig: 0,  // TODO: Sign it.
                     body: GossipBody::UnsolicitedReply(gossip_body.clone())
                 };
@@ -394,35 +399,35 @@ mod tests {
 
     struct FakeWitnessSelector {
         schedule: HashMap<u64, HashSet<UID>>,
-        next_random_witness: UID,
+        next_random_witnesses: HashSet<UID>,
     }
 
     impl FakeWitnessSelector {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
                 schedule: map!{
-               0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
-               2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
-                next_random_witness: 0,
+                   0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
+                   2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
+                next_random_witnesses: set!{1, 2},
             }
         }
 
         // Will be used in the future unit tests.
         #[allow(dead_code)]
-        fn set_next_random_witness(&mut self, uid: UID) {
-            self.next_random_witness = uid;
+        fn set_next_random_witness(&mut self, uids: HashSet<UID>) {
+            self.next_random_witnesses = uids;
         }
     }
 
     impl WitnessSelector for FakeWitnessSelector {
-        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<UID> {
             self.schedule.get(&epoch).unwrap()
         }
         fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
-        fn random_witness(&self, _epoch: u64) -> u64 {
-            self.next_random_witness
+        fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
+            self.next_random_witnesses.clone()
         }
     }
 
@@ -434,12 +439,13 @@ mod tests {
         tokio::run(lazy(|| {
             let owner_uid = 0;
             let starting_epoch = 0;
+            let sample_size = 2;
             let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
             let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
             let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
             let selector = FakeWitnessSelector::new();
             let task = TxFlowTask::<FakePayload, _>::new(
-                owner_uid, starting_epoch, inc_gossip_rx,
+                owner_uid, starting_epoch, sample_size, inc_gossip_rx,
                 inc_payload_rx, out_gossip_tx, selector);
             tokio::spawn(task.for_each(|_| Ok(())));
             Ok(())
@@ -472,12 +478,13 @@ mod tests {
         // A simple demonstration on how to test input/output of the TxFlowTask synchronously.
         let owner_uid = 0;
         let starting_epoch = 0;
+        let sample_size = 2;
         let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
         let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
         let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1_024);
         let selector = FakeWitnessSelector::new();
         let task = TxFlowTask::<SimplePayload, _, WaitSpawner>::new(
-            owner_uid, starting_epoch, inc_gossip_rx,
+            owner_uid, starting_epoch, sample_size, inc_gossip_rx,
             inc_payload_rx, out_gossip_tx, selector);
 
         let mut one_payload = SimplePayload::new();

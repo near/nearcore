@@ -69,8 +69,8 @@ pub trait Verifier {
 pub trait WitnessSelector {
     fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
     fn epoch_leader(&self, epoch: u64) -> types::UID;
-    /// Get random witness for the given epoch. Should exclude the current witness.
-    fn random_witness(&self, epoch: u64) -> types::UID;
+    /// Random sample of witnesses. Should exclude the current witness.
+    fn random_witnesses(&self, epoch: u64, sample_size: usize) -> HashSet<types::UID>;
 }
 
 pub type GenericResult = Result<(), &'static str>;

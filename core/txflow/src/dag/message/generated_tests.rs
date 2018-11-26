@@ -21,13 +21,13 @@ mod tests {
     }
 
     impl WitnessSelector for FakeNonContinuousWitnessSelector {
-        fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<u64> {
+        fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<UID> {
             &self.users
         }
-        fn epoch_leader(&self, epoch: u64) -> u64 {
+        fn epoch_leader(&self, epoch: u64) -> UID {
             epoch % self.num_users
         }
-        fn random_witness(&self, _epoch: u64) -> u64 {
+        fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
             unimplemented!()
         }
     }

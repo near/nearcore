@@ -485,13 +485,13 @@ mod tests {
     }
 
     impl WitnessSelector for FakeWitnessSelector {
-        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<UID> {
             self.schedule.get(&epoch).unwrap()
         }
-        fn epoch_leader(&self, epoch: u64) -> u64 {
+        fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
         }
-        fn random_witness(&self, _epoch: u64) -> u64 {
+        fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
             unimplemented!()
         }
     }
