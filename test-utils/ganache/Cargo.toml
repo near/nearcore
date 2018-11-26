@@ -1,0 +1,13 @@
+[package]
+name = "ganache"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+tokio = "0.1"
+futures = "0.1"
+
+client = { path = "../../node/client" }
+service = { path = "../../node/service" }
+storage = { path = "../../core/storage" }
+network = { path = "../../node/network" }
