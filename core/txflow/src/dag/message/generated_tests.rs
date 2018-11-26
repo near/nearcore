@@ -46,16 +46,16 @@ mod tests {
         simple_messages!(0, &selector, arena [[=> v2; ] => 1, 0, true => v3;]);
 
         assert_eq!(v0.computed_epoch, 0);
-        assert_eq!(v0.computed_is_representative, true);
+        assert_eq!(v0.computed_is_representative, Some(0));
         assert_eq!(v0.computed_is_kickout, false);
         assert_eq!(v1.computed_epoch, 0);
-        assert_eq!(v1.computed_is_representative, false);
+        assert_eq!(v1.computed_is_representative, None);
         assert_eq!(v1.computed_is_kickout, false);
         assert_eq!(v2.computed_epoch, 0);
-        assert_eq!(v2.computed_is_representative, false);
+        assert_eq!(v2.computed_is_representative, None);
         assert_eq!(v2.computed_is_kickout, false);
         assert_eq!(v3.computed_epoch, 1);
-        assert_eq!(v3.computed_is_representative, true);
+        assert_eq!(v3.computed_is_representative, Some(1));
         assert_eq!(v3.computed_is_kickout, false);
     }
 
@@ -79,34 +79,34 @@ mod tests {
         simple_messages!(0, &selector, arena [[=> v9; => v10; ] => 2, 0, true => v13;]);
 
         assert_eq!(v4.computed_epoch, 0);
-        assert_eq!(v4.computed_is_representative, false);
+        assert_eq!(v4.computed_is_representative, None);
         assert_eq!(v4.computed_is_kickout, false);
         assert_eq!(v5.computed_epoch, 0);
-        assert_eq!(v5.computed_is_representative, false);
+        assert_eq!(v5.computed_is_representative, None);
         assert_eq!(v5.computed_is_kickout, false);
         assert_eq!(v6.computed_epoch, 0);
-        assert_eq!(v6.computed_is_representative, false);
+        assert_eq!(v6.computed_is_representative, None);
         assert_eq!(v6.computed_is_kickout, false);
         assert_eq!(v7.computed_epoch, 0);
-        assert_eq!(v7.computed_is_representative, true);
+        assert_eq!(v7.computed_is_representative, Some(0));
         assert_eq!(v7.computed_is_kickout, false);
         assert_eq!(v8.computed_epoch, 1);
-        assert_eq!(v8.computed_is_representative, true);
+        assert_eq!(v8.computed_is_representative, Some(1));
         assert_eq!(v8.computed_is_kickout, false);
         assert_eq!(v9.computed_epoch, 1);
-        assert_eq!(v9.computed_is_representative, true);
+        assert_eq!(v9.computed_is_representative, Some(1));
         assert_eq!(v9.computed_is_kickout, false);
         assert_eq!(v10.computed_epoch, 1);
-        assert_eq!(v10.computed_is_representative, false);
+        assert_eq!(v10.computed_is_representative, None);
         assert_eq!(v10.computed_is_kickout, false);
         assert_eq!(v11.computed_epoch, 1);
-        assert_eq!(v11.computed_is_representative, false);
+        assert_eq!(v11.computed_is_representative, None);
         assert_eq!(v11.computed_is_kickout, false);
         assert_eq!(v12.computed_epoch, 1);
-        assert_eq!(v12.computed_is_representative, false);
+        assert_eq!(v12.computed_is_representative, None);
         assert_eq!(v12.computed_is_kickout, false);
         assert_eq!(v13.computed_epoch, 1);
-        assert_eq!(v13.computed_is_representative, false);
+        assert_eq!(v13.computed_is_representative, None);
         assert_eq!(v13.computed_is_kickout, false);
     }
 
@@ -126,22 +126,22 @@ mod tests {
         simple_messages!(0, &selector, arena [[=> v3; => v4; ] => 2, 0, true => v5;]);
 
         assert_eq!(v0.computed_epoch, 0);
-        assert_eq!(v0.computed_is_representative, false);
+        assert_eq!(v0.computed_is_representative, None);
         assert_eq!(v0.computed_is_kickout, false);
         assert_eq!(v1.computed_epoch, 0);
-        assert_eq!(v1.computed_is_representative, true);
+        assert_eq!(v1.computed_is_representative, Some(0));
         assert_eq!(v1.computed_is_kickout, false);
         assert_eq!(v2.computed_epoch, 0);
-        assert_eq!(v2.computed_is_representative, false);
+        assert_eq!(v2.computed_is_representative, None);
         assert_eq!(v2.computed_is_kickout, false);
         assert_eq!(v3.computed_epoch, 0);
-        assert_eq!(v3.computed_is_representative, false);
+        assert_eq!(v3.computed_is_representative, None);
         assert_eq!(v3.computed_is_kickout, false);
         assert_eq!(v4.computed_epoch, 1);
-        assert_eq!(v4.computed_is_representative, true);
+        assert_eq!(v4.computed_is_representative, Some(1));
         assert_eq!(v4.computed_is_kickout, false);
         assert_eq!(v5.computed_epoch, 1);
-        assert_eq!(v5.computed_is_representative, false);
+        assert_eq!(v5.computed_is_representative, None);
         assert_eq!(v5.computed_is_kickout, false);
     }
 
@@ -152,32 +152,8 @@ mod tests {
         /* {"s":[{"owner":1,"parents":[]},{"owner":0,"parents":[0]},{"owner":2,"parents":[1]},{"owner":3,"parents":[2]},{"owner":1,"parents":[2]},{"owner":2,"parents":[3,4]},{"owner":0,"parents":[4]},{"owner":1,"parents":[5]},{"owner":0,"parents":[6,7]},{"owner":3,"parents":[8]},{"owner":3,"parents":[9]},{"owner":1,"parents":[10]},{"owner":3,"parents":[11]},{"owner":2,"parents":[11]},{"owner":3,"parents":[12,13]},{"owner":1,"parents":[12,13]},{"owner":2,"parents":[15]},{"owner":1,"parents":[14,16]},{"owner":2,"parents":[14,16]},{"owner":3,"parents":[14,16]},{"owner":1,"parents":[17,18,19]},{"owner":2,"parents":[20]},{"owner":3,"parents":[20]},{"owner":1,"parents":[21,22]}],"n":4,"c":"Some kickout messages","f":"kickouts"} */
         let arena = Arena::new();
         let selector = FakeNonContinuousWitnessSelector::new(4);
-        let (
-            v0,
-            v1,
-            v2,
-            v3,
-            v4,
-            v5,
-            v6,
-            v7,
-            v8,
-            v9,
-            v10,
-            v11,
-            v12,
-            v13,
-            v14,
-            v15,
-            v16,
-            v17,
-            v18,
-            v19,
-            v20,
-            v21,
-            v22,
-            v23,
-        );
+        let (v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18,
+            v19, v20, v21, v22, v23,);
         simple_messages!(0, &selector, arena [1, 0, true => v0;]);
         simple_messages!(0, &selector, arena [[=> v0; ] => 0, 0, true => v1;]);
         simple_messages!(0, &selector, arena [[=> v1; ] => 2, 0, true => v2;]);
@@ -204,77 +180,76 @@ mod tests {
         simple_messages!(0, &selector, arena [[=> v21; => v22; ] => 1, 0, true => v23;]);
 
         assert_eq!(v0.computed_epoch, 0);
-        assert_eq!(v0.computed_is_representative, false);
+        assert_eq!(v0.computed_is_representative, None);
         assert_eq!(v0.computed_is_kickout, false);
         assert_eq!(v1.computed_epoch, 0);
-        assert_eq!(v1.computed_is_representative, true);
+        assert_eq!(v1.computed_is_representative, Some(0));
         assert_eq!(v1.computed_is_kickout, false);
         assert_eq!(v2.computed_epoch, 0);
-        assert_eq!(v2.computed_is_representative, false);
+        assert_eq!(v2.computed_is_representative, None);
         assert_eq!(v2.computed_is_kickout, false);
         assert_eq!(v3.computed_epoch, 0);
-        assert_eq!(v3.computed_is_representative, false);
+        assert_eq!(v3.computed_is_representative, None);
         assert_eq!(v3.computed_is_kickout, false);
         assert_eq!(v4.computed_epoch, 1);
-        assert_eq!(v4.computed_is_representative, true);
+        assert_eq!(v4.computed_is_representative, Some(1));
         assert_eq!(v4.computed_is_kickout, false);
         assert_eq!(v5.computed_epoch, 1);
-        assert_eq!(v5.computed_is_representative, false);
+        assert_eq!(v5.computed_is_representative, None);
         assert_eq!(v5.computed_is_kickout, false);
         assert_eq!(v6.computed_epoch, 1);
-        assert_eq!(v6.computed_is_representative, false);
+        assert_eq!(v6.computed_is_representative, None);
         assert_eq!(v6.computed_is_kickout, false);
         assert_eq!(v7.computed_epoch, 1);
-        assert_eq!(v7.computed_is_representative, false);
+        assert_eq!(v7.computed_is_representative, None);
         assert_eq!(v7.computed_is_kickout, false);
         assert_eq!(v8.computed_epoch, 2);
-        assert_eq!(v8.computed_is_representative, false);
+        assert_eq!(v8.computed_is_representative, None);
         assert_eq!(v8.computed_is_kickout, false);
         assert_eq!(v9.computed_epoch, 1);
-        assert_eq!(v9.computed_is_representative, false);
+        assert_eq!(v9.computed_is_representative, None);
         assert_eq!(v9.computed_is_kickout, false);
         assert_eq!(v10.computed_epoch, 2);
-        assert_eq!(v10.computed_is_representative, false);
+        assert_eq!(v10.computed_is_representative, None);
         assert_eq!(v10.computed_is_kickout, false);
         assert_eq!(v11.computed_epoch, 2);
-        assert_eq!(v11.computed_is_representative, false);
+        assert_eq!(v11.computed_is_representative, None);
         assert_eq!(v11.computed_is_kickout, false);
         assert_eq!(v12.computed_epoch, 3);
-        assert_eq!(v12.computed_is_representative, false);
+        assert_eq!(v12.computed_is_representative, None);
         assert_eq!(v12.computed_is_kickout, true);
         assert_eq!(v13.computed_epoch, 2);
-        assert_eq!(v13.computed_is_representative, true);
+        assert_eq!(v13.computed_is_representative, Some(2));
         assert_eq!(v13.computed_is_kickout, false);
         assert_eq!(v14.computed_epoch, 3);
-        assert_eq!(v14.computed_is_representative, true);
+        assert_eq!(v14.computed_is_representative, Some(3));
         assert_eq!(v14.computed_is_kickout, false);
         assert_eq!(v15.computed_epoch, 3);
-        assert_eq!(v15.computed_is_representative, false);
+        assert_eq!(v15.computed_is_representative, None);
         assert_eq!(v15.computed_is_kickout, false);
         assert_eq!(v16.computed_epoch, 3);
-        assert_eq!(v16.computed_is_representative, false);
+        assert_eq!(v16.computed_is_representative, None);
         assert_eq!(v16.computed_is_kickout, false);
         assert_eq!(v17.computed_epoch, 4);
-        assert_eq!(v17.computed_is_representative, false);
+        assert_eq!(v17.computed_is_representative, None);
         assert_eq!(v17.computed_is_kickout, false);
         assert_eq!(v18.computed_epoch, 4);
-        assert_eq!(v18.computed_is_representative, false);
+        assert_eq!(v18.computed_is_representative, None);
         assert_eq!(v18.computed_is_kickout, false);
         assert_eq!(v19.computed_epoch, 4);
-        assert_eq!(v19.computed_is_representative, false);
+        assert_eq!(v19.computed_is_representative, None);
         assert_eq!(v19.computed_is_kickout, false);
         assert_eq!(v20.computed_epoch, 5);
-        assert_eq!(v20.computed_is_representative, false);
+        assert_eq!(v20.computed_is_representative, None);
         assert_eq!(v20.computed_is_kickout, true);
         assert_eq!(v21.computed_epoch, 5);
-        assert_eq!(v21.computed_is_representative, false);
+        assert_eq!(v21.computed_is_representative, None);
         assert_eq!(v21.computed_is_kickout, false);
         assert_eq!(v22.computed_epoch, 5);
-        assert_eq!(v22.computed_is_representative, false);
+        assert_eq!(v22.computed_is_representative, None);
         assert_eq!(v22.computed_is_kickout, false);
         assert_eq!(v23.computed_epoch, 6);
-        // TODO: uncomment this one
-        //assert_eq!(v23.computed_is_representative, true);
+        assert_eq!(v23.computed_is_representative, Some(5));
         assert_eq!(v23.computed_is_kickout, false);
     }
 

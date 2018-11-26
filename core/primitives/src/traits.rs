@@ -77,7 +77,7 @@ pub type GenericResult = Result<(), &'static str>;
 
 /// General payload that can be stored on TxFlow. Should either not have references,
 /// or the references should live for static lifetime.
-pub trait Payload: Hash + Clone + Send + 'static {
+pub trait Payload: Hash + Clone + Send + Debug + 'static {
     fn verify(&self) -> GenericResult;
     // Merge content from another payload into this one.
     fn union_update(&mut self, other: Self);

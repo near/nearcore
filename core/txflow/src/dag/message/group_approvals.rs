@@ -136,6 +136,25 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
         self.approvals_per_epoch.contains_key(&epoch)
     }
 
+    /// Get messages that are superapproved.
+    pub fn superapproved_messages<W>(&self, witness_selector: &W) -> GroupsPerEpoch<'a, P>
+    where
+        W: WitnessSelector
+    {
+        let mut result = GroupsPerEpoch::new();
+        for (epoch, per_epoch) in &self.approvals_per_epoch {
+            let epoch_witnesses = witness_selector.epoch_witnesses(*epoch);
+            for (message, _approvals) in &per_epoch.approvals {
+                let witnesses: HashSet<u64> =
+                    _approvals.messages_by_owner.keys().cloned().collect();
+                if (epoch_witnesses.len() * 2 / 3 + 1) <= (&witnesses & epoch_witnesses).len() {
+                    result.insert(*epoch, *message);
+                }
+            }
+        }
+        result
+    }
+
     /// Check whether there are messages that become superapproved once we add the complementary
     /// approvals.
     pub fn new_superapproved_messages<W>(
