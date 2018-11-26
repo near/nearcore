@@ -71,7 +71,7 @@ mod test {
             index_col: 3,
         };
         let mut last_block = BeaconBlock::new(0, CryptoHash::default(),  vec![]);
-        let bc = Blockchain::new(chain_config, last_block.clone(), storage);
+        let bc = BlockChain::new(chain_config, last_block.clone(), storage);
         for i in 1..num_blocks {
             let block = BeaconBlock::new(i, last_block.hash(), vec![]);
             bc.insert_block(block.clone());

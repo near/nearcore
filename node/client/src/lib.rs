@@ -12,10 +12,15 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use beacon::authority::{Authority, AuthorityConfig};
+use beacon::authority::{Authority, AuthorityConfig};
 use beacon::chain::{BlockChain, ChainConfig};
+use beacon::chain::{BlockChain, ChainConfig};
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
+use import_queue::ImportQueue;
+use node_runtime::{ApplyState, Runtime};
 use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Signer};
@@ -23,11 +28,6 @@ use primitives::types::{
     BlockId, SignedTransaction, ViewCall, ViewCallResult,
 };
 use storage::{StateDb, Storage};
-use beacon::chain::{BlockChain, ChainConfig};
-use beacon::authority::{AuthorityConfig, Authority};
-use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use node_runtime::Runtime;
-use import_queue::ImportQueue;
 
 mod import_queue;
 

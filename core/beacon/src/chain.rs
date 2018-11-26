@@ -241,7 +241,7 @@ mod tests {
             index_col: 3,
         };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), vec![]);
-        let bc = Blockchain::new(chain_config, genesis.clone(), storage);
+        let bc = BlockChain::new(chain_config, genesis.clone(), storage);
         assert_eq!(
             bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(),
             genesis
