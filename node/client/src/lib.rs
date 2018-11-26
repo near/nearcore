@@ -1,26 +1,31 @@
 extern crate beacon;
+#[macro_use]
+extern crate log;
 extern crate network;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
-#[macro_use]
-extern crate log;
-
-mod import_queue;
 
 use beacon::chain::{BlockChain, ChainConfig};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
+use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::Runtime;
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult};
 use primitives::types::{
-    BLSSignature, BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
+    BlockId, BLSSignature, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
 };
 use std::sync::Arc;
 use storage::{StateDb, Storage};
+
+mod import_queue;
+
+pub mod chain_spec;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
 #[allow(dead_code)]
 pub struct Client {
@@ -35,7 +40,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(storage: Arc<Storage>) -> Self {
+    pub fn new(storage: Arc<Storage>, _chain_spec: &ChainSpec) -> Self {
         let state_db = StateDb::new(storage.clone());
         let state_view = state_db.get_state_view();
         let chain_config = ChainConfig {
@@ -97,10 +102,10 @@ impl Client {
             let (filtered_transactions, new_root) =
                 self.runtime.apply(&mut state_db, &last_root, transactions);
             if new_root != header.merkle_root_tx || filtered_transactions.len() != num_transactions
-            {
-                // TODO: something really bad happened
-                return false;
-            }
+                {
+                    // TODO: something really bad happened
+                    return false;
+                }
             let block = Block::new(header, filtered_transactions);
             self.beacon_chain.insert_block(block);
             true
@@ -169,13 +174,20 @@ impl network::client::Client<BeaconBlock> for Client {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // test with protocol
+    use network::client::Client as NetworkClient;
+    use network::io::NetSyncIo;
+    use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
+    use network::test_utils;
+    use parking_lot::Mutex;
     use primitives::hash::hash_struct;
-    use storage::MemoryStorage;
+    use primitives::traits::GenericResult;
+    use super::*;
+    use test_utils::generate_test_client;
 
     #[test]
     fn test_import_queue_empty() {
-        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
         let block1 = BeaconBlock::new(1, parent_hash, 0, vec![]);
         client.import_block(block1);
@@ -184,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_import_queue_non_empty() {
-        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
         let block1 = BeaconBlock::new(1, hash_struct(&1), 0, vec![]);
         client.import_block(block1);
@@ -196,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_import() {
-        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
         let block0 = BeaconBlock::new(0, parent_hash, 0, vec![]);
         client.import_block(block0);
@@ -205,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_import_blocks() {
-        let client = Client::new(Arc::new(MemoryStorage::new()));
+        let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
         let block1 = BeaconBlock::new(1, parent_hash, 0, vec![SignedTransaction::default()]);
         let block2 = BeaconBlock::new(2, block1.hash(), 0, vec![SignedTransaction::default()]);
@@ -215,13 +227,6 @@ mod tests {
         // import queue
         assert_eq!(client.import_queue.read().len(), 1);
     }
-
-    // test with protocol
-    use network::io::NetSyncIo;
-    use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
-    use network::test_utils;
-    use parking_lot::Mutex;
-    use primitives::traits::GenericResult;
 
     struct MockHandler {
         pub client: Arc<Client>,
@@ -235,9 +240,7 @@ mod tests {
 
     #[test]
     fn test_protocol_and_client() {
-        use network::client::Client;
-        let storage = Arc::new(MemoryStorage::new());
-        let client = Arc::new(self::Client::new(storage));
+        let client = Arc::new(generate_test_client());
         let handler = MockHandler {
             client: client.clone(),
         };
