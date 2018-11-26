@@ -10,9 +10,6 @@ struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
     // Invariant: Can't be `None` (i.e. on enter and on exit from the function
     // the value *must* be `Some`).
-    // TODO: Maybe replace Option with Arc. Option was used because this code
-    // was part of runtime in Substrate which compiles to WASM. Since we don't
-    // compile this to WASM, we can use Arc.
     module: Option<elements::Module>,
     config: &'a Config,
 }
@@ -197,68 +194,68 @@ pub(super) fn prepare_contract(
         memory,
     })
 }
-/*
+
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use std::fmt;
-	use tests::Test;
-	use vm::tests::MockExt;
-	use wabt;
+    use super::*;
+    use std::fmt;
+    use wabt;
 
-	impl fmt::Debug for PreparedContract {
-		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-			write!(f, "PreparedContract {{ .. }}")
-		}
-	}
+    impl fmt::Debug for PreparedContract {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "PreparedContract {{ .. }}")
+        }
+    }
 
-	fn parse_and_prepare_wat(wat: &str) -> Result<PreparedContract, Error> {
-		let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
-		let config = Config::<Test>::default();
-		let env = ::vm::runtime::init_env();
-		prepare_contract::<MockExt>(wasm.as_ref(), &config, &env)
-	}
+    fn parse_and_prepare_wat(wat: &str) -> Result<PreparedContract, Error> {
+        let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
+        let config = Config::default();
+        prepare_contract(wasm.as_ref(), &config)
+    }
 
-	#[test]
-	fn internal_memory_declaration() {
-		let r = parse_and_prepare_wat(r#"(module (memory 1 1))"#);
-		assert_matches!(r, Err(Error::InternalMemoryDeclared));
-	}
+    #[test]
+    fn internal_memory_declaration() {
+        let r = parse_and_prepare_wat(r#"(module (memory 1 1))"#);
+        assert_matches!(r, Err(Error::InternalMemoryDeclared));
+    }
 
-	#[test]
-	fn memory() {
-		// This test assumes that maximum page number is configured to a certain number.
-		assert_eq!(Config::<Test>::default().max_memory_pages, 16);
+    #[test]
+    fn memory() {
+        // This test assumes that maximum page number is configured to a certain number.
+        assert_eq!(Config::default().max_memory_pages, 16);
 
-		let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
-		assert_matches!(r, Ok(_));
+        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
+        assert_matches!(r, Ok(_));
 
-		// No memory import
-		let r = parse_and_prepare_wat(r#"(module)"#);
-		assert_matches!(r, Ok(_));
+        // No memory import
+        let r = parse_and_prepare_wat(r#"(module)"#);
+        assert_matches!(r, Ok(_));
 
-		// initial exceed maximum
-		let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 16 1)))"#);
-		assert_matches!(r, Err(Error::Memory));
+        // initial exceed maximum
+        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 16 1)))"#);
+        assert_matches!(r, Err(Error::Memory));
 
-		// no maximum
-		let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-		assert_matches!(r, Err(Error::Memory));
+        // no maximum
+        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
+        assert_matches!(r, Err(Error::Memory));
 
-		// requested maximum exceed configured maximum
-		let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 17)))"#);
-		assert_matches!(r, Err(Error::Memory));
-	}
+        // requested maximum exceed configured maximum
+        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 17)))"#);
+        assert_matches!(r, Err(Error::Memory));
+    }
 
-	#[test]
-	fn imports() {
-		// nothing can be imported from non-"env" module for now.
-		let r = parse_and_prepare_wat(r#"(module (import "another_module" "memory" (memory 1 1)))"#);
-		assert_matches!(r, Err(Error::Instantiate));
+    #[test]
+    fn imports() {
+        // nothing can be imported from non-"env" module for now.
+        let r =
+            parse_and_prepare_wat(r#"(module (import "another_module" "memory" (memory 1 1)))"#);
+        assert_matches!(r, Err(Error::Instantiate));
 
-		let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i32))))"#);
-		assert_matches!(r, Ok(_));
+        let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i32))))"#);
+        assert_matches!(r, Ok(_));
 
+        // TODO: Address tests once we check proper function signatures.
+		/*
 		// wrong signature
 		let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
 		assert_matches!(r, Err(Error::Instantiate));
@@ -266,6 +263,5 @@ mod tests {
 		// unknown function name
 		let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
 		assert_matches!(r, Err(Error::Instantiate));
-	}
+		*/    }
 }
-*/
