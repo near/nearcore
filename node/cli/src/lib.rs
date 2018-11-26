@@ -14,16 +14,10 @@ extern crate storage;
 use beacon::types::BeaconBlockHeader;
 use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
 use clap::{App, Arg};
-use clap::{App, Arg};
 use client::Client;
-use client::Client;
-use network::protocol::ProtocolConfig;
 use network::protocol::ProtocolConfig;
 use network::service::{NetworkConfiguration, Service as NetworkService};
-use network::service::NetworkConfiguration;
-use network::service::Service as NetworkService;
 use primitives::traits::GenericResult;
-use primitives::types::SignedTransaction;
 use service::network_handler::NetworkHandler;
 use service::run_service;
 use std::fs::File;
@@ -40,7 +34,11 @@ fn get_storage_path(base_path: &Path) -> PathBuf {
     path
 }
 
-fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericResult {
+fn start_service(
+    base_path: &Path,
+    chain_spec_path: Option<&Path>,
+)
+    -> GenericResult {
     let chain_spec = match chain_spec_path {
         Some(path) => {
             let mut file = File::open(path)
@@ -69,26 +67,25 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
         network_handler,
         client.clone(),
     ).unwrap();
-    run_service::<_, _, BeaconBlockHeader>(client.clone(), &network);
+    run_service::<_, _, BeaconBlockHeader>(client.clone(), &network)
 }
 
 pub fn run() {
-    let matches = App::new("near")
-        .arg(
-            Arg::with_name("base_path")
-                .short("b")
-                .long("base-path")
-                .value_name("PATH")
-                .help("Sets a base path for persisted files")
-                .takes_value(true),
-        ).arg(
-            Arg::with_name("chain_spec_file")
-                .short("c")
-                .long("chain-spec-file")
-                .value_name("CHAIN_SPEC_FILE")
-                .help("Sets a file location to read a custom chain spec")
-                .takes_value(true),
-        ).get_matches();
+    let matches = App::new("near").arg(
+        Arg::with_name("base_path")
+            .short("b")
+            .long("base-path")
+            .value_name("PATH")
+            .help("Sets a base path for persisted files")
+            .takes_value(true),
+    ).arg(
+        Arg::with_name("chain_spec_file")
+            .short("c")
+            .long("chain-spec-file")
+            .value_name("CHAIN_SPEC_FILE")
+            .help("Sets a file location to read a custom chain spec")
+            .takes_value(true),
+    ).get_matches();
 
     let base_path = matches
         .value_of("base_path")

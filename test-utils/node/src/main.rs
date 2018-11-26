@@ -1,9 +1,6 @@
 extern crate beacon;
 #[macro_use]
 extern crate clap;
-#[macro_use]
-extern crate clap;
-extern crate client;
 extern crate client;
 extern crate env_logger;
 extern crate futures;
@@ -14,8 +11,6 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate service;
 extern crate storage;
-extern crate storage;
-extern crate tokio;
 extern crate tokio;
 
 use beacon::types::BeaconBlockHeader;
