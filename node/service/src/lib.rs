@@ -9,9 +9,12 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate tokio;
 
-use std::sync::Arc;
+pub mod config;
+pub mod network_handler;
+pub mod rpc;
 
 use futures::future;
+use std::sync::Arc;
 
 use client::Client;
 use network::protocol::ProtocolHandler;
