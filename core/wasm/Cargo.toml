@@ -1,0 +1,9 @@
+[package]
+name = "wasm"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+wasmi = { version = "0.4.1" }
+pwasm-utils = "0.6.0"
+parity-wasm = "0.31"
