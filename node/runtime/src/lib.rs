@@ -10,16 +10,49 @@ extern crate network;
 extern crate primitives;
 extern crate storage;
 
+use std::collections::HashMap;
+use serde::{Serialize, de::DeserializeOwned};
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::hash::CryptoHash;
 use storage::{StateDb, StateDbUpdate};
 
+const RUNTIME_DATA : &[u8] = b"runtime";
+
+/// Runtime data that is stored in the state.
+/// TODO: Look into how to store this not in a single element of the StateDb.
+#[derive(Serialize, Deserialize)]
+pub struct RuntimeData {
+    /// Currently staked money.
+    pub stake: HashMap<AccountId, u64>,
+}
+
+impl RuntimeData {
+    pub fn at_stake(&self, account_key: AccountId) -> u64 {
+        self.stake.get(&account_key).cloned().unwrap_or(0)
+    }
+    pub fn put_stake(&mut self, account_key: AccountId, amount: u64) {
+        self.stake.insert(account_key, amount);
+    }
+}
+
+/// Per account information stored in the state.
 #[derive(Serialize, Deserialize)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: u64,
     pub amount: u64,
+}
+
+pub struct ApplyState {
+    pub root: MerkleHash,
+    pub block_index: u64,
+    pub parent_block_hash: CryptoHash,
+}
+
+pub struct ApplyResult {
+    pub root: MerkleHash,
 }
 
 #[derive(Default)]
@@ -35,27 +68,13 @@ fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
-    pub fn get_account(
-        &self,
-        state_update: &mut StateDbUpdate,
-        account_key: AccountId,
-    ) -> Option<Account> {
-        state_update
-            .get(&account_id_to_bytes(account_key))
-            .and_then(|data| bincode::deserialize(&data).ok())
+    fn get<T: DeserializeOwned>(&self, state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
+        state_update.get(key).and_then(|data| bincode::deserialize(&data).ok())
     }
-
-    pub fn set_account(
-        &self,
-        state_update: &mut StateDbUpdate,
-        account_key: AccountId,
-        account: &Account,
-    ) {
-        match bincode::serialize(&account) {
-            Ok(data) => state_update.set(&account_id_to_bytes(account_key), data),
-            Err(e) => {
-                error!("error occurred while encoding: {:?}", e);
-            }
+    fn set<T: Serialize>(&self, state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
+        match bincode::serialize(value) {
+            Ok(data) => state_update.set(key, data),
+            Err(e) => error!("Error occurred while encoding {:?}", e)
         }
     }
     fn apply_transaction(
@@ -63,16 +82,32 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
     ) -> bool {
-        let sender = self.get_account(state_update, transaction.body.sender);
-        let receiver = self.get_account(state_update, transaction.body.receiver);
-        match (sender, receiver) {
-            (Some(mut sender), Some(mut receiver)) => {
-                sender.amount -= transaction.body.amount;
-                sender.nonce = transaction.body.nonce;
-                receiver.amount += transaction.body.amount;
-                self.set_account(state_update, transaction.body.sender, &sender);
-                self.set_account(state_update, transaction.body.sender, &receiver);
-                true
+        let runtime_data: Option<RuntimeData> = self.get(state_update, RUNTIME_DATA);
+        let sender: Option<Account> = self.get(state_update, &account_id_to_bytes(transaction.body.sender));
+        let receiver: Option<Account> = self.get(state_update, &account_id_to_bytes(transaction.body.receiver));
+        match (runtime_data, sender, receiver) {
+            (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
+                // Transaction is staking transaction.
+                if transaction.body.sender == transaction.body.receiver {
+                    if sender.amount >= transaction.body.amount {
+                        runtime_data.put_stake(transaction.body.sender, transaction.body.amount);
+                        self.set(state_update, RUNTIME_DATA, &runtime_data);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    if sender.amount - runtime_data.at_stake(transaction.body.sender) >= transaction.body.amount {
+                        sender.amount -= transaction.body.amount;
+                        sender.nonce = transaction.body.nonce;
+                        receiver.amount += transaction.body.amount;
+                        self.set(state_update, &account_id_to_bytes(transaction.body.sender), &sender);
+                        self.set(state_update, &account_id_to_bytes(transaction.body.sender), &receiver);
+                        true
+                    } else {
+                        false
+                    }
+                }
             }
             _ => false,
         }
@@ -81,11 +116,11 @@ impl Runtime {
     pub fn apply(
         &self,
         state_db: &mut StateDb,
-        root: &MerkleHash,
+        apply_state: &ApplyState,
         transactions: Vec<SignedTransaction>,
-    ) -> (Vec<SignedTransaction>, MerkleHash) {
+    ) -> (Vec<SignedTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
-        let mut state_update = StateDbUpdate::new(state_db, root);
+        let mut state_update = StateDbUpdate::new(state_db, &apply_state.root);
         for t in transactions {
             if self.apply_transaction(&mut state_update, &t) {
                 state_update.commit();
@@ -95,7 +130,7 @@ impl Runtime {
             }
         }
         let state_view = state_update.finalize();
-        (filtered_transactions, state_view)
+        (filtered_transactions, ApplyResult { root: state_view })
     }
 
     pub fn view(
@@ -105,7 +140,7 @@ impl Runtime {
         view_call: &ViewCall,
     ) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(state_db, root);
-        match self.get_account(&mut state_update, view_call.account) {
+        match self.get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
             Some(account) => ViewCallResult {
                 account: view_call.account,
                 amount: account.amount,
@@ -116,4 +151,37 @@ impl Runtime {
             },
         }
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use primitives::types::*;
+    use storage::*;
+
+
+    // TODO: Need state db to initialize with specific state.
+//    #[test]
+//    fn test_genesis_state() {
+//        let rt = Runtime {};
+//        let storage = Arc::new(MemoryStorage::default());
+//        let mut state_db = StateDb::new(storage);
+//        let root = state_db.get_state_view();
+//        let view_call = ViewCall { account: 1 };
+//        let result = rt.view(&mut state_db, &root, &view_call);
+//        assert_eq!(result, ViewCallResult {account: 1, amount: 0});
+//    }
+
+//    #[test]
+//    fn test_transfer_stake() {
+//        let rt = Runtime {};
+//        let t = SignedTransaction::new(123, TransactionBody::new(1, 1, 2, 100));
+//        let storage = Arc::new(MemoryStorage::default());
+//        let mut state_db = StateDb::new(storage);
+//        let root = state_db.get_state_view();
+//        let (filtered_tx, new_root) = rt.apply(&mut state_db, &root, [t].to_vec());
+//        assert_eq!(filtered_tx.len(), 1);
+//    }
 }
