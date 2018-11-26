@@ -9,6 +9,7 @@ extern crate byteorder;
 extern crate network;
 extern crate primitives;
 extern crate storage;
+extern crate beacon;
 
 use std::collections::HashMap;
 use serde::{Serialize, de::DeserializeOwned};
@@ -17,6 +18,7 @@ use primitives::signature::PublicKey;
 use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use primitives::hash::CryptoHash;
 use storage::{StateDb, StateDbUpdate};
+use beacon::authority::AuthorityChangeSet;
 
 const RUNTIME_DATA : &[u8] = b"runtime";
 
@@ -53,6 +55,7 @@ pub struct ApplyState {
 
 pub struct ApplyResult {
     pub root: MerkleHash,
+    pub authority_change_set: AuthorityChangeSet,
 }
 
 #[derive(Default)]
@@ -81,6 +84,7 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
+        authority_change_set: &mut AuthorityChangeSet,
     ) -> bool {
         let runtime_data: Option<RuntimeData> = self.get(state_update, RUNTIME_DATA);
         let sender: Option<Account> = self.get(state_update, &account_id_to_bytes(transaction.body.sender));
@@ -89,8 +93,9 @@ impl Runtime {
             (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
                 // Transaction is staking transaction.
                 if transaction.body.sender == transaction.body.receiver {
-                    if sender.amount >= transaction.body.amount {
+                    if sender.amount >= transaction.body.amount && sender.public_keys.is_empty() {
                         runtime_data.put_stake(transaction.body.sender, transaction.body.amount);
+                        authority_change_set.proposed.insert(transaction.body.sender, (sender.public_keys[0], transaction.body.amount));
                         self.set(state_update, RUNTIME_DATA, &runtime_data);
                         true
                     } else {
@@ -121,8 +126,9 @@ impl Runtime {
     ) -> (Vec<SignedTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
         let mut state_update = StateDbUpdate::new(state_db, &apply_state.root);
+        let mut authority_change_set = AuthorityChangeSet::default();
         for t in transactions {
-            if self.apply_transaction(&mut state_update, &t) {
+            if self.apply_transaction(&mut state_update, &t, &mut authority_change_set) {
                 state_update.commit();
                 filtered_transactions.push(t);
             } else {
@@ -130,7 +136,7 @@ impl Runtime {
             }
         }
         let state_view = state_update.finalize();
-        (filtered_transactions, ApplyResult { root: state_view })
+        (filtered_transactions, ApplyResult { root: state_view, authority_change_set })
     }
 
     pub fn view(

@@ -1,5 +1,6 @@
 
 use std::collections::HashMap;
+use primitives::types::AccountId;
 use primitives::signature::PublicKey;
 use types::BeaconBlock;
 use chain::BlockChain;
@@ -10,6 +11,11 @@ pub struct AuthorityConfig {
     pub initial_authorities: Vec<PublicKey>,
     /// Authority epoch length.
     pub epoch_length: u64,
+}
+
+#[derive(Default)]
+pub struct AuthorityChangeSet {
+    pub proposed: HashMap<AccountId, (PublicKey, u64)>,
 }
 
 pub struct Authority {
@@ -41,7 +47,7 @@ impl Authority {
     }
 
     /// Updates authority for given block.
-    pub fn update_authority(&mut self, _block: &BeaconBlock) {
+    pub fn update_authority(&mut self, _change_set: &AuthorityChangeSet) {
         // TODO: update cache of current authorities.
     }
 }

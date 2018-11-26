@@ -13,13 +13,10 @@ use parking_lot::RwLock;
 
 use beacon::authority::{Authority, AuthorityConfig};
 use beacon::chain::{BlockChain, ChainConfig};
-use beacon::chain::{BlockChain, ChainConfig};
-use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
-use import_queue::ImportQueue;
-use node_runtime::Runtime;
+use node_runtime::{ApplyState, Runtime};
 use node_runtime::Runtime;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Signer};
@@ -94,7 +91,7 @@ impl Client {
         true
     }
 
-    /// import a block. Returns true if it is successfully inserted into the chain
+    /// Import a block. Returns true if it is successfully inserted into the chain
     fn import_block(&self, block: BeaconBlock) -> bool {
         if self.beacon_chain.is_known(&block.hash()) {
             return false;
@@ -105,18 +102,16 @@ impl Client {
             let (header, transactions) = block.deconstruct();
             let num_transactions = transactions.len();
             // we can unwrap because parent is guaranteed to exist
-            let last_root = self
-                .beacon_chain
-                .get_header(&BlockId::Hash(parent_hash))
-                .unwrap()
-                .merkle_root_state;
-            let (filtered_transactions, new_root) =
-                self.runtime.apply(&mut state_db, &last_root, transactions);
-            if new_root != header.merkle_root_tx || filtered_transactions.len() != num_transactions
-                {
-                    // TODO: something really bad happened
-                    return false;
-                }
+            let last_header = self.beacon_chain.get_header(&BlockId::Hash(parent_hash)).expect("Parent is known but header not found.");
+            let apply_state = ApplyState { root: last_header.merkle_root_state, block_index: last_header.index, parent_block_hash: parent_hash };
+            let (filtered_transactions, apply_result) =
+                self.runtime.apply(&mut state_db, &apply_state, transactions);
+            if apply_result.root != header.merkle_root_tx || filtered_transactions.len() != num_transactions
+            {
+                // TODO: something really bad happened
+                return false;
+            }
+            // TODO: figure out where to store apply_result.authority_change_set.
             let block = Block::new(header, filtered_transactions);
             self.beacon_chain.insert_block(block);
             true
@@ -194,6 +189,7 @@ mod tests {
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
     use network::test_utils;
     use primitives::hash::hash_struct;
+    use primitives::signer::InMemorySigner;
     use primitives::traits::GenericResult;
     use test_utils::generate_test_client;
 
@@ -203,7 +199,7 @@ mod tests {
     fn test_import_queue_empty() {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, parent_hash, 0, vec![]);
+        let block1 = BeaconBlock::new(1, parent_hash, vec![]);
         client.import_block(block1);
         assert_eq!(client.import_queue.read().len(), 0);
     }
@@ -212,10 +208,10 @@ mod tests {
     fn test_import_queue_non_empty() {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, hash_struct(&1), 0, vec![]);
+        let block1 = BeaconBlock::new(1, hash_struct(&1), vec![]);
         client.import_block(block1);
         assert_eq!(client.import_queue.read().len(), 1);
-        let block2 = BeaconBlock::new(1, parent_hash, 0, vec![]);
+        let block2 = BeaconBlock::new(1, parent_hash, vec![]);
         client.import_block(block2);
         assert_eq!(client.import_queue.read().len(), 1);
     }
@@ -224,7 +220,7 @@ mod tests {
     fn test_duplicate_import() {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
-        let block0 = BeaconBlock::new(0, parent_hash, 0, vec![]);
+        let block0 = BeaconBlock::new(0, parent_hash, vec![]);
         client.import_block(block0);
         assert_eq!(client.import_queue.read().len(), 0);
     }
@@ -233,8 +229,8 @@ mod tests {
     fn test_import_blocks() {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, parent_hash, 0, vec![SignedTransaction::default()]);
-        let block2 = BeaconBlock::new(2, block1.hash(), 0, vec![SignedTransaction::default()]);
+        let block1 = BeaconBlock::new(1, parent_hash, vec![SignedTransaction::default()]);
+        let block2 = BeaconBlock::new(2, block1.hash(), vec![SignedTransaction::default()]);
         network::client::Client::import_blocks(&client, vec![block1, block2]);
         // since we don't have accounts yet, the first block is discarded
         // and the second block thus has no known parent and is put into the
