@@ -69,12 +69,21 @@ pub trait Verifier {
 pub trait WitnessSelector {
     fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
     fn epoch_leader(&self, epoch: u64) -> types::UID;
+    /// Random sample of witnesses. Should exclude the current witness.
+    fn random_witnesses(&self, epoch: u64, sample_size: usize) -> HashSet<types::UID>;
 }
 
 pub type GenericResult = Result<(), &'static str>;
 
-pub trait Payload: Hash {
+/// General payload that can be stored on TxFlow. Should either not have references,
+/// or the references should live for static lifetime.
+pub trait Payload: Hash + Clone + Send + Debug + 'static {
     fn verify(&self) -> GenericResult;
+    // Merge content from another payload into this one.
+    fn union_update(&mut self, other: Self);
+    fn is_empty(&self) -> bool;
+    // Creates empty payload.
+    fn new() -> Self;
 }
 
 pub trait TxFlow<P: Payload> {

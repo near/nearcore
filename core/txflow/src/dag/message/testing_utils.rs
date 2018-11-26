@@ -11,6 +11,13 @@ impl Payload for FakePayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
+    fn union_update(&mut self, _other: Self) {}
+    fn is_empty(&self) -> bool {
+        false
+    }
+    fn new() -> Self {
+        Self {}
+    }
 }
 
 pub fn simple_message<'a, W>(
@@ -106,6 +113,7 @@ macro_rules! simple_messages {
 
 #[cfg(test)]
 mod tests {
+    use primitives::types::UID;
     use primitives::traits::WitnessSelector;
     use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;
@@ -125,11 +133,15 @@ mod tests {
     }
 
     impl WitnessSelector for FakeWitnessSelector {
-        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<UID> {
             self.schedule.get(&epoch).unwrap()
         }
-        fn epoch_leader(&self, epoch: u64) -> u64 {
+        fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+
+        fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
+            unimplemented!()
         }
     }
 
