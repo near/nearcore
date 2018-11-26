@@ -85,7 +85,6 @@ impl Runtime {
         transactions: Vec<SignedTransaction>,
     ) -> (Vec<SignedTransaction>, MerkleHash) {
         let mut filtered_transactions = vec![];
-        //let mut any_filtered = false;
         let mut state_update = StateDbUpdate::new(state_db, root);
         for t in transactions {
             if self.apply_transaction(&mut state_update, &t) {

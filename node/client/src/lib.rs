@@ -227,7 +227,7 @@ mod tests {
         pub client: Arc<Client>,
     }
 
-    impl ProtocolHandler<SignedTransaction> for MockHandler {
+    impl ProtocolHandler for MockHandler {
         fn handle_transaction(&self, t: SignedTransaction) -> GenericResult {
             self.client.handle_signed_transaction(t)
         }
