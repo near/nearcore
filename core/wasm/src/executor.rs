@@ -38,13 +38,11 @@ pub fn execute(
 
     let method_name = ::std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
 
-    if let Some(c) = method_name.chars().next() {
-        if c == '_' {
-            return Err(Error::PrivateMethod);
-        }
-    } else {
-        return Err(Error::EmptyMethodName);
-    }
+    match method_name.chars().next() {
+        Some('_') => return Err(Error::PrivateMethod),
+        None => return Err(Error::EmptyMethodName),
+        _ => (),
+    };
 
     let _result = module_instance.invoke_export(method_name, &[], &mut runtime)?;
 
