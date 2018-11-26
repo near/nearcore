@@ -1,6 +1,13 @@
+mod spawner;
+
+use self::spawner::{SpawnerLike, Spawner};
+#[cfg(test)]
+use self::spawner::WaitSpawner;
+
 use std::borrow::{BorrowMut, Borrow};
 use std::collections::{HashSet, HashMap};
 use std::mem;
+use std::marker::PhantomData;
 use std::time::{Instant, Duration};
 
 use futures::{Future, Poll, Async, Stream, Sink};
@@ -19,7 +26,7 @@ const FORCED_GOSSIP_MS: u64 = 1500;
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
 /// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
 /// and consensuses. Currently produces only stream of gossips, TODO stream of consensuses.
-pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
+pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector, S: 'a + SpawnerLike = Spawner> {
     owner_uid: UID,
     starting_epoch: u64,
     messages_receiver: mpsc::Receiver<Gossip<P>>,
@@ -52,12 +59,11 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     /// timer we do not have any new payload or new messages we gossip the old root message anyway.
     forced_gossip_delay: Option<Delay>,
 
-    /// Whether this task is allowed to spawn other tasks.
-    /// The default is `true`, while `false` is used for debugging.
-    can_spawn: bool,
+    /// Mockable part of the gossip algorithm that spawns tasks.
+    phantom_spawner: PhantomData<S>,
 }
 
-impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
+impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> TxFlowTask<'a, P, W, S> {
     pub fn new(owner_uid: UID,
                starting_epoch: u64,
                messages_receiver: mpsc::Receiver<Gossip<P>>,
@@ -79,7 +85,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             pending_payload: P::new(),
             cooldown_delay: None,
             forced_gossip_delay: None,
-            can_spawn: true,
+            phantom_spawner: PhantomData,
         }
     }
 
@@ -101,15 +107,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// Sends a gossip by spawning a separate task.
     fn send_gossip(&self, gossip: Gossip<P>) {
         let copied_tx = self.messages_sender.clone();
-        if self.can_spawn {
-            tokio::spawn(copied_tx.send(gossip).map(|_| ()).map_err(|e| {
-                error!("Failed to send a gossip {:?}", e)
-            }));
-        } else {
-            if let Err(e) = copied_tx.send(gossip).wait() {
-                error!("Failed to send a gossip {:?}", e)
-            };
-        }
+        S::spawn(copied_tx.send(gossip));
     }
 
     /// Process the candidate that now has all necessary parent messages. Add it to the dag
@@ -238,7 +236,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 
 // TxFlowTask can be used as a stream, where each element produced by the stream corresponds to
 // an individual step of the algorithm.
-impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
+impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> Stream for TxFlowTask<'a, P, W, S> {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -383,7 +381,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
 
 #[cfg(test)]
 mod tests {
-    use super::TxFlowTask;
+    use super::{TxFlowTask, WaitSpawner};
     use std::collections::{HashSet, HashMap};
     use futures::future::*;
     use futures::{Stream, Future};
@@ -478,10 +476,9 @@ mod tests {
         let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
         let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1_024);
         let selector = FakeWitnessSelector::new();
-        let mut task = TxFlowTask::<SimplePayload, _>::new(
+        let task = TxFlowTask::<SimplePayload, _, WaitSpawner>::new(
             owner_uid, starting_epoch, inc_gossip_rx,
             inc_payload_rx, out_gossip_tx, selector);
-        task.can_spawn = false;
 
         let mut one_payload = SimplePayload::new();
         one_payload.add_content(10);
