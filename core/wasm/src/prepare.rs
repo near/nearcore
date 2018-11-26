@@ -10,6 +10,9 @@ struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
     // Invariant: Can't be `None` (i.e. on enter and on exit from the function
     // the value *must* be `Some`).
+    // TODO: Maybe replace Option with Arc. Option was used because this code
+    // was part of runtime in Substrate which compiles to WASM. Since we don't
+    // compile this to WASM, we can use Arc.
     module: Option<elements::Module>,
     config: &'a Config,
 }
