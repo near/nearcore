@@ -9,8 +9,8 @@ pub mod ids {
     pub const TRANSFER_FUNC: usize = 210;
 
     // Contract
-    pub const GAS_FUNC: usize = 300;
     /// Function from gas counter
+    pub const GAS_FUNC: usize = 300;
     pub const ASSERT_HAS_MANA_FUNC: usize = 310;
 
     pub const PANIC_FUNC: usize = 1000;
