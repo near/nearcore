@@ -43,7 +43,14 @@ pub enum PrepareError {
 /// Wrapped error
 #[derive(Debug)]
 pub enum Error {
+    /// Method name can't be decoded to UTF8.
     BadUtf8,
+
+    /// Method name is empty.
+    EmptyMethodName,
+
+    /// Method is private, because it starts with '_'.
+    PrivateMethod,
 
     Prepare(PrepareError),
 
