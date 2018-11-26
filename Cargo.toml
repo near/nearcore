@@ -1,6 +1,6 @@
 [package]
 name = "nearcore"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [[bin]]
@@ -17,9 +17,15 @@ members = [
     "core/storage",
     "core/txflow",
     "core/beacon",
+    "core/wasm",
+    "core/wasm/runtest",
+    "core/wasm/runtest/generate-wasm/import-memory",
     "node/cli",
     "node/runtime",
     "node/service",
     "node/network",
     "test-utils/node"
+]
+exclude = [
+    "core/wasm/runtest/generate-wasm/to-wasm",
 ]

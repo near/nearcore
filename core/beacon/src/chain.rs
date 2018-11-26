@@ -22,8 +22,8 @@ pub struct ChainConfig {
     pub index_col: u32,
 }
 
-/// General blockchain container.
-pub struct Blockchain<B: Block> {
+/// General BlockChain container.
+pub struct BlockChain<B: Block> {
     /// Chain configuration.
     chain_config: ChainConfig,
     /// Storage backend.
@@ -82,10 +82,10 @@ fn read_with_cache<T: Clone + Decode>(
     })
 }
 
-impl<B: Block> Blockchain<B> {
+impl<B: Block> BlockChain<B> {
     pub fn new(chain_config: ChainConfig, genesis: B, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.hash();
-        let bc = Blockchain {
+        let bc = BlockChain {
             chain_config,
             storage,
             genesis_hash,
@@ -242,7 +242,7 @@ mod tests {
             index_col: 3,
         };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
-        let bc = Blockchain::new(chain_config, genesis.clone(), storage);
+        let bc = BlockChain::new(chain_config, genesis.clone(), storage);
         assert_eq!(
             bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(),
             genesis
@@ -260,13 +260,13 @@ mod tests {
             index_col: 3,
         };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
-        let bc = Blockchain::new(chain_config.clone(), genesis.clone(), storage.clone());
+        let bc = BlockChain::new(chain_config.clone(), genesis.clone(), storage.clone());
         let block1 = BeaconBlock::new(1, genesis.hash(), BLSSignature::default(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
         assert_eq!(bc.best_block().header.index, 1);
-        // Create new blockchain that reads from the same storage.
-        let other_bc = Blockchain::new(chain_config, genesis.clone(), storage.clone());
+        // Create new BlockChain that reads from the same storage.
+        let other_bc = BlockChain::new(chain_config, genesis.clone(), storage.clone());
         assert_eq!(other_bc.best_block().hash(), block1.hash());
         assert_eq!(other_bc.best_block().header.index, 1);
         assert_eq!(

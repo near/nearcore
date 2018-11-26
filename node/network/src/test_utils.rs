@@ -1,20 +1,20 @@
 #![allow(unused)]
 
-use libp2p::{secio, Multiaddr};
-use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
-
 use client::Client;
 use error::Error;
+use libp2p::{secio, Multiaddr};
 use message::{Message, MessageBody};
 use primitives::hash::CryptoHash;
-use primitives::traits::Block;
-use primitives::traits::GenericResult;
-use primitives::traits::Header;
+use primitives::traits::{Block, GenericResult, Header};
 use primitives::types;
-use protocol::{ProtocolConfig, ProtocolHandler};
+use protocol::{ProtocolConfig, ProtocolHandler, CURRENT_VERSION};
 use rand::Rng;
 use service::Service;
 use std::sync::Arc;
+use substrate_network_libp2p::{
+    start_service, NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol, Secret,
+    Service as NetworkService,
+};
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -118,6 +118,13 @@ pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockPro
         services.push(service);
     }
     services
+}
+
+pub fn default_network_service() -> NetworkService {
+    let net_config = NetworkConfiguration::default();
+    let version = [CURRENT_VERSION as u8];
+    let registered = RegisteredProtocol::new(ProtocolId::default(), &version);
+    start_service(net_config, Some(registered)).unwrap()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

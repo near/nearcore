@@ -1,4 +1,5 @@
 use hash::{hash_struct, CryptoHash};
+use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived from the user's public key.
@@ -143,6 +144,8 @@ pub struct ShardedEpochBlockBody {
 
 pub type TxFlowHash = u64;
 
+// 4.1 DAG-specific structs.
+
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
@@ -187,6 +190,20 @@ impl<P> Hash for SignedMessageData<P> {
     }
 }
 
+impl<P> Borrow<TxFlowHash> for SignedMessageData<P> {
+    fn borrow(&self) -> &TxFlowHash {
+        &self.hash
+    }
+}
+
+impl<P> PartialEq for SignedMessageData<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl<P> Eq for SignedMessageData<P> {}
+
 #[derive(Hash, Debug)]
 pub struct ConsensusBlockHeader {
     pub body_hash: CryptoHash,
@@ -200,4 +217,26 @@ pub struct ConsensusBlockBody<P, C> {
 
     /// The content specific to where the TxFlow is used: in shard or in beacon chain.
     pub content: C,
+}
+
+// 4.2 Gossip-specific structs.
+#[derive(Hash, Debug)]
+pub enum GossipBody<P> {
+    /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
+    Unsolicited(SignedMessageData<P>),
+    /// A reply to an unsolicited gossip with the `SignedMessageData`.
+    UnsolicitedReply(SignedMessageData<P>),
+    /// A request to provide a list of `SignedMessageData`'s with the following hashes.
+    Fetch(Vec<TxFlowHash>),
+    /// A response to the fetch request providing the requested messages.
+    FetchReply(Vec<SignedMessageData<P>>),
+}
+
+/// A single unit of communication between the TxFlow participants.
+#[derive(Hash, Debug)]
+pub struct Gossip<P> {
+    pub sender_uid: UID,
+    pub receiver_uid: UID,
+    pub sender_sig: StructSignature,
+    pub body: GossipBody<P>,
 }

@@ -30,8 +30,8 @@ pub struct Message<'a, P: 'a + Payload> {
     pub computed_epoch: u64,
     /// The hash of the message. Depends on the epoch.
     pub computed_hash: types::TxFlowHash,
-    /// Computed flag of whether this message is representative.
-    computed_is_representative: bool,
+    /// If this message is a representative this stores which epoch it is representative of.
+    computed_is_representative: Option<u64>,
     /// Computed flag of whether this message is a kickout.
     computed_is_kickout: bool,
     /// Computed flag whether this message was created by an epoch leader.
@@ -118,7 +118,7 @@ impl<'a, P: Payload> Message<'a, P> {
             is_initialized: false,
             computed_epoch: 0,
             computed_hash: 0,
-            computed_is_representative: false,
+            computed_is_representative: None,
             computed_is_kickout: false,
             computed_is_epoch_leader: false,
             computed_endorsements: GroupsPerEpoch::new(),
@@ -143,7 +143,10 @@ impl<'a, P: Payload> Message<'a, P> {
     }
 
     /// Computes the aggregated data from the parents and updates the message.
-    pub fn aggregate_parents(&mut self) {
+    pub fn aggregate_parents<W>(&mut self, witness_selector: &W)
+        where
+        W: WitnessSelector
+    {
         for p in &self.parents {
             if !p.is_initialized {
                 panic!(UNINITIALIZED_MESSAGE_ERR)
@@ -154,10 +157,10 @@ impl<'a, P: Payload> Message<'a, P> {
 
             self.approved_representatives
                 .union_update(&p.approved_representatives);
-            if p.computed_is_representative {
-                self.approved_representatives.insert(p.computed_epoch, *p);
+            if let Some(epoch) = p.computed_is_representative {
+                self.approved_representatives.insert(epoch, *p);
                 // Representative message endorses itself.
-                self.approved_endorsements.insert(p.computed_epoch, *p, *p);
+                self.approved_endorsements.insert(epoch, *p, *p);
             }
 
             self.approved_kickouts.union_update(&p.approved_kickouts);
@@ -180,11 +183,11 @@ impl<'a, P: Payload> Message<'a, P> {
                     p,
                 ));
 
-            self.approved_complete_epochs
-                .union_update(&p.approved_complete_epochs);
-            self.approved_complete_epochs
-                .union_update(&p.computed_complete_epochs);
+            self.approved_complete_epochs.union_update(&p.approved_complete_epochs);
+            self.approved_complete_epochs.union_update(&p.computed_complete_epochs);
         }
+        self.approved_complete_epochs.union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
+        self.approved_complete_epochs.union_update(&self.approved_promises.superapproved_messages(witness_selector));
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
@@ -215,58 +218,60 @@ impl<'a, P: Payload> Message<'a, P> {
     }
 
     /// Determines whether this message is a representative message.
-    /// The message is a representative of epoch X if this is the first message of the epoch's leader
-    /// in the epoch X that satisfies either of the conditions:
-    /// a) X = 0.
-    /// b) It approves the representative message of the epoch X-1.
-    /// c) Let Y, Y<X be either 0 or the epoch of the previous representative message, whichever is
-    ///    greater. Then we need all kickout messages between Y and X exclusive to have >2/3 promises.
-    fn is_representative<W>(&self, _witness_selector: &W) -> bool
+    /// The message is a representative of epoch X:
+    /// a) if this is the first message of the epoch's leader in the epoch X that satisfies either of
+    /// the conditions:
+    /// a.1) X = 0.
+    /// a.2) It approves the representative message of the epoch X-1.
+    /// b) or this message has epoch Y, Y>X and the same owner has a kickout that kicks out epoch
+    /// X-1 with >2/3 approvals and it also approves representative of X-2 if there is such.
+    /// Returns:
+    ///  Some(epoch) -- the epoch that it is representative of.
+    ///  None if it is not a representative.
+    fn is_representative<W>(&self, _witness_selector: &W) -> Option<u64>
     where
         W: WitnessSelector,
     {
-        if self.computed_epoch == 0 {
+        if self.computed_is_epoch_leader
             // Scenario (a).
-            true
-        } else if self
-            .approved_representatives
-            .contains_epoch(self.computed_epoch - 1)
+            // Check if we have already approved representative or kickout message for the same
+            // epoch.
+            && !self.approved_representatives.contains_epoch(self.computed_epoch)
+            && !self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            if self.computed_epoch == 0 {
+                // Scenario (a.1).
+                return Some(0);
+            } else if self.approved_representatives.contains_epoch(self.computed_epoch - 1) {
+                // Scenario (a.2).
+                return Some(self.computed_epoch);
+            };
+        }
         {
             // Scenario (b).
-            true
-        } else {
-            // Scenario (c).
-            let mut result = false;
+            // Iterate over fully approved kickouts that we are owners of and for which we do not
+            // have matching representatives.
+            let owner_uid = self.data.body.owner_uid;
+
             for prev_epoch in (0..self.computed_epoch).rev() {
-                // While iterating, if prev_epoch is a kickout that is not super-approved then
-                // return false.
-                if let Some(group) = self
-                    .approved_complete_epochs
-                    .messages_by_epoch
+                if let Some(group) = self.approved_complete_epochs.messages_by_epoch
                     .get(&prev_epoch)
                 {
-                    if let Some(messages) = group.messages_by_owner.values().next() {
-                        if let Some(message) = messages.iter().next() {
-                            if message.computed_is_representative {
-                                result = true;
-                                break;
-                            } else if message.computed_is_kickout {
-                                continue;
-                            } else {
-                                panic!("Messages in complete_epochs should be either representatives or kickouts")
-                            }
-                        } else {
-                            panic!("Should contain at least one element");
-                        }
-                    } else {
-                        // One epoch does not have a representative/kickout.
-                        break;
+                    if let Some(messages) = group.messages_by_owner.get(&owner_uid) {
+                       if let Some(message) =  messages.iter().next() {
+                           if message.computed_is_kickout
+                               // Check that we haven't created representative for this case yet.
+                               && !self.approved_representatives.contains_epoch(prev_epoch + 1)
+                               && (prev_epoch == 0
+                               || self.approved_representatives.contains_epoch(prev_epoch - 1)) {
+                               return Some(prev_epoch + 1)
+                           }
+                       } else {
+                           panic!("Should contain at least one element");
+                       }
                     }
-                } else {
-                    break;
                 }
             }
-            result
+            None
         }
     }
 
@@ -277,9 +282,10 @@ impl<'a, P: Payload> Message<'a, P> {
     where
         W: WitnessSelector,
     {
-        self.computed_epoch > 0 && !self
-            .approved_representatives
-            .contains_epoch(self.computed_epoch - 1)
+        self.computed_epoch > 0
+            && !self
+                .approved_representatives
+                .contains_epoch(self.computed_epoch - 1)
     }
 
     /// Determines whether this message serves as an endorsement to some representatives.
@@ -391,7 +397,7 @@ impl<'a, P: Payload> Message<'a, P> {
         W: WitnessSelector,
     {
         let owner_uid = self.data.body.owner_uid;
-        self.aggregate_parents();
+        self.aggregate_parents(witness_selector);
 
         // Compute epoch, if required.
         self.computed_epoch = if recompute_epoch {
@@ -418,22 +424,15 @@ impl<'a, P: Payload> Message<'a, P> {
         // Compute if this is an epoch leader.
         self.computed_is_epoch_leader =
             witness_selector.epoch_leader(self.computed_epoch) == owner_uid;
-        if self.computed_is_epoch_leader {
+        self.computed_is_representative = self.is_representative(witness_selector);
+
+        if self.computed_is_epoch_leader
+            && self.computed_is_representative.is_none()
             // Check if we have already approved representative or kickout message for the same
             // epoch.
-            if !self
-                .approved_representatives
-                .contains_epoch(self.computed_epoch)
-                && !self.approved_kickouts.contains_epoch(self.computed_epoch)
-            {
-                // Compute if it is a representative.
-                self.computed_is_representative = self.is_representative(witness_selector);
-
-                // Compute if it is a kickout. No need to compute if this is a representative.
-                if !self.computed_is_representative {
-                    self.computed_is_kickout = self.is_kickout(witness_selector);
-                }
-            }
+            && !self.approved_representatives.contains_epoch(self.computed_epoch)
+            && !self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            self.computed_is_kickout = self.is_kickout(witness_selector);
         }
 
         self.computed_endorsements = self.compute_endorsements(witness_selector);
@@ -484,11 +483,14 @@ mod tests {
     }
 
     impl WitnessSelector for FakeWitnessSelector {
-        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<u64> {
+        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<UID> {
             self.schedule.get(&epoch).unwrap()
         }
-        fn epoch_leader(&self, epoch: u64) -> u64 {
+        fn epoch_leader(&self, epoch: u64) -> UID {
             *self.epoch_witnesses(epoch).iter().min().unwrap()
+        }
+        fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
+            unimplemented!()
         }
     }
 
@@ -547,10 +549,10 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let (a, b, c, d);
         simple_messages!(0, &selector, arena [[0, 0, false => a; 1, 0, false => b; 2, 0, false => c;] => 1, 1, true => d;]);
-        assert!(a.computed_is_representative); // Scenario (a).
-        assert!(!b.computed_is_representative);
-        assert!(!c.computed_is_representative);
-        assert!(d.computed_is_representative); // Scenario (b).
+        assert_eq!(a.computed_is_representative, Some(0)); // Scenario (a).
+        assert!(b.computed_is_representative.is_none());
+        assert!(c.computed_is_representative.is_none());
+        assert_eq!(d.computed_is_representative, Some(1)); // Scenario (b).
     }
 
     #[test]
@@ -561,7 +563,7 @@ mod tests {
         simple_messages!(0, &selector, arena [[1, 0, false; 2, 0, false; 3, 0, false;] => 1, 1, true => root;]);
         assert_eq!(root.computed_epoch, 1); // The message is promoted ...
         assert!(root.computed_is_epoch_leader); // ... and it is an epoch leader ...
-        assert!(!root.computed_is_representative); // ... but the prev repr is missing, so it is not a repr...
+        assert!(root.computed_is_representative.is_none()); // ... but the prev repr is missing, so it is not a repr...
         assert!(root.computed_is_kickout); // ... but a kickout.
     }
 }

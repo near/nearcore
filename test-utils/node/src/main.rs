@@ -1,24 +1,26 @@
+extern crate beacon;
+#[macro_use]
+extern crate clap;
+extern crate client;
 extern crate env_logger;
 extern crate futures;
 extern crate log;
 extern crate network;
+extern crate node_cli;
 extern crate parking_lot;
-extern crate storage;
-extern crate tokio;
-#[macro_use]
-extern crate clap;
-extern crate beacon;
-extern crate client;
 extern crate primitives;
 extern crate service;
+extern crate storage;
+extern crate tokio;
 
 use beacon::types::BeaconBlockHeader;
 use clap::{App, Arg};
 use client::Client;
 use env_logger::Builder;
 use futures::{Future, Stream};
-use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
+use network::service::generate_service_task;
+use node_cli::chain_spec::get_default_chain_spec;
 use primitives::types::SignedTransaction;
 use service::network_handler::NetworkHandler;
 use std::sync::Arc;
@@ -67,8 +69,9 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
+    let chain_spec = get_default_chain_spec().unwrap();
     let storage = Arc::new(storage::DiskStorage::new(&format!("storage/db-{}/", port)));
-    let client = Arc::new(Client::new(storage));
+    let client = Arc::new(Client::new(storage, &chain_spec));
     let protocol_config = if is_root {
         ProtocolConfig::new_with_default_id(special_secret())
     } else {

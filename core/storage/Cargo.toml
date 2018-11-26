@@ -8,7 +8,7 @@ serde = "1.0"
 parity-rocksdb = "0.5"
 primitives = { path = "../primitives" }
 bincode = "1.0.0"
-parking_lot = "0.4"
+parking_lot = "0.6"
 byteorder = "1.2"
 
 hash-db = { git = "https://github.com/paritytech/trie", default-features = false }
