@@ -72,12 +72,6 @@ impl SignedTransaction {
     }
 }
 
-impl Default for SignedTransaction {
-    fn default() -> Self {
-        SignedTransaction::new(0, TransactionBody::default())
-    }
-}
-
 // 2. State structs.
 
 #[derive(Hash, Debug)]

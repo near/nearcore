@@ -7,7 +7,10 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 tokio = "0.1"
 futures = "0.1"
 
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+
 client = { path = "../../node/client" }
 service = { path = "../../node/service" }
-storage = { path = "../../core/storage" }
 network = { path = "../../node/network" }
+node-cli = { path = "../../node/cli" }

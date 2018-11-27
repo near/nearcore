@@ -22,7 +22,7 @@ use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use node_cli::chain_spec::get_default_chain_spec;
 use primitives::signer::InMemorySigner;
-use primitives::types::SignedTransaction;
+use primitives::types::{SignedTransaction, TransactionBody};
 use service::network_handler::NetworkHandler;
 use std::sync::Arc;
 use std::time::Duration;
@@ -84,7 +84,7 @@ pub fn main() {
         .for_each({
             let client = client.clone();
             move |_| {
-                let tx = SignedTransaction::default();
+                let tx = SignedTransaction::new(123, TransactionBody { nonce: 1, amount: 1, sender: 1, receiver: 2});
                 client.receive_transaction(tx);
                 Ok(())
             }

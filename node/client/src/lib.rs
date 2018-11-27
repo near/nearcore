@@ -116,7 +116,7 @@ impl Client {
             };
             let (filtered_transactions, mut apply_result) =
                 self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
-            if apply_result.root != header.merkle_root_tx
+            if apply_result.root != header.merkle_root_state
                 || filtered_transactions.len() != num_transactions
             {
                 // TODO: something really bad happened
@@ -182,19 +182,20 @@ impl network::client::Client<BeaconBlock> for Client {
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
         let apply_state = ApplyState {
             root: last_block.header().merkle_root_state,
-            parent_block_hash: last_block.header().parent_hash,
+            parent_block_hash: last_block.hash(),
             block_index: last_block.header().index + 1,
         };
         let (filtered_transactions, mut apply_result) =
             self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
-            last_block.header().index,
-            last_block.header().parent_hash,
+            last_block.header().index + 1,
+            last_block.hash(),
             apply_result.root,
             filtered_transactions,
         );
         block.sign(&self.signer);
+        self.beacon_chain.insert_block(block.clone());
         block
     }
 }
@@ -208,9 +209,8 @@ mod tests {
     use network::io::NetSyncIo;
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
     use network::test_utils as network_test_utils;
-    use primitives::hash::hash_struct;
     use primitives::traits::GenericResult;
-    use primitives::types::MerkleHash;
+    use primitives::types::{MerkleHash, TransactionBody};
 
     use super::*;
 
@@ -219,21 +219,22 @@ mod tests {
     #[test]
     fn test_import_queue_empty() {
         let client = generate_test_client();
-        let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, parent_hash, MerkleHash::default(), vec![]);
-        client.import_block(block1);
+        let genesis_block = client.beacon_chain.best_block();
+        let block1 = BeaconBlock::new(1, genesis_block.hash(), genesis_block.header().merkle_root_state, vec![]);
+        assert!(client.import_block(block1));
         assert_eq!(client.import_queue.read().len(), 0);
     }
 
     #[test]
     fn test_import_queue_non_empty() {
         let client = generate_test_client();
-        let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, hash_struct(&1), MerkleHash::default(), vec![]);
-        client.import_block(block1);
+        let genesis_block = client.beacon_chain.best_block();
+        let block1 = BeaconBlock::new(1, genesis_block.hash(), genesis_block.header().merkle_root_state, vec![]);
+        let block2 = BeaconBlock::new(2, block1.hash(), genesis_block.header().merkle_root_state, vec![]);
+        assert!(!client.import_block(block2));
         assert_eq!(client.import_queue.read().len(), 1);
-        let block2 = BeaconBlock::new(1, parent_hash, MerkleHash::default(), vec![]);
-        client.import_block(block2);
+        assert!(client.import_block(block1));
+        // block2 is still in the queue.
         assert_eq!(client.import_queue.read().len(), 1);
     }
 
@@ -242,31 +243,37 @@ mod tests {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
         let block0 = BeaconBlock::new(0, parent_hash, MerkleHash::default(), vec![]);
-        client.import_block(block0);
+        assert!(!client.import_block(block0));
         assert_eq!(client.import_queue.read().len(), 0);
     }
 
     #[test]
     fn test_import_blocks() {
         let client = generate_test_client();
-        let parent_hash = client.beacon_chain.genesis_hash;
+        let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            parent_hash,
-            MerkleHash::default(),
-            vec![SignedTransaction::default()],
+            genesis_block.hash(),
+            genesis_block.header().merkle_root_state,
+            vec![],
         );
         let block2 = BeaconBlock::new(
             2,
             block1.hash(),
-            MerkleHash::default(),
-            vec![SignedTransaction::default()],
+            genesis_block.header().merkle_root_state,
+            vec![],
         );
         network::client::Client::import_blocks(&client, vec![block1, block2]);
-        // since we don't have accounts yet, the first block is discarded
-        // and the second block thus has no known parent and is put into the
-        // import queue
-        assert_eq!(client.import_queue.read().len(), 1);
+        assert_eq!(client.import_queue.read().len(), 0);
+    }
+
+    #[test]
+    fn test_block_prod() {
+        let client = generate_test_client();
+        let block1 = client.prod_block();
+        // Already imported & best block is the this.
+        assert!(!client.import_block(block1.clone()));
+        assert_eq!(client.beacon_chain.best_block(), block1);
     }
 
     struct MockHandler {
@@ -287,12 +294,12 @@ mod tests {
         let protocol = Protocol::new(config, handler, client.clone());
         let network_service = Arc::new(Mutex::new(network_test_utils::default_network_service()));
         let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
-        protocol.on_transaction_message(SignedTransaction::default());
+        protocol.on_transaction_message(SignedTransaction::new(123, TransactionBody { nonce: 1, sender: 1, receiver: 2, amount: 10}));
         assert_eq!(client.tx_pool.read().len(), 1);
         assert_eq!(client.import_queue.read().len(), 0);
         protocol.prod_block::<BeaconBlockHeader>(&mut net_sync);
         assert_eq!(client.tx_pool.read().len(), 0);
-        assert_eq!(client.import_queue.read().len(), 1);
-        assert_eq!(client.best_index(), 0);
+        assert_eq!(client.import_queue.read().len(), 0);
+        assert_eq!(client.best_index(), 1);
     }
 }

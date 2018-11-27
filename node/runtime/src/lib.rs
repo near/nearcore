@@ -203,7 +203,7 @@ mod tests {
     fn test_genesis_state() {
         let rt = Runtime {};
         let state_db = Arc::new(create_state_db());
-        let root = rt.genesis_state(state_db.clone());
+        let root = rt.genesis_state(&state_db);
         let result = rt.view(state_db, root, &ViewCall { account: 1 });
         assert_eq!(result, ViewCallResult { account: 1, amount: 100 });
     }
@@ -213,7 +213,7 @@ mod tests {
         let rt = Runtime {};
         let t = SignedTransaction::new(123, TransactionBody::new(1, 1, 2, 100));
         let state_db = Arc::new(create_state_db());
-        let root = rt.genesis_state(state_db.clone());
+        let root = rt.genesis_state(&state_db);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) =
