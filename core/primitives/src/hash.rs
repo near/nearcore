@@ -50,3 +50,9 @@ pub fn hash(data: &[u8]) -> CryptoHash {
 pub fn hash_struct<T: Encode>(obj: &T) -> CryptoHash {
     hash(&obj.encode().expect("Serialization failed"))
 }
+
+impl heapsize::HeapSizeOf for CryptoHash {
+    fn heap_size_of_children(&self) -> usize {
+        0
+    }
+}

@@ -58,7 +58,10 @@ fn write_with_cache<T: Clone + Encode>(
 ) {
     let data = Encode::encode(value).expect("Error serializing data");
     cache.write().insert(key.to_vec(), value.clone());
-    storage.set(col, key, &data);
+
+    let mut db_transaction = storage.transaction();
+    db_transaction.put(Some(col), key, &data);
+    storage.write(db_transaction).expect("Database write failed");
 }
 
 fn read_with_cache<T: Clone + Decode>(
@@ -74,12 +77,14 @@ fn read_with_cache<T: Clone + Decode>(
         }
     }
 
-    // TODO: use columns here.
-    Decode::decode(&storage.get(col, key)?).map(|value: T| {
-        let mut write = cache.write();
-        write.insert(key.to_vec(), value.clone());
-        value
-    })
+    match storage.get(Some(col), key) {
+        Ok(Some(value)) => Decode::decode(value.as_ref()).map(|value: T| {
+            let mut write = cache.write();
+            write.insert(key.to_vec(), value.clone());
+            value
+        }),
+        _ => None,
+    }
 }
 
 impl<B: Block> BlockChain<B> {
@@ -98,9 +103,9 @@ impl<B: Block> BlockChain<B> {
         // Load best block hash from storage.
         let best_block_hash = match bc
             .storage
-            .get(bc.chain_config.extra_col, BLOCKCHAIN_BEST_BLOCK)
+            .get(Some(bc.chain_config.extra_col), BLOCKCHAIN_BEST_BLOCK)
         {
-            Some(best_hash) => CryptoHash::new(&best_hash),
+            Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
                 // Insert genesis block into cache.
                 bc.insert_block(genesis);
@@ -127,7 +132,7 @@ impl<B: Block> BlockChain<B> {
     pub fn is_known(&self, hash: &CryptoHash) -> bool {
         self.headers.read().contains_key(hash.as_ref()) || self
             .storage
-            .exists(self.chain_config.header_col, hash.as_ref())
+            .get(Some(self.chain_config.header_col), hash.as_ref()).unwrap().is_some()
     }
 
     /// Inserts a verified block.
@@ -167,11 +172,9 @@ impl<B: Block> BlockChain<B> {
             if block.header().index() > self.best_block.read().header().index() {
                 let mut best_block = self.best_block.write();
                 *best_block = block;
-                self.storage.set(
-                    self.chain_config.extra_col,
-                    BLOCKCHAIN_BEST_BLOCK,
-                    block_hash.as_ref(),
-                );
+                let mut db_transaction = self.storage.transaction();
+                db_transaction.put(Some(self.chain_config.extra_col), BLOCKCHAIN_BEST_BLOCK, block_hash.as_ref());
+                self.storage.write(db_transaction).expect("Database write failed");
             }
             false
         } else {
@@ -228,6 +231,7 @@ mod tests {
     use super::*;
 
     use std::sync::Arc;
+    use primitives::types::MerkleHash;
     use storage::MemoryStorage;
     use types::BeaconBlock;
 
@@ -240,7 +244,7 @@ mod tests {
             block_col: 2,
             index_col: 3,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), vec![]);
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
         let bc = BlockChain::new(chain_config, genesis.clone(), storage);
         assert_eq!(
             bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(),
@@ -258,9 +262,9 @@ mod tests {
             block_col: 2,
             index_col: 3,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(),  vec![]);
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(),  vec![]);
         let bc = BlockChain::new(chain_config.clone(), genesis.clone(), storage.clone());
-        let block1 = BeaconBlock::new(1, genesis.hash(), vec![]);
+        let block1 = BeaconBlock::new(1, genesis.hash(), MerkleHash::default(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
         assert_eq!(bc.best_block().header.index, 1);

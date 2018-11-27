@@ -11,6 +11,7 @@ extern crate primitives;
 extern crate storage;
 extern crate beacon;
 
+use std::sync::Arc;
 use std::collections::HashMap;
 use serde::{Serialize, de::DeserializeOwned};
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -55,13 +56,14 @@ pub struct ApplyState {
 
 pub struct ApplyResult {
     pub root: MerkleHash,
+    pub transaction: storage::TrieBackendTransaction,
     pub authority_change_set: AuthorityChangeSet,
 }
 
 #[derive(Default)]
 pub struct Runtime;
 
-fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
+pub fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
     let mut bytes = vec![];
     bytes
         .write_u64::<LittleEndian>(account_key)
@@ -71,12 +73,12 @@ fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
-    fn get<T: DeserializeOwned>(&self, state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
+    pub fn get<T: DeserializeOwned>(&self, state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
         state_update.get(key).and_then(|data| bincode::deserialize(&data).ok())
     }
-    fn set<T: Serialize>(&self, state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
+    pub fn set<T: Serialize>(&self, state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
         match bincode::serialize(value) {
-            Ok(data) => state_update.set(key, data),
+            Ok(data) => state_update.set(key, storage::DBValue::from_slice(&data)),
             Err(e) => error!("Error occurred while encoding {:?}", e)
         }
     }
@@ -120,12 +122,12 @@ impl Runtime {
 
     pub fn apply(
         &self,
-        state_db: &mut StateDb,
+        state_db: Arc<StateDb>,
         apply_state: &ApplyState,
         transactions: Vec<SignedTransaction>,
     ) -> (Vec<SignedTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
-        let mut state_update = StateDbUpdate::new(state_db, &apply_state.root);
+        let mut state_update = StateDbUpdate::new(state_db, apply_state.root);
         let mut authority_change_set = AuthorityChangeSet::default();
         for t in transactions {
             if self.apply_transaction(&mut state_update, &t, &mut authority_change_set) {
@@ -135,14 +137,14 @@ impl Runtime {
                 state_update.rollback();
             }
         }
-        let state_view = state_update.finalize();
-        (filtered_transactions, ApplyResult { root: state_view, authority_change_set })
+        let (transaction, new_root) = state_update.finalize();
+        (filtered_transactions, ApplyResult { root: new_root, transaction, authority_change_set })
     }
 
     pub fn view(
         &self,
-        state_db: &mut StateDb,
-        root: &MerkleHash,
+        state_db: Arc<StateDb>,
+        root: MerkleHash,
         view_call: &ViewCall,
     ) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(state_db, root);

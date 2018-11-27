@@ -58,6 +58,7 @@ mod test {
 
     use std::sync::Arc;
     use primitives::hash::CryptoHash;
+    use primitives::types::MerkleHash;
     use primitives::traits::Block;
     use storage::MemoryStorage;
     use chain::ChainConfig;
@@ -70,10 +71,10 @@ mod test {
             block_col: 2,
             index_col: 3,
         };
-        let mut last_block = BeaconBlock::new(0, CryptoHash::default(),  vec![]);
+        let mut last_block = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(),   vec![]);
         let bc = BlockChain::new(chain_config, last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.hash(), vec![]);
+            let block = BeaconBlock::new(i, last_block.hash(), MerkleHash::default(),  vec![]);
             bc.insert_block(block.clone());
             last_block = block;
         }

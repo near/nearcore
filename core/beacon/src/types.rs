@@ -40,13 +40,14 @@ impl BeaconBlock {
     pub fn new(
         index: u64,
         parent_hash: CryptoHash,
+        merkle_root_state: MerkleHash,
         transactions: Vec<SignedTransaction>,
     ) -> Self {
         BeaconBlock {
             header: BeaconBlockHeader {
                 parent_hash,
                 merkle_root_tx: MerkleHash::default(),
-                merkle_root_state: MerkleHash::default(),
+                merkle_root_state: merkle_root_state,
                 signature: primitives::signature::default_signature(),
                 index,
             },

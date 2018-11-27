@@ -71,7 +71,8 @@ pub fn main() {
         test_config(&addr, vec![boot_node])
     };
     let chain_spec = get_default_chain_spec().unwrap();
-    let storage = Arc::new(storage::DiskStorage::new(&format!("storage/db-{}/", port)));
+    let storage_config = storage::DiskStorageConfig::with_columns(Some(10));
+    let storage = Arc::new(storage::DiskStorage::open(&storage_config, &format!("storage/db-{}/", port)).unwrap());
     let signer = Arc::new(InMemorySigner::new());
     let client = Arc::new(Client::new(&chain_spec, storage, signer));
     let protocol_config = if is_root {

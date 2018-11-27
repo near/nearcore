@@ -57,9 +57,8 @@ fn start_service(
     }.unwrap();
 
     let storage_path = get_storage_path(base_path);
-    let storage: Arc<Storage> = Arc::new(
-        DiskStorage::new(&storage_path.to_string_lossy())
-    );
+    let storage_config = storage::DiskStorageConfig::with_columns(Some(10));
+    let storage: Arc<Storage> = Arc::new(DiskStorage::open(&storage_config, &storage_path.to_string_lossy()).unwrap());
     let signer = Arc::new(InMemorySigner::new());
     let client = Arc::new(Client::new( &chain_spec, storage, signer));
     let network_handler = NetworkHandler {

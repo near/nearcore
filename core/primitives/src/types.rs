@@ -16,8 +16,6 @@ pub type StructSignature = u128;
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = Signature;
-/// Database record type.
-pub type DBValue = Vec<u8>;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
