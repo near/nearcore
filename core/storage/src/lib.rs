@@ -1,33 +1,19 @@
-extern crate bincode;
-extern crate byteorder;
 extern crate hash256_std_hasher;
 extern crate hash_db;
-#[cfg(test)]
-extern crate hex_literal;
 extern crate kvdb;
-//#[cfg(test)]
 extern crate kvdb_memorydb;
 extern crate kvdb_rocksdb;
-#[cfg(test)]
-extern crate memory_db;
-extern crate parity_rocksdb;
-extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-extern crate substrate_primitives;
 extern crate substrate_state_machine;
-extern crate substrate_trie;
-extern crate trie_db;
-
-use std::sync::Arc;
 
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-
 use primitives::hash::CryptoHash;
 use primitives::types::MerkleHash;
-pub use substrate_storage::TrieBackendTransaction;
+use std::sync::Arc;
 use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
+pub use substrate_storage::TrieBackendTransaction;
 
 // #[cfg(feature = "test-utils")]
 mod substrate_storage;
@@ -138,9 +124,8 @@ pub fn open_database(storage_path: &str) -> Database {
 
 #[cfg(test)]
 mod tests {
-    use test_utils::create_state_db;
-
     use super::*;
+    use test_utils::create_state_db;
 
     #[test]
     fn state_db() {
