@@ -224,7 +224,7 @@ impl<'a, P: Payload> Message<'a, P> {
     /// a.1) X = 0.
     /// a.2) It approves the representative message of the epoch X-1.
     /// b) or this message has epoch Y, Y>X and the same owner has a kickout that kicks out epoch
-    /// X-1 with >2/3 approvals and it also approves representative of X-2 if there is such.
+    /// X-1 with >2/3 approvals .
     /// Returns:
     ///  Some(epoch) -- the epoch that it is representative of.
     ///  None if it is not a representative.
@@ -232,12 +232,12 @@ impl<'a, P: Payload> Message<'a, P> {
     where
         W: WitnessSelector,
     {
-        if self.computed_is_epoch_leader
-            // Scenario (a).
-            // Check if we have already approved representative or kickout message for the same
-            // epoch.
-            && !self.approved_representatives.contains_epoch(self.computed_epoch)
-            && !self.approved_kickouts.contains_epoch(self.computed_epoch) {
+        // Skip if we already approved representative or kickout for this epoch.
+        if self.approved_representatives.contains_epoch(self.computed_epoch)
+            || self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            return None;
+        }
+        if self.computed_is_epoch_leader {
             if self.computed_epoch == 0 {
                 // Scenario (a.1).
                 return Some(0);
@@ -260,9 +260,7 @@ impl<'a, P: Payload> Message<'a, P> {
                        if let Some(message) =  messages.iter().next() {
                            if message.computed_is_kickout
                                // Check that we haven't created representative for this case yet.
-                               && !self.approved_representatives.contains_epoch(prev_epoch + 1)
-                               && (prev_epoch == 0
-                               || self.approved_representatives.contains_epoch(prev_epoch - 1)) {
+                               && !self.approved_representatives.contains_epoch(prev_epoch + 1) {
                                return Some(prev_epoch + 1)
                            }
                        } else {
