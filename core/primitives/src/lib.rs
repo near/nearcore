@@ -4,9 +4,7 @@ extern crate heapsize;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate bincode;
 extern crate byteorder;
-extern crate exonum_sodiumoxide;
 
 pub mod hash;
 pub mod signature;

@@ -8,9 +8,7 @@ pub struct Error {
 
 impl Error {
     pub fn new(msg: &str) -> Error {
-        Error {
-            inner: msg.to_string(),
-        }
+        Error { inner: msg.to_string() }
     }
 }
 

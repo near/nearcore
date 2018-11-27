@@ -1,9 +1,7 @@
 use hash::{hash_struct, CryptoHash};
+use signature::Signature;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
-
-use hash::{hash_struct, CryptoHash};
-use signature::Signature;
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
@@ -50,16 +48,16 @@ pub struct TransactionBody {
     pub args: Vec<Vec<u8>>,
 }
 
-impl Default for TransactionBody {
-    fn default() -> Self {
-        TransactionBody {
-            nonce: 0,
-            sender: 0,
-            receiver: 0,
-            amount: 0,
-            method_name: String::new(),
-            args: Vec::new(),
-        }
+impl TransactionBody {
+    pub fn new(
+        nonce: u64,
+        sender: AccountId,
+        receiver: AccountId,
+        amount: u64,
+        method_name: String,
+        args: Vec<Vec<u8>>,
+    ) -> Self {
+        TransactionBody { nonce, sender, receiver, amount, method_name, args }
     }
 }
 
@@ -73,6 +71,19 @@ pub struct SignedTransaction {
 impl SignedTransaction {
     pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
         SignedTransaction { sender_sig, hash: hash_struct(&body), body }
+    }
+
+    // this is for tests
+    pub fn new_default() -> SignedTransaction {
+        let body = TransactionBody {
+            nonce: 0,
+            sender: 0,
+            receiver: 1,
+            amount: 1,
+            method_name: String::new(),
+            args: vec![],
+        };
+        SignedTransaction { sender_sig: StructSignature::default(), hash: hash_struct(&body), body }
     }
 }
 

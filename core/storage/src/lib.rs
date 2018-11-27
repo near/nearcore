@@ -13,7 +13,6 @@ extern crate hex_literal;
 #[cfg(test)]
 extern crate memory_db;
 #[cfg(test)]
-extern crate trie_db;
 
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};

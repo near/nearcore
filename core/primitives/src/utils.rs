@@ -2,9 +2,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 
 pub fn index_to_bytes(index: u64) -> Vec<u8> {
     let mut bytes = vec![];
-    bytes
-        .write_u64::<LittleEndian>(index)
-        .expect("writing to bytes failed");
+    bytes.write_u64::<LittleEndian>(index).expect("writing to bytes failed");
     bytes
 }
 

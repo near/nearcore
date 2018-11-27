@@ -53,7 +53,14 @@ mod tests {
         let rpc_impl = RpcImpl { client };
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
-        let t = TransactionBody { nonce: 0, sender: 1, receiver: 0, amount: 0 };
+        let t = TransactionBody {
+            nonce: 0,
+            sender: 1,
+            receiver: 0,
+            amount: 0,
+            method_name: String::new(),
+            args: vec![],
+        };
         assert_eq!(rpc.request("receive_transaction", &[t]), "null");
     }
 }

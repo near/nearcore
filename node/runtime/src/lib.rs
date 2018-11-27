@@ -4,6 +4,7 @@ extern crate serde_derive;
 extern crate bincode;
 #[macro_use]
 extern crate log;
+extern crate kvdb;
 
 extern crate beacon;
 extern crate byteorder;
@@ -11,7 +12,7 @@ extern crate primitives;
 extern crate storage;
 extern crate wasm;
 
-<<<<<<< HEAD
+use kvdb::DBValue;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,14 +20,9 @@ use std::sync::Arc;
 use beacon::authority::AuthorityChangeSet;
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::hash::CryptoHash;
-=======
-use byteorder::{LittleEndian, WriteBytesExt};
->>>>>>> fix bugs and add utils
 use primitives::signature::PublicKey;
-use primitives::types::{
-    AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
-};
-use primitives::traits::Encode;
+use primitives::traits::{Decode, Encode};
+use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use primitives::utils::concat;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
@@ -52,7 +48,7 @@ impl RuntimeData {
 }
 
 /// Per account information stored in the state.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: u64,
@@ -60,13 +56,11 @@ pub struct Account {
     pub code: Vec<u8>,
 }
 
-<<<<<<< HEAD
 pub fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
     let mut bytes = vec![];
     bytes.write_u64::<LittleEndian>(account_key).expect("writing to bytes failed");
     bytes
 }
-
 
 pub struct ApplyState {
     pub root: MerkleHash,
@@ -80,19 +74,6 @@ pub struct ApplyResult {
     pub authority_change_set: AuthorityChangeSet,
 }
 
-#[derive(Default)]
-pub struct Runtime;
-
-=======
-fn account_id_to_bytes(id: AccountId) -> Vec<u8> {
-    let mut bytes = vec![];
-    bytes
-        .write_u64::<LittleEndian>(id)
-        .expect("writing to bytes failed");
-    bytes
-}
-
->>>>>>> fix bugs and add utils
 struct RuntimeExt<'a, 'b: 'a> {
     state_db_update: &'a mut StateDbUpdate<'b>,
     storage_prefix: Vec<u8>,
@@ -100,10 +81,7 @@ struct RuntimeExt<'a, 'b: 'a> {
 
 impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     fn new(state_db_update: &'a mut StateDbUpdate<'b>, receiver: AccountId) -> Self {
-        RuntimeExt {
-            state_db_update,
-            storage_prefix: account_id_to_bytes(receiver),
-        }
+        RuntimeExt { state_db_update, storage_prefix: account_id_to_bytes(receiver) }
     }
 
     fn create_storage_key(&self, key: &[u8]) -> Vec<u8> {
@@ -116,7 +94,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         let storage_key = self.create_storage_key(key);
-        self.state_db_update.set(&storage_key, value.to_vec());
+        self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
         Ok(())
     }
 
@@ -133,18 +111,19 @@ pub struct Runtime {}
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
     fn get<T: DeserializeOwned>(&self, state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
-        state_update.get(key).and_then(|data| bincode::deserialize(&data).ok())
+        state_update.get(key).and_then(|data| Decode::decode(&data))
     }
-    
+
     fn set<T: Serialize>(&self, state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
-        value.encode()
-            .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data))
-            .expect("set value failed");
+        value
+            .encode()
+            .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
+            .unwrap_or(debug!("set value failed"))
     }
 
     fn apply_transaction(
         &self,
-        state_db_update: &mut StateDbUpdate,
+        state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
         authority_change_set: &mut AuthorityChangeSet,
     ) -> bool {
@@ -155,21 +134,26 @@ impl Runtime {
             self.get(state_update, &account_id_to_bytes(transaction.body.receiver));
         match (runtime_data, sender, receiver) {
             (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
-                let mut runtime_ext = RuntimeExt::new(state_db_update, transaction.body.receiver);
-                let wasm_res = executor::execute(
-                    &receiver.code,
-                    transaction.body.method_name.as_bytes(),
-                    &concat(transaction.body.args.clone()), //TODO: change to args
-                    &mut vec![],
-                    &mut runtime_ext,
-                    &wasm::types::Config::default(),
-                );
-                match wasm_res {
-                    Err(e) => {
-                        debug!("wasm execution failed with error: {:?}", e);
-                        false
+                // temporary check
+                if !transaction.body.method_name.is_empty() {
+                    let mut runtime_ext = RuntimeExt::new(state_update, transaction.body.receiver);
+                    let wasm_res = executor::execute(
+                        &receiver.code,
+                        transaction.body.method_name.as_bytes(),
+                        &concat(transaction.body.args.clone()),
+                        &mut vec![],
+                        &mut runtime_ext,
+                        &wasm::types::Config::default(),
+                    );
+                    match wasm_res {
+                        Ok(res) => {
+                            debug!(target: "runtime", "result of execution: {:?}", res);
+                        }
+                        Err(e) => {
+                            debug!(target: "runtime", "wasm execution failed with error: {:?}", e);
+                            return false;
+                        }
                     }
-                    _ => true,
                 }
                 // Transaction is staking transaction.
                 if transaction.body.sender == transaction.body.receiver {
@@ -207,6 +191,7 @@ impl Runtime {
                     }
                 }
             }
+            _ => false,
         }
     }
 
@@ -251,17 +236,17 @@ impl Runtime {
         self.set(
             &mut state_db_update,
             &account_id_to_bytes(1),
-            &Account { public_keys: vec![], amount: 100, nonce: 0 },
+            &Account { public_keys: vec![], amount: 100, nonce: 0, code: vec![] },
         );
         self.set(
             &mut state_db_update,
             &account_id_to_bytes(2),
-            &Account { public_keys: vec![], amount: 0, nonce: 0 },
+            &Account { public_keys: vec![], amount: 0, nonce: 0, code: vec![] },
         );
         self.set(
             &mut state_db_update,
             &account_id_to_bytes(3),
-            &Account { public_keys: vec![], amount: 0, nonce: 0 },
+            &Account { public_keys: vec![], amount: 0, nonce: 0, code: vec![] },
         );
         let (mut transaction, genesis_root) = state_db_update.finalize();
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
@@ -275,6 +260,7 @@ mod tests {
     use super::*;
     use primitives::types::*;
     use std::sync::Arc;
+    use std::fs;
     use storage::test_utils::create_state_db;
 
     #[test]
@@ -289,7 +275,9 @@ mod tests {
     #[test]
     fn test_transfer_stake() {
         let rt = Runtime {};
-        let t = SignedTransaction::new(123, TransactionBody::new(1, 1, 2, 100));
+        let t = SignedTransaction::new(
+            123, TransactionBody::new(1, 1, 2, 100, String::new(), vec![])
+        );
         let state_db = Arc::new(create_state_db());
         let root = rt.genesis_state(&state_db);
         let apply_state =
@@ -303,5 +291,60 @@ mod tests {
         assert_eq!(result1, ViewCallResult { account: 1, amount: 0 });
         let result2 = rt.view(state_db, apply_result.root, &ViewCall { account: 2 });
         assert_eq!(result2, ViewCallResult { account: 2, amount: 100 });
+    }
+
+    #[test]
+    fn test_get_and_set_state() {
+        let state_db = Arc::new(create_state_db());
+        let mut state_update = StateDbUpdate::new(state_db, MerkleHash::default());
+        let test_account = Account {
+            public_keys: vec![],
+            nonce: 0,
+            amount: 10,
+            code: vec![],
+        };
+        let account_id = 0;
+        let runtime = Runtime {};
+        runtime.set(&mut state_update, &account_id_to_bytes(account_id), &test_account);
+        let get_res = runtime.get(&mut state_update, &account_id_to_bytes(account_id)).unwrap();
+        assert_eq!(test_account, get_res);
+    }
+
+    #[test]
+    fn test_smart_contract() {
+        let state_db = Arc::new(create_state_db());
+        let mut state_update = StateDbUpdate::new(state_db, MerkleHash::default());
+        let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm").expect("Unable to read file");
+        let sender_account = Account {
+            public_keys: vec![],
+            nonce: 0,
+            amount: 10,
+            code: vec![],
+        };
+        let receiver_account = Account {
+            public_keys: vec![],
+            nonce: 0,
+            amount: 10,
+            code: wasm_binary
+        };
+        let sender_id = 1;
+        let receiver_id = 2;
+        let runtime = Runtime {};
+        let runtime_data = RuntimeData::default();
+        runtime.set(&mut state_update, &account_id_to_bytes(sender_id), &sender_account);
+        runtime.set(&mut state_update, &account_id_to_bytes(receiver_id), &receiver_account);
+        runtime.set(&mut state_update, RUNTIME_DATA, &runtime_data);
+        let tx_body = TransactionBody {
+            nonce: 0,
+            sender: sender_id,
+            receiver: receiver_id,
+            amount: 0,
+            method_name: "run_test".to_string(),
+            args: vec![],
+        };
+        let transaction = SignedTransaction::new(123, tx_body);
+        let mut authority_change_set = AuthorityChangeSet::default();
+        let success = runtime.apply_transaction(&mut state_update, &transaction, &mut authority_change_set);
+        assert!(success);
     }
 }

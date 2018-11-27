@@ -63,7 +63,7 @@ pub fn main() {
         test_config(&addr, vec![boot_node])
     };
     let chain_spec = get_default_chain_spec().unwrap();
-    let storage = Arc::new(storage::open_database(&format!("storage/db-{}/", port)));
+    let storage = Arc::new(storage::test_utils::create_memory_db());
     let signer = Arc::new(InMemorySigner::new());
     let client = Arc::new(Client::new(&chain_spec, storage, signer));
     let protocol_config = if is_root {
@@ -84,7 +84,15 @@ pub fn main() {
         .for_each({
             let client = client.clone();
             move |_| {
-                let tx = SignedTransaction::new(123, TransactionBody { nonce: 1, amount: 1, sender: 1, receiver: 2});
+                let tx_body = TransactionBody {
+                    nonce: 1,
+                    amount: 1,
+                    sender: 1,
+                    receiver: 2,
+                    method_name: String::new(),
+                    args: vec![],
+                };
+                let tx = SignedTransaction::new(123, tx_body);
                 client.receive_transaction(tx);
                 Ok(())
             }

@@ -23,10 +23,6 @@ use network::test_utils::init_logger;
 use primitives::traits::{Block, GenericResult, Header as BlockHeader};
 use rpc::api::RpcImpl;
 
-pub mod config;
-pub mod network_handler;
-pub mod rpc;
-
 pub fn run_service<B: Block, H: ProtocolHandler, Header: BlockHeader>(
     client: Arc<Client>,
     network: &NetworkService<B, H>,
