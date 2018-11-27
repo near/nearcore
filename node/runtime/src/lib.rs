@@ -88,7 +88,9 @@ struct RuntimeExt<'a, 'b: 'a> {
 
 impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     fn new(state_db_update: &'a mut StateDbUpdate<'b>, receiver: AccountId) -> Self {
-        RuntimeExt { state_db_update, storage_prefix: account_id_to_bytes(receiver) }
+        let mut prefix = account_id_to_bytes(receiver);
+        prefix.append(&mut b",".to_vec());
+        RuntimeExt { state_db_update, storage_prefix: prefix }
     }
 
     fn create_storage_key(&self, key: &[u8]) -> Vec<u8> {
