@@ -18,14 +18,6 @@ pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = Signature;
 
-pub fn index_to_bytes(index: u64) -> Vec<u8> {
-    let mut bytes = vec![];
-    bytes
-        .write_u64::<LittleEndian>(index)
-        .expect("writing to bytes failed");
-    bytes
-}
-
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
     Number(u64),

@@ -1,7 +1,8 @@
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, Header};
-use primitives::types::{index_to_bytes, BlockId};
+use primitives::types::BlockId;
+use primitives::utils::index_to_bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use storage::Storage;

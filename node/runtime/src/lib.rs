@@ -11,6 +11,7 @@ extern crate primitives;
 extern crate storage;
 extern crate wasm;
 
+<<<<<<< HEAD
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,11 +19,15 @@ use std::sync::Arc;
 use beacon::authority::AuthorityChangeSet;
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::hash::CryptoHash;
+=======
+use byteorder::{LittleEndian, WriteBytesExt};
+>>>>>>> fix bugs and add utils
 use primitives::signature::PublicKey;
 use primitives::types::{
-    index_to_bytes, AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
+    AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
 };
 use primitives::traits::Encode;
+use primitives::utils::concat;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result};
@@ -55,6 +60,7 @@ pub struct Account {
     pub code: Vec<u8>,
 }
 
+<<<<<<< HEAD
 pub fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
     let mut bytes = vec![];
     bytes.write_u64::<LittleEndian>(account_key).expect("writing to bytes failed");
@@ -77,6 +83,16 @@ pub struct ApplyResult {
 #[derive(Default)]
 pub struct Runtime;
 
+=======
+fn account_id_to_bytes(id: AccountId) -> Vec<u8> {
+    let mut bytes = vec![];
+    bytes
+        .write_u64::<LittleEndian>(id)
+        .expect("writing to bytes failed");
+    bytes
+}
+
+>>>>>>> fix bugs and add utils
 struct RuntimeExt<'a, 'b: 'a> {
     state_db_update: &'a mut StateDbUpdate<'b>,
     storage_prefix: Vec<u8>,
@@ -86,7 +102,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     fn new(state_db_update: &'a mut StateDbUpdate<'b>, receiver: AccountId) -> Self {
         RuntimeExt {
             state_db_update,
-            storage_prefix: index_to_bytes(receiver),
+            storage_prefix: account_id_to_bytes(receiver),
         }
     }
 
@@ -143,7 +159,7 @@ impl Runtime {
                 let wasm_res = executor::execute(
                     &receiver.code,
                     transaction.body.method_name.as_bytes(),
-                    &vec![], //TODO: change to args
+                    &concat(transaction.body.args.clone()), //TODO: change to args
                     &mut vec![],
                     &mut runtime_ext,
                     &wasm::types::Config::default(),
