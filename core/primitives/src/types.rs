@@ -1,6 +1,8 @@
-use hash::{hash_struct, CryptoHash};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+
+use hash::{hash_struct, CryptoHash};
+use signature::Signature;
 
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
@@ -13,9 +15,7 @@ pub type StructSignature = u128;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
-pub type BLSSignature = u128;
-/// Database record type.
-pub type DBValue = Vec<u8>;
+pub type BLSSignature = Signature;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
@@ -49,12 +49,7 @@ pub struct TransactionBody {
 
 impl TransactionBody {
     pub fn new(nonce: u64, sender: AccountId, receiver: AccountId, amount: u64) -> TransactionBody {
-        TransactionBody {
-            nonce,
-            sender,
-            receiver,
-            amount,
-        }
+        TransactionBody { nonce, sender, receiver, amount }
     }
 }
 
@@ -73,17 +68,7 @@ pub struct SignedTransaction {
 
 impl SignedTransaction {
     pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
-        SignedTransaction {
-            sender_sig,
-            hash: hash_struct(&body),
-            body,
-        }
-    }
-}
-
-impl Default for SignedTransaction {
-    fn default() -> Self {
-        SignedTransaction::new(0, TransactionBody::default())
+        SignedTransaction { sender_sig, hash: hash_struct(&body), body }
     }
 }
 

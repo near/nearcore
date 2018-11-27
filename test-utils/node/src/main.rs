@@ -18,10 +18,11 @@ use clap::{App, Arg};
 use client::Client;
 use env_logger::Builder;
 use futures::{Future, Stream};
-use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use network::service::generate_service_task;
+use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use node_cli::chain_spec::get_default_chain_spec;
-use primitives::types::SignedTransaction;
+use primitives::signer::InMemorySigner;
+use primitives::types::{SignedTransaction, TransactionBody};
 use service::network_handler::NetworkHandler;
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,17 +44,9 @@ pub fn main() {
     let matches = App::new("Client")
         .arg(Arg::with_name("host").long("host").takes_value(true))
         .arg(Arg::with_name("port").long("port").takes_value(true))
-        .arg(
-            Arg::with_name("is_root")
-                .long("is_root")
-                .required(true)
-                .takes_value(true),
-        ).arg(
-            Arg::with_name("root_port")
-                .long("root_port")
-                .required(true)
-                .takes_value(true),
-        ).get_matches();
+        .arg(Arg::with_name("is_root").long("is_root").required(true).takes_value(true))
+        .arg(Arg::with_name("root_port").long("root_port").required(true).takes_value(true))
+        .get_matches();
     let host = matches.value_of("host").unwrap_or("127.0.0.1");
     let port = matches.value_of("port").unwrap_or("30000");
     let is_root = value_t!(matches, "is_root", bool).unwrap();
@@ -70,16 +63,15 @@ pub fn main() {
         test_config(&addr, vec![boot_node])
     };
     let chain_spec = get_default_chain_spec().unwrap();
-    let storage = Arc::new(storage::DiskStorage::new(&format!("storage/db-{}/", port)));
-    let client = Arc::new(Client::new(storage, &chain_spec));
+    let storage = Arc::new(storage::open_database(&format!("storage/db-{}/", port)));
+    let signer = Arc::new(InMemorySigner::new());
+    let client = Arc::new(Client::new(&chain_spec, storage, signer));
     let protocol_config = if is_root {
         ProtocolConfig::new_with_default_id(special_secret())
     } else {
         ProtocolConfig::default()
     };
-    let network_handler = NetworkHandler {
-        client: client.clone(),
-    };
+    let network_handler = NetworkHandler { client: client.clone() };
     let service =
         Service::new(protocol_config, net_config, network_handler, client.clone()).unwrap();
     let task = generate_service_task::<_, _, BeaconBlockHeader>(
@@ -92,7 +84,7 @@ pub fn main() {
         .for_each({
             let client = client.clone();
             move |_| {
-                let tx = SignedTransaction::default();
+                let tx = SignedTransaction::new(123, TransactionBody { nonce: 1, amount: 1, sender: 1, receiver: 2});
                 client.receive_transaction(tx);
                 Ok(())
             }

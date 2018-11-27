@@ -1,5 +1,15 @@
 extern crate bincode;
 extern crate byteorder;
+extern crate hash256_std_hasher;
+extern crate hash_db;
+#[cfg(test)]
+extern crate hex_literal;
+extern crate kvdb;
+//#[cfg(test)]
+extern crate kvdb_memorydb;
+extern crate kvdb_rocksdb;
+#[cfg(test)]
+extern crate memory_db;
 extern crate parity_rocksdb;
 extern crate parking_lot;
 extern crate primitives;
@@ -7,165 +17,142 @@ extern crate serde;
 extern crate substrate_primitives;
 extern crate substrate_state_machine;
 extern crate substrate_trie;
-
-#[cfg(test)]
-extern crate hex_literal;
-#[cfg(test)]
-extern crate memory_db;
-#[cfg(test)]
 extern crate trie_db;
 
-use byteorder::{LittleEndian, WriteBytesExt};
-use parity_rocksdb::{Writable, DB};
-use parking_lot::RwLock;
-use primitives::types::{DBValue, MerkleHash};
-use std::collections::HashMap;
 use std::sync::Arc;
 
-#[cfg(test)]
-mod tests;
+pub use kvdb::{DBValue, KeyValueDB};
+use kvdb_rocksdb::{Database, DatabaseConfig};
 
-pub const COL_STATE: u32 = 0;
-pub const COL_BEACON_EXTRA: u32 = 1;
-pub const COL_BEACON_BLOCKS: u32 = 2;
-pub const COL_BEACON_HEADERS: u32 = 3;
-pub const COL_BEACON_INDEX: u32 = 4;
+use primitives::hash::CryptoHash;
+use primitives::types::MerkleHash;
+pub use substrate_storage::TrieBackendTransaction;
+use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 
-/// Concrete implementation of StateDbUpdate.
+// #[cfg(feature = "test-utils")]
+mod substrate_storage;
+pub mod test_utils;
+
+pub const COL_STATE: Option<u32> = Some(0);
+pub const COL_BEACON_EXTRA: Option<u32> = Some(1);
+pub const COL_BEACON_BLOCKS: Option<u32> = Some(2);
+pub const COL_BEACON_HEADERS: Option<u32> = Some(3);
+pub const COL_BEACON_INDEX: Option<u32> = Some(4);
+pub const TOTAL_COLUMNS: Option<u32> = Some(5);
+
 /// Provides a way to access Storage and record changes with future commit.
 pub struct StateDbUpdate<'a> {
-    state_db: &'a mut StateDb,
-    root: &'a MerkleHash,
-    committed: HashMap<Vec<u8>, Option<DBValue>>,
-    prospective: HashMap<Vec<u8>, Option<DBValue>>,
+    overlay: Box<OverlayedChanges>,
+    _backend: Box<TrieBackend>,
+    ext: StateExt<'a>,
 }
 
 impl<'a> StateDbUpdate<'a> {
-    pub fn new(state_db: &'a mut StateDb, root: &'a MerkleHash) -> Self {
-        StateDbUpdate {
-            state_db,
+    pub fn new(state_db: Arc<StateDb>, root: MerkleHash) -> Self {
+        let backend = Box::new(TrieBackend::new(
+            state_db as Arc<substrate_state_machine::Storage<CryptoHasher>>,
             root,
-            committed: HashMap::default(),
-            prospective: HashMap::default(),
+        ));
+        let backend_ptr = backend.as_ref() as *const TrieBackend;
+        let mut overlay = Box::new(OverlayedChanges::default());
+        let overlay_ptr = overlay.as_mut() as *mut OverlayedChanges;
+        StateDbUpdate {
+            overlay,
+            _backend: backend,
+            ext: StateExt::new(unsafe { &mut *overlay_ptr }, unsafe { &*backend_ptr }, None),
         }
     }
     pub fn get(&self, key: &[u8]) -> Option<DBValue> {
-        match self.prospective.get(key) {
-            Some(value) => value.clone(),
-            None => match self.committed.get(key) {
-                Some(value) => value.clone(),
-                None => self.state_db.get(self.root, key),
-            },
-        }
+        self.ext.storage(key).map(|v| DBValue::from_slice(&v))
     }
-    pub fn set(&mut self, key: &[u8], value: DBValue) {
-        self.prospective.insert(key.to_vec(), Some(value));
+    pub fn set(&mut self, key: &[u8], value: &DBValue) {
+        self.ext.place_storage(key.to_vec(), Some(value.to_vec()));
     }
     pub fn delete(&mut self, key: &[u8]) {
-        self.prospective.insert(key.to_vec(), None);
+        self.ext.clear_storage(key);
     }
     pub fn commit(&mut self) {
-        for (key, value) in self.prospective.iter() {
-            self.committed.insert(key.to_vec(), value.clone());
-        }
-        self.prospective = HashMap::new();
+        self.overlay.commit_prospective();
     }
     pub fn rollback(&mut self) {
-        self.prospective = HashMap::new();
+        self.overlay.discard_prospective();
     }
-    pub fn finalize(&self) -> MerkleHash {
-        for (key, value) in self.committed.iter() {
-            match value {
-                Some(value) => self.state_db.set(key, value),
-                None => self.state_db.delete(key),
-            }
-        }
-        MerkleHash::default()
+    pub fn finalize(mut self) -> (TrieBackendTransaction, MerkleHash) {
+        let root_after = self.ext.storage_root();
+        println!("! {:?}", root_after);
+        let (storage_transaction, _changes_trie_transaction) = self.ext.transaction();
+        (storage_transaction, root_after)
     }
 }
 
-pub trait Storage: Send + Sync {
-    fn set(&self, col: u32, key: &[u8], value: &[u8]);
-    fn get(&self, col: u32, key: &[u8]) -> Option<DBValue>;
-    fn exists(&self, col: u32, key: &[u8]) -> bool {
-        self.get(col, key).is_some()
-    }
-}
-
-#[derive(Default)]
-pub struct MemoryStorage {
-    pub db: RwLock<HashMap<Vec<u8>, DBValue>>,
-}
-
-impl MemoryStorage {
-    pub fn new() -> Self {
-        MemoryStorage {
-            db: RwLock::new(HashMap::new()),
-        }
-    }
-
-    fn get_key(col: u32, key: &[u8]) -> Vec<u8> {
-        let mut full_key = vec![];
-        full_key
-            .write_u32::<LittleEndian>(col)
-            .expect("Writing integer to bytes failed");
-        full_key.extend_from_slice(key);
-        full_key
-    }
-}
-
-impl Storage for MemoryStorage {
-    fn set(&self, col: u32, key: &[u8], value: &[u8]) {
-        self.db
-            .write()
-            .insert(MemoryStorage::get_key(col, key), value.to_vec());
-    }
-    fn get(&self, col: u32, key: &[u8]) -> Option<DBValue> {
-        self.db
-            .read()
-            .get(&MemoryStorage::get_key(col, key))
-            .map(|v| v.to_vec())
-    }
-}
-
-pub struct DiskStorage {
-    db: DB,
-}
-
-impl DiskStorage {
-    pub fn new(path: &str) -> Self {
-        let db = DB::open_default(&path).unwrap();
-        DiskStorage { db }
-    }
-}
-
-impl Storage for DiskStorage {
-    fn set(&self, _col: u32, key: &[u8], value: &[u8]) {
-        self.db.put(key, value).ok();
-    }
-    fn get(&self, _col: u32, key: &[u8]) -> Option<DBValue> {
-        match self.db.get(key) {
-            Ok(Some(value)) => Some(value.to_vec()),
-            _ => None,
-        }
-    }
-}
+pub type Storage = KeyValueDB;
+pub type DiskStorageConfig = DatabaseConfig;
+pub type DiskStorage = Database;
 
 #[allow(dead_code)]
 pub struct StateDb {
-    storage: Arc<Storage>,
+    storage: Arc<KeyValueDB>,
+    // TODO: for now.
+    hashed_null_node: CryptoHash,
+    null_node_data: DBValue,
 }
 
 impl StateDb {
-    pub fn new(storage: Arc<Storage>) -> Self {
-        StateDb { storage }
+    pub fn new(storage: Arc<KeyValueDB>) -> Self {
+        StateDb {
+            storage,
+            hashed_null_node: CryptoHash::default(),
+            null_node_data: [0u8][..].into(),
+        }
     }
-    pub fn get_state_view(&self) -> MerkleHash {
-        MerkleHash::default()
+    pub fn commit(&self, transaction: &mut TrieBackendTransaction) -> std::io::Result<()> {
+        let mut db_transaction = self.storage.transaction();
+        for (k, (v, rc)) in transaction.drain() {
+            if rc > 0 {
+                db_transaction.put(COL_STATE, k.as_ref(), &v.to_vec());
+            } else if rc < 0 {
+                db_transaction.delete(COL_STATE, k.as_ref());
+            }
+        }
+        self.storage.write(db_transaction)
     }
-    pub fn set(&self, _key: &[u8], _value: &[u8]) {}
-    pub fn get(&self, _root: &MerkleHash, _key: &[u8]) -> Option<DBValue> {
-        None
+}
+
+impl substrate_state_machine::Storage<CryptoHasher> for StateDb {
+    fn get(&self, key: &CryptoHash) -> std::result::Result<Option<DBValue>, std::string::String> {
+        // Initialize with empty trie. Alternative: insert (0,0) into KeyValueDB
+        if *key == self.hashed_null_node {
+            return Ok(Some(self.null_node_data.clone()));
+        }
+        self.storage
+            .get(COL_STATE, key.as_ref())
+            .map(|r| r.map(|v| DBValue::from_slice(&v)))
+            .map_err(|e| format!("Database backend error: {:?}", e))
     }
-    pub fn delete(&self, _key: &[u8]) {}
+}
+
+pub fn open_database(storage_path: &str) -> Database {
+    let storage_config = DiskStorageConfig::with_columns(TOTAL_COLUMNS);
+    DiskStorage::open(&storage_config, storage_path).expect("Database wasn't open")
+}
+
+#[cfg(test)]
+mod tests {
+    use test_utils::create_state_db;
+
+    use super::*;
+
+    #[test]
+    fn state_db() {
+        let state_db = Arc::new(create_state_db());
+        let root = CryptoHash::default();
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), root);
+        state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"dog3", &DBValue::from_slice(b"puppy"));
+        let (mut transaction, new_root) = state_db_update.finalize();
+        state_db.commit(&mut transaction).ok();
+        let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
+        assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
+    }
 }

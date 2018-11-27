@@ -9,18 +9,20 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate tokio;
 
-use client::Client;
+use std::sync::Arc;
+
 use futures::future;
+
+use client::Client;
 use network::protocol::ProtocolHandler;
 use network::service::{generate_service_task, Service as NetworkService};
 use network::test_utils::init_logger;
 use primitives::traits::{Block, GenericResult, Header as BlockHeader};
 use rpc::api::RpcImpl;
-use std::sync::Arc;
 
 pub mod config;
 pub mod network_handler;
-mod rpc;
+pub mod rpc;
 
 pub fn run_service<B: Block, H: ProtocolHandler, Header: BlockHeader>(
     client: Arc<Client>,

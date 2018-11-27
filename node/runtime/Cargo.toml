@@ -10,5 +10,5 @@ bincode = "1.0.0"
 log = "0.4"
 byteorder = "1.2"
 primitives = { path = "../../core/primitives" }
+beacon = { path = "../../core/beacon" }
 storage = { path = "../../core/storage" }
-network = { path = "../network" }

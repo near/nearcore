@@ -15,6 +15,7 @@ storage = { path = "../../core/storage" }
 
 [dev-dependencies]
 network = { path = "../network", features = ["test-utils"]}
+storage = { path = "../../core/storage", features = ["test-utils"] }
 
 [features]
 test-utils = []

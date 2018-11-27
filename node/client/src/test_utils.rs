@@ -1,13 +1,13 @@
-use chain_spec::ChainSpec;
-use Client;
 use std::sync::Arc;
-use storage::MemoryStorage;
+
+use chain_spec::ChainSpec;
+use primitives::signer::InMemorySigner;
+use storage::test_utils::create_memory_db;
+use Client;
 
 pub fn generate_test_client() -> Client {
-    let storage = Arc::new(MemoryStorage::new());
-    let chain_spec = ChainSpec {
-        balances: vec!(),
-        initial_authorities: vec!(),
-    };
-    Client::new(storage, &chain_spec)
+    let storage = Arc::new(create_memory_db());
+    let chain_spec = ChainSpec { balances: vec![], initial_authorities: vec![] };
+    let signer = Arc::new(InMemorySigner::default());
+    Client::new(&chain_spec, storage, signer)
 }

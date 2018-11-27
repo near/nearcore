@@ -7,18 +7,19 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
 
+use std::sync::Arc;
+
+use parking_lot::RwLock;
+
+use beacon::authority::{Authority, AuthorityConfig};
 use beacon::chain::{BlockChain, ChainConfig};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
-use node_runtime::Runtime;
-use parking_lot::RwLock;
+use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, GenericResult};
-use primitives::types::{
-    BlockId, BLSSignature, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
-};
-use std::sync::Arc;
+use primitives::traits::{Block, GenericResult, Signer};
+use primitives::types::{BlockId, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, Storage};
 
 mod import_queue;
@@ -29,9 +30,10 @@ pub mod test_utils;
 
 #[allow(dead_code)]
 pub struct Client {
-    state_db: RwLock<StateDb>,
+    signer: Arc<Signer>,
+    state_db: Arc<StateDb>,
     runtime: Runtime,
-    last_root: RwLock<MerkleHash>,
+    authority: Authority,
     beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
     tx_pool: RwLock<Vec<SignedTransaction>>,
@@ -40,21 +42,29 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(storage: Arc<Storage>, _chain_spec: &ChainSpec) -> Self {
-        let state_db = StateDb::new(storage.clone());
-        let state_view = state_db.get_state_view();
+    pub fn new(_chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
+        let state_db = Arc::new(StateDb::new(storage.clone()));
         let chain_config = ChainConfig {
             extra_col: storage::COL_BEACON_EXTRA,
             header_col: storage::COL_BEACON_HEADERS,
             block_col: storage::COL_BEACON_BLOCKS,
             index_col: storage::COL_BEACON_INDEX,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), BLSSignature::default(), vec![]);
+        let runtime = Runtime::default();
+        let genesis_root = runtime.genesis_state(&state_db);
+
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
+        let beacon_chain = BlockChain::new(chain_config, genesis, storage);
+        let authority_config =
+            AuthorityConfig { initial_authorities: vec![signer.public_key()], epoch_length: 10 };
+        let authority = Authority::new(authority_config, &beacon_chain);
+
         Client {
-            runtime: Runtime::default(),
-            state_db: RwLock::new(state_db),
-            last_root: RwLock::new(state_view),
-            beacon_chain: BlockChain::new(chain_config, genesis, storage),
+            signer,
+            state_db,
+            beacon_chain,
+            runtime,
+            authority,
             tx_pool: RwLock::new(vec![]),
             import_queue: RwLock::new(ImportQueue::new()),
         }
@@ -66,9 +76,11 @@ impl Client {
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        let mut state_db = self.state_db.write();
-        self.runtime
-            .view(&mut state_db, &self.last_root.read(), view_call)
+        self.runtime.view(
+            self.state_db.clone(),
+            self.beacon_chain.best_block().header().merkle_root_state,
+            view_call,
+        )
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {
@@ -83,29 +95,35 @@ impl Client {
         true
     }
 
-    /// import a block. Returns true if it is successfully inserted into the chain
+    /// Import a block. Returns true if it is successfully inserted into the chain
     fn import_block(&self, block: BeaconBlock) -> bool {
         if self.beacon_chain.is_known(&block.hash()) {
             return false;
         }
         let parent_hash = block.header.parent_hash;
         if self.beacon_chain.is_known(&parent_hash) && self.validate_signature(&block) {
-            let mut state_db = self.state_db.write();
             let (header, transactions) = block.deconstruct();
             let num_transactions = transactions.len();
             // we can unwrap because parent is guaranteed to exist
-            let last_root = self
+            let last_header = self
                 .beacon_chain
                 .get_header(&BlockId::Hash(parent_hash))
-                .unwrap()
-                .merkle_root_state;
-            let (filtered_transactions, new_root) =
-                self.runtime.apply(&mut state_db, &last_root, transactions);
-            if new_root != header.merkle_root_tx || filtered_transactions.len() != num_transactions
-                {
-                    // TODO: something really bad happened
-                    return false;
-                }
+                .expect("Parent is known but header not found.");
+            let apply_state = ApplyState {
+                root: last_header.merkle_root_state,
+                block_index: last_header.index,
+                parent_block_hash: parent_hash,
+            };
+            let (filtered_transactions, mut apply_result) =
+                self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
+            if apply_result.root != header.merkle_root_state
+                || filtered_transactions.len() != num_transactions
+            {
+                // TODO: something really bad happened
+                return false;
+            }
+            self.state_db.commit(&mut apply_result.transaction).ok();
+            // TODO: figure out where to store apply_result.authority_change_set.
             let block = Block::new(header, filtered_transactions);
             self.beacon_chain.insert_block(block);
             true
@@ -160,49 +178,63 @@ impl network::client::Client<BeaconBlock> for Client {
     fn prod_block(&self) -> BeaconBlock {
         // TODO: compute actual merkle root and state, as well as signature, and
         // use some reasonable fork-choice rule
+        let last_block = self.beacon_chain.best_block();
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
-        let parent_hash = self.best_hash();
-        let index = self.best_index();
-        BeaconBlock::new(
-            index + 1,
-            parent_hash,
-            BLSSignature::default(),
-            transactions,
-        )
+        let apply_state = ApplyState {
+            root: last_block.header().merkle_root_state,
+            parent_block_hash: last_block.hash(),
+            block_index: last_block.header().index + 1,
+        };
+        let (filtered_transactions, mut apply_result) =
+            self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
+        self.state_db.commit(&mut apply_result.transaction).ok();
+        let mut block = BeaconBlock::new(
+            last_block.header().index + 1,
+            last_block.hash(),
+            apply_result.root,
+            filtered_transactions,
+        );
+        block.sign(&self.signer);
+        self.beacon_chain.insert_block(block.clone());
+        block
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use parking_lot::Mutex;
+
     // test with protocol
     use network::client::Client as NetworkClient;
     use network::io::NetSyncIo;
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
-    use network::test_utils;
-    use parking_lot::Mutex;
-    use primitives::hash::hash_struct;
+    use network::test_utils as network_test_utils;
     use primitives::traits::GenericResult;
+    use primitives::types::{MerkleHash, TransactionBody};
+
     use super::*;
+
     use test_utils::generate_test_client;
 
     #[test]
     fn test_import_queue_empty() {
         let client = generate_test_client();
-        let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, parent_hash, 0, vec![]);
-        client.import_block(block1);
+        let genesis_block = client.beacon_chain.best_block();
+        let block1 = BeaconBlock::new(1, genesis_block.hash(), genesis_block.header().merkle_root_state, vec![]);
+        assert!(client.import_block(block1));
         assert_eq!(client.import_queue.read().len(), 0);
     }
 
     #[test]
     fn test_import_queue_non_empty() {
         let client = generate_test_client();
-        let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, hash_struct(&1), 0, vec![]);
-        client.import_block(block1);
+        let genesis_block = client.beacon_chain.best_block();
+        let block1 = BeaconBlock::new(1, genesis_block.hash(), genesis_block.header().merkle_root_state, vec![]);
+        let block2 = BeaconBlock::new(2, block1.hash(), genesis_block.header().merkle_root_state, vec![]);
+        assert!(!client.import_block(block2));
         assert_eq!(client.import_queue.read().len(), 1);
-        let block2 = BeaconBlock::new(1, parent_hash, 0, vec![]);
-        client.import_block(block2);
+        assert!(client.import_block(block1));
+        // block2 is still in the queue.
         assert_eq!(client.import_queue.read().len(), 1);
     }
 
@@ -210,22 +242,38 @@ mod tests {
     fn test_duplicate_import() {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
-        let block0 = BeaconBlock::new(0, parent_hash, 0, vec![]);
-        client.import_block(block0);
+        let block0 = BeaconBlock::new(0, parent_hash, MerkleHash::default(), vec![]);
+        assert!(!client.import_block(block0));
         assert_eq!(client.import_queue.read().len(), 0);
     }
 
     #[test]
     fn test_import_blocks() {
         let client = generate_test_client();
-        let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, parent_hash, 0, vec![SignedTransaction::default()]);
-        let block2 = BeaconBlock::new(2, block1.hash(), 0, vec![SignedTransaction::default()]);
+        let genesis_block = client.beacon_chain.best_block();
+        let block1 = BeaconBlock::new(
+            1,
+            genesis_block.hash(),
+            genesis_block.header().merkle_root_state,
+            vec![],
+        );
+        let block2 = BeaconBlock::new(
+            2,
+            block1.hash(),
+            genesis_block.header().merkle_root_state,
+            vec![],
+        );
         network::client::Client::import_blocks(&client, vec![block1, block2]);
-        // since we don't have accounts yet, the first block is discarded
-        // and the second block thus has no known parent and is put into the
-        // import queue
-        assert_eq!(client.import_queue.read().len(), 1);
+        assert_eq!(client.import_queue.read().len(), 0);
+    }
+
+    #[test]
+    fn test_block_prod() {
+        let client = generate_test_client();
+        let block1 = client.prod_block();
+        // Already imported & best block is the this.
+        assert!(!client.import_block(block1.clone()));
+        assert_eq!(client.beacon_chain.best_block(), block1);
     }
 
     struct MockHandler {
@@ -241,20 +289,17 @@ mod tests {
     #[test]
     fn test_protocol_and_client() {
         let client = Arc::new(generate_test_client());
-        let handler = MockHandler {
-            client: client.clone(),
-        };
-        let config = ProtocolConfig::new_with_default_id(test_utils::special_secret());
+        let handler = MockHandler { client: client.clone() };
+        let config = ProtocolConfig::new_with_default_id(network_test_utils::special_secret());
         let protocol = Protocol::new(config, handler, client.clone());
-        let network_service = Arc::new(Mutex::new(test_utils::default_network_service()));
+        let network_service = Arc::new(Mutex::new(network_test_utils::default_network_service()));
         let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
-        protocol.on_transaction_message(SignedTransaction::default());
+        protocol.on_transaction_message(SignedTransaction::new(123, TransactionBody { nonce: 1, sender: 1, receiver: 2, amount: 10}));
         assert_eq!(client.tx_pool.read().len(), 1);
         assert_eq!(client.import_queue.read().len(), 0);
         protocol.prod_block::<BeaconBlockHeader>(&mut net_sync);
         assert_eq!(client.tx_pool.read().len(), 0);
-        // block is discarded due to the lack of account
         assert_eq!(client.import_queue.read().len(), 0);
-        assert_eq!(client.best_index(), 0);
+        assert_eq!(client.best_index(), 1);
     }
 }

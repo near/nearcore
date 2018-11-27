@@ -6,5 +6,6 @@ extern crate byteorder;
 extern crate primitives;
 extern crate storage;
 
+pub mod authority;
 pub mod chain;
 pub mod types;

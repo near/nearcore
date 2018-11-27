@@ -17,3 +17,8 @@ pub fn get_keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
 pub fn get_keypair() -> (PublicKey, SecretKey) {
     sodiumoxide::crypto::sign::ed25519::gen_keypair()
 }
+
+pub fn default_signature() -> Signature {
+    let sig = [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+    sodiumoxide::crypto::sign::ed25519::Signature(sig)
+}
