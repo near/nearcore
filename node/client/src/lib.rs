@@ -19,9 +19,7 @@ use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Signer};
-use primitives::types::{
-    BlockId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult
-};
+use primitives::types::{BlockId, SignedTransaction, ViewCall, ViewCallResult};
 use storage::{StateDb, Storage};
 
 mod import_queue;
@@ -53,17 +51,12 @@ impl Client {
             index_col: storage::COL_BEACON_INDEX,
         };
         let runtime = Runtime::default();
-
-        // TODO: Move into chain spec.
-        let mut state_db_update = storage::StateDbUpdate::new(state_db.clone(), MerkleHash::default());
-        let account = node_runtime::Account { public_keys: vec![], amount: 100, nonce: 0 };
-        runtime.set(&mut state_db_update, &node_runtime::account_id_to_bytes(1), &account);
-        let (mut transaction, genesis_root) = state_db_update.finalize();
-        state_db.commit(&mut transaction).ok();
+        let genesis_root = runtime.genesis_state(&state_db);
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(chain_config, genesis, storage);
-        let authority_config = AuthorityConfig { initial_authorities: vec![signer.public_key()], epoch_length: 10 };
+        let authority_config =
+            AuthorityConfig { initial_authorities: vec![signer.public_key()], epoch_length: 10 };
         let authority = Authority::new(authority_config, &beacon_chain);
 
         Client {
@@ -83,8 +76,11 @@ impl Client {
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        self.runtime
-            .view(self.state_db.clone(), self.beacon_chain.best_block().header().merkle_root_state, view_call)
+        self.runtime.view(
+            self.state_db.clone(),
+            self.beacon_chain.best_block().header().merkle_root_state,
+            view_call,
+        )
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {
@@ -109,11 +105,19 @@ impl Client {
             let (header, transactions) = block.deconstruct();
             let num_transactions = transactions.len();
             // we can unwrap because parent is guaranteed to exist
-            let last_header = self.beacon_chain.get_header(&BlockId::Hash(parent_hash)).expect("Parent is known but header not found.");
-            let apply_state = ApplyState { root: last_header.merkle_root_state, block_index: last_header.index, parent_block_hash: parent_hash };
+            let last_header = self
+                .beacon_chain
+                .get_header(&BlockId::Hash(parent_hash))
+                .expect("Parent is known but header not found.");
+            let apply_state = ApplyState {
+                root: last_header.merkle_root_state,
+                block_index: last_header.index,
+                parent_block_hash: parent_hash,
+            };
             let (filtered_transactions, mut apply_result) =
                 self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
-            if apply_result.root != header.merkle_root_tx || filtered_transactions.len() != num_transactions
+            if apply_result.root != header.merkle_root_tx
+                || filtered_transactions.len() != num_transactions
             {
                 // TODO: something really bad happened
                 return false;
@@ -176,8 +180,13 @@ impl network::client::Client<BeaconBlock> for Client {
         // use some reasonable fork-choice rule
         let last_block = self.beacon_chain.best_block();
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
-        let apply_state = ApplyState { root: last_block.header().merkle_root_state, parent_block_hash: last_block.header().parent_hash, block_index: last_block.header().index + 1 };
-        let (filtered_transactions, mut apply_result) = self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
+        let apply_state = ApplyState {
+            root: last_block.header().merkle_root_state,
+            parent_block_hash: last_block.header().parent_hash,
+            block_index: last_block.header().index + 1,
+        };
+        let (filtered_transactions, mut apply_result) =
+            self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index,
@@ -198,14 +207,14 @@ mod tests {
     use network::client::Client as NetworkClient;
     use network::io::NetSyncIo;
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
-    use network::test_utils;
+    use network::test_utils as network_test_utils;
     use primitives::hash::hash_struct;
     use primitives::traits::GenericResult;
-    use test_utils::generate_test_client;
-    use primitives::signer::InMemorySigner;
-    use storage::create_memory_db;
+    use primitives::types::MerkleHash;
 
     use super::*;
+
+    use test_utils::generate_test_client;
 
     #[test]
     fn test_import_queue_empty() {
@@ -241,8 +250,18 @@ mod tests {
     fn test_import_blocks() {
         let client = generate_test_client();
         let parent_hash = client.beacon_chain.genesis_hash;
-        let block1 = BeaconBlock::new(1, parent_hash, MerkleHash::default(), vec![SignedTransaction::default()]);
-        let block2 = BeaconBlock::new(2, block1.hash(), MerkleHash::default(), vec![SignedTransaction::default()]);
+        let block1 = BeaconBlock::new(
+            1,
+            parent_hash,
+            MerkleHash::default(),
+            vec![SignedTransaction::default()],
+        );
+        let block2 = BeaconBlock::new(
+            2,
+            block1.hash(),
+            MerkleHash::default(),
+            vec![SignedTransaction::default()],
+        );
         network::client::Client::import_blocks(&client, vec![block1, block2]);
         // since we don't have accounts yet, the first block is discarded
         // and the second block thus has no known parent and is put into the
@@ -263,20 +282,17 @@ mod tests {
     #[test]
     fn test_protocol_and_client() {
         let client = Arc::new(generate_test_client());
-        let handler = MockHandler {
-            client: client.clone(),
-        };
-        let config = ProtocolConfig::new_with_default_id(test_utils::special_secret());
+        let handler = MockHandler { client: client.clone() };
+        let config = ProtocolConfig::new_with_default_id(network_test_utils::special_secret());
         let protocol = Protocol::new(config, handler, client.clone());
-        let network_service = Arc::new(Mutex::new(test_utils::default_network_service()));
+        let network_service = Arc::new(Mutex::new(network_test_utils::default_network_service()));
         let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::default());
         assert_eq!(client.tx_pool.read().len(), 1);
         assert_eq!(client.import_queue.read().len(), 0);
         protocol.prod_block::<BeaconBlockHeader>(&mut net_sync);
         assert_eq!(client.tx_pool.read().len(), 0);
-        // block is discarded due to the lack of account
-        assert_eq!(client.import_queue.read().len(), 0);
+        assert_eq!(client.import_queue.read().len(), 1);
         assert_eq!(client.best_index(), 0);
     }
 }

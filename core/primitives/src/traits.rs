@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use super::types;
 use super::signature;
+use super::types;
 use hash::CryptoHash;
 
 // encode a type to byte array

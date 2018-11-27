@@ -1,8 +1,7 @@
-use super::types;
-use super::traits;
-use super::signature;
 use super::hash;
-
+use super::signature;
+use super::traits;
+use super::types;
 
 pub struct InMemorySigner {
     public_key: signature::PublicKey,
@@ -12,10 +11,7 @@ pub struct InMemorySigner {
 impl InMemorySigner {
     pub fn new() -> Self {
         let (public_key, secret_key) = signature::get_keypair();
-        InMemorySigner {
-            public_key,
-            secret_key
-        }
+        InMemorySigner { public_key, secret_key }
     }
 }
 

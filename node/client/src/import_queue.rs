@@ -9,9 +9,7 @@ pub struct ImportQueue {
 
 impl ImportQueue {
     pub fn new() -> Self {
-        ImportQueue {
-            queue: HashMap::new(),
-        }
+        ImportQueue { queue: HashMap::new() }
     }
 
     pub fn insert(&mut self, block: BeaconBlock) {

@@ -7,6 +7,6 @@ extern crate serde_derive;
 
 pub mod hash;
 pub mod signature;
+pub mod signer;
 pub mod traits;
 pub mod types;
-pub mod signer;

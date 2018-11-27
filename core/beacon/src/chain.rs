@@ -13,13 +13,13 @@ const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 #[derive(Clone)]
 pub struct ChainConfig {
     /// Column in storage for extra information.
-    pub extra_col: u32,
+    pub extra_col: Option<u32>,
     /// Column in storage for blocks.
-    pub block_col: u32,
+    pub block_col: Option<u32>,
     /// Column in storage for headers.
-    pub header_col: u32,
+    pub header_col: Option<u32>,
     /// Column in storage for index.
-    pub index_col: u32,
+    pub index_col: Option<u32>,
 }
 
 /// General BlockChain container.
@@ -43,15 +43,13 @@ pub struct BlockChain<B: Block> {
 
 fn index_to_bytes(index: u64) -> Vec<u8> {
     let mut bytes = vec![];
-    bytes
-        .write_u64::<LittleEndian>(index)
-        .expect("writing to bytes failed");
+    bytes.write_u64::<LittleEndian>(index).expect("writing to bytes failed");
     bytes
 }
 
 fn write_with_cache<T: Clone + Encode>(
     storage: &Arc<Storage>,
-    col: u32,
+    col: Option<u32>,
     cache: &RwLock<HashMap<Vec<u8>, T>>,
     key: &[u8],
     value: &T,
@@ -60,13 +58,13 @@ fn write_with_cache<T: Clone + Encode>(
     cache.write().insert(key.to_vec(), value.clone());
 
     let mut db_transaction = storage.transaction();
-    db_transaction.put(Some(col), key, &data);
+    db_transaction.put(col, key, &data);
     storage.write(db_transaction).expect("Database write failed");
 }
 
 fn read_with_cache<T: Clone + Decode>(
     storage: &Arc<Storage>,
-    col: u32,
+    col: Option<u32>,
     cache: &RwLock<HashMap<Vec<u8>, T>>,
     key: &[u8],
 ) -> Option<T> {
@@ -77,7 +75,7 @@ fn read_with_cache<T: Clone + Decode>(
         }
     }
 
-    match storage.get(Some(col), key) {
+    match storage.get(col, key) {
         Ok(Some(value)) => Decode::decode(value.as_ref()).map(|value: T| {
             let mut write = cache.write();
             write.insert(key.to_vec(), value.clone());
@@ -101,9 +99,7 @@ impl<B: Block> BlockChain<B> {
         };
 
         // Load best block hash from storage.
-        let best_block_hash = match bc
-            .storage
-            .get(Some(bc.chain_config.extra_col), BLOCKCHAIN_BEST_BLOCK)
+        let best_block_hash = match bc.storage.get(bc.chain_config.extra_col, BLOCKCHAIN_BEST_BLOCK)
         {
             Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
@@ -130,9 +126,13 @@ impl<B: Block> BlockChain<B> {
 
     /// Check if block already is known.
     pub fn is_known(&self, hash: &CryptoHash) -> bool {
-        self.headers.read().contains_key(hash.as_ref()) || self
-            .storage
-            .get(Some(self.chain_config.header_col), hash.as_ref()).unwrap().is_some()
+        if self.headers.read().contains_key(hash.as_ref()) {
+            return true;
+        }
+        match self.storage.get(self.chain_config.header_col, hash.as_ref()) {
+            Ok(Some(_)) => true,
+            _ => false,
+        }
     }
 
     /// Inserts a verified block.
@@ -173,7 +173,11 @@ impl<B: Block> BlockChain<B> {
                 let mut best_block = self.best_block.write();
                 *best_block = block;
                 let mut db_transaction = self.storage.transaction();
-                db_transaction.put(Some(self.chain_config.extra_col), BLOCKCHAIN_BEST_BLOCK, block_hash.as_ref());
+                db_transaction.put(
+                    self.chain_config.extra_col,
+                    BLOCKCHAIN_BEST_BLOCK,
+                    block_hash.as_ref(),
+                );
                 self.storage.write(db_transaction).expect("Database write failed");
             }
             false
@@ -230,39 +234,36 @@ impl<B: Block> BlockChain<B> {
 mod tests {
     use super::*;
 
-    use std::sync::Arc;
     use primitives::types::MerkleHash;
-    use storage::MemoryStorage;
+    use std::sync::Arc;
+    use storage::test_utils::create_memory_db;
     use types::BeaconBlock;
 
     #[test]
     fn test_genesis() {
-        let storage = Arc::new(MemoryStorage::default());
+        let storage = Arc::new(create_memory_db());
         let chain_config = ChainConfig {
-            extra_col: 0,
-            header_col: 1,
-            block_col: 2,
-            index_col: 3,
+            extra_col: storage::COL_BEACON_EXTRA,
+            header_col: storage::COL_BEACON_HEADERS,
+            block_col: storage::COL_BEACON_BLOCKS,
+            index_col: storage::COL_BEACON_INDEX,
         };
         let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
         let bc = BlockChain::new(chain_config, genesis.clone(), storage);
-        assert_eq!(
-            bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(),
-            genesis
-        );
+        assert_eq!(bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(), genesis);
         assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
     }
 
     #[test]
     fn test_restart_chain() {
-        let storage = Arc::new(MemoryStorage::default());
+        let storage = Arc::new(create_memory_db());
         let chain_config = ChainConfig {
-            extra_col: 0,
-            header_col: 1,
-            block_col: 2,
-            index_col: 3,
+            extra_col: storage::COL_BEACON_EXTRA,
+            header_col: storage::COL_BEACON_HEADERS,
+            block_col: storage::COL_BEACON_BLOCKS,
+            index_col: storage::COL_BEACON_INDEX,
         };
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(),  vec![]);
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
         let bc = BlockChain::new(chain_config.clone(), genesis.clone(), storage.clone());
         let block1 = BeaconBlock::new(1, genesis.hash(), MerkleHash::default(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
@@ -272,9 +273,6 @@ mod tests {
         let other_bc = BlockChain::new(chain_config, genesis.clone(), storage.clone());
         assert_eq!(other_bc.best_block().hash(), block1.hash());
         assert_eq!(other_bc.best_block().header.index, 1);
-        assert_eq!(
-            other_bc.get_block(&BlockId::Hash(block1.hash())).unwrap(),
-            block1
-        );
+        assert_eq!(other_bc.get_block(&BlockId::Hash(block1.hash())).unwrap(), block1);
     }
 }

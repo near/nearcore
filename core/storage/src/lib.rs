@@ -5,6 +5,7 @@ extern crate hash_db;
 #[cfg(test)]
 extern crate hex_literal;
 extern crate kvdb;
+//#[cfg(test)]
 extern crate kvdb_memorydb;
 extern crate kvdb_rocksdb;
 #[cfg(test)]
@@ -21,25 +22,23 @@ extern crate trie_db;
 use std::sync::Arc;
 
 pub use kvdb::{DBValue, KeyValueDB};
-pub use kvdb_memorydb::create as create_memory_db;
-use kvdb_memorydb::InMemory;
 use kvdb_rocksdb::{Database, DatabaseConfig};
 
 use primitives::hash::CryptoHash;
 use primitives::types::MerkleHash;
-use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 pub use substrate_storage::TrieBackendTransaction;
+use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 
-#[cfg(test)]
-mod tests;
+// #[cfg(feature = "test-utils")]
 mod substrate_storage;
+pub mod test_utils;
 
-pub const COL_STATE: u32 = 0;
-pub const COL_BEACON_EXTRA: u32 = 1;
-pub const COL_BEACON_BLOCKS: u32 = 2;
-pub const COL_BEACON_HEADERS: u32 = 3;
-pub const COL_BEACON_INDEX: u32 = 4;
-
+pub const COL_STATE: Option<u32> = Some(0);
+pub const COL_BEACON_EXTRA: Option<u32> = Some(1);
+pub const COL_BEACON_BLOCKS: Option<u32> = Some(2);
+pub const COL_BEACON_HEADERS: Option<u32> = Some(3);
+pub const COL_BEACON_INDEX: Option<u32> = Some(4);
+pub const TOTAL_COLUMNS: Option<u32> = Some(5);
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct StateDbUpdate<'a> {
@@ -50,20 +49,23 @@ pub struct StateDbUpdate<'a> {
 
 impl<'a> StateDbUpdate<'a> {
     pub fn new(state_db: Arc<StateDb>, root: MerkleHash) -> Self {
-        let backend = Box::new(TrieBackend::new(state_db as Arc<substrate_state_machine::Storage<CryptoHasher>>, root));
+        let backend = Box::new(TrieBackend::new(
+            state_db as Arc<substrate_state_machine::Storage<CryptoHasher>>,
+            root,
+        ));
         let backend_ptr = backend.as_ref() as *const TrieBackend;
         let mut overlay = Box::new(OverlayedChanges::default());
         let overlay_ptr = overlay.as_mut() as *mut OverlayedChanges;
         StateDbUpdate {
             overlay,
             _backend: backend,
-            ext: StateExt::new(unsafe {&mut *overlay_ptr}, unsafe { &*backend_ptr }, None)
+            ext: StateExt::new(unsafe { &mut *overlay_ptr }, unsafe { &*backend_ptr }, None),
         }
     }
     pub fn get(&self, key: &[u8]) -> Option<DBValue> {
         self.ext.storage(key).map(|v| DBValue::from_slice(&v))
     }
-    pub fn set(&mut self, key: &[u8], value: DBValue) {
+    pub fn set(&mut self, key: &[u8], value: &DBValue) {
         self.ext.place_storage(key.to_vec(), Some(value.to_vec()));
     }
     pub fn delete(&mut self, key: &[u8]) {
@@ -84,7 +86,6 @@ impl<'a> StateDbUpdate<'a> {
 }
 
 pub type Storage = KeyValueDB;
-pub type MemoryStorage = InMemory;
 pub type DiskStorageConfig = DatabaseConfig;
 pub type DiskStorage = Database;
 
@@ -108,9 +109,9 @@ impl StateDb {
         let mut db_transaction = self.storage.transaction();
         for (k, (v, rc)) in transaction.drain() {
             if rc > 0 {
-                db_transaction.put(Some(COL_STATE), k.as_ref(), &v.to_vec());
+                db_transaction.put(COL_STATE, k.as_ref(), &v.to_vec());
             } else if rc < 0 {
-                db_transaction.delete(Some(COL_STATE), k.as_ref());
+                db_transaction.delete(COL_STATE, k.as_ref());
             }
         }
         self.storage.write(db_transaction)
@@ -123,8 +124,35 @@ impl substrate_state_machine::Storage<CryptoHasher> for StateDb {
         if *key == self.hashed_null_node {
             return Ok(Some(self.null_node_data.clone()));
         }
-        self.storage.get(Some(COL_STATE), key.as_ref())
+        self.storage
+            .get(COL_STATE, key.as_ref())
             .map(|r| r.map(|v| DBValue::from_slice(&v)))
             .map_err(|e| format!("Database backend error: {:?}", e))
+    }
+}
+
+pub fn open_database(storage_path: &str) -> Database {
+    let storage_config = DiskStorageConfig::with_columns(TOTAL_COLUMNS);
+    DiskStorage::open(&storage_config, storage_path).expect("Database wasn't open")
+}
+
+#[cfg(test)]
+mod tests {
+    use test_utils::create_state_db;
+
+    use super::*;
+
+    #[test]
+    fn state_db() {
+        let state_db = Arc::new(create_state_db());
+        let root = CryptoHash::default();
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), root);
+        state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"dog3", &DBValue::from_slice(b"puppy"));
+        let (mut transaction, new_root) = state_db_update.finalize();
+        state_db.commit(&mut transaction).ok();
+        let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
+        assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
     }
 }

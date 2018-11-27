@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
-use hash::{CryptoHash, hash_struct};
+use hash::{hash_struct, CryptoHash};
 use signature::Signature;
 
 /// User identifier. Currently derived from the user's public key.
@@ -49,12 +49,7 @@ pub struct TransactionBody {
 
 impl TransactionBody {
     pub fn new(nonce: u64, sender: AccountId, receiver: AccountId, amount: u64) -> TransactionBody {
-        TransactionBody {
-            nonce,
-            sender,
-            receiver,
-            amount,
-        }
+        TransactionBody { nonce, sender, receiver, amount }
     }
 }
 
@@ -73,11 +68,7 @@ pub struct SignedTransaction {
 
 impl SignedTransaction {
     pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
-        SignedTransaction {
-            sender_sig,
-            hash: hash_struct(&body),
-            body,
-        }
+        SignedTransaction { sender_sig, hash: hash_struct(&body), body }
     }
 }
 

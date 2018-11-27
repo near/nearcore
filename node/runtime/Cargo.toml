@@ -12,4 +12,3 @@ byteorder = "1.2"
 primitives = { path = "../../core/primitives" }
 beacon = { path = "../../core/beacon" }
 storage = { path = "../../core/storage" }
-network = { path = "../network" }

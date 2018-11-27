@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -47,7 +47,7 @@ impl BeaconBlock {
             header: BeaconBlockHeader {
                 parent_hash,
                 merkle_root_tx: MerkleHash::default(),
-                merkle_root_state: merkle_root_state,
+                merkle_root_state,
                 signature: primitives::signature::default_signature(),
                 index,
             },
@@ -77,10 +77,7 @@ impl Block for BeaconBlock {
     }
 
     fn new(header: Self::Header, body: Self::Body) -> Self {
-        BeaconBlock {
-            header,
-            transactions: body,
-        }
+        BeaconBlock { header, transactions: body }
     }
 
     fn hash(&self) -> CryptoHash {

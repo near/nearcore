@@ -23,10 +23,12 @@ impl Hasher for CryptoHasher {
 }
 
 pub type MemoryDB = memory_db::MemoryDB<CryptoHasher, DBValue>;
-pub type TrieBackend = substrate_state_machine::TrieBackend<Arc<Storage<CryptoHasher>>, CryptoHasher>;
+pub type TrieBackend =
+    substrate_state_machine::TrieBackend<Arc<Storage<CryptoHasher>>, CryptoHasher>;
 pub type TrieBackendTransaction = MemoryDB;
 pub type ChangesTrieStorage = InMemoryChangesTrieStorage<CryptoHasher>;
-pub type StateExt<'a> = substrate_state_machine::Ext<'a, CryptoHasher, TrieBackend, ChangesTrieStorage>;
+pub type StateExt<'a> =
+    substrate_state_machine::Ext<'a, CryptoHasher, TrieBackend, ChangesTrieStorage>;
 
 #[cfg(test)]
 mod tests {
@@ -34,10 +36,8 @@ mod tests {
 
     use hash_db::HashDB;
 
+    use super::super::{StateDb, COL_STATE};
     use super::*;
-    use super::super::{COL_STATE, StateDb};
-
-    const STATE : Option<u32> = Some(COL_STATE);
 
     fn state_transition(
         backend: &TrieBackend,
@@ -90,15 +90,15 @@ mod tests {
 
         let mut transaction = mdb.transaction();
 
-        for x in mdb.iter(STATE) {
+        for x in mdb.iter(COL_STATE) {
             println!("Entry in db before: {:?}", x);
         }
 
         for (k, (v, rc)) in storage_transaction.drain() {
             if rc > 0 {
-                transaction.put(STATE, k.as_ref(), &v.to_vec());
+                transaction.put(COL_STATE, k.as_ref(), &v.to_vec());
             } else if rc < 0 {
-                transaction.delete(STATE, k.as_ref());
+                transaction.delete(COL_STATE, k.as_ref());
             }
         }
 
@@ -107,17 +107,15 @@ mod tests {
         }
 
         mdb.write(transaction).expect("write to db");
-        for x in mdb.iter(STATE) {
+        for x in mdb.iter(COL_STATE) {
             println!("Entry in db after: {:?}", x);
         }
 
         let storage_db_copy = Arc::clone(&storage_db);
         let backend: TrieBackend = TrieBackend::new(storage_db_copy, root_after);
 
-        let puppy = backend
-            .storage(&b"dog3".to_vec())
-            .unwrap()
-            .expect("the key should be in the backend");
+        let puppy =
+            backend.storage(&b"dog3".to_vec()).unwrap().expect("the key should be in the backend");
         assert_eq!(b"puppy3".to_vec(), puppy);
     }
 }
