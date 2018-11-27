@@ -119,7 +119,7 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> TxFlowTask<'a, P, 
     fn process_passing_candidate(&mut self, message: SignedMessageData<P>) -> HashSet<UID> {
         let hash = message.hash;
         {
-            if let Err(e) = self.dag_as_mut().add_existing_message(message) {
+            if let Err(e) = self.dag_as_mut().add_existing_message(message, None) {
                 panic!("Attempted to add invalid message to the DAG {}", e)
             }
         }
