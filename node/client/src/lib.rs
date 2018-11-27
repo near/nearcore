@@ -17,11 +17,10 @@ use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
-use node_runtime::Runtime;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Signer};
 use primitives::types::{
-    BlockId, BLSSignature, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
+    BlockId, SignedTransaction, ViewCall, ViewCallResult,
 };
 use storage::{StateDb, Storage};
 
@@ -189,7 +188,6 @@ mod tests {
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
     use network::test_utils;
     use primitives::hash::hash_struct;
-    use primitives::signer::InMemorySigner;
     use primitives::traits::GenericResult;
     use test_utils::generate_test_client;
 

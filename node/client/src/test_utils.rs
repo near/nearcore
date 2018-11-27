@@ -11,6 +11,6 @@ pub fn generate_test_client() -> Client {
         balances: vec!(),
         initial_authorities: vec!(),
     };
-    let signer = InMemorySigner::default();
+    let signer = Arc::new(InMemorySigner::default());
     Client::new(&chain_spec, storage, signer)
 }

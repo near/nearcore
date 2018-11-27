@@ -169,25 +169,28 @@ mod tests {
 
 
     // TODO: Need state db to initialize with specific state.
-//    #[test]
-//    fn test_genesis_state() {
-//        let rt = Runtime {};
-//        let storage = Arc::new(MemoryStorage::default());
-//        let mut state_db = StateDb::new(storage);
-//        let root = state_db.get_state_view();
-//        let view_call = ViewCall { account: 1 };
-//        let result = rt.view(&mut state_db, &root, &view_call);
-//        assert_eq!(result, ViewCallResult {account: 1, amount: 0});
-//    }
+    #[test]
+    #[ignore]
+    fn test_genesis_state() {
+        let rt = Runtime {};
+        let storage = Arc::new(MemoryStorage::default());
+        let mut state_db = StateDb::new(storage);
+        let root = state_db.get_state_view();
+        let view_call = ViewCall { account: 1 };
+        let result = rt.view(&mut state_db, &root, &view_call);
+        assert_eq!(result, ViewCallResult {account: 1, amount: 0});
+    }
 
-//    #[test]
-//    fn test_transfer_stake() {
-//        let rt = Runtime {};
-//        let t = SignedTransaction::new(123, TransactionBody::new(1, 1, 2, 100));
-//        let storage = Arc::new(MemoryStorage::default());
-//        let mut state_db = StateDb::new(storage);
-//        let root = state_db.get_state_view();
-//        let (filtered_tx, new_root) = rt.apply(&mut state_db, &root, [t].to_vec());
-//        assert_eq!(filtered_tx.len(), 1);
-//    }
+    #[test]
+    #[ignore]
+    fn test_transfer_stake() {
+        let rt = Runtime {};
+        let t = SignedTransaction::new(123, TransactionBody::new(1, 1, 2, 100));
+        let storage = Arc::new(MemoryStorage::default());
+        let mut state_db = StateDb::new(storage);
+        let root = state_db.get_state_view();
+        let apply_state = ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, _apply_result) = rt.apply(&mut state_db, &apply_state, [t].to_vec());
+        assert_eq!(filtered_tx.len(), 1);
+    }
 }
