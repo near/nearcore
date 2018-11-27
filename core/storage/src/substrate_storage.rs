@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
-pub use substrate_state_machine::{
-    Backend, Externalities, InMemoryChangesTrieStorage, OverlayedChanges, Storage,
-};
-use trie_db::DBValue;
-
+use kvdb::DBValue;
 use primitives::hash::CryptoHash;
+use std::sync::Arc;
+pub use substrate_state_machine::{
+    Backend, Externalities, OverlayedChanges, Storage,
+};
+use substrate_state_machine::InMemoryChangesTrieStorage;
 
-/// Concrete implementation of Hasher using Blake2b 256-bit hashes
 #[derive(Debug)]
 pub struct CryptoHasher;
 
@@ -32,12 +30,10 @@ pub type StateExt<'a> =
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
-
     use hash_db::HashDB;
-
-    use super::super::{StateDb, COL_STATE};
+    use std::ops::Deref;
     use super::*;
+    use super::super::{COL_STATE, StateDb};
 
     fn state_transition(
         backend: &TrieBackend,
