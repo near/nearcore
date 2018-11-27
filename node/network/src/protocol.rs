@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
+        let tx = types::SignedTransaction::default();
         let message: Message<MockBlock, MockBlockHeader> =
             Message::new(MessageBody::Transaction(tx));
         let config = ProtocolConfig::default();
@@ -393,8 +393,7 @@ mod tests {
         let config = ProtocolConfig::default();
         let mock_client = Arc::new(MockClient::default());
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-
-        let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
+        let tx = types::SignedTransaction::default();
         protocol.on_transaction_message(tx);
     }
 }

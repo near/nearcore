@@ -191,7 +191,7 @@ impl<'a> Runtime<'a> {
             .map_err(|_| Error::StorageUpdateError)?;
         if let Some(buf) = val {
             self.memory
-                .set(val_ptr, buf)
+                .set(val_ptr, &buf)
                 .map_err(|_| Error::MemoryAccessViolation)?;
         }
         Ok(())

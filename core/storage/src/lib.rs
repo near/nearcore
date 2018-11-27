@@ -6,6 +6,14 @@ extern crate kvdb_rocksdb;
 extern crate primitives;
 extern crate serde;
 extern crate substrate_state_machine;
+extern crate wasm;
+
+#[cfg(test)]
+extern crate hex_literal;
+#[cfg(test)]
+extern crate memory_db;
+#[cfg(test)]
+extern crate trie_db;
 
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};

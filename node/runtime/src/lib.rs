@@ -9,16 +9,23 @@ extern crate beacon;
 extern crate byteorder;
 extern crate primitives;
 extern crate storage;
+extern crate wasm;
+
+use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use beacon::authority::AuthorityChangeSet;
 use byteorder::{LittleEndian, WriteBytesExt};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
-use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
-use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
+use primitives::types::{
+    index_to_bytes, AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult,
+};
+use primitives::traits::Encode;
 use storage::{StateDb, StateDbUpdate};
+use wasm::executor;
+use wasm::ext::{External, Result};
 
 const RUNTIME_DATA: &[u8] = b"runtime";
 
@@ -45,7 +52,15 @@ pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: u64,
     pub amount: u64,
+    pub code: Vec<u8>,
 }
+
+pub fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
+    let mut bytes = vec![];
+    bytes.write_u64::<LittleEndian>(account_key).expect("writing to bytes failed");
+    bytes
+}
+
 
 pub struct ApplyState {
     pub root: MerkleHash,
@@ -62,26 +77,58 @@ pub struct ApplyResult {
 #[derive(Default)]
 pub struct Runtime;
 
-pub fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
-    let mut bytes = vec![];
-    bytes.write_u64::<LittleEndian>(account_key).expect("writing to bytes failed");
-    bytes
+struct RuntimeExt<'a, 'b: 'a> {
+    state_db_update: &'a mut StateDbUpdate<'b>,
+    storage_prefix: Vec<u8>,
 }
+
+impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
+    fn new(state_db_update: &'a mut StateDbUpdate<'b>, receiver: AccountId) -> Self {
+        RuntimeExt {
+            state_db_update,
+            storage_prefix: index_to_bytes(receiver),
+        }
+    }
+
+    fn create_storage_key(&self, key: &[u8]) -> Vec<u8> {
+        let mut storage_key = self.storage_prefix.clone();
+        storage_key.extend_from_slice(key);
+        storage_key
+    }
+}
+
+impl<'a, 'b> External for RuntimeExt<'a, 'b> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        let storage_key = self.create_storage_key(key);
+        self.state_db_update.set(&storage_key, value.to_vec());
+        Ok(())
+    }
+
+    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let storage_key = self.create_storage_key(key);
+        let value = self.state_db_update.get(&storage_key);
+        Ok(value.map(|buf| buf.to_vec()))
+    }
+}
+
+#[derive(Default)]
+pub struct Runtime {}
 
 /// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
     fn get<T: DeserializeOwned>(&self, state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
         state_update.get(key).and_then(|data| bincode::deserialize(&data).ok())
     }
+    
     fn set<T: Serialize>(&self, state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
-        match bincode::serialize(value) {
-            Ok(data) => state_update.set(key, &storage::DBValue::from_slice(&data)),
-            Err(e) => error!("Error occurred while encoding {:?}", e),
-        }
+        value.encode()
+            .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data))
+            .expect("set value failed");
     }
+
     fn apply_transaction(
         &self,
-        state_update: &mut StateDbUpdate,
+        state_db_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
         authority_change_set: &mut AuthorityChangeSet,
     ) -> bool {
@@ -92,6 +139,22 @@ impl Runtime {
             self.get(state_update, &account_id_to_bytes(transaction.body.receiver));
         match (runtime_data, sender, receiver) {
             (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
+                let mut runtime_ext = RuntimeExt::new(state_db_update, transaction.body.receiver);
+                let wasm_res = executor::execute(
+                    &receiver.code,
+                    transaction.body.method_name.as_bytes(),
+                    &vec![], //TODO: change to args
+                    &mut vec![],
+                    &mut runtime_ext,
+                    &wasm::types::Config::default(),
+                );
+                match wasm_res {
+                    Err(e) => {
+                        debug!("wasm execution failed with error: {:?}", e);
+                        false
+                    }
+                    _ => true,
+                }
                 // Transaction is staking transaction.
                 if transaction.body.sender == transaction.body.receiver {
                     if sender.amount >= transaction.body.amount && sender.public_keys.is_empty() {
@@ -128,7 +191,6 @@ impl Runtime {
                     }
                 }
             }
-            _ => false,
         }
     }
 
@@ -143,10 +205,10 @@ impl Runtime {
         let mut authority_change_set = AuthorityChangeSet::default();
         for t in transactions {
             if self.apply_transaction(&mut state_update, &t, &mut authority_change_set) {
-                // state_update.commit();
+                state_update.commit();
                 filtered_transactions.push(t);
             } else {
-                // state_update.rollback();
+                state_update.rollback();
             }
         }
         let (transaction, new_root) = state_update.finalize();

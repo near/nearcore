@@ -1,3 +1,4 @@
+use hash::{hash_struct, CryptoHash};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
@@ -16,6 +17,14 @@ pub type StructSignature = u128;
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = Signature;
+
+pub fn index_to_bytes(index: u64) -> Vec<u8> {
+    let mut bytes = vec![];
+    bytes
+        .write_u64::<LittleEndian>(index)
+        .expect("writing to bytes failed");
+    bytes
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
@@ -45,17 +54,20 @@ pub struct TransactionBody {
     pub sender: AccountId,
     pub receiver: AccountId,
     pub amount: u64,
-}
-
-impl TransactionBody {
-    pub fn new(nonce: u64, sender: AccountId, receiver: AccountId, amount: u64) -> TransactionBody {
-        TransactionBody { nonce, sender, receiver, amount }
-    }
+    pub method_name: String,
+    pub args: Vec<Vec<u8>>,
 }
 
 impl Default for TransactionBody {
     fn default() -> Self {
-        TransactionBody::new(0, 0, 0, 0)
+        TransactionBody {
+            nonce: 0,
+            sender: 0,
+            receiver: 0,
+            amount: 0,
+            method_name: String::new(),
+            args: Vec::new(),
+        }
     }
 }
 
