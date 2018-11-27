@@ -418,7 +418,7 @@ var render_graph = function(canvas, graph, num_users) {
     return user_l;
 }
 
-var serialize_txflow = function(graph) {
+var serialize_txflow = function(graph, beacon_mode) {
     var nodes = toposort(graph);
 
     var s = [];
@@ -432,6 +432,13 @@ var serialize_txflow = function(graph) {
             snode.parents.push(mapping[node.parents[parent_idx].uid]);
         }
 
+        if (beacon_mode) {
+            snode.payload_type = node.payload_type || 0;
+            if (snode.payload_type == 1) {
+                snode.prevblock = node.prevblock || 0;
+            }
+        }
+
         s.push(snode);
 
         mapping[node.uid] = node_idx;
@@ -439,7 +446,7 @@ var serialize_txflow = function(graph) {
     return s;
 }
 
-var deserialize_txflow = function(s) {
+var deserialize_txflow = function(s, beacon_mode) {
     last_node_uid = 0;
     var nodes = [];
     for (var i = 0; i < s.length; ++ i) {
@@ -448,7 +455,14 @@ var deserialize_txflow = function(s) {
         for (var j = 0; j < snode.parents.length; ++ j) {
             parents.push(nodes[snode.parents[j]]);
         }
-        nodes.push(create_node(snode.owner, parents));
+        var node = create_node(snode.owner, parents);
+        if (beacon_mode) {
+            node.payload_type = snode.payload_type;
+            if (node.payload_type == 1) {
+                node.prevblock = snode.prevblock;
+            }
+        }
+        nodes.push(node);
     }
     var graph = [];
     for (var i = 0; i < nodes.length; ++ i) {
