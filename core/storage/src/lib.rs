@@ -72,7 +72,6 @@ impl<'a> StateDbUpdate<'a> {
     }
     pub fn finalize(mut self) -> (TrieBackendTransaction, MerkleHash) {
         let root_after = self.ext.storage_root();
-        println!("! {:?}", root_after);
         let (storage_transaction, _changes_trie_transaction) = self.ext.transaction();
         (storage_transaction, root_after)
     }
