@@ -30,15 +30,8 @@ pub struct Message<'a, P: 'a + Payload> {
     pub computed_epoch: u64,
     /// The hash of the message. Depends on the epoch.
     pub computed_hash: types::TxFlowHash,
-<<<<<<< HEAD
     /// If this message is a representative this stores which epoch it is representative of.
     computed_is_representative: Option<u64>,
-=======
-    /// The signature of the messages hash (hence the message signature). Depends on the epoch.
-    pub computed_signature: types::StructSignature,
-    /// Computed flag of whether this message is representative.
-    computed_is_representative: bool,
->>>>>>> Test for message signature
     /// Computed flag of whether this message is a kickout.
     computed_is_kickout: bool,
     /// Computed flag whether this message was created by an epoch leader.
@@ -125,12 +118,7 @@ impl<'a, P: Payload> Message<'a, P> {
             is_initialized: false,
             computed_epoch: 0,
             computed_hash: 0,
-<<<<<<< HEAD
             computed_is_representative: None,
-=======
-            computed_signature: 0,
-            computed_is_representative: false,
->>>>>>> Test for message signature
             computed_is_kickout: false,
             computed_is_epoch_leader: false,
             computed_endorsements: GroupsPerEpoch::new(),
@@ -432,9 +420,6 @@ impl<'a, P: Payload> Message<'a, P> {
             self.data.body.hash(&mut hasher);
             hasher.finish()
         };
-
-        // TODO: Compute message signature using `self.computed_hash`
-        self.computed_signature = 0;
 
         // Compute if this is an epoch leader.
         self.computed_is_epoch_leader =
