@@ -115,10 +115,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         let mut rng = thread_rng();
         let peer_info = self.peer_info.read();
         let owned_peers = peer_info.keys().cloned();
-        match seq::sample_iter(&mut rng, owned_peers, num_to_sample) {
-            Ok(sample) => Ok(sample),
-            Err(_) => Err(()),
-        }
+        seq::sample_iter(&mut rng, owned_peers, num_to_sample).map_err(|_| ())
     }
 
     pub fn on_transaction_message(&self, tx: SignedTransaction) {
@@ -312,12 +309,12 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             .iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
             .chain(handshaking_peers.iter())
-        {
-            if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
-                trace!(target: "sync", "Timeout {}", *peer);
-                aborting.push(*peer);
+            {
+                if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
+                    trace!(target: "sync", "Timeout {}", *peer);
+                    aborting.push(*peer);
+                }
             }
-        }
         for peer in aborting {
             net_sync.report_peer(peer, Severity::Timeout);
         }

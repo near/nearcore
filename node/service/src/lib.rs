@@ -11,7 +11,6 @@ extern crate tokio;
 
 use client::Client;
 use futures::future;
-use futures::future;
 use network::protocol::ProtocolHandler;
 use network::service::{generate_service_task, Service as NetworkService};
 use network::test_utils::init_logger;
