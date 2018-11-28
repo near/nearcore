@@ -7,19 +7,17 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
 
-use std::sync::Arc;
-
-use parking_lot::RwLock;
-
 use beacon::authority::{Authority, AuthorityConfig};
 use beacon::chain::{BlockChain, ChainConfig};
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
+use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Signer};
 use primitives::types::{BlockId, SignedTransaction, ViewCall, ViewCallResult};
+use std::sync::Arc;
 use storage::{StateDb, Storage};
 
 mod import_queue;
@@ -202,8 +200,6 @@ impl network::client::Client<BeaconBlock> for Client {
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
-
     // test with protocol
     use network::client::Client as NetworkClient;
     use network::io::NetSyncIo;
@@ -211,9 +207,9 @@ mod tests {
     use network::test_utils as network_test_utils;
     use primitives::traits::GenericResult;
     use primitives::types::{MerkleHash, TransactionBody};
-
+    use std::cell::RefCell;
+    use std::rc::Rc;
     use super::*;
-
     use test_utils::generate_test_client;
 
     #[test]
@@ -299,8 +295,8 @@ mod tests {
         let handler = MockHandler { client: client.clone() };
         let config = ProtocolConfig::new_with_default_id(network_test_utils::special_secret());
         let protocol = Protocol::new(config, handler, client.clone());
-        let network_service = Arc::new(Mutex::new(network_test_utils::default_network_service()));
-        let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
+        let network_service = Rc::new(RefCell::new(network_test_utils::default_network_service()));
+        let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::new(
             123,
             TransactionBody::new(1, 1, 2, 10, String::new(), vec![]),

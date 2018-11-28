@@ -9,19 +9,19 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate tokio;
 
-pub mod config;
-pub mod network_handler;
-pub mod rpc;
-
-use futures::future;
-use std::sync::Arc;
-
 use client::Client;
+use futures::future;
 use network::protocol::ProtocolHandler;
 use network::service::{generate_service_task, Service as NetworkService};
 use network::test_utils::init_logger;
 use primitives::traits::{Block, GenericResult, Header as BlockHeader};
 use rpc::api::RpcImpl;
+use std::sync::Arc;
+use tokio::runtime;
+
+pub mod config;
+pub mod network_handler;
+pub mod rpc;
 
 pub fn run_service<B: Block, H: ProtocolHandler, Header: BlockHeader>(
     client: Arc<Client>,
@@ -34,13 +34,12 @@ pub fn run_service<B: Block, H: ProtocolHandler, Header: BlockHeader>(
     let rpc_impl = RpcImpl { client };
     let rpc_handler = rpc::api::get_handler(rpc_impl);
     let server = rpc::server::get_server(rpc_handler);
-    let task = future::lazy(|| {
-        tokio::spawn(network_task);
-        tokio::spawn(future::lazy(|| {
-            server.wait();
-            Ok(())
-        }));
+
+    let mut background_thread = runtime::Runtime::new().unwrap();
+    let mut current_thread = runtime::current_thread::Runtime::new().unwrap();
+    background_thread.spawn(future::lazy(|| {
+        server.wait();
         Ok(())
-    });
-    Ok(tokio::run(task))
+    }));
+    Ok(current_thread.block_on(network_task).unwrap())
 }

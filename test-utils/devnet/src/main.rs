@@ -10,19 +10,17 @@ extern crate service;
 extern crate storage;
 extern crate tokio;
 
-use std::sync::Arc;
-use std::time::Duration;
-
+use client::Client;
 use env_logger::Builder;
 use futures::{future, Future, Stream};
-use tokio::timer::Interval;
-
-use client::Client;
 use network::client::Client as NetworkClient;
 use node_cli::chain_spec::get_default_chain_spec;
 use primitives::signer::InMemorySigner;
 use service::rpc::api::{get_handler, RpcImpl};
 use service::rpc::server::get_server;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::timer::Interval;
 
 const BLOCK_PROD_PERIOD: Duration = Duration::from_secs(2);
 
