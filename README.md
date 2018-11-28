@@ -80,7 +80,7 @@ $ ./scripts/rpc.py send_money -rec bob -amt 1
 ./scripts/rpc.py call_method test_contract run_test
 
 # View state for Bob's account
-./scripts/rpc.py view bob
+./scripts/rpc.py view -a bob
 ```
 
 ## Development
