@@ -421,6 +421,9 @@ impl<'a, P: Payload> Message<'a, P> {
             hasher.finish()
         };
 
+        // TODO: Compute message signature using `self.computed_hash`
+        self.computed_signature = 0;
+
         // Compute if this is an epoch leader.
         self.computed_is_epoch_leader =
             witness_selector.epoch_leader(self.computed_epoch) == owner_uid;

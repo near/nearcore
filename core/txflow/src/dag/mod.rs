@@ -102,6 +102,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviourReporter>
     pub fn add_existing_message(
         &mut self,
         message_data: SignedMessageData<P>,
+        misbehaviour: Option<&mut MisbehaviourReporter>,
     ) -> Result<(), &'static str> {
         // Check whether this is a new message.
         if self.messages.contains(&message_data.hash) {
@@ -124,7 +125,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviourReporter>
         message.init(true, self.starting_epoch, self.witness_selector);
 
         // Verify the message.
-        if let Err(e) = self.verify_message(&message) {
+        if let Err(e) = self.verify_message(&message, misbehaviour) {
             return Err(e);
         }
 
@@ -288,7 +289,7 @@ mod tests {
 
         // Feed messages in DFS order which ensures that the parents are fed before the children.
         for m in all_messages {
-            assert!(dag.add_existing_message((*m).clone()).is_ok());
+            assert!(dag.add_existing_message((*m).clone(), None).is_ok());
         }
     }
 
@@ -302,21 +303,21 @@ mod tests {
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4 => d;] => 4, 5 => e;]);
-        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        assert!(dag.add_existing_message((*a).clone(), None).is_ok());
         // Check we cannot add message e yet, because it's parent d was not received, yet.
-        assert!(dag.add_existing_message((*e).clone()).is_err());
-        assert!(dag.add_existing_message((*d).clone()).is_ok());
+        assert!(dag.add_existing_message((*e).clone(), None).is_err());
+        assert!(dag.add_existing_message((*d).clone(), None).is_ok());
         // Check that we have two dangling roots now.
         assert_eq!(dag.roots.len(), 2);
         // Now we can add message e, because we know all its parents!
-        assert!(dag.add_existing_message((*e).clone()).is_ok());
+        assert!(dag.add_existing_message((*e).clone(), None).is_ok());
         // Check that there is only one root now.
         assert_eq!(dag.roots.len(), 1);
         // Still we cannot add message c, because b is missing.
-        assert!(dag.add_existing_message((*c).clone()).is_err());
+        assert!(dag.add_existing_message((*c).clone(), None).is_err());
         // Now add b and c.
-        assert!(dag.add_existing_message((*b).clone()).is_ok());
-        assert!(dag.add_existing_message((*c).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone(), None).is_ok());
+        assert!(dag.add_existing_message((*c).clone(), None).is_ok());
         // Check that we again have to dangling roots -- e and c.
         assert_eq!(dag.roots.len(), 2);
     }
@@ -331,18 +332,18 @@ mod tests {
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
-        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        assert!(dag.add_existing_message((*a).clone(), None).is_ok());
         let message = dag.create_root_message(::testing_utils::FakePayload {}, vec![]);
         d = &message.data;
 
         simple_bare_messages!(data_arena, all_messages [[=> b; => d;] => 4, 5 => e;]);
 
         // Check that we cannot message e, because b was not added yet.
-        assert!(dag.add_existing_message((*e).clone()).is_err());
+        assert!(dag.add_existing_message((*e).clone(), None).is_err());
 
-        assert!(dag.add_existing_message((*b).clone()).is_ok());
-        assert!(dag.add_existing_message((*e).clone()).is_ok());
-        assert!(dag.add_existing_message((*c).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone(), None).is_ok());
+        assert!(dag.add_existing_message((*e).clone(), None).is_ok());
+        assert!(dag.add_existing_message((*c).clone(), None).is_ok());
     }
 
     // Test whether our implementation of a self-referential struct is movable.
@@ -359,7 +360,7 @@ mod tests {
             simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
             simple_bare_messages!(data_arena, all_messages [[=> a; => b; 0, 0;] => 4, 3;]);
             for m in all_messages {
-                assert!(dag.add_existing_message((*m).clone()).is_ok());
+                assert!(dag.add_existing_message((*m).clone(), None).is_ok());
             }
         }
         // Move the DAG.
@@ -369,8 +370,29 @@ mod tests {
             let mut all_messages = vec![];
             simple_bare_messages!(data_arena, all_messages [[=> a; => b; 0, 0;] => 4, 3;]);
             for m in all_messages {
-                assert!(moved_dag.add_existing_message((*m).clone()).is_ok());
+                assert!(moved_dag.add_existing_message((*m).clone(), None).is_ok());
             }
+        }
+    }
+
+    #[test]
+    fn correct_signature() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector);
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a; => b; 0, 0;] => 4, 3;]);
+
+        // Feed messages in DFS order which ensures that the parents are fed before the children.
+        for m in all_messages {
+            dag.add_existing_message((*m).clone(), None);
+        }
+
+        for m in dag.messages {
+            assert_eq!(m.computed_signature, m.data.owner_sig);
         }
     }
 }
