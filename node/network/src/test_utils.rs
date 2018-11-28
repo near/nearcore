@@ -61,7 +61,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
 }
 
 pub fn fake_tx_message() -> Message<MockBlock, MockBlockHeader> {
-    let tx = types::SignedTransaction::new_default();
+    let tx = types::SignedTransaction::empty();
     Message::new(MessageBody::Transaction(tx))
 }
 

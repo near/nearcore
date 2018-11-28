@@ -290,7 +290,7 @@ impl Runtime {
         );
         let (mut transaction, genesis_root) = state_db_update.finalize();
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
-        state_db.commit(&mut transaction).unwrap();
+        state_db.commit(&mut transaction).expect("Failed to commit genesis state");
         genesis_root
     }
 }

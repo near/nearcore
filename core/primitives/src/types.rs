@@ -74,7 +74,7 @@ impl SignedTransaction {
     }
 
     // this is for tests
-    pub fn new_default() -> SignedTransaction {
+    pub fn empty() -> SignedTransaction {
         let body = TransactionBody {
             nonce: 0,
             sender: 0,

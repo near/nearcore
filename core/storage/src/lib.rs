@@ -12,7 +12,6 @@ extern crate wasm;
 extern crate hex_literal;
 #[cfg(test)]
 extern crate memory_db;
-#[cfg(test)]
 
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
@@ -22,7 +21,6 @@ use std::sync::Arc;
 use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 pub use substrate_storage::TrieBackendTransaction;
 
-// #[cfg(feature = "test-utils")]
 mod substrate_storage;
 pub mod test_utils;
 
