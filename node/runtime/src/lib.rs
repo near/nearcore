@@ -296,6 +296,7 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use primitives::types::*;
     use std::sync::Arc;
     use storage::test_utils::create_state_db;
