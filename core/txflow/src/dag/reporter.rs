@@ -1,18 +1,24 @@
 use primitives::types::*;
 
-pub struct MisbehaviourReporter {
-    /// TODO: Implement a better way to access violations than
-    /// making this field public
+/// This structure is used to keep track of all violations detected on the network.
+/// Not necessarily restricted to violations regarding TxFlow protocol,
+/// but any kind of violation as enumerated in ViolationType
+pub trait MisbehaviourReporter {
+    fn new() -> Self;
+    fn report(&mut self, violation: ViolationType);
+}
+
+pub struct DAGMisbehaviourReporter {
     pub violations: Vec<ViolationType>,
 }
 
-impl MisbehaviourReporter {
-    pub fn new() -> MisbehaviourReporter {
-        MisbehaviourReporter { violations: vec![] }
+impl MisbehaviourReporter for DAGMisbehaviourReporter{
+    fn new() -> Self {
+        DAGMisbehaviourReporter { violations: vec![] }
     }
 
     /// Take ownership of the violation
-    pub fn report(&mut self, violation: ViolationType) {
+    fn report(&mut self, violation: ViolationType) {
         self.violations.push(violation);
     }
 }
