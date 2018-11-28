@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
 /// Account identifier. Provides access to user's state.
-pub type AccountId = u64;
+pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
@@ -28,13 +28,26 @@ pub enum BlockId {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ViewCall {
     pub account: AccountId,
+    pub method_name: String,
+    pub args: Vec<Vec<u8>>,
+}
+
+impl ViewCall {
+    pub fn balance(account: AccountId) -> Self {
+        ViewCall { account, method_name: String::new(), args: vec![] }
+    }
+    pub fn func_call(account: AccountId, method_name: String, args: Vec<Vec<u8>>) -> Self {
+        ViewCall { account, method_name, args }
+    }
 }
 
 /// Result of view call.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ViewCallResult {
     pub account: AccountId,
+    pub nonce: u64,
     pub amount: u64,
+    pub result: Vec<u8>,
 }
 
 /// TODO: Call non-view function in the contracts.
@@ -77,8 +90,8 @@ impl SignedTransaction {
     pub fn empty() -> SignedTransaction {
         let body = TransactionBody {
             nonce: 0,
-            sender: 0,
-            receiver: 1,
+            sender: AccountId::default(),
+            receiver: AccountId::default(),
             amount: 1,
             method_name: String::new(),
             args: vec![],

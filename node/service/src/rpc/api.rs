@@ -1,8 +1,9 @@
+use std::sync::Arc;
+
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 
 use client::Client;
 use primitives::types::{SignedTransaction, TransactionBody, ViewCall, ViewCallResult};
-use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -38,14 +39,16 @@ pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
 
 #[cfg(test)]
 mod tests {
+    use client::test_utils::generate_test_client;
+    use primitives::hash::hash;
+    use primitives::types::TransactionBody;
+
     use super::*;
+
+    use self::jsonrpc_test::Rpc;
 
     extern crate jsonrpc_test;
     extern crate primitives;
-
-    use self::jsonrpc_test::Rpc;
-    use client::test_utils::generate_test_client;
-    use primitives::types::TransactionBody;
 
     #[test]
     fn test_call() {
@@ -55,8 +58,8 @@ mod tests {
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
             nonce: 0,
-            sender: 1,
-            receiver: 0,
+            sender: hash(b"bob"),
+            receiver: hash(b"alice"),
             amount: 0,
             method_name: String::new(),
             args: vec![],

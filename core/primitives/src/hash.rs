@@ -1,7 +1,9 @@
 use exonum_sodiumoxide::{self as sodiumoxide, crypto::hash::sha256::Digest};
+use std::fmt;
+
 use traits::Encode;
 
-#[derive(Copy, Debug, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
 #[must_use]
 pub struct CryptoHash(pub Digest);
 
@@ -28,6 +30,18 @@ impl AsRef<[u8]> for CryptoHash {
 impl AsMut<[u8]> for CryptoHash {
     fn as_mut(&mut self) -> &mut [u8] {
         (self.0).0.as_mut()
+    }
+}
+
+impl fmt::Debug for CryptoHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", bs58::encode(self.0).into_string())
+    }
+}
+
+impl fmt::Display for CryptoHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", bs58::encode(self.0).into_string())
     }
 }
 

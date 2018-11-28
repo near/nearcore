@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import argparse
+import hashlib
 
 try:
     import requests
@@ -29,16 +30,24 @@ except ImportError:
             return {"error": connection}
 
 
+def near_hash(s):
+    bytes = hashlib.sha256(s).digest()
+    return [ord(b) for b in bytes]
+
+
 class NearRPC(object):
 
     def __init__(self, server_url, sender):
         self.server_url = server_url
         self.sender = sender
         view_result = self.view(sender)
-        self.nonce = view_result['result'].get('nonce', 1)
+        self.nonce = view_result['result'].get('nonce', 0) + 1
 
     def view(self, account_id):
-        data = {"jsonrpc": "2.0", "id": 1, "method": "view", "params": [{"account": account_id}]}
+        data = {
+            "jsonrpc": "2.0", "id": 1, "method": "view",
+            "params": [{"account": near_hash(account_id), "method_name": "", "args": []}]
+        }
         return post(self.server_url, json=data)
 
     def send_transaction(self, receiver, amount, method_name, args):
@@ -47,8 +56,8 @@ class NearRPC(object):
             "params": [
                 {
                     "nonce": self.nonce,
-                    "sender": self.sender,
-                    "receiver": receiver,
+                    "sender": near_hash(self.sender),
+                    "receiver": near_hash(receiver),
                     "amount": amount,
                     "method_name": method_name,
                     "args": args
@@ -62,7 +71,7 @@ class NearRPC(object):
         return self.send_transaction(receiver, amount, '', [])
 
     def call_function(self, receiver, method_name, args):
-        return self.call_function(receiver, 0, method_name, args)
+        return self.send_transaction(receiver, 0, method_name, args)
 
     def deploy_contract(self, receiver, wasm_file):
         with open(wasm_file, 'rb') as f:
@@ -74,10 +83,10 @@ class NearRPC(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--server_url', type=str, default='http://127.0.0.1:3030')
-    parser.add_argument('--account', type=int, default=1)
-    parser.add_argument('--view', type=int, default=0)
+    parser.add_argument('--account', type=str, default="bob")
+    parser.add_argument('--view', type=str, default="")
     parser.add_argument('--send_money', action='store_true', default=False)
-    parser.add_argument('--receiver', type=int, default=0)
+    parser.add_argument('--receiver', type=str, default="alice")
     parser.add_argument('--amount', type=int, default=0)
     parser.add_argument('--method_name', type=str, default='')
     parser.add_argument('--deploy', action='store_true', default=False)
@@ -85,7 +94,7 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
 
     rpc = NearRPC(args.server_url, args.account)
-    if args.view != 0:
+    if args.view:
         print(rpc.view(args.view))
     elif args.send_money:
         print(rpc.send_money(args.receiver, args.amount))

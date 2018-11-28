@@ -5,8 +5,8 @@ use serde_json::Error;
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
-    balances: Vec<(u64, u128)>,
-    initial_authorities: Vec<u64>,
+    balances: Vec<(String, u128)>,
+    initial_authorities: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -24,9 +24,9 @@ pub fn get_default_chain_spec() -> Result<ChainSpec, Error> {
 #[test]
 fn test_deserialize() {
     let data = json!({
-        "balances": [[1, 2]],
-        "initial_authorities": [3]
+        "balances": [["alice", 2]],
+        "initial_authorities": ["john"]
     });
     let spec = deserialize_chain_spec(&data.to_string()).unwrap();
-    assert_eq!(spec.initial_authorities[0], 3);
+    assert_eq!(spec.initial_authorities[0], "john");
 }

@@ -21,6 +21,7 @@ use futures::{Future, Stream};
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use network::service::generate_service_task;
 use node_cli::chain_spec::get_default_chain_spec;
+use primitives::hash::hash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{SignedTransaction, TransactionBody};
 use service::network_handler::NetworkHandler;
@@ -88,8 +89,8 @@ pub fn main() {
                 let tx_body = TransactionBody {
                     nonce: 1,
                     amount: 1,
-                    sender: 1,
-                    receiver: 2,
+                    sender: hash(b"bob"),
+                    receiver: hash(b"alice"),
                     method_name: String::new(),
                     args: vec![],
                 };
