@@ -146,27 +146,43 @@ impl Runtime {
             self.get(state_update, &account_id_to_bytes(transaction.body.receiver));
         match (runtime_data, sender, receiver) {
             (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
-                // temporary check
+                // Transaction contains call to smart contract
                 if !transaction.body.method_name.is_empty() {
-                    let mut runtime_ext = RuntimeExt::new(state_update, transaction.body.receiver);
-                    let wasm_res = executor::execute(
-                        &receiver.code,
-                        transaction.body.method_name.as_bytes(),
-                        &concat(transaction.body.args.clone()),
-                        &mut vec![],
-                        &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                    );
-                    match wasm_res {
-                        Ok(res) => {
-                            debug!(target: "runtime", "result of execution: {:?}", res);
-                        }
-                        Err(e) => {
-                            debug!(target: "runtime", "wasm execution failed with error: {:?}", e);
+                    if transaction.body.method_name == "deploy" {
+                        // re-deploy contract code for receiver
+                        if transaction.body.args.is_empty() {
+                            debug!(target: "runtime", "deploy requires at least 1 argument");
                             return false;
+                        }
+                        receiver.code = transaction.body.args[0].clone();
+                        self.set(
+                            state_update,
+                            &account_id_to_bytes(transaction.body.receiver),
+                            &receiver,
+                        );
+                    } else {
+                        let mut runtime_ext =
+                            RuntimeExt::new(state_update, transaction.body.receiver);
+                        let wasm_res = executor::execute(
+                            &receiver.code,
+                            transaction.body.method_name.as_bytes(),
+                            &concat(transaction.body.args.clone()),
+                            &mut vec![],
+                            &mut runtime_ext,
+                            &wasm::types::Config::default(),
+                        );
+                        match wasm_res {
+                            Ok(res) => {
+                                debug!(target: "runtime", "result of execution: {:?}", res);
+                            }
+                            Err(e) => {
+                                debug!(target: "runtime", "wasm execution failed with error: {:?}", e);
+                                return false;
+                            }
                         }
                     }
                 }
+
                 // Transaction is staking transaction.
                 if transaction.body.sender == transaction.body.receiver {
                     if sender.amount >= transaction.body.amount && sender.public_keys.is_empty() {
@@ -203,26 +219,14 @@ impl Runtime {
                     }
                 }
             }
-            (_, Some(_), receiver) => {
+            (_, Some(_), None) => {
                 if transaction.body.method_name == "deploy" {
-                    match receiver {
-                        Some(mut account) => {
-                            account.code = transaction.body.args[0].clone();
-                            self.set(
-                                state_update,
-                                &account_id_to_bytes(transaction.body.receiver),
-                                &account,
-                            );
-                        }
-                        _ => {
-                            let account = Account::new(vec![], 0, transaction.body.args[0].clone());
-                            self.set(
-                                state_update,
-                                &account_id_to_bytes(transaction.body.receiver),
-                                &account,
-                            );
-                        }
-                    };
+                    let account = Account::new(vec![], 0, transaction.body.args[0].clone());
+                    self.set(
+                        state_update,
+                        &account_id_to_bytes(transaction.body.receiver),
+                        &account,
+                    );
                     true
                 } else {
                     false
@@ -371,11 +375,10 @@ mod tests {
             args: vec![],
         };
         let transaction = SignedTransaction::new(123, tx_body);
-        let tx_copy = transaction.clone();
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, _) = runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
-        assert_eq!(filtered_tx, vec![tx_copy]);
+        assert_eq!(filtered_tx.len(), 1);
     }
 
     #[test]
@@ -394,16 +397,70 @@ mod tests {
             args: vec![wasm_binary.clone()],
         };
         let transaction = SignedTransaction::new(123, tx_body);
-        let tx_copy = transaction.clone();
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) =
             runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
-        assert_eq!(filtered_tx, vec![tx_copy]);
+        assert_eq!(filtered_tx.len(), 1);
         assert_ne!(root, apply_result.root);
         state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(state_db, apply_result.root);
         let new_account = runtime.get(&mut new_state_update, &account_id_to_bytes(10)).unwrap();
         assert_eq!(Account::new(vec![], 0, wasm_binary), new_account);
+    }
+
+    #[test]
+    fn test_redeploy_contract() {
+        let test_binary = b"test_binary";
+        let state_db = Arc::new(create_state_db());
+        let runtime = Runtime {};
+        let root = runtime.genesis_state(&state_db);
+        let tx_body = TransactionBody {
+            nonce: 0,
+            sender: 1,
+            receiver: 2,
+            amount: 0,
+            method_name: "deploy".to_string(),
+            args: vec![test_binary.to_vec()],
+        };
+        let transaction = SignedTransaction::new(123, tx_body);
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, mut apply_result) =
+            runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
+        assert_eq!(filtered_tx.len(), 1);
+        assert_ne!(root, apply_result.root);
+        state_db.commit(&mut apply_result.transaction).unwrap();
+        let mut new_state_update = StateDbUpdate::new(state_db, apply_result.root);
+        let new_account: Account =
+            runtime.get(&mut new_state_update, &account_id_to_bytes(2)).unwrap();
+        assert_eq!(new_account.code, test_binary.to_vec())
+    }
+
+    #[test]
+    fn test_send_money_and_execute_contract() {
+        let state_db = Arc::new(create_state_db());
+        let runtime = Runtime {};
+        let root = runtime.genesis_state(&state_db);
+        let tx_body = TransactionBody {
+            nonce: 0,
+            sender: 1,
+            receiver: 2,
+            amount: 10,
+            method_name: "run_test".to_string(),
+            args: vec![],
+        };
+        let transaction = SignedTransaction::new(123, tx_body);
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, mut apply_result) =
+            runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
+        assert_eq!(filtered_tx.len(), 1);
+        assert_ne!(root, apply_result.root);
+        state_db.commit(&mut apply_result.transaction).unwrap();
+        let result1 = runtime.view(state_db.clone(), apply_result.root, &ViewCall { account: 1 });
+        assert_eq!(result1, ViewCallResult { account: 1, amount: 90 });
+        let result2 = runtime.view(state_db.clone(), apply_result.root, &ViewCall { account: 2 });
+        assert_eq!(result2, ViewCallResult { account: 2, amount: 10 });
     }
 }

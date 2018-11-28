@@ -1,6 +1,7 @@
 extern crate client;
 extern crate env_logger;
 extern crate futures;
+#[macro_use]
 extern crate log;
 extern crate network;
 extern crate node_cli;
@@ -46,7 +47,7 @@ fn main() {
             move |_| {
                 let block = client.prod_block();
                 if !block.transactions.is_empty() {
-                    println!("Transactions: {:?}", block.transactions);
+                    info!(target: "main", "Transactions: {:?}", block.transactions);
                 }
                 Ok(())
             }
