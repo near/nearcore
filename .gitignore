@@ -17,3 +17,6 @@ Cargo.lock
 
 # Editor config files
 .vscode
+
+# Python env
+.env

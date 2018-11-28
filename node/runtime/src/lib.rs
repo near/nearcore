@@ -24,7 +24,6 @@ use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use primitives::utils::concat;
-use std::fs;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result};
@@ -270,8 +269,7 @@ impl Runtime {
     pub fn genesis_state(&self, state_db: &Arc<StateDb>) -> MerkleHash {
         let mut state_db_update =
             storage::StateDbUpdate::new(state_db.clone(), MerkleHash::default());
-        let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
-            .expect("Unable to read file");
+        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
         self.set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
         self.set(
             &mut state_db_update,
@@ -298,6 +296,7 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use primitives::types::*;
     use std::sync::Arc;
     use storage::test_utils::create_state_db;
