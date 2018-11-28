@@ -150,7 +150,10 @@ impl Runtime {
                 if !transaction.body.method_name.is_empty() {
                     if transaction.body.method_name == "deploy" {
                         // re-deploy contract code for receiver
-                        assert!(!transaction.body.args.is_empty());
+                        if transaction.body.args.is_empty() {
+                            debug!(target: "runtime", "deploy requires at least 1 argument");
+                            return false;
+                        }
                         receiver.code = transaction.body.args[0].clone();
                         self.set(
                             state_update,

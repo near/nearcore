@@ -47,7 +47,7 @@ fn main() {
             move |_| {
                 let block = client.prod_block();
                 if !block.transactions.is_empty() {
-                    info!(target: "main", "Block produced: {:?}", block);
+                    info!(target: "main", "Transactions: {:?}", block.transactions);
                 }
                 Ok(())
             }
