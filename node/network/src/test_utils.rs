@@ -15,6 +15,7 @@ use substrate_network_libp2p::{
     start_service, NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol, Secret,
     Service as NetworkService,
 };
+use std::rc::Rc;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")

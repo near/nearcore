@@ -11,15 +11,9 @@ extern crate serde_json;
 extern crate service;
 extern crate storage;
 
-use std::fs::File;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use clap::{App, Arg};
-
 use beacon::types::BeaconBlockHeader;
 use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
+use clap::{App, Arg};
 use client::Client;
 use network::protocol::ProtocolConfig;
 use network::service::{NetworkConfiguration, Service as NetworkService};
@@ -27,6 +21,10 @@ use primitives::signer::InMemorySigner;
 use primitives::traits::GenericResult;
 use service::network_handler::NetworkHandler;
 use service::run_service;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub mod chain_spec;
 

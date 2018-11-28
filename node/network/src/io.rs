@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
-use parking_lot::Mutex;
-use std::sync::Arc;
 use substrate_network_libp2p::{NodeIndex, PeerId, ProtocolId, Service, Severity};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 /// IO interface for the syncing handler.
 /// Provides peer connection management and an interface to the BlockChain client.
@@ -34,39 +34,38 @@ pub trait SyncIo {
 }
 
 /// Wraps the network service.
-pub struct NetSyncIo<'s> {
-    network: &'s Arc<Mutex<Service>>,
+pub struct NetSyncIo {
+    network: Rc<RefCell<Service>>,
     protocol: ProtocolId,
 }
 
-impl<'s> NetSyncIo<'s> {
+impl NetSyncIo {
     /// Creates a new instance.
-    pub fn new(network: &'s Arc<Mutex<Service>>, protocol: ProtocolId) -> NetSyncIo<'s> {
+    pub fn new(network: Rc<RefCell<Service>>, protocol: ProtocolId) -> NetSyncIo {
         NetSyncIo { network, protocol }
     }
 }
 
-impl<'s> SyncIo for NetSyncIo<'s> {
+impl SyncIo for NetSyncIo {
     fn report_peer(&mut self, who: NodeIndex, reason: Severity) {
         info!("Purposefully dropping {} ; reason: {:?}", who, reason);
         match reason {
-            Severity::Bad(_) => self.network.lock().ban_node(who),
-            Severity::Useless(_) => self.network.lock().drop_node(who),
-            Severity::Timeout => self.network.lock().drop_node(who),
+            Severity::Bad(_) => self.network.borrow_mut().ban_node(who),
+            Severity::Useless(_) => self.network.borrow_mut().drop_node(who),
+            Severity::Timeout => self.network.borrow_mut().drop_node(who),
         }
     }
 
     fn send(&mut self, who: NodeIndex, data: Vec<u8>) {
-        self.network.lock().send_custom_message(who, self.protocol, data)
+        self.network.borrow_mut().send_custom_message(who, self.protocol, data)
     }
 
     fn peer_id(&self, who: NodeIndex) -> Option<PeerId> {
-        let net = self.network.lock();
-        net.peer_id_of_node(who).cloned()
+        self.network.borrow_mut().peer_id_of_node(who).cloned()
     }
 
     fn peer_debug_info(&self, who: NodeIndex) -> String {
-        let net = self.network.lock();
+        let net = self.network.borrow_mut();
         if let (Some(peer_id), Some(addr)) = (net.peer_id_of_node(who), net.node_endpoint(who)) {
             format!("{:?} through {:?}", peer_id, addr)
         } else {

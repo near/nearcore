@@ -1,17 +1,16 @@
-use parking_lot::RwLock;
-use rand::{seq, thread_rng};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time;
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
-
 use client::Client;
 use io::{NetSyncIo, SyncIo};
 use message::{self, Message, MessageBody};
+use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, GenericResult, Header as BlockHeader};
 use primitives::types::{BlockId, SignedTransaction};
+use rand::{seq, thread_rng};
+use std::collections::HashMap;
+use std::time;
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 use test_utils;
+use std::sync::Arc;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -80,7 +79,7 @@ pub struct Protocol<B: Block, H: ProtocolHandler> {
     // phantom data for keep T
 }
 
-pub trait ProtocolHandler: Send + Sync + 'static {
+pub trait ProtocolHandler: 'static {
     fn handle_transaction(&self, transaction: SignedTransaction) -> GenericResult;
 }
 
@@ -112,11 +111,14 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn sample_peers(&self, num_to_sample: usize) -> Result<Vec<NodeIndex>, Vec<NodeIndex>> {
+    pub fn sample_peers(&self, num_to_sample: usize) -> Result<Vec<NodeIndex>, ()> {
         let mut rng = thread_rng();
         let peer_info = self.peer_info.read();
         let owned_peers = peer_info.keys().cloned();
-        seq::sample_iter(&mut rng, owned_peers, num_to_sample)
+        match seq::sample_iter(&mut rng, owned_peers, num_to_sample) {
+            Ok(sample) => Ok(sample),
+            Err(_) => Err(()),
+        }
     }
 
     pub fn on_transaction_message(&self, tx: SignedTransaction) {
