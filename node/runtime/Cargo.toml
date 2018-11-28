@@ -14,5 +14,4 @@ kvdb = "0.1"
 primitives = { path = "../../core/primitives" }
 beacon = { path = "../../core/beacon" }
 storage = { path = "../../core/storage" }
-network = { path = "../network", features = ["test-utils"]}
 wasm = { path = "../../core/wasm" }

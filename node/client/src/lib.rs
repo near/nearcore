@@ -40,7 +40,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(_chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
+    pub fn new(chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
         let state_db = Arc::new(StateDb::new(storage.clone()));
         let chain_config = ChainConfig {
             extra_col: storage::COL_BEACON_EXTRA,
@@ -48,8 +48,11 @@ impl Client {
             block_col: storage::COL_BEACON_BLOCKS,
             index_col: storage::COL_BEACON_INDEX,
         };
-        let runtime = Runtime::default();
-        let genesis_root = runtime.genesis_state(&state_db);
+        let runtime = Runtime::new(state_db.clone());
+        let genesis_root = runtime.apply_genesis_state(
+            &chain_spec.balances,
+            &chain_spec.genesis_wasm,
+        );
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(chain_config, genesis, storage);
@@ -75,7 +78,6 @@ impl Client {
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
         self.runtime.view(
-            self.state_db.clone(),
             self.beacon_chain.best_block().header().merkle_root_state,
             view_call,
         )
@@ -113,7 +115,7 @@ impl Client {
                 parent_block_hash: parent_hash,
             };
             let (filtered_transactions, mut apply_result) =
-                self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
+                self.runtime.apply(&apply_state, transactions);
             if apply_result.root != header.merkle_root_state
                 || filtered_transactions.len() != num_transactions
             {
@@ -184,7 +186,7 @@ impl network::client::Client<BeaconBlock> for Client {
             block_index: last_block.header().index + 1,
         };
         let (filtered_transactions, mut apply_result) =
-            self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
+            self.runtime.apply(&apply_state, transactions);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index + 1,

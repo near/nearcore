@@ -4,7 +4,6 @@ use std::fmt;
 use traits::Encode;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
-#[must_use]
 pub struct CryptoHash(pub Digest);
 
 impl CryptoHash {

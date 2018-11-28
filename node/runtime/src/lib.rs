@@ -1,31 +1,30 @@
+extern crate beacon;
+extern crate bincode;
+extern crate byteorder;
+extern crate kvdb;
+#[macro_use]
+extern crate log;
+extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate bincode;
-#[macro_use]
-extern crate log;
-extern crate kvdb;
-
-extern crate beacon;
-extern crate byteorder;
-extern crate primitives;
 extern crate storage;
 extern crate wasm;
 
-use kvdb::DBValue;
-use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use beacon::authority::AuthorityChangeSet;
-use primitives::hash::{hash, CryptoHash};
+use kvdb::DBValue;
+use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
 use primitives::utils::concat;
+use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result};
+use primitives::types::AccountAlias;
 
 const RUNTIME_DATA: &[u8] = b"runtime";
 
@@ -110,23 +109,27 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
     }
 }
 
-#[derive(Default)]
-pub struct Runtime {}
+fn get<T: DeserializeOwned>(
+    state_update: &mut StateDbUpdate,
+    key: &[u8],
+) -> Option<T> {
+    state_update.get(key).and_then(|data| Decode::decode(&data))
+}
+
+fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
+    value
+        .encode()
+        .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
+        .unwrap_or(debug!("set value failed"))
+}
+
+pub struct Runtime {
+    state_db: Arc<StateDb>,
+}
 
 impl Runtime {
-    pub fn get<T: DeserializeOwned>(
-        &self,
-        state_update: &mut StateDbUpdate,
-        key: &[u8],
-    ) -> Option<T> {
-        state_update.get(key).and_then(|data| Decode::decode(&data))
-    }
-
-    pub fn set<T: Serialize>(&self, state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
-        value
-            .encode()
-            .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
-            .unwrap_or(debug!("set value failed"))
+    pub fn new(state_db: Arc<StateDb>) -> Self {
+        Runtime { state_db }
     }
 
     fn apply_transaction(
@@ -135,11 +138,11 @@ impl Runtime {
         transaction: &SignedTransaction,
         authority_change_set: &mut AuthorityChangeSet,
     ) -> bool {
-        let runtime_data: Option<RuntimeData> = self.get(state_update, RUNTIME_DATA);
+        let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender: Option<Account> =
-            self.get(state_update, &account_id_to_bytes(transaction.body.sender));
+            get(state_update, &account_id_to_bytes(transaction.body.sender));
         let receiver: Option<Account> =
-            self.get(state_update, &account_id_to_bytes(transaction.body.receiver));
+            get(state_update, &account_id_to_bytes(transaction.body.receiver));
         match (runtime_data, sender, receiver) {
             (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
                 // Check that transaction has valid nonce.
@@ -155,7 +158,7 @@ impl Runtime {
                             return false;
                         }
                         receiver.code = transaction.body.args[0].clone();
-                        self.set(
+                        set(
                             state_update,
                             &account_id_to_bytes(transaction.body.receiver),
                             &receiver,
@@ -191,7 +194,7 @@ impl Runtime {
                             transaction.body.sender,
                             (sender.public_keys[0], transaction.body.amount),
                         );
-                        self.set(state_update, RUNTIME_DATA, &runtime_data);
+                        set(state_update, RUNTIME_DATA, &runtime_data);
                         true
                     } else {
                         false
@@ -203,12 +206,12 @@ impl Runtime {
                         sender.amount -= transaction.body.amount;
                         sender.nonce = transaction.body.nonce;
                         receiver.amount += transaction.body.amount;
-                        self.set(
+                        set(
                             state_update,
                             &account_id_to_bytes(transaction.body.sender),
                             &sender,
                         );
-                        self.set(
+                        set(
                             state_update,
                             &account_id_to_bytes(transaction.body.receiver),
                             &receiver,
@@ -222,7 +225,7 @@ impl Runtime {
             (_, Some(_), None) => {
                 if transaction.body.method_name == "deploy" {
                     let account = Account::new(vec![], 0, transaction.body.args[0].clone());
-                    self.set(
+                    set(
                         state_update,
                         &account_id_to_bytes(transaction.body.receiver),
                         &account,
@@ -238,12 +241,11 @@ impl Runtime {
 
     pub fn apply(
         &self,
-        state_db: Arc<StateDb>,
         apply_state: &ApplyState,
         transactions: Vec<SignedTransaction>,
     ) -> (Vec<SignedTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
-        let mut state_update = StateDbUpdate::new(state_db, apply_state.root);
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_change_set = AuthorityChangeSet::default();
         for t in transactions {
             if self.apply_transaction(&mut state_update, &t, &mut authority_change_set) {
@@ -259,12 +261,11 @@ impl Runtime {
 
     pub fn view(
         &self,
-        state_db: Arc<StateDb>,
         root: MerkleHash,
         view_call: &ViewCall,
     ) -> ViewCallResult {
-        let mut state_update = StateDbUpdate::new(state_db, root);
-        match self.get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        match get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
             Some(account) => {
                 let mut result = vec![];
                 if !view_call.method_name.is_empty() {
@@ -299,54 +300,68 @@ impl Runtime {
         }
     }
 
-    pub fn genesis_state(&self, state_db: &Arc<StateDb>) -> MerkleHash {
-        let mut state_db_update =
-            storage::StateDbUpdate::new(state_db.clone(), MerkleHash::default());
-        let wasm_binary =
-            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        self.set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
-        self.set(
-            &mut state_db_update,
-            &account_id_to_bytes(hash(b"alice")),
-            &Account { public_keys: vec![], amount: 0, nonce: 0, code: wasm_binary.clone() },
+    pub fn apply_genesis_state(
+        &self,
+        balances: &[(AccountAlias, u64)],
+        wasm_binary: &[u8],
+    ) -> MerkleHash {
+        let mut state_db_update = storage::StateDbUpdate::new(
+            self.state_db.clone(),
+            MerkleHash::default(),
         );
-        self.set(
-            &mut state_db_update,
-            &account_id_to_bytes(hash(b"bob")),
-            &Account { public_keys: vec![], amount: 100, nonce: 0, code: wasm_binary.clone() },
-        );
-        self.set(
-            &mut state_db_update,
-            &account_id_to_bytes(hash(b"john")),
-            &Account { public_keys: vec![], amount: 0, nonce: 0, code: wasm_binary.clone() },
-        );
+        set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
+        balances.iter().for_each(|(account_alias, balance)| {
+            set(
+                &mut state_db_update,
+                &account_id_to_bytes(AccountId::from(account_alias)),
+                &Account { public_keys: vec![], amount: *balance, nonce: 0, code: wasm_binary.to_vec() },
+            );
+        });
         let (mut transaction, genesis_root) = state_db_update.finalize();
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
-        state_db.commit(&mut transaction).expect("Failed to commit genesis state");
+        self.state_db.commit(&mut transaction).expect("Failed to commit genesis state");
         genesis_root
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use primitives::types::*;
+    use primitives::hash::hash;
+    use primitives::types::TransactionBody;
     use std::fs;
     use std::sync::Arc;
     use storage::test_utils::create_state_db;
+    use super::*;
+
+    impl Default for Runtime {
+        fn default() -> Runtime {
+            Runtime {
+                state_db: Arc::new(create_state_db()),
+            }
+        }
+    }
+
+    fn apply_default_genesis_state(runtime: &Runtime) -> MerkleHash {
+        let balances = vec!(
+            ("alice".into(), 0),
+            ("bob".into(), 100),
+            ("john".into(), 0),
+        );
+        let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
+            .expect("Unable to read file");
+        runtime.apply_genesis_state(&balances, &wasm_binary)
+    }
 
     #[test]
     fn test_genesis_state() {
-        let rt = Runtime {};
-        let state_db = Arc::new(create_state_db());
-        let root = rt.genesis_state(&state_db);
-        let result = rt.view(state_db.clone(), root, &ViewCall::balance(hash(b"bob")));
+        let runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
+        let result = runtime.view(root, &ViewCall::balance(hash(b"bob")));
         assert_eq!(
             result,
             ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] }
         );
-        let result2 = rt.view(
-            state_db,
+        let result2 = runtime.view(
             root,
             &ViewCall::func_call(hash(b"bob"), "run_test".to_string(), vec![]),
         );
@@ -358,26 +373,24 @@ mod tests {
 
     #[test]
     fn test_transfer_stake() {
-        let rt = Runtime {};
+        let runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let t = SignedTransaction::new(
             123,
             TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 100, String::new(), vec![]),
         );
-        let state_db = Arc::new(create_state_db());
-        let root = rt.genesis_state(&state_db);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, mut apply_result) = rt.apply(state_db.clone(), &apply_state, vec![t]);
+        let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![t]);
         assert_ne!(root, apply_result.root);
-        state_db.commit(&mut apply_result.transaction).ok();
+        runtime.state_db.commit(&mut apply_result.transaction).ok();
         assert_eq!(filtered_tx.len(), 1);
-        let result1 =
-            rt.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"bob")));
+        let result1 = runtime.view(apply_result.root, &ViewCall::balance(hash(b"bob")));
         assert_eq!(
             result1,
             ViewCallResult { account: hash(b"bob"), amount: 0, nonce: 1, result: vec![] }
         );
-        let result2 = rt.view(state_db, apply_result.root, &ViewCall::balance(hash(b"alice")));
+        let result2 = runtime.view(apply_result.root, &ViewCall::balance(hash(b"alice")));
         assert_eq!(
             result2,
             ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![] }
@@ -390,9 +403,8 @@ mod tests {
         let mut state_update = StateDbUpdate::new(state_db, MerkleHash::default());
         let test_account = Account { public_keys: vec![], nonce: 0, amount: 10, code: vec![] };
         let account_id = hash(b"bob");
-        let runtime = Runtime {};
-        runtime.set(&mut state_update, &account_id_to_bytes(account_id), &test_account);
-        let get_res = runtime.get(&mut state_update, &account_id_to_bytes(account_id)).unwrap();
+        set(&mut state_update, &account_id_to_bytes(account_id), &test_account);
+        let get_res = get(&mut state_update, &account_id_to_bytes(account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 
@@ -403,20 +415,18 @@ mod tests {
         let mut state_update = StateDbUpdate::new(state_db.clone(), root);
         let test_account = Account::new(vec![], 10, vec![]);
         let account_id = hash(b"bob");
-        let runtime = Runtime {};
-        runtime.set(&mut state_update, &account_id_to_bytes(account_id), &test_account);
+        set(&mut state_update, &account_id_to_bytes(account_id), &test_account);
         let (mut transaction, new_root) = state_update.finalize();
         state_db.commit(&mut transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
-        let get_res = runtime.get(&mut new_state_update, &account_id_to_bytes(account_id)).unwrap();
+        let get_res = get(&mut new_state_update, &account_id_to_bytes(account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 
     #[test]
     fn test_smart_contract() {
-        let state_db = Arc::new(create_state_db());
-        let runtime = Runtime {};
-        let root = runtime.genesis_state(&state_db);
+        let runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"bob"),
@@ -426,19 +436,21 @@ mod tests {
             args: vec![],
         };
         let transaction = SignedTransaction::new(123, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, _) = runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
+        let apply_state = ApplyState {
+            root,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+        };
+        let (filtered_tx, _) = runtime.apply(&apply_state, vec![transaction]);
         assert_eq!(filtered_tx.len(), 1);
     }
 
     #[test]
     fn test_upload_contract() {
+        let runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
-        let state_db = Arc::new(create_state_db());
-        let runtime = Runtime {};
-        let root = runtime.genesis_state(&state_db);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"bob"),
@@ -450,23 +462,23 @@ mod tests {
         let transaction = SignedTransaction::new(123, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, mut apply_result) =
-            runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
+        let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
         assert_eq!(filtered_tx.len(), 1);
         assert_ne!(root, apply_result.root);
-        state_db.commit(&mut apply_result.transaction).unwrap();
-        let mut new_state_update = StateDbUpdate::new(state_db, apply_result.root);
-        let new_account =
-            runtime.get(&mut new_state_update, &account_id_to_bytes(hash(b"xyz"))).unwrap();
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
+        let new_account = get(
+            &mut new_state_update,
+            &account_id_to_bytes(hash(b"xyz"))
+        ).unwrap();
         assert_eq!(Account::new(vec![], 0, wasm_binary), new_account);
     }
 
     #[test]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
-        let state_db = Arc::new(create_state_db());
-        let runtime = Runtime {};
-        let root = runtime.genesis_state(&state_db);
+        let runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"bob"),
@@ -478,22 +490,22 @@ mod tests {
         let transaction = SignedTransaction::new(123, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, mut apply_result) =
-            runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
+        let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
         assert_eq!(filtered_tx.len(), 1);
         assert_ne!(root, apply_result.root);
-        state_db.commit(&mut apply_result.transaction).unwrap();
-        let mut new_state_update = StateDbUpdate::new(state_db, apply_result.root);
-        let new_account: Account =
-            runtime.get(&mut new_state_update, &account_id_to_bytes(hash(b"alice"))).unwrap();
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
+        let new_account: Account = get(
+            &mut new_state_update,
+            &account_id_to_bytes(hash(b"alice"))
+        ).unwrap();
         assert_eq!(new_account.code, test_binary.to_vec())
     }
 
     #[test]
     fn test_send_money_and_execute_contract() {
-        let state_db = Arc::new(create_state_db());
-        let runtime = Runtime {};
-        let root = runtime.genesis_state(&state_db);
+        let runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"bob"),
@@ -505,22 +517,22 @@ mod tests {
         let transaction = SignedTransaction::new(123, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, mut apply_result) =
-            runtime.apply(state_db.clone(), &apply_state, vec![transaction]);
+        let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
         assert_eq!(filtered_tx.len(), 1);
         assert_ne!(root, apply_result.root);
-        state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 =
-            runtime.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"bob")));
+            runtime.view(apply_result.root, &ViewCall::balance(hash(b"bob")));
         assert_eq!(
             result1,
             ViewCallResult { nonce: 1, account: hash(b"bob"), amount: 90, result: vec![] }
         );
         let result2 =
-            runtime.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"alice")));
+            runtime.view(apply_result.root, &ViewCall::balance(hash(b"alice")));
         assert_eq!(
             result2,
             ViewCallResult { nonce: 0, account: hash(b"alice"), amount: 10, result: vec![] }
         );
+
     }
 }

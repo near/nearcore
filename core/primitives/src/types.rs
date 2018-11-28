@@ -1,10 +1,12 @@
-use hash::{hash_struct, CryptoHash};
+use hash::{CryptoHash, hash, hash_struct};
 use signature::Signature;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
-/// User identifier. Currently derived from the user's public key.
+/// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
+/// Account alias. Can be an easily identifiable string, when hashed creates the AccountId.
+pub type AccountAlias = String;
 /// Account identifier. Provides access to user's state.
 pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
@@ -15,6 +17,12 @@ pub type StructSignature = u128;
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = Signature;
+
+impl<'a> From<&'a AccountAlias> for AccountId {
+    fn from(alias: &AccountAlias) -> Self {
+        hash(alias.as_bytes())
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
