@@ -25,7 +25,7 @@ members = [
     "node/service",
     "node/network",
     "test-utils/node",
-    "test-utils/ganache"
+    "test-utils/devnet"
 ]
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",
