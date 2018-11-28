@@ -196,7 +196,13 @@ impl Runtime {
                         true
                     } else {
                         if sender.amount < transaction.body.amount {
-                            debug!(target: "runtime", "Account {} tries to stake {}, but only has {}", transaction.body.sender, transaction.body.amount, sender.amount);
+                            debug!(
+                                target: "runtime",
+                                "Account {} tries to stake {}, but only has {}",
+                                transaction.body.sender,
+                                transaction.body.amount,
+                                sender.amount
+                            );
                         } else {
                             debug!(target: "runtime", "Account {} already staked", transaction.body.sender);
                         }
@@ -216,7 +222,14 @@ impl Runtime {
                         );
                         true
                     } else {
-                        debug!(target: "runtime", "Account {} tries to send {}, but has staked {} and has {} in the account", transaction.body.sender, transaction.body.amount, staked, sender.amount);
+                        debug!(
+                            target: "runtime",
+                            "Account {} tries to send {}, but has staked {} and has {} in the account",
+                            transaction.body.sender,
+                            transaction.body.amount,
+                            staked,
+                            sender.amount
+                        );
                         false
                     }
                 }
