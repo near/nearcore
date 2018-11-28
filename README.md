@@ -65,7 +65,7 @@ Try submitting transactions or views via JSON RPC:
 curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":1,"sender":1,"receiver":2,"amount":10,"method_name":"","args":[]}]}' 127.0.0.1:3030
 
 # Submit contract
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":2,"sender":1,"receiver":123,"amount":0,"method_name":"deploy","args":[[<insert binary wasm here>]]}]}' 127.0.0.1:3030
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":2,"sender":1,"receiver":123,"amount":0,"method_name":"deploy","args":[[<insert comma separated bytes of wasm code here>]]}]}' 127.0.0.1:3030
 
 # View state
 curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"view","params":[{"account":1}]}' 127.0.0.1:3030
