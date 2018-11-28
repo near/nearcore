@@ -71,7 +71,7 @@ class NearRPC(object):
         return self.send_transaction(receiver, amount, '', [])
 
     def call_function(self, receiver, method_name, args):
-        return self.call_function(receiver, 0, method_name, args)
+        return self.send_transaction(receiver, 0, method_name, args)
 
     def deploy_contract(self, receiver, wasm_file):
         with open(wasm_file, 'rb') as f:
