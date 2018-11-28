@@ -71,7 +71,7 @@ Try submitting transactions or views via JSON RPC:
 ./scripts/rpc.py --deploy --receiver=test_contract --wasm=core/wasm/runtest/res/wasm_with_mem.wasm
 
 # Call function run_test for contract "test_contract"
-./scripts/rpc.py --receiver=test_contract --method_name=run_tests
+./scripts/rpc.py --receiver=test_contract --method_name=run_test
 
 # View state for Bob's account
 ./scripts/rpc.py --view=bob

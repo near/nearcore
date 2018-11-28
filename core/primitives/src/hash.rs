@@ -1,5 +1,5 @@
-use std::fmt;
 use exonum_sodiumoxide::{self as sodiumoxide, crypto::hash::sha256::Digest};
+use std::fmt;
 
 use traits::Encode;
 
@@ -32,7 +32,6 @@ impl AsMut<[u8]> for CryptoHash {
         (self.0).0.as_mut()
     }
 }
-
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

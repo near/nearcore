@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use beacon::authority::AuthorityChangeSet;
-use primitives::hash::{CryptoHash, hash};
+use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
@@ -286,16 +286,24 @@ impl Runtime {
                         }
                     }
                 }
-                ViewCallResult { account: view_call.account, amount: account.amount, nonce: account.nonce, result }
-            },
-            None => ViewCallResult { account: view_call.account, amount: 0, nonce: 0, result: vec![] },
+                ViewCallResult {
+                    account: view_call.account,
+                    amount: account.amount,
+                    nonce: account.nonce,
+                    result,
+                }
+            }
+            None => {
+                ViewCallResult { account: view_call.account, amount: 0, nonce: 0, result: vec![] }
+            }
         }
     }
 
     pub fn genesis_state(&self, state_db: &Arc<StateDb>) -> MerkleHash {
         let mut state_db_update =
             storage::StateDbUpdate::new(state_db.clone(), MerkleHash::default());
-        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
+        let wasm_binary =
+            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
         self.set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
         self.set(
             &mut state_db_update,
@@ -322,8 +330,8 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use primitives::types::*;
+    use std::fs;
     use std::sync::Arc;
     use storage::test_utils::create_state_db;
 
@@ -333,16 +341,28 @@ mod tests {
         let state_db = Arc::new(create_state_db());
         let root = rt.genesis_state(&state_db);
         let result = rt.view(state_db.clone(), root, &ViewCall::balance(hash(b"bob")));
-        assert_eq!(result, ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] });
-        let result2 = rt.view(state_db, root, &ViewCall::func_call(hash(b"bob"), "run_test".to_string(), vec![]));
-        assert_eq!(result2, ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] });
+        assert_eq!(
+            result,
+            ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] }
+        );
+        let result2 = rt.view(
+            state_db,
+            root,
+            &ViewCall::func_call(hash(b"bob"), "run_test".to_string(), vec![]),
+        );
+        assert_eq!(
+            result2,
+            ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] }
+        );
     }
 
     #[test]
     fn test_transfer_stake() {
         let rt = Runtime {};
-        let t =
-            SignedTransaction::new(123, TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 100, String::new(), vec![]));
+        let t = SignedTransaction::new(
+            123,
+            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 100, String::new(), vec![]),
+        );
         let state_db = Arc::new(create_state_db());
         let root = rt.genesis_state(&state_db);
         let apply_state =
@@ -351,10 +371,17 @@ mod tests {
         assert_ne!(root, apply_result.root);
         state_db.commit(&mut apply_result.transaction).ok();
         assert_eq!(filtered_tx.len(), 1);
-        let result1 = rt.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"bob")));
-        assert_eq!(result1, ViewCallResult { account: hash(b"bob"), amount: 0, nonce: 1, result: vec![] });
+        let result1 =
+            rt.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"bob")));
+        assert_eq!(
+            result1,
+            ViewCallResult { account: hash(b"bob"), amount: 0, nonce: 1, result: vec![] }
+        );
         let result2 = rt.view(state_db, apply_result.root, &ViewCall::balance(hash(b"alice")));
-        assert_eq!(result2, ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![] });
+        assert_eq!(
+            result2,
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![] }
+        );
     }
 
     #[test]
@@ -429,7 +456,8 @@ mod tests {
         assert_ne!(root, apply_result.root);
         state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(state_db, apply_result.root);
-        let new_account = runtime.get(&mut new_state_update, &account_id_to_bytes(hash(b"xyz"))).unwrap();
+        let new_account =
+            runtime.get(&mut new_state_update, &account_id_to_bytes(hash(b"xyz"))).unwrap();
         assert_eq!(Account::new(vec![], 0, wasm_binary), new_account);
     }
 
@@ -482,9 +510,17 @@ mod tests {
         assert_eq!(filtered_tx.len(), 1);
         assert_ne!(root, apply_result.root);
         state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = runtime.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"bob")));
-        assert_eq!(result1, ViewCallResult { nonce: 1, account: hash(b"bob"), amount: 90, result: vec![] });
-        let result2 = runtime.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"alice")));
-        assert_eq!(result2, ViewCallResult { nonce: 0, account: hash(b"alice"), amount: 10, result: vec![] });
+        let result1 =
+            runtime.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"bob")));
+        assert_eq!(
+            result1,
+            ViewCallResult { nonce: 1, account: hash(b"bob"), amount: 90, result: vec![] }
+        );
+        let result2 =
+            runtime.view(state_db.clone(), apply_result.root, &ViewCall::balance(hash(b"alice")));
+        assert_eq!(
+            result2,
+            ViewCallResult { nonce: 0, account: hash(b"alice"), amount: 10, result: vec![] }
+        );
     }
 }

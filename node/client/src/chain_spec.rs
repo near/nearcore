@@ -1,4 +1,3 @@
-
 /// Specification of the blockchain in general.
 pub struct ChainSpec {
     /// Genesis state balances.

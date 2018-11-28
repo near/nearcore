@@ -34,7 +34,7 @@ pub struct ViewCall {
 
 impl ViewCall {
     pub fn balance(account: AccountId) -> Self {
-        ViewCall { account, method_name: String::new(), args: vec![]}
+        ViewCall { account, method_name: String::new(), args: vec![] }
     }
     pub fn func_call(account: AccountId, method_name: String, args: Vec<Vec<u8>>) -> Self {
         ViewCall { account, method_name, args }
