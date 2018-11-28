@@ -11,6 +11,7 @@ except ImportError:
     import urllib2
     import json as json_lib
 
+
     def post(url, json):
         """This is alternative to requests.post"""
         handler = urllib2.HTTPHandler()
@@ -20,7 +21,7 @@ except ImportError:
         request.add_header("Content-Type", "application/json")
         try:
             connection = opener.open(request)
-        except urllib2.HTTPError, e:
+        except urllib2.HTTPError as e:
             connection = e
         if connection.code == 200:
             data = connection.read()
@@ -67,7 +68,7 @@ class NearRPC(object):
     def deploy_contract(self, receiver, wasm_file):
         with open(wasm_file, 'rb') as f:
             content = f.read()
-        wasm_bytes = [ord(x) for x in content][:2500]
+        wasm_bytes = [ord(x) for x in content]
         # print(len(wasm_bytes))
         return self.send_transaction(receiver, 0, 'deploy', [wasm_bytes])
 
@@ -94,4 +95,3 @@ if __name__ == "__main__":
         print(rpc.deploy_contract(args.receiver, args.wasm))
     elif args.method_name != '':
         print(rpc.call_function(args.receiver, args.method_name, []))
-

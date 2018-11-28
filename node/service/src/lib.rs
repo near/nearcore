@@ -1,9 +1,9 @@
 extern crate client;
 extern crate futures;
 extern crate jsonrpc_core;
+extern crate jsonrpc_http_server;
 #[macro_use]
 extern crate jsonrpc_macros;
-extern crate jsonrpc_minihttp_server;
 extern crate network;
 extern crate parking_lot;
 extern crate primitives;
@@ -37,7 +37,7 @@ pub fn run_service<B: Block, H: ProtocolHandler, Header: BlockHeader>(
     let task = future::lazy(|| {
         tokio::spawn(network_task);
         tokio::spawn(future::lazy(|| {
-            server.wait().unwrap();
+            server.wait();
             Ok(())
         }));
         Ok(())

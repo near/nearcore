@@ -56,7 +56,7 @@ fn main() {
     let task = future::lazy(|| {
         tokio::spawn(block_prod_task);
         tokio::spawn(future::lazy(|| {
-            server.wait().unwrap();
+            server.wait();
             Ok(())
         }));
         Ok(())
