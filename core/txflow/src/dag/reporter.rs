@@ -23,6 +23,21 @@ impl MisbehaviourReporter for DAGMisbehaviourReporter{
     }
 }
 
+
+/// MisbehaviourReporter that ignore all information stored
+pub struct NoopMisbehaviourReporter{
+}
+
+impl MisbehaviourReporter for NoopMisbehaviourReporter{
+    fn new() -> Self{
+        Self {}
+    }
+
+    fn report(&mut self, violation: ViolationType) {
+
+    }
+}
+
 /// TODO: Enumerate all violations and implement evidence to check that the
 /// misbehaviour really took place.
 #[derive(Debug)]

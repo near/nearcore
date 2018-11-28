@@ -7,7 +7,7 @@ use primitives::types::*;
 use std::collections::HashSet;
 
 use self::message::Message;
-pub use self::reporter::*;
+pub use self::reporter::{MisbehaviourReporter, DAGMisbehaviourReporter, NoopMisbehaviourReporter, ViolationType};
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
@@ -202,16 +202,6 @@ mod tests {
         }
     }
 
-    /// MisbehaviourReporter that ignore all information stored
-    struct FakeMisbehaviourReporter{
-    }
-
-    impl MisbehaviourReporter for FakeMisbehaviourReporter{
-        fn new() -> Self{}
-
-        fn report(&mut self, violation: ViolationType) {}
-    }
-
     #[test]
     fn incorrect_epoch_simple() {
         let selector = FakeWitnessSelector::new();
@@ -249,7 +239,7 @@ mod tests {
         // with smaller epochs it creates them.
 
         let selector = FakeWitnessSelector::new();
-        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let mut misbehaviour = NoopMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
@@ -274,7 +264,7 @@ mod tests {
 
     fn feed_complex_topology() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let mut misbehaviour = NoopMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
@@ -292,7 +282,7 @@ mod tests {
     #[test]
     fn check_missing_messages_as_feeding() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let mut misbehaviour = NoopMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
@@ -321,7 +311,7 @@ mod tests {
     #[test]
     fn create_roots() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let mut misbehaviour = NoopMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
@@ -346,7 +336,7 @@ mod tests {
     #[test]
     fn movable() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let mut misbehaviour = NoopMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
         let (a, b);
