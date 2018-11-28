@@ -45,7 +45,10 @@ fn main() {
             let client = client.clone();
             move |_| {
                 let block = client.prod_block();
-                println!("Block produced: {:?}", block);
+                if !block.transactions.is_empty() {
+                    println!("Transactions: {:?}", block.transactions);
+                }
+                //
                 Ok(())
             }
         }).map_err(|_| ());

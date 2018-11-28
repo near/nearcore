@@ -23,29 +23,23 @@ $ rustup component add clippy-preview
 
 You may need to activate the environment via `. ~/.cargo/env` to use `cargo`.
 
-### Build from source code
+### Build & Run from source code
 
 ```bash
 # Download NEAR Core code.
 git clone https://github.com/nearprotocol/nearcore
 cd nearcore
-
-cargo build --release
 ```
 
-This produces an executable in the `./target/release` subdirectory.
+It will build the first time and then run:
+
+```bash
+cargo run --release
+```
 
 ### Simple Install for Mac and Linux
 
 Coming soon.
-
-### Start Node client
-
-To start Near client manually after building, just run 
-
-```bash
-./target/release/nearcore
-```
 
 ## DevNet
 
@@ -54,21 +48,23 @@ DevNet is a development tool that runs WebAssembly and State transition without 
 To build and run it:
 
 ```bash
-cd test-utils/devnet
-cargo run
+cargo run --release --package=devnet
 ```
 
 Try submitting transactions or views via JSON RPC:
 
 ```bash
 # Send money:
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":1,"sender":1,"receiver":2,"amount":10,"method_name":"","args":[]}]}' 127.0.0.1:3030
+./scripts/rpc.py --send_money --receiver=2 --amount=10
 
-# Submit contract
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":2,"sender":1,"receiver":123,"amount":0,"method_name":"deploy","args":[[<insert comma separated bytes of wasm code here>]]}]}' 127.0.0.1:3030
+# Submit contract with name 123
+./scripts/rpc.py --deploy --receiver=123 --wasm=core/wasm/runtest/res/wasm_with_mem.wasm
 
-# View state
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"view","params":[{"account":1}]}' 127.0.0.1:3030
+# Call function run_test for contract 123
+./scripts/rpc.py --receiver=123 --method_name=run_tests
+
+# View state for account=1
+./scripts/rpc.py --view=1
 ```
 
 ## Development
