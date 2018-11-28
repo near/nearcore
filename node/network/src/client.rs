@@ -3,7 +3,7 @@ use primitives::traits::Block;
 use primitives::types::BlockId;
 
 /// abstraction that communicates chain info to network
-pub trait Client<B: Block>: Send + Sync + 'static {
+pub trait Client<B: Block> {
     // get block from id
     fn get_block(&self, id: &BlockId) -> Option<B>;
     // get block header from id

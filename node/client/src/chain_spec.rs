@@ -1,7 +1,10 @@
-use primitives::types::AccountId;
+use primitives::types::AccountAlias;
 
+/// Specification of the blockchain in general.
 pub struct ChainSpec {
-    pub balances: Vec<(AccountId, u64)>,
-    pub initial_authorities: Vec<AccountId>,
+    /// Genesis state balances.
+    pub balances: Vec<(AccountAlias, u64)>,
+    /// Genesis state authorities that bootstrap the chain.
+    pub initial_authorities: Vec<AccountAlias>,
     pub genesis_wasm: Vec<u8>,
 }

@@ -64,17 +64,17 @@ cargo run --release --package=devnet
 Try submitting transactions or views via JSON RPC:
 
 ```bash
-# Send money:
-./scripts/rpc.py --send_money --receiver=2 --amount=10
+# Send money from Bob to Alice:
+./scripts/rpc.py --sender=bob --send_money --receiver=alice --amount=10
 
-# Submit contract with name 123
-./scripts/rpc.py --deploy --receiver=123 --wasm=core/wasm/runtest/res/wasm_with_mem.wasm
+# Submit contract with name "test_contract"
+./scripts/rpc.py --deploy --receiver=test_contract --wasm=core/wasm/runtest/res/wasm_with_mem.wasm
 
-# Call function run_test for contract 123
-./scripts/rpc.py --receiver=123 --method_name=run_tests
+# Call function run_test for contract "test_contract"
+./scripts/rpc.py --receiver=test_contract --method_name=run_test
 
-# View state for account=1
-./scripts/rpc.py --view=1
+# View state for Bob's account
+./scripts/rpc.py --view=bob
 ```
 
 ## Development
