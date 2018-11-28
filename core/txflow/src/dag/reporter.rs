@@ -3,18 +3,18 @@ use primitives::types::*;
 /// This structure is used to keep track of all violations detected on the network.
 /// Not necessarily restricted to violations regarding TxFlow protocol,
 /// but any kind of violation as enumerated in ViolationType
-pub trait MisbehaviourReporter {
+pub trait MisbehaviorReporter {
     fn new() -> Self;
     fn report(&mut self, violation: ViolationType);
 }
 
-pub struct DAGMisbehaviourReporter {
+pub struct DAGMisbehaviorReporter {
     pub violations: Vec<ViolationType>,
 }
 
-impl MisbehaviourReporter for DAGMisbehaviourReporter{
+impl MisbehaviorReporter for DAGMisbehaviorReporter{
     fn new() -> Self {
-        DAGMisbehaviourReporter { violations: vec![] }
+        DAGMisbehaviorReporter { violations: vec![] }
     }
 
     /// Take ownership of the violation
@@ -24,11 +24,11 @@ impl MisbehaviourReporter for DAGMisbehaviourReporter{
 }
 
 
-/// MisbehaviourReporter that ignore all information stored
-pub struct NoopMisbehaviourReporter{
+/// MisbehaviorReporter that ignore all information stored
+pub struct NoopMisbehaviorReporter{
 }
 
-impl MisbehaviourReporter for NoopMisbehaviourReporter{
+impl MisbehaviorReporter for NoopMisbehaviorReporter{
     fn new() -> Self{
         Self {}
     }
@@ -39,7 +39,7 @@ impl MisbehaviourReporter for NoopMisbehaviourReporter{
 }
 
 /// TODO: Enumerate all violations and implement evidence to check that the
-/// misbehaviour really took place.
+/// misbehavior really took place.
 #[derive(Debug)]
 pub enum ViolationType {
     BadEpoch {
