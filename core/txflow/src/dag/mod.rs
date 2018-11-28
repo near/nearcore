@@ -1,4 +1,5 @@
 mod message;
+mod reporter;
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;
@@ -6,14 +7,15 @@ use primitives::types::*;
 use std::collections::HashSet;
 
 use self::message::Message;
+pub use self::reporter::*;
 use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
-/// received from other nodes.
+/// received from other nodes and store detected violations.
 /// It uses unsafe code to implement a self-referential struct and the interface makes sure that
 /// the references never outlive the instances.
-pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
+pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviourReporter> {
     /// UID of the node.
     owner_uid: UID,
     arena: Arena<Box<Message<'a, P>>>,
@@ -24,10 +26,14 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 
     witness_selector: &'a W,
     starting_epoch: u64,
+
+    misbehaviour: &'a mut M,
 }
 
-impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
-    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
+impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviourReporter> DAG<'a, P, W, M> {
+    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W,
+                misbehaviour: &'a mut M,
+                ) -> Self {
         DAG {
             owner_uid,
             arena: Arena::new(),
@@ -35,6 +41,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
             roots: HashSet::new(),
             witness_selector,
             starting_epoch,
+            misbehaviour,
         }
     }
 
@@ -76,7 +83,18 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
     }
 
     /// Verify that this message does not violate the protocol.
-    fn verify_message(&mut self, _message: &Message<'a, P>) -> Result<(), &'static str> {
+    fn verify_message(
+        &mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
+
+        // Check epoch
+        if message.computed_epoch != message.data.body.epoch {
+            let mb = ViolationType::BadEpoch {
+                message: message.computed_hash.clone(),
+            };
+
+            self.misbehaviour.report(mb);
+        }
+
         Ok({})
     }
 
@@ -184,12 +202,85 @@ mod tests {
         }
     }
 
+    /// MisbehaviourReporter that ignore all information stored
+    struct FakeMisbehaviourReporter{
+    }
+
+    impl MisbehaviourReporter for FakeMisbehaviourReporter{
+        fn new() -> Self{
+            FakeMisbehaviourReporter {}
+        }
+
+        fn report(&mut self, violation: ViolationType) {
+        }
+    }
+
     #[test]
-    fn feed_complex_topology() {
+    fn incorrect_epoch_simple() {
         let selector = FakeWitnessSelector::new();
+        let mut misbehaviour = DAGMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector);
+        let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
+
+        // Parent have greater epoch than children
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[1, 2 => a;] => 1, 1 => b;]);
+
+        assert!(dag.add_existing_message((*a).clone()).is_ok());
+        assert!(dag.add_existing_message((*b).clone()).is_ok());
+
+        for message in &dag.messages {
+            assert_eq!(message.computed_epoch, 0);
+        }
+
+        // Both messages have invalid epoch number so two reports were made
+        assert_eq!(dag.misbehaviour.violations.len(), 2);
+
+        for violation in &dag.misbehaviour.violations {
+            if let ViolationType::BadEpoch { message: _ } = violation {
+                // expected violation type
+            } else {
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn correct_epoch_complex() {
+        // When a message can have epoch k, but since it doesn't have messages
+        // with smaller epochs it creates them.
+
+        let selector = FakeWitnessSelector::new();
+        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
+
+        let (a, b);
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0; 3, 0;] => 0, 1 => a;]);
+        simple_bare_messages!(data_arena, all_messages [[=> a;] => 3, 2 => b;]);
+
+        for m in &all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
+        }
+
+        for message in &dag.messages {
+            if message.computed_hash != b.hash {
+                assert_eq!(message.computed_epoch, message.data.body.epoch);
+            }
+            else{
+                assert_eq!(message.computed_epoch, 1);
+            }
+        }
+    }
+
+    fn feed_complex_topology() {
+        let selector = FakeWitnessSelector::new();
+        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
@@ -204,9 +295,10 @@ mod tests {
     #[test]
     fn check_missing_messages_as_feeding() {
         let selector = FakeWitnessSelector::new();
+        let mut misbehaviour = FakeMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector);
+        let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4 => d;] => 4, 5 => e;]);
@@ -232,9 +324,10 @@ mod tests {
     #[test]
     fn create_roots() {
         let selector = FakeWitnessSelector::new();
+        let mut misbehaviour = FakeMisbehaviourReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector);
+        let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
@@ -255,9 +348,10 @@ mod tests {
     // Test whether our implementation of a self-referential struct is movable.
     #[test]
     fn movable() {
-        let data_arena = Arena::new();
         let selector = FakeWitnessSelector::new();
-        let mut dag = DAG::new(0, 0, &selector);
+        let mut misbehaviour = FakeMisbehaviourReporter::new();
+        let data_arena = Arena::new();
+        let mut dag = DAG::new(0, 0, &selector, &mut misbehaviour);
         let (a, b);
         // Add some messages.
         {
