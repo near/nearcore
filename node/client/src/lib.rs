@@ -42,7 +42,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(_chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
+    pub fn new(chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
         let state_db = Arc::new(StateDb::new(storage.clone()));
         let chain_config = ChainConfig {
             extra_col: storage::COL_BEACON_EXTRA,
@@ -51,7 +51,11 @@ impl Client {
             index_col: storage::COL_BEACON_INDEX,
         };
         let runtime = Runtime::default();
-        let genesis_root = runtime.genesis_state(&state_db);
+        let genesis_root = runtime.apply_genesis_state(
+            &state_db,
+            &chain_spec.balances,
+            &chain_spec.genesis_wasm,
+        );
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(chain_config, genesis, storage);
@@ -118,10 +122,10 @@ impl Client {
                 self.runtime.apply(self.state_db.clone(), &apply_state, transactions);
             if apply_result.root != header.merkle_root_state
                 || filtered_transactions.len() != num_transactions
-            {
-                // TODO: something really bad happened
-                return false;
-            }
+                {
+                    // TODO: something really bad happened
+                    return false;
+                }
             self.state_db.commit(&mut apply_result.transaction).ok();
             // TODO: figure out where to store apply_result.authority_change_set.
             let block = Block::new(header, filtered_transactions);
