@@ -48,7 +48,6 @@ fn main() {
                 if !block.transactions.is_empty() {
                     println!("Transactions: {:?}", block.transactions);
                 }
-                //
                 Ok(())
             }
         }).map_err(|_| ());
