@@ -207,12 +207,9 @@ mod tests {
     }
 
     impl MisbehaviourReporter for FakeMisbehaviourReporter{
-        fn new() -> Self{
-            FakeMisbehaviourReporter {}
-        }
+        fn new() -> Self{}
 
-        fn report(&mut self, violation: ViolationType) {
-        }
+        fn report(&mut self, violation: ViolationType) {}
     }
 
     #[test]
