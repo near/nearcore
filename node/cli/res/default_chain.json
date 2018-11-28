@@ -1,4 +1,4 @@
 {
-  "balances": [[1, 2]],
-  "initial_authorities": [1]
+  "balances": [["alice", 100], ["bob", 100], ["john", 10]],
+  "initial_authorities": ["alice"]
 }

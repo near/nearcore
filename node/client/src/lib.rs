@@ -205,6 +205,7 @@ mod tests {
     use network::io::NetSyncIo;
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
     use network::test_utils as network_test_utils;
+    use primitives::hash::hash;
     use primitives::traits::GenericResult;
     use primitives::types::{MerkleHash, TransactionBody};
     use std::cell::RefCell;
@@ -299,7 +300,7 @@ mod tests {
         let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::new(
             123,
-            TransactionBody::new(1, 1, 2, 10, String::new(), vec![]),
+            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
         ));
         assert_eq!(client.tx_pool.read().len(), 1);
         assert_eq!(client.import_queue.read().len(), 0);

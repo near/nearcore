@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 /// User identifier. Currently derived from the user's public key.
 pub type UID = u64;
 /// Account identifier. Provides access to user's state.
-pub type AccountId = u64;
+pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
@@ -90,8 +90,8 @@ impl SignedTransaction {
     pub fn empty() -> SignedTransaction {
         let body = TransactionBody {
             nonce: 0,
-            sender: 0,
-            receiver: 1,
+            sender: AccountId::default(),
+            receiver: AccountId::default(),
             amount: 1,
             method_name: String::new(),
             args: vec![],
