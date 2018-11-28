@@ -1,4 +1,4 @@
-![NEAR Protocol](docs/logo.svg) 
+<img src="docs/logo.svg" width="200px" />
 
 ## NEAR Protocol - scalable and usable blockchain
 
@@ -9,8 +9,8 @@ NEAR Protocol is a new smart-contract platform that delivers scalability and usa
 
 Through sharding it aims to linearly scale with number of validation nodes on the network.
 
-Leveraging WebAssembly, TypeScript, more sane contract management, ephermal accounts and many other advancement NEAR
-makes using blockchain protocol for developers and consumers way easier compared to competition.  
+Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancement, NEAR
+makes using blockchain protocol for developers and consumers way easier compared to competitors.
 
 ## Building
 
@@ -45,6 +45,30 @@ To start Near client manually after building, just run
 
 ```bash
 ./target/release/nearcore
+```
+
+## DevNet
+
+DevNet is a development tool that runs WebAssembly and State transition without running blockchain/consensus functionality.
+
+To build and run it:
+
+```bash
+cd test-utils/devnet
+cargo run
+```
+
+Try submitting transactions or views via JSON RPC:
+
+```bash
+# Send money:
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":1,"sender":1,"receiver":2,"amount":10,"method_name":"","args":[]}]}' 127.0.0.1:3030
+
+# Submit contract
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"receive_transaction","params":[{"nonce":2,"sender":1,"receiver":123,"amount":0,"method_name":"deploy","args":[[<insert binary wasm here>]]}]}' 127.0.0.1:3030
+
+# View state
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"view","params":[{"account":1}]}' 127.0.0.1:3030
 ```
 
 ## Development
