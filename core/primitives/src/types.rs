@@ -28,13 +28,26 @@ pub enum BlockId {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ViewCall {
     pub account: AccountId,
+    pub method_name: String,
+    pub args: Vec<Vec<u8>>,
+}
+
+impl ViewCall {
+    pub fn balance(account: AccountId) -> Self {
+        ViewCall { account, method_name: String::new(), args: vec![]}
+    }
+    pub fn func_call(account: AccountId, method_name: String, args: Vec<Vec<u8>>) -> Self {
+        ViewCall { account, method_name, args }
+    }
 }
 
 /// Result of view call.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ViewCallResult {
     pub account: AccountId,
+    pub nonce: u64,
     pub amount: u64,
+    pub result: Vec<u8>,
 }
 
 /// TODO: Call non-view function in the contracts.

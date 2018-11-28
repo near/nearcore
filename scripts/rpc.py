@@ -35,10 +35,13 @@ class NearRPC(object):
         self.server_url = server_url
         self.sender = sender
         view_result = self.view(sender)
-        self.nonce = view_result['result'].get('nonce', 1)
+        self.nonce = view_result['result'].get('nonce', 0) + 1
 
     def view(self, account_id):
-        data = {"jsonrpc": "2.0", "id": 1, "method": "view", "params": [{"account": account_id}]}
+        data = {
+            "jsonrpc": "2.0", "id": 1, "method": "view",
+            "params": [{"account": account_id, "method_name": "", "args": []}]
+        }
         return post(self.server_url, json=data)
 
     def send_transaction(self, receiver, amount, method_name, args):

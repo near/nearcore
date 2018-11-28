@@ -116,7 +116,6 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
 #[derive(Default)]
 pub struct Runtime {}
 
-/// TODO: runtime must include balance / staking / WASM modules.
 impl Runtime {
     pub fn get<T: DeserializeOwned>(
         &self,
@@ -146,6 +145,10 @@ impl Runtime {
             self.get(state_update, &account_id_to_bytes(transaction.body.receiver));
         match (runtime_data, sender, receiver) {
             (Some(mut runtime_data), Some(mut sender), Some(mut receiver)) => {
+                // Check that transaction has valid nonce.
+                if transaction.body.nonce <= sender.nonce {
+                    return false;
+                }
                 // Transaction contains call to smart contract
                 if !transaction.body.method_name.is_empty() {
                     if transaction.body.method_name == "deploy" {
@@ -265,8 +268,30 @@ impl Runtime {
     ) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(state_db, root);
         match self.get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
-            Some(account) => ViewCallResult { account: view_call.account, amount: account.amount },
-            None => ViewCallResult { account: view_call.account, amount: 0 },
+            Some(account) => {
+                let mut result = vec![];
+                if !view_call.method_name.is_empty() {
+                    let mut runtime_ext = RuntimeExt::new(&mut state_update, view_call.account);
+                    let wasm_res = executor::execute(
+                        &account.code,
+                        view_call.method_name.as_bytes(),
+                        &concat(view_call.args.clone()),
+                        &mut result,
+                        &mut runtime_ext,
+                        &wasm::types::Config::default(),
+                    );
+                    match wasm_res {
+                        Ok(res) => {
+                            debug!(target: "runtime", "result of execution: {:?}", res);
+                        }
+                        Err(e) => {
+                            debug!(target: "runtime", "wasm execution failed with error: {:?}", e);
+                        }
+                    }
+                }
+                ViewCallResult { account: view_call.account, amount: account.amount, nonce: account.nonce, result }
+            },
+            None => ViewCallResult { account: view_call.account, amount: 0, nonce: 0, result: vec![] },
         }
     }
 
@@ -310,8 +335,10 @@ mod tests {
         let rt = Runtime {};
         let state_db = Arc::new(create_state_db());
         let root = rt.genesis_state(&state_db);
-        let result = rt.view(state_db, root, &ViewCall { account: 1 });
-        assert_eq!(result, ViewCallResult { account: 1, amount: 100 });
+        let result = rt.view(state_db.clone(), root, &ViewCall::balance(1));
+        assert_eq!(result, ViewCallResult { account: 1, amount: 100, nonce: 0, result: vec![] });
+        let result2 = rt.view(state_db, root, &ViewCall::func_call(1, "run_test".to_string(), vec![]));
+        assert_eq!(result2, ViewCallResult { account: 1, amount: 100, nonce: 0, result: vec![] });
     }
 
     #[test]
@@ -327,10 +354,10 @@ mod tests {
         assert_ne!(root, apply_result.root);
         state_db.commit(&mut apply_result.transaction).ok();
         assert_eq!(filtered_tx.len(), 1);
-        let result1 = rt.view(state_db.clone(), apply_result.root, &ViewCall { account: 1 });
-        assert_eq!(result1, ViewCallResult { account: 1, amount: 0 });
-        let result2 = rt.view(state_db, apply_result.root, &ViewCall { account: 2 });
-        assert_eq!(result2, ViewCallResult { account: 2, amount: 100 });
+        let result1 = rt.view(state_db.clone(), apply_result.root, &ViewCall::balance(1));
+        assert_eq!(result1, ViewCallResult { account: 1, amount: 0, nonce: 1, result: vec![] });
+        let result2 = rt.view(state_db, apply_result.root, &ViewCall::balance(2));
+        assert_eq!(result2, ViewCallResult { account: 2, amount: 100, nonce: 0, result: vec![] });
     }
 
     #[test]
