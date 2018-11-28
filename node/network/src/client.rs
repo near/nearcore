@@ -1,13 +1,9 @@
 use primitives::hash::CryptoHash;
 use primitives::traits::Block;
 use primitives::types::BlockId;
-use protocol::Transaction;
 
 /// abstraction that communicates chain info to network
-/// note: T is currently used, but we keep it here for now
-/// due to the trouble of removing it (need to change protocol, service, etc)
-/// until we figure out how to organize client, protocol, and service properly
-pub trait Client<B: Block, T: Transaction>: Send + Sync + 'static {
+pub trait Client<B: Block>: Send + Sync + 'static {
     // get block from id
     fn get_block(&self, id: &BlockId) -> Option<B>;
     // get block header from id

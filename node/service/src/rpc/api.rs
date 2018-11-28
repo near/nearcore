@@ -42,17 +42,15 @@ mod tests {
 
     extern crate jsonrpc_test;
     extern crate primitives;
-    extern crate storage;
 
     use self::jsonrpc_test::Rpc;
+    use client::test_utils::generate_test_client;
     use primitives::types::TransactionBody;
 
     #[test]
     fn test_call() {
-        let storage = Arc::new(storage::MemoryStorage::default());
-        let rpc_impl = RpcImpl {
-            client: Arc::new(Client::new(storage)),
-        };
+        let client = Arc::new(generate_test_client());
+        let rpc_impl = RpcImpl { client };
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = TransactionBody {
@@ -60,6 +58,8 @@ mod tests {
             sender: 1,
             receiver: 0,
             amount: 0,
+            method_name: String::new(),
+            args: vec![],
         };
         assert_eq!(rpc.request("receive_transaction", &[t]), "null");
     }

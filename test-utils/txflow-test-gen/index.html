@@ -1,6 +1,8 @@
+<meta charset="UTF-8">
 <html>
 <head>
 <script src=txflow.js></script>
+<script src=utils.js></script>
 <style>
 body {
     font-family: Helvetica;
@@ -14,7 +16,14 @@ body {
 <div id='buttons' style='z-index: 5; position: absolute; left: 0px; top: 0px'></div>
 <canvas id='here' style='position: absolute; top: 60px;'></canvas>
 <div id='serializer_holder' style='position: fixed; top: 60px;'>
-<button onclick='delete_node()'>Delete Node</button> <button onclick='if (num_users < 26) num_users ++; refresh(); serialize();'>Add User</button> <button onclick='if (num_users > 1) num_users --; refresh(); serialize();'>Remove User</button><br><br>
+<button onclick='delete_node()'>Delete Node</button> <a href='#' onclick='z = document.getElementById("more_actions").style; z.display = (z.display == "") ? "none" : "";'>More actions</a>
+<div id='more_actions' style='display: none; text-align: center'>
+    <br>
+    <button style="width: 200px" onclick='if (num_users < 26) num_users ++; refresh(); serialize();'>Add User</button><br>
+    <button style="width: 200px" onclick='if (num_users > 1) num_users --; refresh(); serialize();'>Remove User</button><br>
+    <button style="width: 200px" onclick='stress_epoch_blocks(nodes, num_users)'>Stress Epoch Blocks</button><br>
+    <input id='random_graph_num_malicious' style='width:75px' placeholder='Malicious'><input id='random_graph_num_nodes' style='width: 75px' placeholder='Nodes'><button style="width: 50px" onclick='generate_random_graph(num_users, parseInt(document.getElementById("random_graph_num_malicious").value), parseInt(document.getElementById("random_graph_num_nodes").value))'>rnd</button><br>
+</div><br><br>
 <b>Comment:</b><br>
 <textarea id='comment' rows=8 cols=40 onkeyup='serialize()'></textarea><br>
 <b>Serialized:</b><br>
@@ -106,10 +115,10 @@ var refresh = function() {
         var node = annotation.node;
         var a = document.createElement('div');
         a.style.position = 'absolute';
-        a.style.left = node.coords.l + 'px';
-        a.style.top = node.coords.t + 'px';
-        a.style.width = node.coords.w + 'px';
-        a.style.height = node.coords.h + 'px';
+        a.style.left = node.coords.l + 1 + 'px';
+        a.style.top = node.coords.t + 1 + 'px';
+        a.style.width = node.coords.w - 1 + 'px';
+        a.style.height = node.coords.h - 1 + 'px';
 
         var flags = "";
         if (annotation.representative >= 0) {
@@ -122,8 +131,9 @@ var refresh = function() {
             }
             flags += ")</small> ";
         }
+        if (annotation.epoch_block) a.style.backgroundColor = '#D0FFD0';
         if (annotation.kickout) flags += "<b>K</b>";
-        a.innerHTML = '<small>(v' + node.uid + ')</small> <u>' + names[node.owner] + '</u><br>Epoch: ' + annotation.epoch + "<br>" + flags;
+        a.innerHTML = '<small>(v' + node.uid + ')</small> <u>' + names[node.owner] + '</u><br>E: ' + annotation.epoch + " / K: " + annotation.largest_kickout_promise + "<br>" + flags;
 
         annot.appendChild(a);
     }
@@ -201,6 +211,13 @@ var gen_rust = function() {
     else {
         s += indent + "let " + var_names[0] + ";\n";
     }
+    s += indent + "let mut v = [None; " + var_names.length + "];\n";
+    var nf = function(node) {
+        var a = a_mapping[node.uid];
+        var repr = a.representative < 0 ? 'None' : `Some(${a.representative})`;
+        return `(${a.epoch}, ${repr}, ${a.kickout}, ${node.uid})`;
+    };
+    s += indent + 'let test = |v:&[_]| make_assertions(&v, &[' + nodes.map(nf).join(', ') + ']);\n';
     for (var i = 0; i < nodes.length; ++ i) {
         var node = nodes[i];
         s += indent + 'simple_messages!(0, &selector, arena [';
@@ -212,17 +229,8 @@ var gen_rust = function() {
             s += '[' + parent_names.join('') + '] => ';
         }
         // use 0 for epoch, and `true` to recompute the epochs
-        s += node.owner + ', 0, true => ' + var_names[i] + ';]);\n'
-    }
-
-    s += '\n';
-
-    for (var i = 0; i < nodes.length; ++ i) {
-        var node = nodes[i];
-        var a = a_mapping[node.uid];
-        s += indent + 'assert_eq!(' + var_names[i] + '.computed_epoch, ' + a.epoch + ');\n';
-        s += indent + 'assert_eq!(' + var_names[i] + '.computed_is_representative, ' + (a.representative >= 0 ? 'true' : 'false') + ');\n';
-        s += indent + 'assert_eq!(' + var_names[i] + '.computed_is_kickout, ' + (a.kickout ? 'true' : 'false') + ');\n';
+        s += node.owner + ', 0, true => ' + var_names[i] + ';]); v[' + i + '] = Some(' + var_names[i] + ');\n'
+        s += indent + 'test(&v);\n';
     }
 
     s += "    }\n"

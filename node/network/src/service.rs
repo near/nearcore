@@ -3,9 +3,9 @@ use error::Error;
 use futures::{self, stream, Future, Stream};
 use io::NetSyncIo;
 use parking_lot::Mutex;
-use primitives::traits::Block;
+use primitives::traits::{Block, Header as BlockHeader};
 use protocol::ProtocolHandler;
-use protocol::{self, Protocol, ProtocolConfig, Transaction};
+use protocol::{self, Protocol, ProtocolConfig};
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,18 +18,18 @@ use tokio::timer::Interval;
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 const BLOCK_PROD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub struct Service<B: Block, T: Transaction, H: ProtocolHandler<T>> {
+pub struct Service<B: Block, H: ProtocolHandler> {
     pub network: Arc<Mutex<NetworkService>>,
-    pub protocol: Arc<Protocol<B, T, H>>,
+    pub protocol: Arc<Protocol<B, H>>,
 }
 
-impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Service<B, T, H> {
+impl<B: Block, H: ProtocolHandler> Service<B, H> {
     pub fn new(
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
-        client: Arc<Client<B, T>>,
-    ) -> Result<Service<B, T, H>, Error> {
+        client: Arc<Client<B>>,
+    ) -> Result<Service<B, H>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
         let protocol = Arc::new(Protocol::new(config, handler, client));
@@ -37,21 +37,18 @@ impl<B: Block, T: Transaction, H: ProtocolHandler<T>> Service<B, T, H> {
             Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
         };
-        Ok(Service {
-            network: service,
-            protocol,
-        })
+        Ok(Service { network: service, protocol })
     }
 }
 
-pub fn generate_service_task<B, T, H>(
+pub fn generate_service_task<B, H, Header>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<B, T, H>>,
+    protocol: Arc<Protocol<B, H>>,
 ) -> impl Future<Item = (), Error = ()>
 where
     B: Block,
-    T: Transaction,
-    H: ProtocolHandler<T>,
+    H: ProtocolHandler,
+    Header: BlockHeader,
 {
     // Interval for performing maintenance on the protocol handler.
     let timer = Interval::new_interval(TICK_TIMEOUT)
@@ -82,13 +79,11 @@ where
             let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
             debug!(target: "sub-libp2p", "event: {:?}", event);
             match event {
-                ServiceEvent::CustomMessage {
-                    node_index, data, ..
-                } => {
-                    protocol.on_message(&mut net_sync, node_index, &data);
+                ServiceEvent::CustomMessage { node_index, data, .. } => {
+                    protocol.on_message::<Header>(&mut net_sync, node_index, &data);
                 }
                 ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
-                    protocol.on_peer_connected(&mut net_sync, node_index);
+                    protocol.on_peer_connected::<Header>(&mut net_sync, node_index);
                 }
                 ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                     protocol.on_peer_disconnected(node_index);
@@ -107,7 +102,7 @@ where
         .for_each({
             move |_| {
                 let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
-                protocol.prod_block(&mut net_sync);
+                protocol.prod_block::<Header>(&mut net_sync);
                 Ok(())
             }
         }).then(|res| {
@@ -118,11 +113,8 @@ where
             Ok(())
         });
 
-    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
-        Box::new(timer),
-        Box::new(network),
-        Box::new(block_production),
-    ];
+    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> =
+        vec![Box::new(timer), Box::new(network), Box::new(block_production)];
 
     futures::select_all(futures)
         .and_then(move |_| {
@@ -137,7 +129,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use primitives::types::SignedTransaction;
     use std::thread;
     use std::time;
     use test_utils::*;
@@ -147,7 +138,7 @@ mod tests {
         let services = create_test_services(2);
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         for service in services.iter() {
-            let task = generate_service_task::<MockBlock, SignedTransaction, MockProtocolHandler>(
+            let task = generate_service_task::<MockBlock, MockProtocolHandler, MockBlockHeader>(
                 service.network.clone(),
                 service.protocol.clone(),
             );

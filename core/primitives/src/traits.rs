@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use super::signature;
 use super::types;
 use hash::CryptoHash;
 
@@ -60,6 +61,13 @@ pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq
     fn deconstruct(self) -> (Self::Header, Self::Body);
     fn new(header: Self::Header, body: Self::Body) -> Self;
     fn hash(&self) -> CryptoHash;
+}
+
+/// Trait to abstract the way signing happens.
+/// Can be used to not keep private key in the given binary via cross-process communication.
+pub trait Signer: Sync + Send {
+    fn public_key(&self) -> signature::PublicKey;
+    fn sign(&self, hash: &CryptoHash) -> types::BLSSignature;
 }
 
 pub trait Verifier {
