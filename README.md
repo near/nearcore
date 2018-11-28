@@ -3,7 +3,7 @@
 ## NEAR Protocol - scalable and usable blockchain
 
 ![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
-![Discord](https://img.shields.io/discord/490367152054992913.svg)
+<a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 
 NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
 
@@ -11,6 +11,16 @@ Through sharding it aims to linearly scale with number of validation nodes on th
 
 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancement, NEAR
 makes using blockchain protocol for developers and consumers way easier compared to competitors.
+
+## Status
+
+Project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and work items.
+
+High level milestones:
+
+ - [ ] DevNet: a tool with fully working State Transition + WebAssembly.
+ - [ ] MVB: Minimum viable blockchain with smart contracts, supporting TxFlow and on chain governance.  
+ - [ ] Shard chains: support for fully scalable sharded blockchain.
 
 ## Building
 

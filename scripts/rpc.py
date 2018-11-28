@@ -16,7 +16,6 @@ except ImportError:
         """This is alternative to requests.post"""
         handler = urllib2.HTTPHandler()
         opener = urllib2.build_opener(handler)
-        print(json_lib.dumps(json))
         request = urllib2.Request(url, data=json_lib.dumps(json))
         request.add_header("Content-Type", "application/json")
         try:
@@ -69,7 +68,6 @@ class NearRPC(object):
         with open(wasm_file, 'rb') as f:
             content = f.read()
         wasm_bytes = [ord(x) for x in content]
-        # print(len(wasm_bytes))
         return self.send_transaction(receiver, 0, 'deploy', [wasm_bytes])
 
 
