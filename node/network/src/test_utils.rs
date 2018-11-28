@@ -61,7 +61,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
 }
 
 pub fn fake_tx_message() -> Message<MockBlock, MockBlockHeader> {
-    let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
+    let tx = types::SignedTransaction::empty();
     Message::new(MessageBody::Transaction(tx))
 }
 
@@ -99,22 +99,14 @@ pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockPro
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
     let handler = MockProtocolHandler::default();
     let mock_client = Arc::new(MockClient::default());
-    let root_service = Service::new(
-        ProtocolConfig::default(),
-        root_config,
-        handler,
-        mock_client.clone(),
-    ).unwrap();
+    let root_service =
+        Service::new(ProtocolConfig::default(), root_config, handler, mock_client.clone()).unwrap();
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-        let service = Service::new(
-            ProtocolConfig::default(),
-            config,
-            handler,
-            mock_client.clone(),
-        ).unwrap();
+        let service =
+            Service::new(ProtocolConfig::default(), config, handler, mock_client.clone()).unwrap();
         services.push(service);
     }
     services

@@ -6,6 +6,12 @@ extern crate kvdb_rocksdb;
 extern crate primitives;
 extern crate serde;
 extern crate substrate_state_machine;
+extern crate wasm;
+
+#[cfg(test)]
+extern crate hex_literal;
+#[cfg(test)]
+extern crate memory_db;
 
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
@@ -15,7 +21,6 @@ use std::sync::Arc;
 use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 pub use substrate_storage::TrieBackendTransaction;
 
-// #[cfg(feature = "test-utils")]
 mod substrate_storage;
 pub mod test_utils;
 
@@ -65,7 +70,6 @@ impl<'a> StateDbUpdate<'a> {
     }
     pub fn finalize(mut self) -> (TrieBackendTransaction, MerkleHash) {
         let root_after = self.ext.storage_root();
-        println!("! {:?}", root_after);
         let (storage_transaction, _changes_trie_transaction) = self.ext.transaction();
         (storage_transaction, root_after)
     }

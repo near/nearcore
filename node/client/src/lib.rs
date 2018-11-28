@@ -220,7 +220,12 @@ mod tests {
     fn test_import_queue_empty() {
         let client = generate_test_client();
         let genesis_block = client.beacon_chain.best_block();
-        let block1 = BeaconBlock::new(1, genesis_block.hash(), genesis_block.header().merkle_root_state, vec![]);
+        let block1 = BeaconBlock::new(
+            1,
+            genesis_block.hash(),
+            genesis_block.header().merkle_root_state,
+            vec![],
+        );
         assert!(client.import_block(block1));
         assert_eq!(client.import_queue.read().len(), 0);
     }
@@ -229,8 +234,14 @@ mod tests {
     fn test_import_queue_non_empty() {
         let client = generate_test_client();
         let genesis_block = client.beacon_chain.best_block();
-        let block1 = BeaconBlock::new(1, genesis_block.hash(), genesis_block.header().merkle_root_state, vec![]);
-        let block2 = BeaconBlock::new(2, block1.hash(), genesis_block.header().merkle_root_state, vec![]);
+        let block1 = BeaconBlock::new(
+            1,
+            genesis_block.hash(),
+            genesis_block.header().merkle_root_state,
+            vec![],
+        );
+        let block2 =
+            BeaconBlock::new(2, block1.hash(), genesis_block.header().merkle_root_state, vec![]);
         assert!(!client.import_block(block2));
         assert_eq!(client.import_queue.read().len(), 1);
         assert!(client.import_block(block1));
@@ -257,12 +268,8 @@ mod tests {
             genesis_block.header().merkle_root_state,
             vec![],
         );
-        let block2 = BeaconBlock::new(
-            2,
-            block1.hash(),
-            genesis_block.header().merkle_root_state,
-            vec![],
-        );
+        let block2 =
+            BeaconBlock::new(2, block1.hash(), genesis_block.header().merkle_root_state, vec![]);
         network::client::Client::import_blocks(&client, vec![block1, block2]);
         assert_eq!(client.import_queue.read().len(), 0);
     }
@@ -294,7 +301,10 @@ mod tests {
         let protocol = Protocol::new(config, handler, client.clone());
         let network_service = Arc::new(Mutex::new(network_test_utils::default_network_service()));
         let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
-        protocol.on_transaction_message(SignedTransaction::new(123, TransactionBody { nonce: 1, sender: 1, receiver: 2, amount: 10}));
+        protocol.on_transaction_message(SignedTransaction::new(
+            123,
+            TransactionBody::new(1, 1, 2, 10, String::new(), vec![]),
+        ));
         assert_eq!(client.tx_pool.read().len(), 1);
         assert_eq!(client.import_queue.read().len(), 0);
         protocol.prod_block::<BeaconBlockHeader>(&mut net_sync);

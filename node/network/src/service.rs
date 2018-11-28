@@ -37,10 +37,7 @@ impl<B: Block, H: ProtocolHandler> Service<B, H> {
             Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
         };
-        Ok(Service {
-            network: service,
-            protocol,
-        })
+        Ok(Service { network: service, protocol })
     }
 }
 
@@ -82,9 +79,7 @@ where
             let mut net_sync = NetSyncIo::new(&network_service, protocol.config.protocol_id);
             debug!(target: "sub-libp2p", "event: {:?}", event);
             match event {
-                ServiceEvent::CustomMessage {
-                    node_index, data, ..
-                } => {
+                ServiceEvent::CustomMessage { node_index, data, .. } => {
                     protocol.on_message::<Header>(&mut net_sync, node_index, &data);
                 }
                 ServiceEvent::OpenedCustomProtocol { node_index, .. } => {
@@ -118,11 +113,8 @@ where
             Ok(())
         });
 
-    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> = vec![
-        Box::new(timer),
-        Box::new(network),
-        Box::new(block_production),
-    ];
+    let futures: Vec<Box<Future<Item = (), Error = io::Error> + Send>> =
+        vec![Box::new(timer), Box::new(network), Box::new(block_production)];
 
     futures::select_all(futures)
         .and_then(move |_| {

@@ -1,7 +1,7 @@
-use super::hash;
-use super::signature;
-use super::traits;
-use super::types;
+use hash;
+use signature;
+use traits;
+use types;
 
 pub struct InMemorySigner {
     public_key: signature::PublicKey,

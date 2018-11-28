@@ -1,5 +1,7 @@
 extern crate client;
+extern crate env_logger;
 extern crate futures;
+extern crate log;
 extern crate network;
 extern crate node_cli;
 extern crate primitives;
@@ -10,6 +12,7 @@ extern crate tokio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use env_logger::Builder;
 use futures::{future, Future, Stream};
 use tokio::timer::Interval;
 
@@ -19,18 +22,21 @@ use node_cli::chain_spec::get_default_chain_spec;
 use primitives::signer::InMemorySigner;
 use service::rpc::api::{get_handler, RpcImpl};
 use service::rpc::server::get_server;
-use storage::open_database;
 
 const BLOCK_PROD_PERIOD: Duration = Duration::from_secs(2);
 
 fn main() {
-    let storage = Arc::new(open_database("storage/db/"));
+    let mut builder = Builder::new();
+    builder.filter(Some("runtime"), log::LevelFilter::Debug);
+    builder.filter(Some("main"), log::LevelFilter::Debug);
+    builder.filter(None, log::LevelFilter::Info);
+    builder.init();
+
+    let storage = Arc::new(storage::test_utils::create_memory_db());
     let signer = Arc::new(InMemorySigner::new());
     let chain_spec = get_default_chain_spec().unwrap();
     let client = Arc::new(Client::new(&chain_spec, storage, signer));
-    let rpc_impl = RpcImpl {
-        client: client.clone(),
-    };
+    let rpc_impl = RpcImpl { client: client.clone() };
     let rpc_handler = get_handler(rpc_impl);
     let server = get_server(rpc_handler);
 

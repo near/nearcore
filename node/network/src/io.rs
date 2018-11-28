@@ -57,9 +57,7 @@ impl<'s> SyncIo for NetSyncIo<'s> {
     }
 
     fn send(&mut self, who: NodeIndex, data: Vec<u8>) {
-        self.network
-            .lock()
-            .send_custom_message(who, self.protocol, data)
+        self.network.lock().send_custom_message(who, self.protocol, data)
     }
 
     fn peer_id(&self, who: NodeIndex) -> Option<PeerId> {

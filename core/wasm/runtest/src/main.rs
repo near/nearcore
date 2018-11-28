@@ -19,12 +19,12 @@ impl External for MyExt {
         Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<&[u8]>> {
+    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let value = self.storage.get(key);
         match value {
             Some(buf) => {
                 println!("GET '{:?}' -> '{:?}'", key, buf);
-                Ok(Some(&buf))
+                Ok(Some(buf.to_vec()))
             }
             None => {
                 println!("GET '{:?}' -> EMPTY", key);

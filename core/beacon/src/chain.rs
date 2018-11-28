@@ -1,8 +1,8 @@
-use byteorder::{LittleEndian, WriteBytesExt};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, Header};
 use primitives::types::BlockId;
+use primitives::utils::index_to_bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use storage::Storage;
@@ -39,12 +39,6 @@ pub struct BlockChain<B: Block> {
     /// Maps block index to hash.
     index_to_hash: RwLock<HashMap<Vec<u8>, CryptoHash>>,
     // TODO: state?
-}
-
-fn index_to_bytes(index: u64) -> Vec<u8> {
-    let mut bytes = vec![];
-    bytes.write_u64::<LittleEndian>(index).expect("writing to bytes failed");
-    bytes
 }
 
 fn write_with_cache<T: Clone + Encode>(
