@@ -29,11 +29,11 @@ impl<B: Block, H: ProtocolHandler> Service<B, H> {
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
-        client: Arc<Chain<B>>,
+        chain: Arc<Chain<B>>,
     ) -> Result<Service<B, H>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
-        let protocol = Rc::new(Protocol::new(config, handler, client));
+        let protocol = Rc::new(Protocol::new(config, handler, chain));
         let service = match start_service(net_config, Some(registered)) {
             Ok(s) => Rc::new(RefCell::new(s)),
             Err(e) => return Err(e.into()),
