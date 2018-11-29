@@ -1,11 +1,12 @@
 use client::Client;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
-use primitives::types::{SignedTransaction, TransactionBody, ViewCall, ViewCallResult};
+use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
 use rpc::types::SendMoneyRequest;
 use rpc::types::ViewAccountRequest;
 use std::sync::Arc;
 use rpc::types::DeployContractRequest;
 use rpc::types::CallMethodRequest;
+use rpc::types::ViewAccountResponse;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -14,7 +15,7 @@ build_rpc_trait! {
         fn rpc_send_money(&self, SendMoneyRequest) -> JsonRpcResult<()>;
         /// Call view function.
         #[rpc(name = "view_account")]
-        fn rpc_view_account(&self, ViewAccountRequest) -> JsonRpcResult<ViewCallResult>;
+        fn rpc_view_account(&self, ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse>;
         /// Deploy smart contract.
         #[rpc(name = "deploy_contract")]
         fn rpc_deploy_contract(&self, DeployContractRequest) -> JsonRpcResult<()>;
@@ -46,13 +47,18 @@ impl TransactionApi for RpcImpl {
         Ok(self.client.receive_transaction(transaction))
     }
 
-    fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewCallResult> {
+    fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
         let call = ViewCall {
             account: r.account_id,
             method_name: String::new(),
             args: Vec::new(),
         };
-        Ok(self.client.view_call(&call))
+        let result = self.client.view_call(&call);
+        let response = ViewAccountResponse {
+            account_id: result.account,
+            nonce: result.nonce,
+        };
+        Ok(response)
     }
 
     fn rpc_deploy_contract(&self, r: DeployContractRequest) -> JsonRpcResult<()> {

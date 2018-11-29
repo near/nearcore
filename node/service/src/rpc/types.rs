@@ -1,9 +1,12 @@
+use primitives::hash::bs58_format;
 use primitives::types::AccountId;
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
     pub nonce: u64,
+    #[serde(with = "bs58_format")]
     pub sender_account_id: AccountId,
+    #[serde(with = "bs58_format")]
     pub receiver_account_id: AccountId,
     pub amount: u64,
 }
@@ -11,7 +14,9 @@ pub struct SendMoneyRequest {
 #[derive(Serialize, Deserialize)]
 pub struct DeployContractRequest {
     pub nonce: u64,
+    #[serde(with = "bs58_format")]
     pub sender_account_id: AccountId,
+    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
 }
@@ -19,7 +24,9 @@ pub struct DeployContractRequest {
 #[derive(Serialize, Deserialize)]
 pub struct CallMethodRequest {
     pub nonce: u64,
+    #[serde(with = "bs58_format")]
     pub sender_account_id: AccountId,
+    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<Vec<u8>>,
@@ -27,5 +34,13 @@ pub struct CallMethodRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
+    #[serde(with = "bs58_format")]
     pub account_id: AccountId,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ViewAccountResponse {
+    #[serde(with = "bs58_format")]
+    pub account_id: AccountId,
+    pub nonce: u64,
 }

@@ -198,13 +198,13 @@ impl Runtime {
                         if sender.amount < transaction.body.amount {
                             debug!(
                                 target: "runtime",
-                                "Account {} tries to stake {}, but only has {}",
+                                "Account {:?} tries to stake {:?}, but only has {}",
                                 transaction.body.sender,
                                 transaction.body.amount,
                                 sender.amount
                             );
                         } else {
-                            debug!(target: "runtime", "Account {} already staked", transaction.body.sender);
+                            debug!(target: "runtime", "Account {:?} already staked", transaction.body.sender);
                         }
                         false
                     }
@@ -224,7 +224,7 @@ impl Runtime {
                     } else {
                         debug!(
                             target: "runtime",
-                            "Account {} tries to send {}, but has staked {} and has {} in the account",
+                            "Account {:?} tries to send {:?}, but has staked {} and has {} in the account",
                             transaction.body.sender,
                             transaction.body.amount,
                             staked,
@@ -240,13 +240,13 @@ impl Runtime {
                     set(state_update, &account_id_to_bytes(transaction.body.receiver), &account);
                     true
                 } else {
-                    debug!("Receiver {} does not exist", transaction.body.receiver);
+                    debug!("Receiver {:?} does not exist", transaction.body.receiver);
                     false
                 }
             }
             _ => {
                 debug!(
-                    "Neither sender {} nor receiver {} exists",
+                    "Neither sender {:?} nor receiver {:?} exists",
                     transaction.body.sender, transaction.body.receiver
                 );
                 false
