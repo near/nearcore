@@ -1,4 +1,4 @@
-use client::Client;
+use client::chain::Chain;
 use io::{NetSyncIo, SyncIo};
 use message::{self, Message, MessageBody};
 use parking_lot::RwLock;
@@ -7,10 +7,10 @@ use primitives::traits::{Block, Decode, Encode, GenericResult, Header as BlockHe
 use primitives::types::{BlockId, SignedTransaction};
 use rand::{seq, thread_rng};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 use test_utils;
-use std::sync::Arc;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -73,7 +73,7 @@ pub struct Protocol<B: Block, H: ProtocolHandler> {
     // info about peers
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     // backend client
-    client: Arc<Client<B>>,
+    chain: Arc<Chain<B>>,
     // callbacks
     handler: Option<Box<H>>,
     // phantom data for keep T
@@ -84,13 +84,13 @@ pub trait ProtocolHandler: 'static {
 }
 
 impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
-    pub fn new(config: ProtocolConfig, handler: H, client: Arc<Client<B>>) -> Protocol<B, H> {
+    pub fn new(config: ProtocolConfig, handler: H, chain: Arc<Chain<B>>) -> Protocol<B, H> {
         Protocol {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
             handler: Some(Box::new(handler)),
-            client,
+            chain,
         }
     }
 
@@ -137,12 +137,12 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             );
             return;
         }
-        if status.genesis_hash != self.client.genesis_hash() {
+        if status.genesis_hash != self.chain.genesis_hash() {
             net_sync.report_peer(
                 peer,
                 Severity::Bad(&format!(
                     "peer has different genesis hash (ours {:?}, theirs {:?})",
-                    self.client.genesis_hash(),
+                    self.chain.genesis_hash(),
                     status.genesis_hash
                 )),
             );
@@ -150,7 +150,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.client.best_index();
+        let best_index = self.chain.best_index();
         let mut next_request_id = 0;
         if status.best_index > best_index {
             let request = message::BlockRequest {
@@ -185,12 +185,12 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         let mut blocks = Vec::new();
         let mut id = request.from;
         let max = std::cmp::min(request.max.unwrap_or(u64::max_value()), MAX_BLOCK_DATA_RESPONSE);
-        while let Some(block) = self.client.get_block(&id) {
+        while let Some(block) = self.chain.get_block(&id) {
             blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
             }
-            let header = self.client.get_header(&id).unwrap();
+            let header = self.chain.get_header(&id).unwrap();
             let block_index = header.index();
             let block_hash = header.hash();
             let reach_end = match request.to {
@@ -215,7 +215,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         response: message::BlockResponse<B>,
     ) {
         // TODO: validate response
-        self.client.import_blocks(response.blocks);
+        self.chain.import_blocks(response.blocks);
     }
 
     pub fn on_message<Header: BlockHeader>(
@@ -274,7 +274,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
                 // header is actually block for now
                 match ann {
                     message::BlockAnnounce::Block(b) => {
-                        self.client.import_blocks(vec![b]);
+                        self.chain.import_blocks(vec![b]);
                     }
                     _ => unimplemented!(),
                 }
@@ -309,12 +309,12 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             .iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
             .chain(handshaking_peers.iter())
-            {
-                if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
-                    trace!(target: "sync", "Timeout {}", *peer);
-                    aborting.push(*peer);
-                }
+        {
+            if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
+                trace!(target: "sync", "Timeout {}", *peer);
+                aborting.push(*peer);
             }
+        }
         for peer in aborting {
             net_sync.report_peer(peer, Severity::Timeout);
         }
@@ -326,7 +326,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
     pub fn prod_block<Header: BlockHeader>(&self, net_sync: &mut NetSyncIo) {
         let special_secret = test_utils::special_secret();
         if special_secret == self.config.secret {
-            let block = self.client.prod_block();
+            let block = self.chain.prod_block();
             let block_announce = message::BlockAnnounce::Block(block.clone());
             let message: Message<_, Header> =
                 Message::new(MessageBody::BlockAnnounce(block_announce));
@@ -334,7 +334,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             for peer in peer_info.keys() {
                 self.send_message(net_sync, *peer, &message);
             }
-            self.client.import_blocks(vec![block]);
+            self.chain.import_blocks(vec![block]);
         }
     }
 }
@@ -342,7 +342,11 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client::test_utils::*;
+    use primitives::hash::hash;
     use primitives::types;
+    use std::cell::RefCell;
+    use std::rc::Rc;
     use test_utils::*;
 
     impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
@@ -373,5 +377,25 @@ mod tests {
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
         let tx = types::SignedTransaction::empty();
         protocol.on_transaction_message(tx);
+    }
+
+    #[test]
+    fn test_protocol_and_client() {
+        let client = Arc::new(generate_test_client());
+        let handler = MockHandler { client: client.clone() };
+        let config = ProtocolConfig::new_with_default_id(special_secret());
+        let protocol = Protocol::new(config, handler, client.clone());
+        let network_service = Rc::new(RefCell::new(default_network_service()));
+        let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
+        protocol.on_transaction_message(SignedTransaction::new(
+            123,
+            types::TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
+        ));
+        assert_eq!(client.num_transactions(), 1);
+        assert_eq!(client.num_blocks_in_queue(), 0);
+        protocol.prod_block::<MockBlockHeader>(&mut net_sync);
+        assert_eq!(client.num_transactions(), 0);
+        assert_eq!(client.num_blocks_in_queue(), 0);
+        assert_eq!(client.best_index(), 1);
     }
 }

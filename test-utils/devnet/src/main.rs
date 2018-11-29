@@ -10,10 +10,9 @@ extern crate service;
 extern crate storage;
 extern crate tokio;
 
-use client::Client;
+use client::{Client, chain::Chain};
 use env_logger::Builder;
 use futures::{future, Future, Stream};
-use network::client::Client as NetworkClient;
 use node_cli::chain_spec::get_default_chain_spec;
 use primitives::signer::InMemorySigner;
 use service::rpc::api::{get_handler, RpcImpl};
