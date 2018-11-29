@@ -97,38 +97,6 @@ class NearRPC(object):
         }
         return _post(self.server_url, data)
 
-    def send_money(self, sender, receiver, amount):
-        nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
-            'receiver_account_id': _get_account_id(receiver),
-            'amount': amount,
-        }
-        self._update_nonce(sender)
-        return self._call_rpc('send_money', params)
-
-    def view_account(self, account_alias):
-        params = {
-            'account_id': _get_account_id(account_alias),
-        }
-        return self._call_rpc('view_account', params)
-
-    def call_method(self, sender, contract_name, method_name, args=None):
-        if args is None:
-            args = [[]]
-
-        nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
-            'contract_account_id': _get_account_id(contract_name),
-            'method_name': method_name,
-            'args': args,
-        }
-        self._update_nonce(sender)
-        return self._call_rpc('call_method', params)
-
     def deploy_contract(self, sender, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
             wasm_byte_array = list(bytearray(f.read()))
@@ -143,6 +111,55 @@ class NearRPC(object):
         self._update_nonce(sender)
         return self._call_rpc('deploy_contract', params)
 
+    def send_money(self, sender, receiver, amount):
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'sender_account_id': _get_account_id(sender),
+            'receiver_account_id': _get_account_id(receiver),
+            'amount': amount,
+        }
+        self._update_nonce(sender)
+        return self._call_rpc('send_money', params)
+
+    def schedule_function_call(
+        self,
+        sender,
+        contract_name,
+        method_name,
+        args=None,
+    ):
+        if args is None:
+            args = [[]]
+
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'sender_account_id': _get_account_id(sender),
+            'contract_account_id': _get_account_id(contract_name),
+            'method_name': method_name,
+            'args': args,
+        }
+        self._update_nonce(sender)
+        return self._call_rpc('schedule_function_call', params)
+
+    def view_account(self, account_alias):
+        params = {
+            'account_id': _get_account_id(account_alias),
+        }
+        return self._call_rpc('view_account', params)
+
+    def call_view_function(self, contract_name, function_name, args=None):
+        if args is None:
+            args = [[]]
+
+        params = {
+            'contract_account_id': _get_account_id(contract_name),
+            'method_name': function_name,
+            'args': args,
+        }
+        return self._call_rpc('call_view_function', params)
+
 
 class MultiCommandParser(object):
     def __init__(self):
@@ -150,15 +167,17 @@ class MultiCommandParser(object):
             usage="""python rpc.py <command> [<args>]
 
 Commands:
-call_method     {}
-deploy          {}
-send_money      {}
-view            {}
+call_view_function       {}
+deploy                   {}
+send_money               {}
+schedule_function_call   {}
+view_account             {}
             """.format(
-                self.call_method.__doc__,
+                self.call_view_function.__doc__,
                 self.deploy.__doc__,
                 self.send_money.__doc__,
-                self.view.__doc__,
+                self.schedule_function_call.__doc__,
+                self.view_account.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -240,22 +259,34 @@ view            {}
             args.wasm_file_location,
         )
 
-    def call_method(self):
-        """Call a method on a smart contract"""
-        parser = self._get_command_parser(self.call_method.__doc__)
+    def schedule_function_call(self):
+        """Schedule a function call on a smart contract"""
+        parser = self._get_command_parser(self.schedule_function_call.__doc__)
         parser.add_argument('contract_name', type=str)
-        parser.add_argument('method_name', type=str)
+        parser.add_argument('function_name', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
-        return client.call_method(
+        return client.schedule_function_call(
             args.sender,
             args.contract_name,
-            args.method_name,
+            args.function_name,
         )
 
-    def view(self):
+    def call_view_function(self):
+        """Call a view function on a smart contract"""
+        parser = self._get_command_parser(self.call_view_function.__doc__)
+        parser.add_argument('contract_name', type=str)
+        parser.add_argument('function_name', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.call_view_function(
+            args.contract_name,
+            args.function_name,
+        )
+
+    def view_account(self):
         """View an account"""
-        parser = self._get_command_parser(self.view.__doc__, include_sender=False)
+        parser = self._get_command_parser(self.view_account.__doc__, include_sender=False)
         parser.add_argument(
             '-a',
             '--account',
