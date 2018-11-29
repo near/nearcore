@@ -9,13 +9,14 @@ use std::collections::HashSet;
 use self::message::Message;
 pub use self::reporter::{MisbehaviorReporter, DAGMisbehaviorReporter, NoopMisbehaviorReporter, ViolationType};
 use typed_arena::Arena;
+use std::cell::RefCell;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes and store detected violations.
 /// It uses unsafe code to implement a self-referential struct and the interface makes sure that
 /// the references never outlive the instances.
-pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> {
+pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter = NoopMisbehaviorReporter> {
     /// UID of the node.
     owner_uid: UID,
     arena: Arena<Box<Message<'a, P>>>,
@@ -27,13 +28,11 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + Misbehavior
     witness_selector: &'a W,
     starting_epoch: u64,
 
-    misbehavior: &'a mut M,
+    misbehavior: RefCell<M>,
 }
 
 impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'a, P, W, M> {
-    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W,
-                misbehavior: &'a mut M,
-                ) -> Self {
+    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W, misbehavior: RefCell<M>) -> Self {
         DAG {
             owner_uid,
             arena: Arena::new(),
@@ -92,7 +91,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
                 message: message.computed_hash.clone(),
             };
 
-            self.misbehavior.report(mb);
+            self.misbehavior.borrow_mut().report(mb);
         }
 
         Ok({})
@@ -205,10 +204,10 @@ mod tests {
     #[test]
     fn incorrect_epoch_simple() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehavior = DAGMisbehaviorReporter::new();
+        let misbehavior = DAGMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, &mut misbehavior);
+        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
 
         // Parent have greater epoch than children
         let (a, b);
@@ -222,9 +221,9 @@ mod tests {
         }
 
         // Both messages have invalid epoch number so two reports were made
-        assert_eq!(dag.misbehavior.violations.len(), 2);
+        assert_eq!(dag.misbehavior.borrow().violations.len(), 2);
 
-        for violation in &dag.misbehavior.violations {
+        for violation in &dag.misbehavior.borrow().violations {
             if let ViolationType::BadEpoch { message: _ } = violation {
                 // expected violation type
             } else {
@@ -239,10 +238,10 @@ mod tests {
         // with smaller epochs it creates them.
 
         let selector = FakeWitnessSelector::new();
-        let mut misbehavior = NoopMisbehaviorReporter::new();
+        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, &mut misbehavior);
+        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
 
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0; 3, 0;] => 0, 1 => a;]);
@@ -264,10 +263,10 @@ mod tests {
 
     fn feed_complex_topology() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehavior = NoopMisbehaviorReporter::new();
+        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, &mut misbehavior);
+        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
@@ -282,10 +281,10 @@ mod tests {
     #[test]
     fn check_missing_messages_as_feeding() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehavior = NoopMisbehaviorReporter::new();
+        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, &mut misbehavior);
+        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4 => d;] => 4, 5 => e;]);
@@ -311,10 +310,10 @@ mod tests {
     #[test]
     fn create_roots() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehavior = NoopMisbehaviorReporter::new();
+        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, &mut misbehavior);
+        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
@@ -336,9 +335,9 @@ mod tests {
     #[test]
     fn movable() {
         let selector = FakeWitnessSelector::new();
-        let mut misbehavior = NoopMisbehaviorReporter::new();
+        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
-        let mut dag = DAG::new(0, 0, &selector, &mut misbehavior);
+        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
         let (a, b);
         // Add some messages.
         {
