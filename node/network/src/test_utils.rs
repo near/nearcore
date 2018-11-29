@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use client::Client;
+use client::{chain::Chain, Client};
 use error::Error;
 use libp2p::{secio, Multiaddr};
 use message::{Message, MessageBody};
@@ -10,12 +10,12 @@ use primitives::types;
 use protocol::{ProtocolConfig, ProtocolHandler, CURRENT_VERSION};
 use rand::Rng;
 use service::Service;
+use std::rc::Rc;
 use std::sync::Arc;
 use substrate_network_libp2p::{
     start_service, NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol, Secret,
     Service as NetworkService,
 };
-use std::rc::Rc;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -163,7 +163,17 @@ pub struct MockClient {
     pub block: MockBlock,
 }
 
-impl Client<MockBlock> for MockClient {
+pub struct MockHandler {
+    pub client: Arc<Client>,
+}
+
+impl ProtocolHandler for MockHandler {
+    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
+        self.client.handle_signed_transaction(t)
+    }
+}
+
+impl Chain<MockBlock> for MockClient {
     fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
         Some(self.block.clone())
     }

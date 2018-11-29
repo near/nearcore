@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
-use substrate_network_libp2p::{NodeIndex, PeerId, ProtocolId, Service, Severity};
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
+use substrate_network_libp2p::{NodeIndex, PeerId, ProtocolId, Service, Severity};
 
 /// IO interface for the syncing handler.
 /// Provides peer connection management and an interface to the BlockChain client.

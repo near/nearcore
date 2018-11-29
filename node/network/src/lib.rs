@@ -1,3 +1,4 @@
+extern crate client;
 extern crate libp2p;
 extern crate primitives;
 extern crate substrate_network_libp2p;
@@ -16,7 +17,6 @@ extern crate log;
 extern crate env_logger;
 extern crate rand;
 
-pub mod client;
 pub mod error;
 pub mod io;
 pub mod message;
