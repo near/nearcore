@@ -3,10 +3,12 @@ name = "service"
 version = "0.1.0"
 
 [dependencies]
+env_logger = "0.5"
 futures = "0.1.25"
 jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-http-server = { git = "https://github.com/paritytech/jsonrpc" }
+log = "0.4"
 parking_lot = "0.6.4"
 serde = "1.0"
 serde_derive = "1.0"
@@ -20,3 +22,6 @@ primitives = { path = "../../core/primitives" }
 jsonrpc-test = { git = "https://github.com/paritytech/jsonrpc" }
 
 client = { path = "../client", features = ["test-utils"] }
+
+[features]
+test-utils = ["client/test-utils"]

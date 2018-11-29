@@ -4,15 +4,4 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
-tokio = "0.1"
-futures = "0.1"
-log = "0.4"
-env_logger = "0.5"
-
-primitives = { path = "../../core/primitives" }
-storage = { path = "../../core/storage", features = ["test-utils"]}
-
-client = { path = "../../node/client" }
-service = { path = "../../node/service" }
-network = { path = "../../node/network" }
-node-cli = { path = "../../node/cli" }
+service = { path = "../../node/service", features = ["test-utils"] }

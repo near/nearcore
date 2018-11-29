@@ -2,20 +2,24 @@
 
 use client::{chain::Chain, Client};
 use error::Error;
-use libp2p::{secio, Multiaddr};
+use futures::{future, Future};
+use futures::stream::Stream;
+use libp2p::{Multiaddr, secio};
 use message::{Message, MessageBody};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Header};
 use primitives::types;
-use protocol::{ProtocolConfig, ProtocolHandler, CURRENT_VERSION};
+use protocol::{CURRENT_VERSION, ProtocolConfig, ProtocolHandler};
 use rand::Rng;
 use service::Service;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 use substrate_network_libp2p::{
-    start_service, NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol, Secret,
-    Service as NetworkService,
+    NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol,
+    Secret, Service as NetworkService, start_service,
 };
+use tokio::timer::Interval;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -118,6 +122,12 @@ pub fn default_network_service() -> NetworkService {
     let version = [CURRENT_VERSION as u8];
     let registered = RegisteredProtocol::new(ProtocolId::default(), &version);
     start_service(net_config, Some(registered)).unwrap()
+}
+
+pub fn get_noop_network_task() -> impl Future<Item=(), Error=()> {
+    Interval::new_interval(Duration::from_secs(1))
+        .for_each(|_| Ok(()))
+        .then(|_| Ok(()))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

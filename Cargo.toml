@@ -30,3 +30,8 @@ members = [
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",
 ]
+
+[dev-dependencies]
+lazy_static = "1.2.0"
+serde_json = "1.0.0"
+service = { path = "./node/service", features = ["test-utils"] }
