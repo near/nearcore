@@ -19,7 +19,7 @@ use clap::{App, Arg};
 use client::Client;
 use network::protocol::ProtocolConfig;
 use network::service::{NetworkConfiguration, Service as NetworkService};
-use primitives::signer::{InMemorySigner};
+use primitives::signer::InMemorySigner;
 use primitives::traits::{GenericResult, Signer};
 use service::network_handler::NetworkHandler;
 use service::run_service;

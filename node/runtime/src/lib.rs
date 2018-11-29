@@ -21,7 +21,10 @@ use beacon::authority::AuthorityChangeSet;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
-use primitives::types::{AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::types::{
+    AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall,
+    ViewCallResult,
+};
 use primitives::utils::concat;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;

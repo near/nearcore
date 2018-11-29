@@ -7,21 +7,24 @@ pub use signature::sodiumoxide::crypto::sign::ed25519::Seed;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
-pub type SecretKey = sodiumoxide::crypto::sign::ed25519::SecretKey;
+
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
+
 pub type Signature = sodiumoxide::crypto::sign::ed25519::Signature;
 
 pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
-    sodiumoxide::crypto::sign::ed25519::sign_detached(data, secret_key)
+    sodiumoxide::crypto::sign::ed25519::sign_detached(data, &secret_key.0)
 }
 
 pub fn get_keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::keypair_from_seed(seed);
-    (PublicKey(public_key), secret_key)
+    (PublicKey(public_key), SecretKey(secret_key))
 }
 
 pub fn get_keypair() -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::gen_keypair();
-    (PublicKey(public_key), secret_key)
+    (PublicKey(public_key), SecretKey(secret_key))
 }
 
 pub fn default_signature() -> Signature {
@@ -59,6 +62,30 @@ impl fmt::Display for PublicKey {
     }
 }
 
+impl std::convert::AsRef<[u8]> for SecretKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
+impl<'a> From<&'a SecretKey> for String {
+    fn from(h: &'a SecretKey) -> Self {
+        bs58::encode(h).into_string()
+    }
+}
+
+impl fmt::Debug for SecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from(self))
+    }
+}
+
+impl fmt::Display for SecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from(self))
+    }
+}
+
 pub mod bs58_format {
     use super::{bs58, PublicKey};
     use exonum_sodiumoxide as sodiumoxide;
@@ -66,15 +93,15 @@ pub mod bs58_format {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(String::from(public_key).as_str())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         match bs58::decode(s).into_vec() {
