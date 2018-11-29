@@ -285,13 +285,15 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
 
         // Issue fetches, if required.
         for (receiver_uid, mut fetch_hashes) in fetch_requests.drain() {
-            let reply = Gossip {
-                sender_uid: self.owner_uid,
-                receiver_uid,
-                sender_sig: 0,  // TODO: Sign it.
-                body: GossipBody::Fetch(fetch_hashes.drain().collect())
-            };
-            self.send_gossip(reply);
+            if !fetch_hashes.is_empty() {
+                let reply = Gossip {
+                    sender_uid: self.owner_uid,
+                    receiver_uid,
+                    sender_sig: 0,  // TODO: Sign it.
+                    body: GossipBody::Fetch(fetch_hashes.drain().collect())
+                };
+                self.send_gossip(reply);
+            }
         }
 
         // The following code should be executed only if the cooldown has passed.

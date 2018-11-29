@@ -5,6 +5,7 @@ use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
 use rand;
 use std::collections::HashSet;
+use std::time::Duration;
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::{Gossip, UID};
@@ -93,7 +94,10 @@ impl FakeWitnessNetwork {
     fn kickoff_payloads(&mut self) -> impl Future<Item=(), Error=()> {
         let mut fs = vec![];
         for c in &self.input_payload_channels {
-            fs.push(c.clone().send(FakePayload::new())
+            let mut payload = FakePayload::new();
+            payload.set_content(1);
+            fs.push(c.clone().send(payload)
+                .map(|_| println!("Sending payload"))
                 .map_err(|e| println!("Payload sending error {:?}", e))
             );
         }
@@ -166,6 +170,8 @@ impl Stream for FakeWitnessNetwork {
                 Ok(Async::Ready(Some(gossip))) => {
                     let receiver_uid = gossip.receiver_uid;
                     let gossip_input = self.input_gossip_channels[receiver_uid as usize].clone();
+                    std::thread::sleep(Duration::from_millis(300));
+                    println!("Relaying gossip {:?}", gossip);
                     tokio::spawn(gossip_input.send(gossip)
                         .map(|_| ())
                         .map_err(|e| println!("Error relaying gossip {:?}", e)));

@@ -139,6 +139,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         ));
         message.init(true, self.starting_epoch, self.witness_selector);
         message.assume_computed_hash_epoch();
+        println!("Created new message ({:?}, {:?}) {:?}", message.computed_epoch, message.computed_hash, message.data);
 
         // Finally, take ownership of the new root.
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;

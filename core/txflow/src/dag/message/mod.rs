@@ -212,6 +212,8 @@ impl<'a, P: Payload> Message<'a, P> {
                 let mut existing_witnesses: HashSet<u64> =
                     epoch_messages.messages_by_owner.keys().cloned().collect();
                 //existing_witnesses.insert(owner_uid);
+                println!("total_witnesses: {:?}; existing_witnesses: {:?}", total_witnesses,
+                existing_witnesses);
                 (total_witnesses & &existing_witnesses).len() > total_witnesses.len() * 2 / 3
             }
         }
@@ -401,6 +403,7 @@ impl<'a, P: Payload> Message<'a, P> {
         self.computed_epoch = if recompute_epoch {
             if let Some(prev_epoch) = self.prev_epoch() {
                 if self.should_promote(*prev_epoch, witness_selector) {
+                    println!("Promoting to {:?}", *prev_epoch + 1);
                     *prev_epoch + 1
                 } else {
                     *prev_epoch
