@@ -162,7 +162,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             // No replies needed to be send right now.
             (HashSet::new(), HashSet::new())
         } else {
-            let mut unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).iter().filter_map(
+            let unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).iter().filter_map(
                 |h| if self.dag_as_ref().contains_message(*h) {
                         None } else {
                         Some(*h)
@@ -187,7 +187,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                     self.future_replies.entry(message.hash).or_insert_with(HashSet::new)
                         .insert(uid);
                 }
-                self.candidates.insert(message, unknown_hashes.drain().collect());
+                self.candidates.insert(message, unknown_hashes.clone());
                 (HashSet::new(), unknown_hashes)
             }
         }

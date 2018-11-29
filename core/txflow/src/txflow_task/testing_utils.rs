@@ -193,6 +193,6 @@ mod tests {
     use super::FakeWitnessNetwork;
     #[test]
     fn two_witnesses() {
-        FakeWitnessNetwork::spawn_all(2);
+        FakeWitnessNetwork::spawn_all(3);
     }
 }
