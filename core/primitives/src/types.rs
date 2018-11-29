@@ -1,5 +1,5 @@
-use hash::{CryptoHash, hash, hash_struct};
-use signature::Signature;
+use hash::{hash, hash_struct, CryptoHash};
+use signature::{PublicKey, Signature};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
@@ -7,6 +7,8 @@ use std::hash::{Hash, Hasher};
 pub type UID = u64;
 /// Account alias. Can be an easily identifiable string, when hashed creates the AccountId.
 pub type AccountAlias = String;
+/// Public key alias. Used to human readable public key.
+pub type PublicKeyAlias = String;
 /// Account identifier. Provides access to user's state.
 pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
@@ -21,6 +23,12 @@ pub type BLSSignature = Signature;
 impl<'a> From<&'a AccountAlias> for AccountId {
     fn from(alias: &AccountAlias) -> Self {
         hash(alias.as_bytes())
+    }
+}
+
+impl<'a> From<&'a PublicKeyAlias> for PublicKey {
+    fn from(alias: &PublicKeyAlias) -> Self {
+        PublicKey::from(alias)
     }
 }
 

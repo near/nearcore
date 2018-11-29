@@ -11,17 +11,18 @@ extern crate serde_derive;
 extern crate storage;
 extern crate wasm;
 
-use beacon::authority::AuthorityChangeSet;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use kvdb::DBValue;
+use serde::{de::DeserializeOwned, Serialize};
+
+use beacon::authority::AuthorityChangeSet;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
-use primitives::types::AccountAlias;
-use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::types::{AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall, ViewCallResult};
 use primitives::utils::concat;
-use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result};
@@ -313,18 +314,18 @@ impl Runtime {
 
     pub fn apply_genesis_state(
         &self,
-        balances: &[(AccountAlias, u64)],
+        balances: &[(AccountAlias, PublicKeyAlias, u64)],
         wasm_binary: &[u8],
     ) -> MerkleHash {
         let mut state_db_update =
             storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
-        balances.iter().for_each(|(account_alias, balance)| {
+        balances.iter().for_each(|(account_alias, public_key, balance)| {
             set(
                 &mut state_db_update,
                 &account_id_to_bytes(AccountId::from(account_alias)),
                 &Account {
-                    public_keys: vec![],
+                    public_keys: vec![PublicKey::from(public_key)],
                     amount: *balance,
                     nonce: 0,
                     code: wasm_binary.to_vec(),
@@ -340,12 +341,15 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use primitives::hash::hash;
-    use primitives::types::TransactionBody;
     use std::fs;
     use std::sync::Arc;
+
+    use primitives::hash::hash;
+    use primitives::signature::get_keypair;
+    use primitives::types::TransactionBody;
     use storage::test_utils::create_state_db;
+
+    use super::*;
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -354,10 +358,15 @@ mod tests {
     }
 
     fn apply_default_genesis_state(runtime: &Runtime) -> MerkleHash {
-        let balances = vec![("alice".into(), 0), ("bob".into(), 100), ("john".into(), 0)];
+        let (public_key, _) = get_keypair();
+        let accounts = vec![
+            ("alice".into(), public_key.to_string(), 0),
+            ("bob".into(), public_key.to_string(), 100),
+            ("john".into(), public_key.to_string(), 0),
+        ];
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
-        runtime.apply_genesis_state(&balances, &wasm_binary)
+        runtime.apply_genesis_state(&accounts, &wasm_binary)
     }
 
     #[test]

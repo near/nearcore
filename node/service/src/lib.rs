@@ -9,8 +9,8 @@ extern crate parking_lot;
 extern crate primitives;
 #[macro_use]
 extern crate serde_derive;
-extern crate tokio;
 extern crate serde;
+extern crate tokio;
 
 use client::Client;
 use futures::future;

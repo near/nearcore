@@ -1,13 +1,13 @@
 use client::chain_spec::ChainSpec;
+use primitives::types::{AccountAlias, PublicKeyAlias};
 use serde_json;
 use serde_json::Error;
-use primitives::types::AccountAlias;
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
-    balances: Vec<(AccountAlias, u64)>,
-    initial_authorities: Vec<AccountAlias>,
+    accounts: Vec<(AccountAlias, PublicKeyAlias, u64)>,
+    initial_authorities: Vec<PublicKeyAlias>,
     genesis_wasm: Vec<u8>,
 }
 
@@ -26,10 +26,10 @@ pub fn get_default_chain_spec() -> Result<ChainSpec, Error> {
 #[test]
 fn test_deserialize() {
     let data = json!({
-        "balances": [["alice", 2]],
-        "initial_authorities": ["john"],
+        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 2]],
+        "initial_authorities": ["6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq"],
         "genesis_wasm": [0,1]
     });
     let spec = deserialize_chain_spec(&data.to_string()).unwrap();
-    assert_eq!(spec.initial_authorities[0], "john");
+    assert_eq!(spec.initial_authorities[0], "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq");
 }

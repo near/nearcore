@@ -15,6 +15,7 @@ use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
+use primitives::signature::PublicKey;
 use primitives::traits::{Block, GenericResult, Signer};
 use primitives::types::{BlockId, SignedTransaction, ViewCall, ViewCallResult};
 use std::sync::Arc;
@@ -49,15 +50,19 @@ impl Client {
             index_col: storage::COL_BEACON_INDEX,
         };
         let runtime = Runtime::new(state_db.clone());
-        let genesis_root = runtime.apply_genesis_state(
-            &chain_spec.balances,
-            &chain_spec.genesis_wasm,
-        );
+        let genesis_root =
+            runtime.apply_genesis_state(&chain_spec.accounts, &chain_spec.genesis_wasm);
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(chain_config, genesis, storage);
-        let authority_config =
-            AuthorityConfig { initial_authorities: vec![signer.public_key()], epoch_length: 10 };
+        let authority_config = AuthorityConfig {
+            initial_authorities: chain_spec
+                .initial_authorities
+                .iter()
+                .map(|a| PublicKey::from(a))
+                .collect(),
+            epoch_length: 10,
+        };
         let authority = Authority::new(authority_config, &beacon_chain);
 
         Client {
@@ -77,10 +82,7 @@ impl Client {
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        self.runtime.view(
-            self.beacon_chain.best_block().header().merkle_root_state,
-            view_call,
-        )
+        self.runtime.view(self.beacon_chain.best_block().header().merkle_root_state, view_call)
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {
@@ -203,6 +205,7 @@ impl network::client::Client<BeaconBlock> for Client {
 #[cfg(test)]
 mod tests {
     // test with protocol
+    use super::*;
     use network::client::Client as NetworkClient;
     use network::io::NetSyncIo;
     use network::protocol::{Protocol, ProtocolConfig, ProtocolHandler};
@@ -212,7 +215,6 @@ mod tests {
     use primitives::types::{MerkleHash, TransactionBody};
     use std::cell::RefCell;
     use std::rc::Rc;
-    use super::*;
     use test_utils::generate_test_client;
 
     #[test]
