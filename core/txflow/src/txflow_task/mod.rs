@@ -145,11 +145,14 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         -> (HashSet<UID>, HashSet<TxFlowHash>) {
         // Check one of the optimistic scenarios when we already know this message, but we still
         // reply on the request.
+        println!("{:?} Processing incoming candidate", self.owner_uid);
         if self.dag_as_ref().contains_message(message.hash) {
+            println!("{:?} Skipping because we already have it in the dag", self.owner_uid);
             if let Some(uid) = reply_to {
                 (set!{uid}, HashSet::new()) } else {
                 (HashSet::new(), HashSet::new()) }
         } else if self.candidates.contains_key(&message) {
+            println!("{:?} Skipping because we already know the candidate", self.owner_uid);
             // This message is already in the candidates, but we might still need to update required
             // replies.
             if let Some(uid) = reply_to {
@@ -164,6 +167,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                         None } else {
                         Some(*h)
                     } ).collect();
+            println!("{:?} Unknown hashes {:?}", self.owner_uid, unknown_hashes);
             if unknown_hashes.is_empty() {
                 // This candidate is passing. It might have made other candidates passing and these
                 // candidates were requesting their replies.
@@ -194,6 +198,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// * set of the UIDs to which we should send a reply;
     /// * set of hashes that can be fetched from the given message sender.
     fn process_gossip(&mut self, mut gossip: Gossip<P>) -> (HashSet<UID>, HashSet<TxFlowHash>) {
+        println!("{:?}) Received gossip {:?}", self.owner_uid, gossip);
         match gossip.body {
             GossipBody::Unsolicited(message) => self.process_incoming_candidate(message, Some(gossip.sender_uid)),
             GossipBody::UnsolicitedReply(message) => self.process_incoming_candidate(message, None),
