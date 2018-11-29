@@ -6,17 +6,6 @@ var NODE_H = 40;
 var NODE_S = 16;
 var NODE_US = 32;
 
-var PIXEL_RATIO = (function () {
-    var ctx = document.createElement("canvas").getContext("2d"),
-        dpr = window.devicePixelRatio || 1,
-        bsr = ctx.webkitBackingStorePixelRatio ||
-              ctx.mozBackingStorePixelRatio ||
-              ctx.msBackingStorePixelRatio ||
-              ctx.oBackingStorePixelRatio ||
-              ctx.backingStorePixelRatio || 1;
-    return dpr / bsr;
-})();
-
 var create_node = function(owner, parents) {
     var node = {};
     node.uid = last_node_uid;
@@ -451,6 +440,7 @@ var serialize_txflow = function(graph) {
 }
 
 var deserialize_txflow = function(s) {
+    last_node_uid = 0;
     var nodes = [];
     for (var i = 0; i < s.length; ++ i) {
         var snode = s[i];
@@ -467,5 +457,98 @@ var deserialize_txflow = function(s) {
         }
     }
     return graph;
+}
+
+var gen_rust_endorsements = function(node, num_users) {
+    var annotations = compute_annotations([node], num_users);
+    var nodes = toposort([node]);
+
+    var a_mapping = {};
+
+    for (var aidx = 0; aidx < annotations.length; ++ aidx) {
+        a_mapping[annotations[aidx].node.uid] = annotations[aidx];
+    }
+
+    var ret = [];
+
+    for (var i = 0; i < nodes.length; ++ i) {
+        var node = nodes[i];
+        var a = a_mapping[node.uid];
+
+        if (a.representative > -1) {
+            for (var e in a.endorsements) {
+                while (ret.length <= a.representative) ret.push([]);
+                ret[a.representative].push(e);
+            }
+        }
+    }
+
+    var gen_list = function(arr) {
+        arr.sort();
+        var ret = [];
+        for (var i = 0; i < arr.length; ++ i) {
+            if (i == 0 || arr[i] != arr[i - 1]) {
+                ret.push(arr[i]);
+            }
+        }
+        return ret;
+    }
+
+    return '&[' + ret.map(x => "vec![" + gen_list(x).join(', ') + "]").join(', ') + ']';
+}
+
+var gen_rust = function(graph, num_users, fn_name, comment, serialized) {
+    var annotations = compute_annotations(graph, num_users);
+    var nodes = toposort(graph);
+
+    var a_mapping = {};
+
+    for (var aidx = 0; aidx < annotations.length; ++ aidx) {
+        a_mapping[annotations[aidx].node.uid] = annotations[aidx];
+    }
+
+    var indent = "         ";
+    var var_names = [];
+    for (var i = 0; i < nodes.length; ++ i) {
+        var_names.push("v" + nodes[i].uid);
+    }
+    var s = "    #[test]\n    fn generated_" + fn_name + "() {\n" + indent + "/* " + comment + " */\n\n" + indent + "/* " + serialized + " */\n"  + indent + "let arena = Arena::new();\n" + indent + "let selector = FakeNonContinuousWitnessSelector::new(" + num_users + ");\n"
+    if (var_names.length > 1) {
+        s += indent + "let (" + var_names.join(',') + ");\n";
+    }
+    else {
+        s += indent + "let " + var_names[0] + ";\n";
+    }
+    s += indent + "let mut v = [None; " + var_names.length + "];\n";
+    var nf = function(node) {
+        var a = a_mapping[node.uid];
+        var repr = a.representative < 0 ? 'None' : `Some(${a.representative})`;
+        return `(${a.epoch}, ${repr}, ${a.kickout}, ${node.uid})`;
+    };
+    s += indent + 'let test = |v:&[_]| make_assertions(&v, &[' + nodes.map(nf).join(', ') + ']);\n';
+    for (var i = 0; i < nodes.length; ++ i) {
+        var node = nodes[i];
+        s += indent + 'simple_messages!(0, &selector, arena [';
+        if (node.parents.length > 0) {
+            var parent_names = [];
+            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
+                parent_names.push('=> v' + node.parents[parent_idx].uid + '; ');
+            }
+            s += '[' + parent_names.join('') + '] => ';
+        }
+        // use 0 for epoch, and `true` to recompute the epochs
+        s += node.owner + ', 0, true => ' + var_names[i] + ';]); v[' + i + '] = Some(' + var_names[i] + ');\n'
+        s += indent + 'test(&v);\n';
+
+        s += indent + 'test_endorsements(' + var_names[i] + ', ' + gen_rust_endorsements(node, num_users) + ', ' + num_users + ');\n';
+    }
+
+    s += "    }\n"
+    return s;
+}
+
+if (typeof module !== 'undefined') {
+    module.exports.deserialize_txflow = deserialize_txflow;
+    module.exports.gen_rust = gen_rust;
 }
 

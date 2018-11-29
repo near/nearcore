@@ -38,6 +38,17 @@ body {
 
 <script>
 
+var PIXEL_RATIO = (function () {
+    var ctx = document.createElement("canvas").getContext("2d"),
+        dpr = window.devicePixelRatio || 1,
+        bsr = ctx.webkitBackingStorePixelRatio ||
+              ctx.mozBackingStorePixelRatio ||
+              ctx.msBackingStorePixelRatio ||
+              ctx.oBackingStorePixelRatio ||
+              ctx.backingStorePixelRatio || 1;
+    return dpr / bsr;
+})();
+
 var names = ['Alice', 'Bob', 'Carol', 'Dave', 'Elaine', 'Frank', 'George', 'Hans', 'Irene', 'Jason', 'Kate', 'Lance', 'Matthew', 'Nancy', 'Oliver', 'Peter', 'QQ', 'Ralph', 'Sarah', 'Tim', 'Usman', 'Victor', 'Whitney', 'Xavier', 'Yasmine', 'Zach'];
 var num_users = 4;
 var graph = [];
@@ -180,7 +191,6 @@ var serialize = function() {
 }
 
 var deserialize = function() {
-    last_node_uid = 0;
     var s = JSON.parse(document.getElementById('serializer').value);
     console.log(s);
     graph = deserialize_txflow(s.s);
@@ -190,55 +200,8 @@ var deserialize = function() {
     refresh();
 }
 
-var gen_rust = function() {
-    var annotations = compute_annotations(graph, num_users);
-
-    var a_mapping = {};
-
-    for (var aidx = 0; aidx < annotations.length; ++ aidx) {
-        a_mapping[annotations[aidx].node.uid] = annotations[aidx];
-    }
-
-    var indent = "         ";
-    var var_names = [];
-    for (var i = 0; i < nodes.length; ++ i) {
-        var_names.push("v" + nodes[i].uid);
-    }
-    var s = "    #[test]\n    fn generated_" + document.getElementById('rust_fn_name').value + "() {\n" + indent + "/* " + document.getElementById('comment').value + " */\n\n" + indent + "/* " + document.getElementById('serializer').value + " */\n"  + indent + "let arena = Arena::new();\n" + indent + "let selector = FakeNonContinuousWitnessSelector::new(" + num_users + ");\n"
-    if (var_names.length > 1) {
-        s += indent + "let (" + var_names.join(',') + ");\n";
-    }
-    else {
-        s += indent + "let " + var_names[0] + ";\n";
-    }
-    s += indent + "let mut v = [None; " + var_names.length + "];\n";
-    var nf = function(node) {
-        var a = a_mapping[node.uid];
-        var repr = a.representative < 0 ? 'None' : `Some(${a.representative})`;
-        return `(${a.epoch}, ${repr}, ${a.kickout}, ${node.uid})`;
-    };
-    s += indent + 'let test = |v:&[_]| make_assertions(&v, &[' + nodes.map(nf).join(', ') + ']);\n';
-    for (var i = 0; i < nodes.length; ++ i) {
-        var node = nodes[i];
-        s += indent + 'simple_messages!(0, &selector, arena [';
-        if (node.parents.length > 0) {
-            var parent_names = [];
-            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
-                parent_names.push('=> v' + node.parents[parent_idx].uid + '; ');
-            }
-            s += '[' + parent_names.join('') + '] => ';
-        }
-        // use 0 for epoch, and `true` to recompute the epochs
-        s += node.owner + ', 0, true => ' + var_names[i] + ';]); v[' + i + '] = Some(' + var_names[i] + ');\n'
-        s += indent + 'test(&v);\n';
-    }
-
-    s += "    }\n"
-    return s;
-}
-
 var show_rust = function() {
-    var s = gen_rust();
+    var s = gen_rust(graph, num_users, document.getElementById('rust_fn_name').value, document.getElementById('comment').value, document.getElementById('serializer').value);
     var txt = document.createElement('textarea');
 
     txt.style.position = 'fixed';
