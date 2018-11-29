@@ -375,6 +375,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     }
 }
 
+#[cfg(test)]
 mod testing_utils;
 
 #[cfg(test)]
