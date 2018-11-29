@@ -71,7 +71,7 @@ $ ./scripts/rpc.py --help
 $ ./scripts/rpc.py send_money --help
 
 # Send money
-$ ./scripts/rpc.py send_money -rec bob -amt 1
+$ ./scripts/rpc.py send_money -r bob -a 1
 
 # Deploy a smart contract
 ./scripts/rpc.py deploy test_contract core/wasm/runtest/res/wasm_with_mem.wasm
@@ -80,7 +80,7 @@ $ ./scripts/rpc.py send_money -rec bob -amt 1
 ./scripts/rpc.py call_method test_contract run_test
 
 # View state for Bob's account
-./scripts/rpc.py view bob
+./scripts/rpc.py view -a bob
 ```
 
 ## Development

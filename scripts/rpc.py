@@ -12,12 +12,12 @@ except ImportError:
     import json as json_lib
 
 
-    def post(url, json):
+    def _post(url, json):
         """This is alternative to requests.post"""
         handler = urllib2.HTTPHandler()
         opener = urllib2.build_opener(handler)
         request = urllib2.Request(url, data=json_lib.dumps(json))
-        request.add_header("Content-Type", "application/json")
+        request.add_header('Content-Type', 'application/json')
         try:
             connection = opener.open(request)
         except urllib2.HTTPError as e:
@@ -26,75 +26,139 @@ except ImportError:
             data = connection.read()
             return json_lib.loads(data)
         else:
-            return {"error": connection}
+            return {'error': connection}
 else:
     import requests
 
 
-    def post(url, json):
-        return requests.post(url, json=json).json()
+    def _post(url, json):
+        response = requests.post(url, json=json).json()
+        if 'error' in response:
+            raise Exception(response)
+        return response
+
+alphabet = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
 
-def near_hash(s):
-    digest = hashlib.sha256(s.encode('utf-8')).digest()
-    return list(bytearray(digest))
+def b58encode_int(i, default_one=True):
+    """Encode an integer using Base58"""
+    if not i and default_one:
+        return alphabet[0:1]
+
+    string = b''
+    while i:
+        i, idx = divmod(i, 58)
+        string = alphabet[idx:idx + 1] + string
+    return string
+
+
+def b58encode(v):
+    """Encode a string using Base58"""
+    pad_size = len(v)
+    v = v.lstrip(b'\0')
+    pad_size -= len(v)
+
+    p, acc = 1, 0
+    for c in reversed(list(bytearray(v))):
+        acc += p * c
+        p = p << 8
+
+    result = b58encode_int(acc, default_one=False)
+
+    return alphabet[0:1] * pad_size + result
+
+
+def _get_account_id(account_alias):
+    digest = hashlib.sha256(account_alias.encode('utf-8')).digest()
+    return b58encode(digest)
 
 
 class NearRPC(object):
     def __init__(self, server_url):
         self.server_url = server_url
-        self.nonce = None
+        self._nonces = {}
 
-    def view(self, account_id):
+    def _get_nonce(self, sender):
+        if sender not in self._nonces:
+            view_result = self.view_account(sender)
+            self._nonces[sender] = view_result['result'].get('nonce', 0) + 1
+
+        return self._nonces[sender]
+
+    def _update_nonce(self, sender):
+        self._nonces[sender] += 1
+
+    def _call_rpc(self, method_name, params):
         data = {
-            "jsonrpc": "2.0", "id": 1, "method": "view",
-            "params": [{"account": near_hash(account_id), "method_name": "", "args": []}]
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': method_name,
+            'params': [params],
         }
-        return post(self.server_url, json=data)
+        return _post(self.server_url, data)
 
-    def _send_transaction(self, sender, receiver, amount, method_name, args):
-        if self.nonce is None:
-            view_result = self.view(sender)
-            self.nonce = view_result['result'].get('nonce', 0) + 1
+    def deploy_contract(self, sender, contract_name, wasm_file):
+        with open(wasm_file, 'rb') as f:
+            wasm_byte_array = list(bytearray(f.read()))
 
-        data = {
-            "jsonrpc": "2.0", "id": 1, "method": "receive_transaction",
-            "params": [
-                {
-                    "nonce": self.nonce,
-                    "sender": near_hash(sender),
-                    "receiver": near_hash(receiver),
-                    "amount": amount,
-                    "method_name": method_name,
-                    "args": args
-                }
-            ]
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'sender_account_id': _get_account_id(sender),
+            'contract_account_id': _get_account_id(contract_name),
+            'wasm_byte_array': wasm_byte_array,
         }
-        self.nonce += 1
-        return post(self.server_url, json=data)
+        self._update_nonce(sender)
+        return self._call_rpc('deploy_contract', params)
 
     def send_money(self, sender, receiver, amount):
-        return self._send_transaction(sender, receiver, amount, '', [])
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'sender_account_id': _get_account_id(sender),
+            'receiver_account_id': _get_account_id(receiver),
+            'amount': amount,
+        }
+        self._update_nonce(sender)
+        return self._call_rpc('send_money', params)
 
-    def call_function(self, contract_name, method_name, args):
-        return self._send_transaction(
-            contract_name,
-            contract_name,
-            0,
-            method_name,
-            args,
-        )
+    def schedule_function_call(
+        self,
+        sender,
+        contract_name,
+        method_name,
+        args=None,
+    ):
+        if args is None:
+            args = [[]]
 
-    def deploy_contract(self, contract_name, wasm_file):
-        with open(wasm_file, 'rb') as f:
-            content = list(bytearray(f.read()))
-        return self._send_transaction(
-            contract_name,
-            contract_name,
-            0,
-            'deploy',
-            [content],
-        )
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'sender_account_id': _get_account_id(sender),
+            'contract_account_id': _get_account_id(contract_name),
+            'method_name': method_name,
+            'args': args,
+        }
+        self._update_nonce(sender)
+        return self._call_rpc('schedule_function_call', params)
+
+    def view_account(self, account_alias):
+        params = {
+            'account_id': _get_account_id(account_alias),
+        }
+        return self._call_rpc('view_account', params)
+
+    def call_view_function(self, contract_name, function_name, args=None):
+        if args is None:
+            args = [[]]
+
+        params = {
+            'contract_account_id': _get_account_id(contract_name),
+            'method_name': function_name,
+            'args': args,
+        }
+        return self._call_rpc('call_view_function', params)
 
 
 class MultiCommandParser(object):
@@ -103,15 +167,17 @@ class MultiCommandParser(object):
             usage="""python rpc.py <command> [<args>]
 
 Commands:
-call_method     {}
-deploy          {}
-send_money      {}
-view            {}
+call_view_function       {}
+deploy                   {}
+send_money               {}
+schedule_function_call   {}
+view_account             {}
             """.format(
-                self.call_method.__doc__,
+                self.call_view_function.__doc__,
                 self.deploy.__doc__,
                 self.send_money.__doc__,
-                self.view.__doc__,
+                self.schedule_function_call.__doc__,
+                self.view_account.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -126,7 +192,7 @@ view            {}
             print(getattr(self, args.command)())
 
     @staticmethod
-    def _get_command_parser(description):
+    def _get_command_parser(description, include_sender=True):
         parser = argparse.ArgumentParser(
             description=description,
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -138,6 +204,15 @@ view            {}
             default='http://127.0.0.1:3030',
             help='url of RPC server',
         )
+        if include_sender:
+            parser.add_argument(
+                '-s',
+                '--sender',
+                type=str,
+                default='alice',
+                help='account alias of sender',
+            )
+
         return parser
 
     @staticmethod
@@ -153,13 +228,6 @@ view            {}
     def send_money(self):
         """Send money from one account to another"""
         parser = self._get_command_parser(self.send_money.__doc__)
-        parser.add_argument(
-            '-s',
-            '--sender',
-            type=str,
-            default='alice',
-            help='account alias of issuer',
-        )
         parser.add_argument(
             '-r',
             '--receiver',
@@ -186,26 +254,39 @@ view            {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.deploy_contract(
+            args.sender,
             args.contract_name,
             args.wasm_file_location,
         )
 
-    def call_method(self):
-        """Call a method on a smart contract"""
-        parser = self._get_command_parser(self.call_method.__doc__)
+    def schedule_function_call(self):
+        """Schedule a function call on a smart contract"""
+        parser = self._get_command_parser(self.schedule_function_call.__doc__)
         parser.add_argument('contract_name', type=str)
-        parser.add_argument('method_name', type=str)
+        parser.add_argument('function_name', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
-        return client.call_function(
+        return client.schedule_function_call(
+            args.sender,
             args.contract_name,
-            args.method_name,
-            args=[],
+            args.function_name,
         )
 
-    def view(self):
+    def call_view_function(self):
+        """Call a view function on a smart contract"""
+        parser = self._get_command_parser(self.call_view_function.__doc__)
+        parser.add_argument('contract_name', type=str)
+        parser.add_argument('function_name', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.call_view_function(
+            args.contract_name,
+            args.function_name,
+        )
+
+    def view_account(self):
         """View an account"""
-        parser = self._get_command_parser(self.view.__doc__)
+        parser = self._get_command_parser(self.view_account.__doc__, include_sender=False)
         parser.add_argument(
             '-a',
             '--account',
@@ -215,7 +296,7 @@ view            {}
         )
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
-        return client.view(args.account)
+        return client.view_account(args.account)
 
 
 if __name__ == "__main__":
