@@ -2,10 +2,12 @@ use super::TxFlowTask;
 
 use futures::{Async, Future, Poll, Sink, Stream};
 use futures::future::{join_all, lazy};
+use futures::future;
 use futures::sync::mpsc;
 use rand;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
+use chrono::{DateTime, Utc};
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::{Gossip, GossipBody, UID};
@@ -83,40 +85,22 @@ impl Payload for FakePayload {
 struct FakeWitnessNetwork {
     /// Channels used to send gossips to the TxFlow tasks.
     input_gossip_channels: Vec<mpsc::Sender<Gossip<FakePayload>>>,
-    /// Channels used to send payload to the TxFlow tasks.
-    input_payload_channels: Vec<mpsc::Sender<FakePayload>>,
-    output_gossip_channels: Vec<mpsc::Receiver<Gossip<FakePayload>>>,
-    closed_outputs: HashSet<UID>,
+    /// Channel used to send payload to the TxFlow task.
+    output_gossip_channel: mpsc::Receiver<Gossip<FakePayload>>,
+    track: bool,
     recent_epochs: HashMap<UID, u64>,
     prev_max_epoch: u64,
     prev_min_epoch: u64,
     prev_avg_epoch: u64,
-    since_last_update: u64,
 }
 
 impl FakeWitnessNetwork {
-    /// The initial payload that kicks off the TxFlow gossips.
-    fn kickoff_payloads(&mut self) -> impl Future<Item=(), Error=()> {
-        let mut fs = vec![];
-        for c in &self.input_payload_channels {
-            let mut payload = FakePayload::new();
-            payload.set_content(1);
-            fs.push(c.clone().send(payload)
-                .map(|_| println!("Sending payload"))
-                .map_err(|e| println!("Payload sending error {:?}", e))
-            );
-        }
-
-        join_all(fs).map(|_|()).map_err(|e| println!("Payloads sending error {:?}", e))
-    }
-
     pub fn spawn_all(num_witnesses: u64) {
         let starting_epoch = 0;
-//        let sample_size = (num_witnesses as f64)
-//            .sqrt()
-//            .min(1.0 as f64)
-//            .max(num_witnesses as f64 - 1.0) as usize;
-        let sample_size = 2usize;
+        let sample_size = (num_witnesses as f64)
+            .sqrt()
+            .max(1.0 as f64)
+            .min(num_witnesses as f64 - 1.0) as usize;
 
         tokio::run(lazy(move || {
             let mut inc_gossip_tx_vec = vec![];
@@ -141,81 +125,63 @@ impl FakeWitnessNetwork {
                 tokio::spawn(task.for_each(|_| Ok(())));
             }
 
-            let mut net = FakeWitnessNetwork {
-                input_gossip_channels: inc_gossip_tx_vec,
-                input_payload_channels: inc_payload_tx_vec,
-                output_gossip_channels: out_gossip_rx_vec,
-                closed_outputs: HashSet::new(),
-                recent_epochs: HashMap::new(),
-                prev_max_epoch: 0,
-                prev_min_epoch: 0,
-                prev_avg_epoch: 0,
-                since_last_update: 0,
-            };
-
-            // Spawn the kickoff messages.
-            tokio::spawn(net.kickoff_payloads());
-
-            // Spawn the network itself.
-            tokio::spawn(net.for_each(|_| Ok(())));
-
-            Ok(())
-        }));
-    }
-}
-
-impl Stream for FakeWitnessNetwork {
-    type Item = ();
-    type Error = ();
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let mut new_closed_outputs = HashSet::new();
-        for (ind, c) in (&mut self.output_gossip_channels).into_iter().enumerate() {
-            match c.poll() {
-               Ok(Async::Ready(None)) => {
-                   new_closed_outputs.insert(ind as UID);
-
-               },
-                Ok(Async::NotReady) => {},
-                Err(e) => {println!("Error receiving gossip output {:?}", e)}
-                Ok(Async::Ready(Some(gossip))) => {
+            let mut tracker_added = false;
+            for out_gossip_rx in out_gossip_rx_vec.drain(..) {
+                // Spawn the network itself.
+                let inc_gossip_tx_vec_cloned = inc_gossip_tx_vec.clone();
+                let f = out_gossip_rx.map(move |gossip| {
                     let receiver_uid = gossip.receiver_uid;
-                    let gossip_input = self.input_gossip_channels[receiver_uid as usize].clone();
-                    //println!("Sending gossip {:?}", gossip);
-                    //std::thread::sleep(Duration::from_millis(rand::random::<u64>() % 300));
-                    if let GossipBody::Unsolicited(message) = &gossip.body {
-                        let owner_uid = message.body.owner_uid;
-                        let epoch = message.body.epoch;
-                        self.recent_epochs.entry(owner_uid).or_insert_with(|| 0);
-                        if self.recent_epochs.get(&owner_uid).unwrap() < &epoch {
-                           self.recent_epochs.insert(owner_uid, epoch);
-                        }
-                        let prev_min_epoch = *self.recent_epochs.values().min().unwrap();
-                        let prev_max_epoch = *self.recent_epochs.values().max().unwrap();
-                        let prev_avg_epoch = (self.recent_epochs.values().sum::<u64>() as u64)/(self.recent_epochs.len() as u64);
-                        if prev_max_epoch != self.prev_max_epoch {
-                            self.since_last_update = 0;
-                            println!("[{:?}-{:?}-{:?}]", prev_min_epoch, prev_avg_epoch, prev_max_epoch);
-                        } else {
-                            self.since_last_update += 1;
-                        }
-                        self.prev_min_epoch = prev_min_epoch;
-                        self.prev_max_epoch = prev_max_epoch;
-                        self.prev_avg_epoch = prev_avg_epoch;
-                    }
+                    let epoch = if let GossipBody::Unsolicited(message) = &gossip.body {
+                        Some(message.body.epoch)
+                    } else {
+                        None
+                    };
+                    let gossip_input = inc_gossip_tx_vec_cloned[receiver_uid as usize].clone();
                     tokio::spawn(gossip_input.send(gossip)
                         .map(|_| ())
                         .map_err(|e| println!("Error relaying gossip {:?}", e)));
-                    return Ok(Async::Ready(Some(())));
+                    epoch
+                });
+                if tracker_added {
+                    tokio::spawn(f.for_each(|_| Ok(())));
+                } else {
+                    tokio::spawn(f.fold((0, 0), | (min_epoch, max_epoch), _epoch | {
+                        if let Some(epoch) = _epoch {
+                            let mut max_epoch = max_epoch;
+                            let mut min_epoch = min_epoch;
+                            if epoch > max_epoch {
+                                max_epoch = epoch;
+                                println!("{} [{:?}, {:?}]",
+                                         Utc::now().format("%H:%M:%S"),
+                                         min_epoch, max_epoch);
+                            }
+                            if epoch < min_epoch {
+                                min_epoch = epoch;
+                            }
+                            future::ok((min_epoch, max_epoch))
+                        } else {
+                            future::ok((min_epoch, max_epoch))
+                        }
+                    }).map(|_| ())
+                    );
                 }
+                tracker_added = true;
             }
-        }
 
-        self.closed_outputs.extend(new_closed_outputs.drain());
-        if self.closed_outputs.len() == self.output_gossip_channels.len() {
-            return Ok(Async::Ready(None));
-        }
-        Ok(Async::NotReady)
+            // Send kick-off payloads.
+            let mut fs = vec![];
+            for c in &inc_payload_tx_vec {
+                let mut payload = FakePayload::new();
+                payload.set_content(1);
+                fs.push(c.clone().send(payload)
+                    .map(|_| println!("Sending payload"))
+                    .map_err(|e| println!("Payload sending error {:?}", e))
+                );
+            }
+
+            tokio::spawn(join_all(fs).map(|_|()).map_err(|e| println!("Payloads sending error {:?}", e)));
+            Ok(())
+        }));
     }
 }
 
@@ -224,6 +190,6 @@ mod tests {
     use super::FakeWitnessNetwork;
     #[test]
     fn two_witnesses() {
-        FakeWitnessNetwork::spawn_all(10);
+        FakeWitnessNetwork::spawn_all(5);
     }
 }
