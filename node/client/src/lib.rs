@@ -5,10 +5,11 @@ extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate storage;
+extern crate chain as blockchain;
 
 use beacon::authority::{Authority, AuthorityConfig};
-use beacon::chain::{BlockChain, ChainConfig};
 use beacon::types::{AuthorityProposal, BeaconBlock};
+use blockchain::{BlockChain, ChainConfig};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};

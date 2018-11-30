@@ -1,3 +1,8 @@
+extern crate parking_lot;
+
+extern crate primitives;
+extern crate storage;
+
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, Header};
@@ -226,13 +231,15 @@ impl<B: Block> BlockChain<B> {
 
 #[cfg(test)]
 mod tests {
+    extern crate beacon;
+
     use super::*;
 
     use primitives::traits::Header;
     use primitives::types::MerkleHash;
     use std::sync::Arc;
     use storage::test_utils::create_memory_db;
-    use types::BeaconBlock;
+    use tests::beacon::types::BeaconBlock;
 
     #[test]
     fn test_genesis() {
