@@ -1,6 +1,8 @@
+<meta charset="UTF-8">
 <html>
 <head>
 <script src=txflow.js></script>
+<script src=utils.js></script>
 <style>
 body {
     font-family: Helvetica;
@@ -14,7 +16,14 @@ body {
 <div id='buttons' style='z-index: 5; position: absolute; left: 0px; top: 0px'></div>
 <canvas id='here' style='position: absolute; top: 60px;'></canvas>
 <div id='serializer_holder' style='position: fixed; top: 60px;'>
-<button onclick='delete_node()'>Delete Node</button> <button onclick='if (num_users < 26) num_users ++; refresh(); serialize();'>Add User</button> <button onclick='if (num_users > 1) num_users --; refresh(); serialize();'>Remove User</button><br><br>
+<button onclick='delete_node()'>Delete Node</button> <a href='#' onclick='z = document.getElementById("more_actions").style; z.display = (z.display == "") ? "none" : "";'>More actions</a>
+<div id='more_actions' style='display: none; text-align: center'>
+    <br>
+    <button style="width: 200px" onclick='if (num_users < 26) num_users ++; refresh(); serialize();'>Add User</button><br>
+    <button style="width: 200px" onclick='if (num_users > 1) num_users --; refresh(); serialize();'>Remove User</button><br>
+    <button style="width: 200px" onclick='stress_epoch_blocks(nodes, num_users)'>Stress Epoch Blocks</button><br>
+    <input id='random_graph_num_malicious' style='width:75px' placeholder='Malicious'><input id='random_graph_num_nodes' style='width: 75px' placeholder='Nodes'><button style="width: 50px" onclick='generate_random_graph(num_users, parseInt(document.getElementById("random_graph_num_malicious").value), parseInt(document.getElementById("random_graph_num_nodes").value))'>rnd</button><br>
+</div><br><br>
 <b>Comment:</b><br>
 <textarea id='comment' rows=8 cols=40 onkeyup='serialize()'></textarea><br>
 <b>Serialized:</b><br>
@@ -28,6 +37,17 @@ body {
 </body>
 
 <script>
+
+var PIXEL_RATIO = (function () {
+    var ctx = document.createElement("canvas").getContext("2d"),
+        dpr = window.devicePixelRatio || 1,
+        bsr = ctx.webkitBackingStorePixelRatio ||
+              ctx.mozBackingStorePixelRatio ||
+              ctx.msBackingStorePixelRatio ||
+              ctx.oBackingStorePixelRatio ||
+              ctx.backingStorePixelRatio || 1;
+    return dpr / bsr;
+})();
 
 var names = ['Alice', 'Bob', 'Carol', 'Dave', 'Elaine', 'Frank', 'George', 'Hans', 'Irene', 'Jason', 'Kate', 'Lance', 'Matthew', 'Nancy', 'Oliver', 'Peter', 'QQ', 'Ralph', 'Sarah', 'Tim', 'Usman', 'Victor', 'Whitney', 'Xavier', 'Yasmine', 'Zach'];
 var num_users = 4;
@@ -106,10 +126,10 @@ var refresh = function() {
         var node = annotation.node;
         var a = document.createElement('div');
         a.style.position = 'absolute';
-        a.style.left = node.coords.l + 'px';
-        a.style.top = node.coords.t + 'px';
-        a.style.width = node.coords.w + 'px';
-        a.style.height = node.coords.h + 'px';
+        a.style.left = node.coords.l + 1 + 'px';
+        a.style.top = node.coords.t + 1 + 'px';
+        a.style.width = node.coords.w - 1 + 'px';
+        a.style.height = node.coords.h - 1 + 'px';
 
         var flags = "";
         if (annotation.representative >= 0) {
@@ -122,8 +142,9 @@ var refresh = function() {
             }
             flags += ")</small> ";
         }
+        if (annotation.epoch_block) a.style.backgroundColor = '#D0FFD0';
         if (annotation.kickout) flags += "<b>K</b>";
-        a.innerHTML = '<small>(v' + node.uid + ')</small> <u>' + names[node.owner] + '</u><br>Epoch: ' + annotation.epoch + "<br>" + flags;
+        a.innerHTML = '<small>(v' + node.uid + ')</small> <u>' + names[node.owner] + '</u><br>E: ' + annotation.epoch + " / K: " + annotation.largest_kickout_promise + "<br>" + flags;
 
         annot.appendChild(a);
     }
@@ -170,7 +191,6 @@ var serialize = function() {
 }
 
 var deserialize = function() {
-    last_node_uid = 0;
     var s = JSON.parse(document.getElementById('serializer').value);
     console.log(s);
     graph = deserialize_txflow(s.s);
@@ -180,57 +200,8 @@ var deserialize = function() {
     refresh();
 }
 
-var gen_rust = function() {
-    var annotations = compute_annotations(graph, num_users);
-
-    var a_mapping = {};
-
-    for (var aidx = 0; aidx < annotations.length; ++ aidx) {
-        a_mapping[annotations[aidx].node.uid] = annotations[aidx];
-    }
-
-    var indent = "         ";
-    var var_names = [];
-    for (var i = 0; i < nodes.length; ++ i) {
-        var_names.push("v" + nodes[i].uid);
-    }
-    var s = "    #[test]\n    fn generated_" + document.getElementById('rust_fn_name').value + "() {\n" + indent + "/* " + document.getElementById('comment').value + " */\n\n" + indent + "/* " + document.getElementById('serializer').value + " */\n"  + indent + "let arena = Arena::new();\n" + indent + "let selector = FakeNonContinuousWitnessSelector::new(" + num_users + ");\n"
-    if (var_names.length > 1) {
-        s += indent + "let (" + var_names.join(',') + ");\n";
-    }
-    else {
-        s += indent + "let " + var_names[0] + ";\n";
-    }
-    for (var i = 0; i < nodes.length; ++ i) {
-        var node = nodes[i];
-        s += indent + 'simple_messages!(0, &selector, arena [';
-        if (node.parents.length > 0) {
-            var parent_names = [];
-            for (var parent_idx = 0; parent_idx < node.parents.length; ++ parent_idx) {
-                parent_names.push('=> v' + node.parents[parent_idx].uid + '; ');
-            }
-            s += '[' + parent_names.join('') + '] => ';
-        }
-        // use 0 for epoch, and `true` to recompute the epochs
-        s += node.owner + ', 0, true => ' + var_names[i] + ';]);\n'
-    }
-
-    s += '\n';
-
-    for (var i = 0; i < nodes.length; ++ i) {
-        var node = nodes[i];
-        var a = a_mapping[node.uid];
-        s += indent + 'assert_eq!(' + var_names[i] + '.computed_epoch, ' + a.epoch + ');\n';
-        s += indent + 'assert_eq!(' + var_names[i] + '.computed_is_representative, ' + (a.representative >= 0 ? 'true' : 'false') + ');\n';
-        s += indent + 'assert_eq!(' + var_names[i] + '.computed_is_kickout, ' + (a.kickout ? 'true' : 'false') + ');\n';
-    }
-
-    s += "    }\n"
-    return s;
-}
-
 var show_rust = function() {
-    var s = gen_rust();
+    var s = gen_rust(graph, num_users, document.getElementById('rust_fn_name').value, document.getElementById('comment').value, document.getElementById('serializer').value);
     var txt = document.createElement('textarea');
 
     txt.style.position = 'fixed';

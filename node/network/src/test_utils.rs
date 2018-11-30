@@ -1,21 +1,25 @@
 #![allow(unused)]
 
-use libp2p::{secio, Multiaddr};
-use substrate_network_libp2p::{NetworkConfiguration, PeerId, Secret};
-
-use client::Client;
+use client::{chain::Chain, Client};
 use error::Error;
+use futures::{future, Future};
+use futures::stream::Stream;
+use libp2p::{Multiaddr, secio};
 use message::{Message, MessageBody};
 use primitives::hash::CryptoHash;
-use primitives::traits::Block;
-use primitives::traits::GenericResult;
-use primitives::traits::Header;
+use primitives::traits::{Block, GenericResult, Header};
 use primitives::types;
-use protocol::ProtocolHandler;
-use protocol::{ProtocolConfig, Transaction};
+use protocol::{CURRENT_VERSION, ProtocolConfig, ProtocolHandler};
 use rand::Rng;
 use service::Service;
+use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
+use substrate_network_libp2p::{
+    NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol,
+    Secret, Service as NetworkService, start_service,
+};
+use tokio::timer::Interval;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -61,8 +65,8 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<types::SignedTransaction, MockBlock, MockBlock> {
-    let tx = types::SignedTransaction::new(0, types::TransactionBody::new(0, 0, 0, 0));
+pub fn fake_tx_message() -> Message<MockBlock, MockBlockHeader> {
+    let tx = types::SignedTransaction::empty();
     Message::new(MessageBody::Transaction(tx))
 }
 
@@ -78,16 +82,14 @@ pub fn init_logger(debug: bool) {
 #[derive(Default, Clone, Copy)]
 pub struct MockProtocolHandler {}
 
-impl ProtocolHandler<types::SignedTransaction> for MockProtocolHandler {
+impl ProtocolHandler for MockProtocolHandler {
     fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
         println!("{:?}", t);
         Ok(())
     }
 }
 
-pub fn create_test_services(
-    num_services: u32,
-) -> Vec<Service<MockBlock, types::SignedTransaction, MockProtocolHandler>> {
+pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
     let base_address = "/ip4/127.0.0.1/tcp/".to_string();
     let base_port = rand::thread_rng().gen_range(30000, 60000);
     let mut addresses = Vec::new();
@@ -102,25 +104,30 @@ pub fn create_test_services(
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
     let handler = MockProtocolHandler::default();
     let mock_client = Arc::new(MockClient::default());
-    let root_service = Service::new(
-        ProtocolConfig::default(),
-        root_config,
-        handler,
-        mock_client.clone(),
-    ).unwrap();
+    let root_service =
+        Service::new(ProtocolConfig::default(), root_config, handler, mock_client.clone()).unwrap();
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
     let mut services = vec![root_service];
     for i in 1..num_services {
         let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-        let service = Service::new(
-            ProtocolConfig::default(),
-            config,
-            handler,
-            mock_client.clone(),
-        ).unwrap();
+        let service =
+            Service::new(ProtocolConfig::default(), config, handler, mock_client.clone()).unwrap();
         services.push(service);
     }
     services
+}
+
+pub fn default_network_service() -> NetworkService {
+    let net_config = NetworkConfiguration::default();
+    let version = [CURRENT_VERSION as u8];
+    let registered = RegisteredProtocol::new(ProtocolId::default(), &version);
+    start_service(net_config, Some(registered)).unwrap()
+}
+
+pub fn get_noop_network_task() -> impl Future<Item=(), Error=()> {
+    Interval::new_interval(Duration::from_secs(1))
+        .for_each(|_| Ok(()))
+        .then(|_| Ok(()))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -166,7 +173,17 @@ pub struct MockClient {
     pub block: MockBlock,
 }
 
-impl Client<MockBlock, types::SignedTransaction> for MockClient {
+pub struct MockHandler {
+    pub client: Arc<Client>,
+}
+
+impl ProtocolHandler for MockHandler {
+    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
+        self.client.handle_signed_transaction(t)
+    }
+}
+
+impl Chain<MockBlock> for MockClient {
     fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
         Some(self.block.clone())
     }

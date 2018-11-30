@@ -1,12 +1,15 @@
-use hash::{hash_struct, CryptoHash};
+use hash::{CryptoHash, hash, hash_struct};
+use signature::Signature;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::collections::HashSet;
 
-/// User identifier. Currently derived from the user's public key.
+/// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
+/// Account alias. Can be an easily identifiable string, when hashed creates the AccountId.
+pub type AccountAlias = String;
 /// Account identifier. Provides access to user's state.
-pub type AccountId = u64;
+pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
@@ -14,9 +17,13 @@ pub type StructSignature = u128;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
-pub type BLSSignature = u128;
-/// Database record type.
-pub type DBValue = Vec<u8>;
+pub type BLSSignature = Signature;
+
+impl<'a> From<&'a AccountAlias> for AccountId {
+    fn from(alias: &AccountAlias) -> Self {
+        hash(alias.as_bytes())
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockId {
@@ -30,13 +37,26 @@ pub enum BlockId {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ViewCall {
     pub account: AccountId,
+    pub method_name: String,
+    pub args: Vec<Vec<u8>>,
+}
+
+impl ViewCall {
+    pub fn balance(account: AccountId) -> Self {
+        ViewCall { account, method_name: String::new(), args: vec![] }
+    }
+    pub fn func_call(account: AccountId, method_name: String, args: Vec<Vec<u8>>) -> Self {
+        ViewCall { account, method_name, args }
+    }
 }
 
 /// Result of view call.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ViewCallResult {
     pub account: AccountId,
+    pub nonce: u64,
     pub amount: u64,
+    pub result: Vec<u8>,
 }
 
 /// TODO: Call non-view function in the contracts.
@@ -46,22 +66,20 @@ pub struct TransactionBody {
     pub sender: AccountId,
     pub receiver: AccountId,
     pub amount: u64,
+    pub method_name: String,
+    pub args: Vec<Vec<u8>>,
 }
 
 impl TransactionBody {
-    pub fn new(nonce: u64, sender: AccountId, receiver: AccountId, amount: u64) -> TransactionBody {
-        TransactionBody {
-            nonce,
-            sender,
-            receiver,
-            amount,
-        }
-    }
-}
-
-impl Default for TransactionBody {
-    fn default() -> Self {
-        TransactionBody::new(0, 0, 0, 0)
+    pub fn new(
+        nonce: u64,
+        sender: AccountId,
+        receiver: AccountId,
+        amount: u64,
+        method_name: String,
+        args: Vec<Vec<u8>>,
+    ) -> Self {
+        TransactionBody { nonce, sender, receiver, amount, method_name, args }
     }
 }
 
@@ -74,17 +92,20 @@ pub struct SignedTransaction {
 
 impl SignedTransaction {
     pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
-        SignedTransaction {
-            sender_sig,
-            hash: hash_struct(&body),
-            body,
-        }
+        SignedTransaction { sender_sig, hash: hash_struct(&body), body }
     }
-}
 
-impl Default for SignedTransaction {
-    fn default() -> Self {
-        SignedTransaction::new(0, TransactionBody::default())
+    // this is for tests
+    pub fn empty() -> SignedTransaction {
+        let body = TransactionBody {
+            nonce: 0,
+            sender: AccountId::default(),
+            receiver: AccountId::default(),
+            amount: 1,
+            method_name: String::new(),
+            args: vec![],
+        };
+        SignedTransaction { sender_sig: StructSignature::default(), hash: hash_struct(&body), body }
     }
 }
 

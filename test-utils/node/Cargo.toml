@@ -17,8 +17,10 @@ serde_derive = "1.0"
 serde_json = "1.0"
 tokio = "0.1"
 
+beacon = { path = "../../core/beacon" }
+node-cli = { path = "../../node/cli" }
 network = { path = "../../node/network", features = ["test-utils"] }
 primitives = { path = "../../core/primitives" }
-storage = { path = "../../core/storage" }
+storage = { path = "../../core/storage", features = ["test-utils"] }
 client = { path = "../../node/client" }
 service = { path = "../../node/service" }

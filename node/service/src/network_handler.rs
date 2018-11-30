@@ -8,7 +8,7 @@ pub struct NetworkHandler {
     pub client: Arc<Client>,
 }
 
-impl ProtocolHandler<SignedTransaction> for NetworkHandler {
+impl ProtocolHandler for NetworkHandler {
     fn handle_transaction(&self, t: SignedTransaction) -> GenericResult {
         self.client.handle_signed_transaction(t)
     }

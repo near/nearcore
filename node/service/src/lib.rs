@@ -1,46 +1,73 @@
 extern crate client;
+extern crate env_logger;
 extern crate futures;
 extern crate jsonrpc_core;
+extern crate jsonrpc_http_server;
 #[macro_use]
 extern crate jsonrpc_macros;
-extern crate jsonrpc_minihttp_server;
+#[macro_use]
+extern crate log;
 extern crate network;
 extern crate parking_lot;
 extern crate primitives;
-extern crate storage;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate tokio;
 
-pub mod config;
-pub mod network_handler;
-mod rpc;
-
 use client::Client;
-use futures::future;
-use network::protocol::{ProtocolHandler, Transaction};
-use network::service::{generate_service_task, Service as NetworkService};
-use network::test_utils::init_logger;
-use primitives::traits::Block;
+use env_logger::Builder;
+use futures::{future, Future};
+use primitives::traits::GenericResult;
+use produce_blocks::generate_produce_blocks_task;
 use rpc::api::RpcImpl;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::runtime;
 
-pub fn run_service<B: Block, T: Transaction, H: ProtocolHandler<T>>(
-    client: Arc<Client>,
-    network: &NetworkService<B, T, H>,
-) {
-    init_logger(true);
-    let network_task =
-        generate_service_task::<B, T, H>(network.network.clone(), network.protocol.clone());
+pub mod network_handler;
+mod produce_blocks;
+pub mod rpc;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
-    let rpc_impl = RpcImpl { client };
+pub fn run_service(
+    client: &Arc<Client>,
+    network_task: impl Future<Item=(), Error=()>,
+    produce_blocks_interval: Duration,
+) -> GenericResult {
+    let mut builder = Builder::new();
+    builder.filter(Some("runtime"), log::LevelFilter::Debug);
+    builder.filter(Some("service"), log::LevelFilter::Debug);
+    builder.filter(None, log::LevelFilter::Info);
+    builder.init();
+
+    let rpc_impl = RpcImpl { client: client.clone() };
     let rpc_handler = rpc::api::get_handler(rpc_impl);
     let server = rpc::server::get_server(rpc_handler);
-    let task = future::lazy(|| {
-        tokio::spawn(network_task);
-        tokio::spawn(future::lazy(|| {
-            server.wait().unwrap();
-            Ok(())
-        }));
+
+    let mut background_thread = runtime::Runtime::new().unwrap();
+    background_thread.spawn(future::lazy(|| {
+        server.wait();
         Ok(())
-    });
-    tokio::run(task);
+    }));
+
+    let mut current_thread = runtime::current_thread::Runtime::new().unwrap();
+    let produce_blocks_task = generate_produce_blocks_task(
+        &client,
+        produce_blocks_interval,
+    );
+    let tasks: Vec<Box<Future<Item=(), Error=()>>> = vec![
+        Box::new(network_task),
+        Box::new(produce_blocks_task),
+    ];
+    let task = futures::select_all(tasks)
+        .and_then(move |_| {
+            info!("Service task failed");
+            Ok(())
+        }).map_err(|(r, _, _)| r)
+        .map_err(|e| {
+            debug!(target: "service", "service error: {:?}", e);
+        });
+    Ok(current_thread.block_on(task).unwrap())
 }
