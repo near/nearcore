@@ -1,7 +1,6 @@
 use client::chain_spec::ChainSpec;
 use primitives::types::{AccountAlias, PublicKeyAlias};
 use serde_json;
-use serde_json::Error;
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
@@ -14,11 +13,11 @@ struct ChainSpecRef {
 #[derive(Deserialize, Serialize)]
 struct ChainSpecDeserializer(#[serde(with = "ChainSpecRef")] ChainSpec);
 
-pub fn deserialize_chain_spec(config: &str) -> Result<ChainSpec, Error> {
+pub fn deserialize_chain_spec(config: &str) -> Result<ChainSpec, serde_json::Error> {
     serde_json::from_str(config).map(|ChainSpecDeserializer(c)| c)
 }
 
-pub fn get_default_chain_spec() -> Result<ChainSpec, Error> {
+pub fn get_default_chain_spec() -> Result<ChainSpec, serde_json::Error> {
     let data = include_bytes!("../res/default_chain.json");
     serde_json::from_slice(data).map(|ChainSpecDeserializer(c)| c)
 }
