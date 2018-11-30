@@ -2,7 +2,7 @@ use super::Client;
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use node_runtime::ApplyState;
 use primitives::hash::CryptoHash;
-use primitives::traits::Block;
+use primitives::traits::{Block, Header};
 use primitives::types::BlockId;
 
 /// Chain Backend trait
@@ -40,7 +40,7 @@ impl Chain<BeaconBlock> for Client {
 
     fn best_index(&self) -> u64 {
         let best_block = self.beacon_chain.best_block();
-        best_block.header().index
+        best_block.header().index()
     }
 
     fn genesis_hash(&self) -> CryptoHash {
@@ -71,15 +71,15 @@ impl Chain<BeaconBlock> for Client {
         let last_block = self.beacon_chain.best_block();
         let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
         let apply_state = ApplyState {
-            root: last_block.header().merkle_root_state,
+            root: last_block.header().body.merkle_root_state,
             parent_block_hash: last_block.hash(),
-            block_index: last_block.header().index + 1,
+            block_index: last_block.header().index() + 1,
         };
         let (filtered_transactions, mut apply_result) =
             self.runtime.apply(&apply_state, transactions);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
-            last_block.header().index + 1,
+            last_block.header().index() + 1,
             last_block.hash(),
             apply_result.root,
             filtered_transactions,

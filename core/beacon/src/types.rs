@@ -13,17 +13,21 @@ pub struct AuthorityProposal {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct BeaconBlockHeader {
+pub struct BeaconBlockHeaderBody {
     /// Parent hash.
     pub parent_hash: CryptoHash,
     /// Block index.
     pub index: u64,
     pub merkle_root_tx: MerkleHash,
     pub merkle_root_state: MerkleHash,
-    // TODO: time, height?
+    pub authority_proposal: Vec<AuthorityProposal>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlockHeader {
+    pub body: BeaconBlockHeaderBody,
     pub signature: BLSSignature,
     pub authority_mask: Vec<bool>,
-    pub authority_proposal: Vec<AuthorityProposal>,
 }
 
 impl BeaconBlockHeader {
@@ -37,23 +41,27 @@ impl BeaconBlockHeader {
         authority_proposal: Vec<AuthorityProposal>,
     ) -> Self {
         BeaconBlockHeader {
-            index,
-            parent_hash,
-            merkle_root_tx,
-            merkle_root_state,
+            body: BeaconBlockHeaderBody {
+                index,
+                parent_hash,
+                merkle_root_tx,
+                merkle_root_state,
+                authority_proposal,
+            },
             signature,
             authority_mask,
-            authority_proposal,
         }
     }
     pub fn empty(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash) -> Self {
         BeaconBlockHeader {
-            index,
-            parent_hash,
-            merkle_root_tx: MerkleHash::default(),
-            merkle_root_state,
+            body: BeaconBlockHeaderBody {
+                index,
+                parent_hash,
+                merkle_root_tx: MerkleHash::default(),
+                merkle_root_state,
+                authority_proposal: vec![],
+            },
             authority_mask: vec![],
-            authority_proposal: vec![],
             signature: primitives::signature::default_signature(),
         }
     }
@@ -61,15 +69,16 @@ impl BeaconBlockHeader {
 
 impl Header for BeaconBlockHeader {
     fn hash(&self) -> CryptoHash {
+        // WTF?
         hash_struct(&self)
     }
 
     fn index(&self) -> u64 {
-        self.index
+        self.body.index
     }
 
     fn parent_hash(&self) -> CryptoHash {
-        self.parent_hash
+        self.body.parent_hash
     }
 }
 

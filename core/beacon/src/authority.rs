@@ -82,7 +82,7 @@ impl Authority {
                 .insert(*index + authority.authority_config.epoch_length, value.clone());
         }
 
-        let last_index = blockchain.best_block().header.index;
+        let last_index = blockchain.best_block().header.body.index;
         for index in 1..last_index {
             // TODO: handle if block is not found.
             if let Some(header) = blockchain.get_header(&BlockId::Number(index)) {
@@ -94,10 +94,10 @@ impl Authority {
     }
 
     pub fn process_block_header(&mut self, header: &BeaconBlockHeader) {
-        for authority_proposal in header.authority_proposal.iter() {
+        for authority_proposal in header.body.authority_proposal.iter() {
             self.proposals.push(authority_proposal.clone());
         }
-        let epoch = header.index / self.authority_config.epoch_length;
+        let epoch = header.body.index / self.authority_config.epoch_length;
         if epoch != self.current_epoch {
             let authorities = self.proposals_to_authority(0, &self.proposals);
             self.current.extend(authorities);

@@ -228,6 +228,7 @@ impl<B: Block> BlockChain<B> {
 mod tests {
     use super::*;
 
+    use primitives::traits::Header;
     use primitives::types::MerkleHash;
     use std::sync::Arc;
     use storage::test_utils::create_memory_db;
@@ -262,11 +263,11 @@ mod tests {
         let block1 = BeaconBlock::new(1, genesis.hash(), MerkleHash::default(), vec![]);
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
-        assert_eq!(bc.best_block().header.index, 1);
+        assert_eq!(bc.best_block().header().index(), 1);
         // Create new BlockChain that reads from the same storage.
         let other_bc = BlockChain::new(chain_config, genesis.clone(), storage.clone());
         assert_eq!(other_bc.best_block().hash(), block1.hash());
-        assert_eq!(other_bc.best_block().header.index, 1);
+        assert_eq!(other_bc.best_block().header().index(), 1);
         assert_eq!(other_bc.get_block(&BlockId::Hash(block1.hash())).unwrap(), block1);
     }
 }
