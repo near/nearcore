@@ -13,8 +13,8 @@ use dag::DAG;
 
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
 static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
-const COOLDOWN_MS: u64 = 1; // 30;
-const FORCED_GOSSIP_MS: u64 = 10000;
+const COOLDOWN_MS: u64 = 1;
+const FORCED_GOSSIP_MS: u64 = 1000;
 
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
 /// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
@@ -188,7 +188,6 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 
     /// Take care of the gossip received from the network. Partially destroys the gossip.
     fn process_gossip(&mut self, mut gossip: Gossip<P>) {
-        //println!("{:?}) Received gossip {:?}", self.owner_uid, gossip);
         let sender_uid = gossip.sender_uid;
         match gossip.body {
             GossipBody::Unsolicited(message) => {
@@ -365,12 +364,12 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
 }
 
 #[cfg(test)]
-mod testing_utils;
+mod fake_network;
 
 #[cfg(test)]
 mod tests {
-    use super::{TxFlowTask, Gossip, GossipBody};
-    use std::collections::{HashSet, HashMap};
+    use super::TxFlowTask;
+    use std::collections::HashSet;
     use futures::future::*;
     use futures::Stream;
     use futures::sync::mpsc;
@@ -378,7 +377,6 @@ mod tests {
     use primitives::types::UID;
     use primitives::traits::WitnessSelector;
     use testing_utils::FakePayload;
-    use typed_arena::Arena;
 
     struct FakeWitnessSelector {
         schedule: HashSet<UID>,
@@ -401,7 +399,7 @@ mod tests {
     }
 
     impl WitnessSelector for FakeWitnessSelector {
-        fn epoch_witnesses(&self, epoch: u64) -> &HashSet<UID> {
+        fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<UID> {
             &self.schedule
         }
         fn epoch_leader(&self, epoch: u64) -> UID {
