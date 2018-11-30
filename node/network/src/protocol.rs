@@ -233,7 +233,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             }
         };
         match message.body {
-            MessageBody::Transaction(tx) => self.on_transaction_message(tx),
+            MessageBody::Transaction(tx) => { self.on_transaction_message(*tx) }
             MessageBody::Status(status) => {
                 self.on_status_message::<Header>(net_sync, peer, &status)
             }
@@ -363,7 +363,7 @@ mod tests {
     fn test_serialization() {
         let tx = types::SignedTransaction::empty();
         let message: Message<MockBlock, MockBlockHeader> =
-            Message::new(MessageBody::Transaction(tx));
+            Message::new(MessageBody::Transaction(Box::new(tx)));
         let config = ProtocolConfig::default();
         let mock_client = Arc::new(MockClient::default());
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
