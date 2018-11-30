@@ -163,22 +163,28 @@ class NearRPC(object):
         self.send_money(sender, sender, amount)
 
     def schedule_function_call(
-            self,
-            sender,
-            contract_name,
-            method_name,
-            args=None,
+        self,
+        sender,
+        contract_name,
+        amount,
+        method_name,
+        args=None,
+        call_backs=None,
     ):
         if args is None:
             args = [[]]
+        if call_backs is None:
+            call_backs = []
 
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
             'sender_account_id': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
+            'amount': amount,
             'method_name': method_name,
             'args': args,
+            'call_backs': call_backs,
         }
         self._update_nonce(sender)
         response = self._call_rpc('schedule_function_call', params)
@@ -338,12 +344,14 @@ stake                    {}
         parser = self._get_command_parser(self.schedule_function_call.__doc__)
         self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
+        parser.add_argument('amount', type=int)
         parser.add_argument('function_name', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.schedule_function_call(
             args.sender,
             args.contract_name,
+            args.amount,
             args.function_name,
         )
 

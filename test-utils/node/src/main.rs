@@ -94,6 +94,7 @@ pub fn main() {
                     receiver: hash(b"alice"),
                     method_name: String::new(),
                     args: vec![],
+                    call_backs: vec![]
                 };
                 let tx = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
                 client.receive_transaction(tx);

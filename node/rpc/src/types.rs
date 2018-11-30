@@ -1,6 +1,5 @@
 use primitives::hash::bs58_format;
-use primitives::types::AccountId;
-use primitives::types::TransactionBody;
+use primitives::types::{AccountId, CallBack};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -29,8 +28,10 @@ pub struct ScheduleFunctionCallRequest {
     pub sender_account_id: AccountId,
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
+    pub amount: u64,
     pub method_name: String,
     pub args: Vec<Vec<u8>>,
+    pub call_backs: Vec<CallBack>,
 }
 
 #[derive(Serialize, Deserialize)]

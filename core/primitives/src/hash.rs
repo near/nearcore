@@ -40,6 +40,15 @@ impl AsMut<[u8]> for CryptoHash {
     }
 }
 
+impl From<Vec<u8>> for CryptoHash {
+    fn from(v: Vec<u8>) -> Self {
+        let mut array = [0; 32];
+        let bytes = &v.as_slice()[..32];
+        array.copy_from_slice(bytes);
+        CryptoHash { 0: Digest(array) }
+    }
+}
+
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", String::from(self))

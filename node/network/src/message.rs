@@ -1,5 +1,5 @@
 use primitives::hash::CryptoHash;
-use primitives::types::{BlockId, SignedTransaction};
+use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
 
 pub type RequestId = u64;
 
@@ -10,6 +10,7 @@ pub enum MessageBody<B, H> {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
     Transaction(Box<SignedTransaction>),
+    Receipt(ReceiptTransaction),
     Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),

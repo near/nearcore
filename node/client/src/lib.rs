@@ -11,19 +11,21 @@ use beacon::authority::{Authority, AuthorityConfig};
 use beacon::types::{AuthorityProposal, BeaconBlock};
 use blockchain::BlockChain;
 use import_queue::ImportQueue;
+use tx_pool::TransactionPool;
 use node_runtime::{ApplyState, Runtime};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Block, GenericResult, Header, Signer};
-use primitives::types::{BlockId, SignedTransaction};
+use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction, ViewCall, ViewCallResult};
 use std::sync::Arc;
 use storage::{StateDb, Storage};
 use node_runtime::chain_spec::ChainSpec;
 
 mod import_queue;
-
 pub mod chain;
+mod tx_pool;
+pub mod chain_spec;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
@@ -35,7 +37,7 @@ pub struct Client {
     authority: Authority,
     beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
-    tx_pool: RwLock<Vec<SignedTransaction>>,
+    tx_pool: RwLock<TransactionPool>,
     // import queue for receiving blocks
     import_queue: RwLock<ImportQueue>,
 }
@@ -68,19 +70,25 @@ impl Client {
             beacon_chain,
             runtime,
             authority,
-            tx_pool: RwLock::new(vec![]),
+            tx_pool: RwLock::new(TransactionPool::new()),
             import_queue: RwLock::new(ImportQueue::new()),
         }
     }
 
     pub fn receive_transaction(&self, t: SignedTransaction) {
         debug!(target: "client", "receive transaction {:?}", t);
-        self.tx_pool.write().push(t);
+        self.tx_pool.write().insert_signed_tx(t);
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {
         debug!(target: "client", "handle transaction {:?}", t);
-        self.tx_pool.write().push(t);
+        self.tx_pool.write().insert_signed_tx(t);
+        Ok(())
+    }
+
+    pub fn handle_receipt_transaction(&self, t: ReceiptTransaction) -> GenericResult {
+        debug!(target: "client", "handle receipt: {:?}", t);
+        self.tx_pool.write().insert_receipt(t);
         Ok(())
     }
 
@@ -110,8 +118,8 @@ impl Client {
                 parent_block_hash: parent_hash,
             };
             let (filtered_transactions, mut apply_result) =
-                self.runtime.apply(&apply_state, transactions);
-            if apply_result.root != header.body.merkle_root_state
+                self.runtime.apply(&apply_state, transactions, &mut vec![]);
+            if apply_result.root != header.merkle_root_state
                 || filtered_transactions.len() != num_transactions
             {
                 // TODO: something really bad happened

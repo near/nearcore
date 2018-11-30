@@ -71,6 +71,15 @@ pub struct ViewCallResult {
     pub result: Vec<u8>,
 }
 
+#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CallBack {
+    pub method_name: String,
+    // return value of the previous call
+    pub ret_val: Option<Vec<u8>>,
+    // caller who scheduled the callback
+    pub caller: AccountId,
+}
+
 /// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct TransactionBody {
@@ -80,6 +89,8 @@ pub struct TransactionBody {
     pub amount: u64,
     pub method_name: String,
     pub args: Vec<Vec<u8>>,
+    // scheduled call backs
+    pub call_backs: Vec<CallBack>,
 }
 
 impl TransactionBody {
@@ -90,8 +101,17 @@ impl TransactionBody {
         amount: u64,
         method_name: String,
         args: Vec<Vec<u8>>,
+        call_backs: Vec<CallBack>,
     ) -> Self {
-        TransactionBody { nonce, sender, receiver, amount, method_name, args }
+        TransactionBody { 
+            nonce,
+            sender,
+            receiver,
+            amount,
+            method_name,
+            args,
+            call_backs
+        }
     }
 }
 
@@ -120,14 +140,102 @@ impl SignedTransaction {
             nonce: 0,
             sender: AccountId::default(),
             receiver: AccountId::default(),
-            amount: 1,
+            amount: 0,
             method_name: String::new(),
             args: vec![],
+            call_backs: vec![],
         };
         SignedTransaction { sender_sig: DEFAULT_SIGNATURE, hash: hash_struct(&body), body }
     }
 }
 
+<<<<<<< HEAD
+=======
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ReceiptTransaction {
+    // sender is the immediate predecessor
+    pub sender: AccountId,
+    pub receiver: AccountId,
+    pub amount: u64,
+    pub method_name: Vec<u8>,
+    pub args: Vec<Vec<u8>>,
+    pub call_backs: Vec<CallBack>,
+}
+
+impl ReceiptTransaction {
+    pub fn new(
+        sender: AccountId,
+        receiver: AccountId,
+        amount: u64,
+        method_name: Vec<u8>,
+        args: Vec<Vec<u8>>,
+        call_backs: Vec<CallBack>,
+    ) -> Self {
+        ReceiptTransaction {
+            sender,
+            receiver,
+            amount,
+            method_name,
+            args,
+            call_backs,
+        }
+    }
+}
+
+// 2. State structs.
+
+#[derive(Hash, Debug)]
+pub struct State {
+    // TODO: Fill in.
+}
+
+// 3. Epoch blocks produced by verifiers running inside a shard.
+
+#[derive(Hash, Debug, Serialize, Deserialize)]
+pub struct EpochBlockHeader {
+    pub shard_id: u32,
+    pub verifier_epoch: u64,
+    pub txflow_epoch: u64,
+    pub prev_header_hash: CryptoHash,
+
+    pub states_merkle_root: MerkleHash,
+    pub new_transactions_merkle_root: MerkleHash,
+    pub cancelled_transactions_merkle_root: MerkleHash,
+}
+
+#[derive(Hash, Debug)]
+pub struct SignedEpochBlockHeader {
+    pub bls_sig: BLSSignature,
+    pub epoch_block_header: EpochBlockHeader,
+}
+
+#[derive(Hash, Debug)]
+pub struct FullEpochBlockBody {
+    states: Vec<State>,
+    new_transactions: Vec<SignedTransaction>,
+    cancelled_transactions: Vec<SignedTransaction>,
+}
+
+#[derive(Hash, Debug)]
+pub enum MerkleStateNode {
+    Hash(MerkleHash),
+    State(State),
+}
+
+#[derive(Hash, Debug)]
+pub enum MerkleSignedTransactionNode {
+    Hash(MerkleHash),
+    SignedTransaction(SignedTransaction),
+}
+
+#[derive(Hash, Debug)]
+pub struct ShardedEpochBlockBody {
+    states_subtree: Vec<MerkleStateNode>,
+    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
+    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
+}
+
+>>>>>>> towards multi-stage smart contract execution
 // 4. TxFlow-specific structs.
 
 pub type TxFlowHash = u64;
