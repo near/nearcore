@@ -1,5 +1,6 @@
 use primitives::hash::bs58_format;
 use primitives::types::AccountId;
+use primitives::types::TransactionBody;
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -61,4 +62,9 @@ pub struct CallViewFunctionResponse {
     pub amount: u64,
     pub nonce: u64,
     pub result: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct PreparedTransactionBodyResponse {
+    pub body: TransactionBody,
 }

@@ -1,5 +1,6 @@
-use hash::{hash, hash_struct, CryptoHash};
+use hash::{CryptoHash, hash, hash_struct};
 use signature::{PublicKey, Signature};
+use signature::default_signature;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
@@ -14,7 +15,7 @@ pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
-pub type StructSignature = u128;
+pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
@@ -92,14 +93,21 @@ impl TransactionBody {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
-    sender_sig: StructSignature,
-    hash: CryptoHash,
+    pub sender_sig: StructSignature,
+    pub hash: CryptoHash,
     pub body: TransactionBody,
 }
 
 impl SignedTransaction {
-    pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
-        SignedTransaction { sender_sig, hash: hash_struct(&body), body }
+    pub fn new(
+        sender_sig: StructSignature,
+        body: TransactionBody,
+    ) -> SignedTransaction {
+        SignedTransaction {
+            sender_sig,
+            hash: hash_struct(&body),
+            body,
+        }
     }
 
     // this is for tests
@@ -112,7 +120,7 @@ impl SignedTransaction {
             method_name: String::new(),
             args: vec![],
         };
-        SignedTransaction { sender_sig: StructSignature::default(), hash: hash_struct(&body), body }
+        SignedTransaction { sender_sig: default_signature(), hash: hash_struct(&body), body }
     }
 }
 

@@ -44,6 +44,18 @@ impl PublicKey {
     }
 }
 
+impl SecretKey {
+    pub fn from(s: &str) -> SecretKey {
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
+        let bytes = bs58::decode(s).into_vec().expect("Failed to convert secret key from base58");
+        assert_eq!(bytes.len(), array.len(), "decoded {} is not long enough for secret key", s);
+        let bytes_arr = &bytes[..array.len()];
+        array.copy_from_slice(bytes_arr);
+        let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
+        SecretKey(secret_key)
+    }
+}
+
 impl<'a> From<&'a PublicKey> for String {
     fn from(h: &'a PublicKey) -> Self {
         bs58::encode(h.0).into_string()

@@ -348,6 +348,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
     use test_utils::*;
+    use primitives::signature::default_signature;
 
     impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
@@ -388,7 +389,7 @@ mod tests {
         let network_service = Rc::new(RefCell::new(default_network_service()));
         let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::new(
-            123,
+            default_signature(),
             types::TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
         ));
         assert_eq!(client.num_transactions(), 1);

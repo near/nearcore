@@ -1,24 +1,38 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate primitives;
 extern crate serde_json;
 extern crate service;
 
-use service::test_utils::run_test_service;
-use std::thread;
-use std::process::Command;
-use service::rpc::types::ViewAccountResponse;
 use serde_json::Value;
-use std::process::Output;
+use service::rpc::types::{
+    CallViewFunctionResponse, ViewAccountResponse,
+};
+use service::test_utils::run_test_service;
 use std::borrow::Cow;
-use service::rpc::types::CallViewFunctionResponse;
+use std::process::{Command, Output};
+use std::thread;
+use primitives::signature::get_keypair;
+use std::fs;
+use std::path::Path;
 
 fn test_service_ready() -> bool {
     thread::spawn(|| run_test_service());
     true
 }
 
+fn get_key_path() -> String {
+    let key_path = Path::new("/tmp/near_key");
+    if !key_path.exists() {
+        let (_, secret_key) = get_keypair();
+        fs::write(key_path, secret_key.to_string()).unwrap();
+    }
+    key_path.to_string_lossy().into_owned()
+}
+
 lazy_static! {
     static ref DEVNET_STARTED: bool = test_service_ready();
+    static ref KEY_PATH: String = get_key_path();
 }
 
 fn check_result(output: &Output) -> Cow<str> {
@@ -30,9 +44,11 @@ fn check_result(output: &Output) -> Cow<str> {
 
 #[test]
 fn test_send_money() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED { panic!() }
     let output = Command::new("./scripts/rpc.py")
         .arg("send_money")
+        .arg("-p")
+        .arg(&*KEY_PATH)
         .output()
         .expect("send_money command failed to process");
     let result = check_result(&output);
@@ -42,7 +58,7 @@ fn test_send_money() {
 
 #[test]
 fn test_view_account() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED { panic!() }
     let output = Command::new("./scripts/rpc.py")
         .arg("view_account")
         .output()
@@ -53,11 +69,13 @@ fn test_view_account() {
 
 #[test]
 fn test_deploy() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED { panic!() }
     let output = Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg("test_contract_name")
         .arg("core/wasm/runtest/res/wasm_with_mem.wasm")
+        .arg("-p")
+        .arg(&*KEY_PATH)
         .output()
         .expect("deploy command failed to process");
     let result = check_result(&output);
@@ -67,12 +85,14 @@ fn test_deploy() {
 
 #[test]
 fn test_schedule_function_call() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED { panic!() }
     test_deploy();
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
         .arg("test_contract_name")
         .arg("run_test")
+        .arg("-p")
+        .arg(&*KEY_PATH)
         .output()
         .expect("schedule_function_call command failed to process");
     let result = check_result(&output);
@@ -82,7 +102,7 @@ fn test_schedule_function_call() {
 
 #[test]
 fn test_call_view_function() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED { panic!() }
     test_deploy();
     let output = Command::new("./scripts/rpc.py")
         .arg("call_view_function")

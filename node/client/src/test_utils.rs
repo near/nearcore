@@ -11,7 +11,10 @@ fn generate_test_chain_spec() -> ChainSpec {
     ).to_vec();
     let (public_key, _) = get_keypair();
     ChainSpec {
-        accounts: vec![("alice".to_string(), public_key.to_string(), 100)],
+        accounts: vec![
+            ("alice".to_string(), public_key.to_string(), 100),
+            ("bob".to_string(), public_key.to_string(), 100),
+        ],
         initial_authorities: vec![public_key.to_string()],
         genesis_wasm,
     }
