@@ -70,10 +70,6 @@ pub trait Signer: Sync + Send {
     fn sign(&self, hash: &CryptoHash) -> types::BLSSignature;
 }
 
-pub trait Verifier {
-    fn compute_state(&mut self, transactions: &[types::SignedTransaction]) -> types::State;
-}
-
 pub trait WitnessSelector {
     fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
     fn epoch_leader(&self, epoch: u64) -> types::UID;

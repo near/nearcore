@@ -116,59 +116,6 @@ impl SignedTransaction {
     }
 }
 
-// 2. State structs.
-
-#[derive(Hash, Debug)]
-pub struct State {
-    // TODO: Fill in.
-}
-
-// 3. Epoch blocks produced by verifiers running inside a shard.
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub struct EpochBlockHeader {
-    pub shard_id: u32,
-    pub verifier_epoch: u64,
-    pub txflow_epoch: u64,
-    pub prev_header_hash: CryptoHash,
-
-    pub states_merkle_root: MerkleHash,
-    pub new_transactions_merkle_root: MerkleHash,
-    pub cancelled_transactions_merkle_root: MerkleHash,
-}
-
-#[derive(Hash, Debug)]
-pub struct SignedEpochBlockHeader {
-    pub bls_sig: BLSSignature,
-    pub epoch_block_header: EpochBlockHeader,
-}
-
-#[derive(Hash, Debug)]
-pub struct FullEpochBlockBody {
-    states: Vec<State>,
-    new_transactions: Vec<SignedTransaction>,
-    cancelled_transactions: Vec<SignedTransaction>,
-}
-
-#[derive(Hash, Debug)]
-pub enum MerkleStateNode {
-    Hash(MerkleHash),
-    State(State),
-}
-
-#[derive(Hash, Debug)]
-pub enum MerkleSignedTransactionNode {
-    Hash(MerkleHash),
-    SignedTransaction(SignedTransaction),
-}
-
-#[derive(Hash, Debug)]
-pub struct ShardedEpochBlockBody {
-    states_subtree: Vec<MerkleStateNode>,
-    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
-    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
-}
-
 // 4. TxFlow-specific structs.
 
 pub type TxFlowHash = u64;
@@ -182,12 +129,6 @@ pub type TxFlowHash = u64;
 pub struct Endorsement {
     pub epoch: u64,
     pub signature: BLSSignature,
-}
-
-#[derive(Hash, Debug)]
-pub struct InShardPayload {
-    pub transactions: Vec<SignedTransaction>,
-    pub epoch_block_header: Option<SignedEpochBlockHeader>,
 }
 
 #[derive(Hash, Debug)]
