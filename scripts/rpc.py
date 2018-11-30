@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 
 try:
@@ -75,8 +76,17 @@ def _get_account_id(account_alias):
 
 
 class NearRPC(object):
-    def __init__(self, server_url):
-        self.server_url = server_url
+    def __init__(
+            self,
+            server_url,
+            keystore_binary=None,
+            keystore_path=None,
+            public_key=None,
+    ):
+        self._server_url = server_url
+        self._keystore_binary = keystore_binary
+        self._keystore_path = keystore_path
+        self._public_key = public_key
         self._nonces = {}
 
     def _get_nonce(self, sender):
@@ -96,7 +106,31 @@ class NearRPC(object):
             'method': method_name,
             'params': [params],
         }
-        return _post(self.server_url, data)['result']
+        return _post(self._server_url, data)['result']
+
+    def _sign_transaction_body(self, body):
+        if self._keystore_binary is not None:
+            args = [self._keystore_binary]
+        else:
+            args = 'cargo run -p keystore --'.split()
+
+        args += [
+            'sign_transaction',
+            '--data',
+            json.dumps(body),
+            '--keystore-path',
+            self._keystore_path,
+        ]
+
+        if self._public_key is not None:
+            args += ['--public-key', self._public_key]
+
+        output = subprocess.check_output(args)
+        return json.loads(output)
+
+    def _handle_prepared_transaction_body_response(self, response):
+        signed_transaction = self._sign_transaction_body(response['body'])
+        return self._call_rpc('submit_transaction', signed_transaction)
 
     def deploy_contract(self, sender, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
@@ -110,7 +144,8 @@ class NearRPC(object):
             'wasm_byte_array': wasm_byte_array,
         }
         self._update_nonce(sender)
-        return self._call_rpc('deploy_contract', params)
+        response = self._call_rpc('deploy_contract', params)
+        return self._handle_prepared_transaction_body_response(response)
 
     def send_money(self, sender, receiver, amount):
         nonce = self._get_nonce(sender)
@@ -121,14 +156,15 @@ class NearRPC(object):
             'amount': amount,
         }
         self._update_nonce(sender)
-        return self._call_rpc('send_money', params)
+        response = self._call_rpc('send_money', params)
+        return self._handle_prepared_transaction_body_response(response)
 
     def schedule_function_call(
-        self,
-        sender,
-        contract_name,
-        method_name,
-        args=None,
+            self,
+            sender,
+            contract_name,
+            method_name,
+            args=None,
     ):
         if args is None:
             args = [[]]
@@ -142,7 +178,8 @@ class NearRPC(object):
             'args': args,
         }
         self._update_nonce(sender)
-        return self._call_rpc('schedule_function_call', params)
+        response = self._call_rpc('schedule_function_call', params)
+        return self._handle_prepared_transaction_body_response(response)
 
     def view_account(self, account_alias):
         params = {
@@ -194,7 +231,7 @@ view_account             {}
             print(json.dumps(response))
 
     @staticmethod
-    def _get_command_parser(description, include_sender=True):
+    def _get_command_parser(description):
         parser = argparse.ArgumentParser(
             description=description,
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -206,16 +243,36 @@ view_account             {}
             default='http://127.0.0.1:3030',
             help='url of RPC server',
         )
-        if include_sender:
-            parser.add_argument(
-                '-s',
-                '--sender',
-                type=str,
-                default='alice',
-                help='account alias of sender',
-            )
-
         return parser
+
+    @staticmethod
+    def _add_transaction_args(parser):
+        parser.add_argument(
+            '-s',
+            '--sender',
+            type=str,
+            default='alice',
+            help='account alias of sender',
+        )
+        parser.add_argument(
+            '-b',
+            '--keystore-binary',
+            type=str,
+            help='location of keystore binary',
+        )
+        parser.add_argument(
+            '-d',
+            '--keystore-path',
+            type=str,
+            default='keystore/',
+            help='location of keystore for signing transactions',
+        )
+        parser.add_argument(
+            '-k',
+            '--public-key',
+            type=str,
+            help='public key for signing transactions',
+        )
 
     @staticmethod
     def _get_command_args(parser):
@@ -225,11 +282,20 @@ view_account             {}
 
     @staticmethod
     def _get_rpc_client(command_args):
-        return NearRPC(command_args.server_url)
+        keystore_binary = getattr(command_args, 'keystore_binary', None)
+        keystore_path = getattr(command_args, 'keystore_path', None)
+        public_key = getattr(command_args, 'public_key', None)
+        return NearRPC(
+            command_args.server_url,
+            keystore_binary,
+            keystore_path,
+            public_key,
+        )
 
     def send_money(self):
         """Send money from one account to another"""
         parser = self._get_command_parser(self.send_money.__doc__)
+        self._add_transaction_args(parser)
         parser.add_argument(
             '-r',
             '--receiver',
@@ -251,6 +317,7 @@ view_account             {}
     def deploy(self):
         """Deploy a smart contract"""
         parser = self._get_command_parser(self.deploy.__doc__)
+        self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('wasm_file_location', type=str)
         args = self._get_command_args(parser)
@@ -264,6 +331,7 @@ view_account             {}
     def schedule_function_call(self):
         """Schedule a function call on a smart contract"""
         parser = self._get_command_parser(self.schedule_function_call.__doc__)
+        self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
         args = self._get_command_args(parser)
@@ -288,7 +356,7 @@ view_account             {}
 
     def view_account(self):
         """View an account"""
-        parser = self._get_command_parser(self.view_account.__doc__, include_sender=False)
+        parser = self._get_command_parser(self.view_account.__doc__)
         parser.add_argument(
             '-a',
             '--account',

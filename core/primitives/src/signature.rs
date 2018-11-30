@@ -27,10 +27,13 @@ pub fn get_keypair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-pub fn default_signature() -> Signature {
-    let sig = [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-    sodiumoxide::crypto::sign::ed25519::Signature(sig)
-}
+
+const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] = [
+    0u8;
+    sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES
+];
+
+pub const DEFAULT_SIGNATURE: Signature = sodiumoxide::crypto::sign::ed25519::Signature(SIG);
 
 impl PublicKey {
     pub fn from(s: &str) -> PublicKey {
@@ -41,6 +44,18 @@ impl PublicKey {
         array.copy_from_slice(bytes_arr);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
         PublicKey(public_key)
+    }
+}
+
+impl SecretKey {
+    pub fn from(s: &str) -> SecretKey {
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
+        let bytes = bs58::decode(s).into_vec().expect("Failed to convert secret key from base58");
+        assert_eq!(bytes.len(), array.len(), "decoded {} is not long enough for secret key", s);
+        let bytes_arr = &bytes[..array.len()];
+        array.copy_from_slice(bytes_arr);
+        let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
+        SecretKey(secret_key)
     }
 }
 
@@ -86,10 +101,8 @@ impl fmt::Display for SecretKey {
     }
 }
 
-pub mod bs58_format {
-    use super::{bs58, PublicKey};
-    use exonum_sodiumoxide as sodiumoxide;
-    use serde::de;
+pub mod bs58_pub_key_format {
+    use super::PublicKey;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
@@ -104,18 +117,26 @@ pub mod bs58_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        match bs58::decode(s).into_vec() {
-            Ok(vec) => {
-                let mut array = [0; 32];
-                if vec.len() == array.len() {
-                    let bytes = &vec[..array.len()];
-                    array.copy_from_slice(bytes);
-                    Ok(PublicKey(sodiumoxide::crypto::sign::ed25519::PublicKey(array)))
-                } else {
-                    Err(de::Error::custom("invalid byte array length"))
-                }
-            }
-            Err(_) => Err(de::Error::custom("invalid base58 string")),
-        }
+        Ok(PublicKey::from(&s))
+    }
+}
+
+pub mod bs58_secret_key_format {
+    use super::SecretKey;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        serializer.serialize_str(String::from(secret_key).as_str())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(SecretKey::from(&s))
     }
 }

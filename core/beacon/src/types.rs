@@ -1,5 +1,5 @@
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::PublicKey;
+use primitives::signature::{DEFAULT_SIGNATURE, PublicKey};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 use std::sync::Arc;
@@ -73,7 +73,7 @@ impl BeaconBlockHeader {
                 authority_proposal: vec![],
             },
             authority_mask: vec![],
-            signature: primitives::signature::default_signature(),
+            signature: DEFAULT_SIGNATURE,
         }
     }
 }
