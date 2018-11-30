@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import json
 import sys
 
 try:
@@ -81,7 +82,7 @@ class NearRPC(object):
     def _get_nonce(self, sender):
         if sender not in self._nonces:
             view_result = self.view_account(sender)
-            self._nonces[sender] = view_result['result'].get('nonce', 0) + 1
+            self._nonces[sender] = view_result.get('nonce', 0) + 1
 
         return self._nonces[sender]
 
@@ -95,7 +96,7 @@ class NearRPC(object):
             'method': method_name,
             'params': [params],
         }
-        return _post(self.server_url, data)
+        return _post(self.server_url, data)['result']
 
     def deploy_contract(self, sender, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
@@ -189,7 +190,8 @@ view_account             {}
             parser.print_help()
             exit(1)
         else:
-            print(getattr(self, args.command)())
+            response = getattr(self, args.command)()
+            print(json.dumps(response))
 
     @staticmethod
     def _get_command_parser(description, include_sender=True):

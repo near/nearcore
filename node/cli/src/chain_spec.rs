@@ -1,7 +1,7 @@
 use client::chain_spec::ChainSpec;
+use primitives::types::AccountAlias;
 use serde_json;
 use serde_json::Error;
-use primitives::types::AccountAlias;
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]

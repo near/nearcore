@@ -1,14 +1,24 @@
-use std::sync::Arc;
-
 use chain_spec::ChainSpec;
-use primitives::signer::InMemorySigner;
-use storage::test_utils::create_memory_db;
 use Client;
+use primitives::signer::InMemorySigner;
+use primitives::types::AccountAlias;
+use std::sync::Arc;
+use storage::test_utils::create_memory_db;
+
+fn generate_test_chain_spec() -> ChainSpec {
+    let genesis_wasm = include_bytes!(
+        "../../../core/wasm/runtest/res/wasm_with_mem.wasm"
+    ).to_vec();
+    ChainSpec {
+        balances: vec![("alice".into(), 100), ("bob".into(), 100)],
+        initial_authorities: vec![AccountAlias::from("alice")],
+        genesis_wasm,
+    }
+}
 
 pub fn generate_test_client() -> Client {
     let storage = Arc::new(create_memory_db());
-    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let chain_spec = ChainSpec { balances: vec![], initial_authorities: vec![], genesis_wasm };
+    let chain_spec = generate_test_chain_spec();
     let signer = Arc::new(InMemorySigner::default());
     Client::new(&chain_spec, storage, signer)
 }

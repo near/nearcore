@@ -16,7 +16,9 @@ use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
 use clap::{App, Arg};
 use client::Client;
 use network::protocol::ProtocolConfig;
-use network::service::{NetworkConfiguration, Service as NetworkService};
+use network::service::{
+    generate_service_task, NetworkConfiguration, Service as NetworkService
+};
 use primitives::signer::InMemorySigner;
 use primitives::traits::GenericResult;
 use service::network_handler::NetworkHandler;
@@ -25,6 +27,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub mod chain_spec;
 
@@ -58,7 +61,12 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
         network_handler,
         client.clone(),
     ).unwrap();
-    run_service::<_, _, BeaconBlockHeader>(client.clone(), &network)
+    let network_task = generate_service_task::<_, _, BeaconBlockHeader>(
+        network.network.clone(),
+        network.protocol.clone(),
+    );
+    let produce_blocks_interval = Duration::from_secs(2);
+    run_service(&client, network_task, produce_blocks_interval)
 }
 
 pub fn run() {
