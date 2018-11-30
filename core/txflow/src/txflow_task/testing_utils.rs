@@ -4,11 +4,11 @@ use futures::{Async, Future, Poll, Sink, Stream};
 use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
 use rand;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use primitives::traits::{Payload, WitnessSelector};
-use primitives::types::{Gossip, UID};
+use primitives::types::{Gossip, GossipBody, UID};
 
 /// Fake witness selector that does not rotate the witnesses.
 struct FakeWitnessSelector {
@@ -37,7 +37,7 @@ impl WitnessSelector for FakeWitnessSelector {
     }
 
     fn random_witnesses(&self, _epoch: u64, sample_size: usize) -> HashSet<u64> {
-        assert!(sample_size as u64 >= self.num_witnesses - 1);
+        assert!(sample_size as u64 <= self.num_witnesses - 1);
         let mut res = HashSet::new();
         while res.len() < sample_size {
             let next = rand::random::<u64>() % self.num_witnesses;
@@ -87,6 +87,11 @@ struct FakeWitnessNetwork {
     input_payload_channels: Vec<mpsc::Sender<FakePayload>>,
     output_gossip_channels: Vec<mpsc::Receiver<Gossip<FakePayload>>>,
     closed_outputs: HashSet<UID>,
+    recent_epochs: HashMap<UID, u64>,
+    prev_max_epoch: u64,
+    prev_min_epoch: u64,
+    prev_avg_epoch: u64,
+    since_last_update: u64,
 }
 
 impl FakeWitnessNetwork {
@@ -107,10 +112,11 @@ impl FakeWitnessNetwork {
 
     pub fn spawn_all(num_witnesses: u64) {
         let starting_epoch = 0;
-        let sample_size = (num_witnesses as f64)
-            .sqrt()
-            .min(1.0 as f64)
-            .max(num_witnesses as f64 - 1.0) as usize;
+//        let sample_size = (num_witnesses as f64)
+//            .sqrt()
+//            .min(1.0 as f64)
+//            .max(num_witnesses as f64 - 1.0) as usize;
+        let sample_size = 2usize;
 
         tokio::run(lazy(move || {
             let mut inc_gossip_tx_vec = vec![];
@@ -140,6 +146,11 @@ impl FakeWitnessNetwork {
                 input_payload_channels: inc_payload_tx_vec,
                 output_gossip_channels: out_gossip_rx_vec,
                 closed_outputs: HashSet::new(),
+                recent_epochs: HashMap::new(),
+                prev_max_epoch: 0,
+                prev_min_epoch: 0,
+                prev_avg_epoch: 0,
+                since_last_update: 0,
             };
 
             // Spawn the kickoff messages.
@@ -170,8 +181,28 @@ impl Stream for FakeWitnessNetwork {
                 Ok(Async::Ready(Some(gossip))) => {
                     let receiver_uid = gossip.receiver_uid;
                     let gossip_input = self.input_gossip_channels[receiver_uid as usize].clone();
-                    std::thread::sleep(Duration::from_millis(300));
-                    println!("Relaying gossip {:?}", gossip);
+                    //println!("Sending gossip {:?}", gossip);
+                    //std::thread::sleep(Duration::from_millis(rand::random::<u64>() % 300));
+                    if let GossipBody::Unsolicited(message) = &gossip.body {
+                        let owner_uid = message.body.owner_uid;
+                        let epoch = message.body.epoch;
+                        self.recent_epochs.entry(owner_uid).or_insert_with(|| 0);
+                        if self.recent_epochs.get(&owner_uid).unwrap() < &epoch {
+                           self.recent_epochs.insert(owner_uid, epoch);
+                        }
+                        let prev_min_epoch = *self.recent_epochs.values().min().unwrap();
+                        let prev_max_epoch = *self.recent_epochs.values().max().unwrap();
+                        let prev_avg_epoch = (self.recent_epochs.values().sum::<u64>() as u64)/(self.recent_epochs.len() as u64);
+                        if prev_max_epoch != self.prev_max_epoch {
+                            self.since_last_update = 0;
+                            println!("[{:?}-{:?}-{:?}]", prev_min_epoch, prev_avg_epoch, prev_max_epoch);
+                        } else {
+                            self.since_last_update += 1;
+                        }
+                        self.prev_min_epoch = prev_min_epoch;
+                        self.prev_max_epoch = prev_max_epoch;
+                        self.prev_avg_epoch = prev_avg_epoch;
+                    }
                     tokio::spawn(gossip_input.send(gossip)
                         .map(|_| ())
                         .map_err(|e| println!("Error relaying gossip {:?}", e)));
@@ -193,6 +224,6 @@ mod tests {
     use super::FakeWitnessNetwork;
     #[test]
     fn two_witnesses() {
-        FakeWitnessNetwork::spawn_all(3);
+        FakeWitnessNetwork::spawn_all(10);
     }
 }

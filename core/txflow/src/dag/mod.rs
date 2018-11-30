@@ -85,7 +85,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         &mut self,
         message_data: SignedMessageData<P>,
     ) -> Result<(), &'static str> {
-        println!("{:?}) Adding existing message {:?}", self.owner_uid, message_data);
+        //println!("{:?}) Adding existing message {:?}", self.owner_uid, message_data);
         // Check whether this is a new message.
         if self.messages.contains(&message_data.hash) {
             return Ok({});
@@ -106,10 +106,10 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         // Compute epochs, endorsements, etc.
         message.init(true, true, self.starting_epoch, self.witness_selector);
         if message.computed_hash != message.data.hash {
-            println!("{:?}) Different hash upon recieval! computed: {:?}. message: {:?}", self.owner_uid,
-                message.computed_hash,
-                message.data
-            )
+            //println!("{:?}) Different hash upon recieval! computed: {:?}. message: {:?}", self.owner_uid,
+//                message.computed_hash,
+//                message.data
+//            )
         }
 
         // Verify the message.
@@ -147,7 +147,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         message.parents = self.roots.clone();
         message.init(true, false, self.starting_epoch, self.witness_selector);
         message.assume_computed_hash_epoch();
-        println!("Created new message ({:?}, {:?}) {:?}", message.computed_epoch, message.computed_hash, message.data);
+        //println!("Created new message ({:?}, {:?}) {:?}", message.computed_epoch, message.computed_hash, message.data);
 
         // Finally, take ownership of the new root.
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;

@@ -201,7 +201,7 @@ impl<'a, P: Payload> Message<'a, P> {
     fn prev_epoch(&'a self) -> Option<&'a u64> {
         // Iterate over past messages that were created by the current owner and return their max
         // epoch.
-        println!("{:?}) Prev epochs: {:?}", self.data.body.owner_uid, self.approved_epochs.messages_by_epoch.keys());
+        //println!("{:?}) Prev epochs: {:?}", self.data.body.owner_uid, self.approved_epochs.messages_by_epoch.keys());
         self.approved_epochs
             .filter_by_owner(self.data.body.owner_uid)
             .map(|(epoch, _)| epoch)
@@ -220,8 +220,8 @@ impl<'a, P: Payload> Message<'a, P> {
                 let mut existing_witnesses: HashSet<u64> =
                     epoch_messages.messages_by_owner.keys().cloned().collect();
                 //existing_witnesses.insert(owner_uid);
-                println!("{:?}) total_witnesses: {:?}; existing_witnesses: {:?}",
-                    self.data.body.owner_uid, total_witnesses, existing_witnesses);
+                //println!("{:?}) total_witnesses: {:?}; existing_witnesses: {:?}",
+                    //self.data.body.owner_uid, total_witnesses, existing_witnesses);
                 (total_witnesses & &existing_witnesses).len() > total_witnesses.len() * 2 / 3
             }
         }
@@ -412,7 +412,7 @@ impl<'a, P: Payload> Message<'a, P> {
         self.computed_epoch = if recompute_epoch {
             if let Some(prev_epoch) = self.prev_epoch() {
                 if self.should_promote(*prev_epoch, witness_selector) {
-                    println!("Promoting to {:?}", *prev_epoch + 1);
+                    //println!("Promoting to {:?}", *prev_epoch + 1);
                     *prev_epoch + 1
                 } else {
                     *prev_epoch
