@@ -183,10 +183,10 @@ mod test {
     fn test_blockchain(num_blocks: u64) -> BlockChain<BeaconBlock> {
         let storage = Arc::new(MemoryStorage::default());
         let chain_config = ChainConfig {
-            extra_col: storage::COL_BEACON_EXTRA,
-            header_col: storage::COL_BEACON_HEADERS,
-            block_col: storage::COL_BEACON_BLOCKS,
-            index_col: storage::COL_BEACON_INDEX,
+            extra_col: storage::COL_EXTRA,
+            header_col: storage::COL_HEADERS,
+            block_col: storage::COL_BLOCKS,
+            index_col: storage::COL_BLOCK_INDEX,
         };
         let mut last_block =
             BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);

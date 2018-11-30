@@ -44,18 +44,12 @@ pub struct Client {
 impl Client {
     pub fn new(chain_spec: &ChainSpec, storage: Arc<Storage>, signer: Arc<Signer>) -> Self {
         let state_db = Arc::new(StateDb::new(storage.clone()));
-        let chain_config = ChainConfig {
-            extra_col: storage::COL_BEACON_EXTRA,
-            header_col: storage::COL_BEACON_HEADERS,
-            block_col: storage::COL_BEACON_BLOCKS,
-            index_col: storage::COL_BEACON_INDEX,
-        };
         let runtime = Runtime::new(state_db.clone());
         let genesis_root =
             runtime.apply_genesis_state(&chain_spec.accounts, &chain_spec.genesis_wasm);
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
-        let beacon_chain = BlockChain::new(chain_config, genesis, storage);
+        let beacon_chain = BlockChain::new(genesis, storage);
         let authority_config = AuthorityConfig {
             initial_authorities: chain_spec
                 .initial_authorities

@@ -12,6 +12,17 @@ pub struct AuthorityProposal {
     pub amount: u64,
 }
 
+//pub struct BeaconBlockBody {
+//    /// Parent hash.
+//    pub parent_hash: CryptoHash,
+//    /// Block index.
+//    pub index: u64,
+//    /// Authority proposals.
+//    pub authority_proposal: Vec<AuthorityProposal>,
+//    /// Shard block hash.
+//    pub shard_block_hash: CryptoHash,
+//}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeaderBody {
     /// Parent hash.
