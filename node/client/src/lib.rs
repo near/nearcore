@@ -8,7 +8,7 @@ extern crate storage;
 
 use beacon::authority::{Authority, AuthorityConfig};
 use beacon::chain::{BlockChain, ChainConfig};
-use beacon::types::BeaconBlock;
+use beacon::types::{AuthorityProposal, BeaconBlock};
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
@@ -50,10 +50,8 @@ impl Client {
             index_col: storage::COL_BEACON_INDEX,
         };
         let runtime = Runtime::new(state_db.clone());
-        let genesis_root = runtime.apply_genesis_state(
-            &chain_spec.accounts,
-            &chain_spec.genesis_wasm
-        );
+        let genesis_root =
+            runtime.apply_genesis_state(&chain_spec.accounts, &chain_spec.genesis_wasm);
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(chain_config, genesis, storage);
@@ -61,9 +59,12 @@ impl Client {
             initial_authorities: chain_spec
                 .initial_authorities
                 .iter()
-                .map(|a| PublicKey::from(a))
-                .collect(),
-            epoch_length: 10,
+                .map(|(public_key, amount)| AuthorityProposal {
+                    public_key: PublicKey::from(public_key),
+                    amount: amount.clone(),
+                }).collect(),
+            epoch_length: chain_spec.beacon_chain_epoch_length,
+            num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
         };
         let authority = Authority::new(authority_config, &beacon_chain);
 
@@ -84,10 +85,7 @@ impl Client {
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        self.runtime.view(
-            self.beacon_chain.best_block().header().merkle_root_state,
-            view_call
-        )
+        self.runtime.view(self.beacon_chain.best_block().header().merkle_root_state, view_call)
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {

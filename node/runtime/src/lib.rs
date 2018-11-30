@@ -17,7 +17,7 @@ use std::sync::Arc;
 use kvdb::DBValue;
 use serde::{de::DeserializeOwned, Serialize};
 
-use beacon::authority::AuthorityChangeSet;
+use beacon::types::AuthorityProposal;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
@@ -77,7 +77,7 @@ pub struct ApplyState {
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub transaction: storage::TrieBackendTransaction,
-    pub authority_change_set: AuthorityChangeSet,
+    pub authority_proposals: Vec<AuthorityProposal>,
 }
 
 struct RuntimeExt<'a, 'b: 'a> {
@@ -137,7 +137,7 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
-        authority_change_set: &mut AuthorityChangeSet,
+        authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> bool {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender: Option<Account> =
@@ -192,10 +192,10 @@ impl Runtime {
                 if transaction.body.sender == transaction.body.receiver {
                     if sender.amount >= transaction.body.amount && sender.public_keys.is_empty() {
                         runtime_data.put_stake(transaction.body.sender, transaction.body.amount);
-                        authority_change_set.proposed.insert(
-                            transaction.body.sender,
-                            (sender.public_keys[0], transaction.body.amount),
-                        );
+                        authority_proposals.push(AuthorityProposal {
+                            public_key: sender.public_keys[0],
+                            amount: transaction.body.amount,
+                        });
                         set(state_update, RUNTIME_DATA, &runtime_data);
                         true
                     } else {
@@ -265,9 +265,9 @@ impl Runtime {
     ) -> (Vec<SignedTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
-        let mut authority_change_set = AuthorityChangeSet::default();
+        let mut authority_proposals = vec![];
         for t in transactions {
-            if self.apply_transaction(&mut state_update, &t, &mut authority_change_set) {
+            if self.apply_transaction(&mut state_update, &t, &mut authority_proposals) {
                 state_update.commit();
                 filtered_transactions.push(t);
             } else {
@@ -275,7 +275,7 @@ impl Runtime {
             }
         }
         let (transaction, new_root) = state_update.finalize();
-        (filtered_transactions, ApplyResult { root: new_root, transaction, authority_change_set })
+        (filtered_transactions, ApplyResult { root: new_root, transaction, authority_proposals })
     }
 
     pub fn view(&self, root: MerkleHash, view_call: &ViewCall) -> ViewCallResult {

@@ -1,7 +1,16 @@
 use primitives::hash::{hash_struct, CryptoHash};
+use primitives::signature::PublicKey;
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 use std::sync::Arc;
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct AuthorityProposal {
+    /// Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// Stake / weight of the authority.
+    pub amount: u64,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -13,6 +22,41 @@ pub struct BeaconBlockHeader {
     pub merkle_root_state: MerkleHash,
     // TODO: time, height?
     pub signature: BLSSignature,
+    pub authority_mask: Vec<bool>,
+    pub authority_proposal: Vec<AuthorityProposal>,
+}
+
+impl BeaconBlockHeader {
+    pub fn new(
+        index: u64,
+        parent_hash: CryptoHash,
+        merkle_root_tx: MerkleHash,
+        merkle_root_state: MerkleHash,
+        signature: BLSSignature,
+        authority_mask: Vec<bool>,
+        authority_proposal: Vec<AuthorityProposal>,
+    ) -> Self {
+        BeaconBlockHeader {
+            index,
+            parent_hash,
+            merkle_root_tx,
+            merkle_root_state,
+            signature,
+            authority_mask,
+            authority_proposal,
+        }
+    }
+    pub fn empty(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash) -> Self {
+        BeaconBlockHeader {
+            index,
+            parent_hash,
+            merkle_root_tx: MerkleHash::default(),
+            merkle_root_state,
+            authority_mask: vec![],
+            authority_proposal: vec![],
+            signature: primitives::signature::default_signature(),
+        }
+    }
 }
 
 impl Header for BeaconBlockHeader {
@@ -44,13 +88,7 @@ impl BeaconBlock {
         transactions: Vec<SignedTransaction>,
     ) -> Self {
         BeaconBlock {
-            header: BeaconBlockHeader {
-                parent_hash,
-                merkle_root_tx: MerkleHash::default(),
-                merkle_root_state,
-                signature: primitives::signature::default_signature(),
-                index,
-            },
+            header: BeaconBlockHeader::empty(index, parent_hash, merkle_root_state),
             transactions,
         }
     }
