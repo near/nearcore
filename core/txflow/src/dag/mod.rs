@@ -92,7 +92,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
 
         // Wrap message data and connect to the parents so that the verification can be run.
         let mut message = Box::new(Message::new(message_data));
-        let parent_hashes = message.data.body.parents.to_vec();
+        let parent_hashes = message.data.body.parents.clone();
 
         for p_hash in parent_hashes {
             if let Some(&p) = self.messages.get(&p_hash) {
@@ -103,7 +103,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
         }
 
         // Compute epochs, endorsements, etc.
-        message.init(true, self.starting_epoch, self.witness_selector);
+        message.init(true, true, self.starting_epoch, self.witness_selector);
 
         // Verify the message.
         if let Err(e) = self.verify_message(&message) {
@@ -137,7 +137,8 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector> DAG<'a, P, W> {
                 }
             }
         ));
-        message.init(true, self.starting_epoch, self.witness_selector);
+        message.parents = self.roots.clone();
+        message.init(true, false, self.starting_epoch, self.witness_selector);
         message.assume_computed_hash_epoch();
 
         // Finally, take ownership of the new root.

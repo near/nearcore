@@ -14,7 +14,7 @@ Cargo.lock
 **/*.rs.bk
 .idea
 
-
+**/.ipynb_checkpoints/*
 # Editor config files
 .vscode
 

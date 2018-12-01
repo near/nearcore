@@ -2,6 +2,7 @@ use hash::{CryptoHash, hash, hash_struct};
 use signature::Signature;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+use std::collections::HashSet;
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -185,15 +186,29 @@ pub struct InShardPayload {
 #[derive(Hash, Debug)]
 pub struct BeaconChainPayload {}
 
-#[derive(Hash, Debug, Clone)]
+#[derive(Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: UID,
-    pub parents: Vec<TxFlowHash>,
+    pub parents: HashSet<TxFlowHash>,
     pub epoch: u64,
     pub payload: P,
     /// Optional endorsement of this or other representative block.
     pub endorsements: Vec<Endorsement>,
+}
+
+impl<P: Hash> Hash for MessageDataBody<P> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.owner_uid.hash(state);
+        let mut vec: Vec<_> = self.parents.clone().into_iter().collect();
+        vec.sort();
+        for h in vec {
+            h.hash(state);
+        }
+        self.epoch.hash(state);
+        //self.payload.hash(state);
+        // TODO: Hash endorsements.
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -49,7 +49,7 @@ where
         body,
     });
     message.parents = parents.into_iter().collect();
-    message.init(recompute_epoch, starting_epoch, witness_selector);
+    message.init(recompute_epoch, true, starting_epoch, witness_selector);
     message
 }
 

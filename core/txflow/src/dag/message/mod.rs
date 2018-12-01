@@ -134,11 +134,18 @@ impl<'a, P: Payload> Message<'a, P> {
         }
     }
 
+    fn compute_hash(&mut self) {
+        let mut hasher = DefaultHasher::new();
+        self.data.body.hash(&mut hasher);
+        self.computed_hash = hasher.finish();
+    }
+
     pub fn assume_computed_hash_epoch(&mut self) {
         if !self.is_initialized {
             panic!(UNINITIALIZED_MESSAGE_ERR)
         }
         self.data.body.epoch = self.computed_epoch;
+        self.compute_hash();
         self.data.hash = self.computed_hash;
     }
 
@@ -389,8 +396,9 @@ impl<'a, P: Payload> Message<'a, P> {
     }
 
     /// Computes epoch, is_representative, is_kickout using parents' information.
-    /// If recompute_epoch = false then the epoch is not recomputed but taken from data.
-    pub fn init<W>(&mut self, recompute_epoch: bool, starting_epoch: u64, witness_selector: &W)
+    /// If recompute_epoch = false then the epoch is not recomputed but taken from data, it is
+    /// useful when the message is retrieved from a block on the beacon chain.
+    pub fn init<W>(&mut self, recompute_epoch: bool, recompute_hash: bool, starting_epoch: u64, witness_selector: &W)
     where
         W: WitnessSelector,
     {
@@ -413,10 +421,10 @@ impl<'a, P: Payload> Message<'a, P> {
         };
 
         // Compute the hash.
-        self.computed_hash = {
-            let mut hasher = DefaultHasher::new();
-            self.data.body.hash(&mut hasher);
-            hasher.finish()
+        if recompute_hash {
+            self.compute_hash();
+        } else {
+            self.computed_hash = self.data.hash
         };
 
         // Compute if this is an epoch leader.
