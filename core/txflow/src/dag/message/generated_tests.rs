@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic] // tracked by #99
+    #[should_panic] // https://github.com/nearprotocol/nearcore/issues/99
     fn generated_bob_second_msg_in_kickout_epoch() {
         /* In this test Bob has another message in the same epoch in which it already has a kickout. This second message shall not be a kickout. */
 
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic] // tracked by #99
+    #[should_panic] // https://github.com/nearprotocol/nearcore/issues/99
     fn generated_bob_fork() {
         /* Representative message fork from Bob, testing endorsements */
 
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic] // tracked by #99
+    #[should_panic] // https://github.com/nearprotocol/nearcore/issues/99
     fn generated_kickouts_and_epoch_blocks_1() {
         /* Interesting interaction between kickouts and epoch blocks. Representative block from Carol for Epoch 2 (which happens to be in Epoch 3) approves Representative block from Bob for Epoch 1 and Representative block from Alice for Epoch 0. */
 
@@ -548,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic] // tracked by #123
+    #[should_panic] // https://github.com/nearprotocol/nearcore/issues/123
     fn generated_endorse_kickout_fork() {
          /* Bob create fork creating both endorsing and kick-out for alice message. */
 
