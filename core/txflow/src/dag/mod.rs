@@ -88,13 +88,13 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
         // Check epoch
         if message.computed_epoch != message.data.body.epoch {
             let mb = ViolationType::BadEpoch {
-                message: message.computed_hash.clone(),
+                message: message.computed_hash,
             };
 
             self.misbehavior.borrow_mut().report(mb);
         }
 
-        Ok({})
+        Ok(())
     }
 
     // Takes ownership of the message.
@@ -104,7 +104,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
     ) -> Result<(), &'static str> {
         // Check whether this is a new message.
         if self.messages.contains(&message_data.hash) {
-            return Ok({});
+            return Ok(());
         }
 
         // Wrap message data and connect to the parents so that the verification can be run.
@@ -135,7 +135,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;
         self.messages.insert(unsafe{&*message_ptr});
         self.roots.insert(unsafe{&*message_ptr});
-        Ok({})
+        Ok(())
     }
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
