@@ -12,7 +12,7 @@
 
     \maketitle
 
-    TxFlow algorithm is all about building a DAG of messages and recognizing when a certain message has some special properties. The properties of each message depend exclusively on its sub-DAG. We constantly iterate on the improvements of the algorithm in several languages that use different algorithmic approaches, e.g. Rust implementation tries to avoid DAG traversals by precomputing the needed information in each message, while Javascript aims for the simplicity of the implementation. While we do these iterations it easy to lose track of the actual algorithm in the implementation details. This notebook lists the predicates that formally define the properties of the messages and serves as the \textbf{source of truth} for TxFlow.
+    TxFlow algorithm is all about building a DAG of messages and recognizing when a certain message has some special properties. The properties of each message depend exclusively on its sub-DAG. We constantly iterate on the improvements of the algorithm in several languages that use different algorithmic approaches, e.g. Rust implementation tries to avoid DAG traversals by precomputing the needed information in each message, while Javascript aims for the simplicity of the implementation. While we do these iterations it is easy to lose track of the actual algorithm in the implementation details. This notebook lists the predicates that formally define the properties of the messages and serves as the \textbf{source of truth} for TxFlow.
 
     \section*{Basic notation}
     We say that message $c$ directly approves $p$ if $p$ contains the hash of $c$. We say that $c$ approves $p$, denoted as $p\leftarrow c$ if there is $p'$ such that $c$ directly approves $p'$ and $p'$ approves $p$, i.e. it is a transitive closure. We also allow it to be reflexive so $c\leftarrow c$ is always true.
@@ -58,7 +58,7 @@
     \subsection*{Endorsable}
     \[
         \begin{aligned}
-            \widetilde{E}(m_w, n)  \triangleq & \text{   } &\textit{Message $n$ is endosable by $m_w$ if: } \\
+            \widetilde{E}(m_w, n)  \triangleq & \text{   } &\textit{Message $n$ is endorsable by $m_w$ if: } \\
             n \in \overline{D}(m_w) \land & & \textit{It is approved by it. We allow representative to endorse itself.} \\
             \exists e: R(n,e) \land & & \textit{$n$ is actually a representative of some epoch $e$.} \\
             \nexists m'_w \in D(m_w): \widetilde{E}(m'_w, n) \land && \textit{We did not already endorse it with some other message.} \\
@@ -88,7 +88,7 @@
 
     Notice the differences in the last line of the \textbf{Endorsable} and \textbf{Promise message}:
     \begin{itemize}
-        \item First, if the message simultaneously approves both kickout and a representative than it is a endorsement, and not a kickout (see the $D$ vs $\overline{D}$ asymetry that breaks the tie);
+        \item First, if the message simultaneously approves both kickout and a representative then it is an endorsement, and not a kickout (see the $D$ vs $\overline{D}$ asymetry that breaks the tie);
         \item (*) Second, notice how we use $\widetilde{E}$ instead of $E$ in the \textbf{Promise message}. Even if we previously did not endorse the representative but we should have (we did not provide the signature) than we are still not allowed to promise to a kickout for that epoch.
     \end{itemize}
 
