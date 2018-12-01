@@ -546,4 +546,41 @@ mod tests {
         test(&v);
         test_endorsements(v24, &[vec![0], vec![1, 3, 4, 5], vec![0, 2, 3, 4, 5]], 7);
     }
+
+    #[test]
+    #[should_panic] // tracked by #123
+    fn generated_endorse_kickout_fork() {
+         /* Bob create fork creating both endorsing and kick-out for alice message. */
+
+         /* {"s":[{"owner":0,"parents":[]},{"owner":1,"parents":[]},{"owner":2,"parents":[]},{"owner":3,"parents":[]},{"owner":1,"parents":[0,1,2]},{"owner":1,"parents":[1,2,3]},{"owner":2,"parents":[5]},{"owner":3,"parents":[0,4,6]}],"n":4,"c":"Bob create fork creating both endorsing and kick-out for alice message.","f":""} */
+         let arena = Arena::new();
+         let selector = FakeNonContinuousWitnessSelector::new(4);
+         let (v0,v1,v2,v3,v5,v4,v6,v7);
+         let mut v = [None; 8];
+         let test = |v:&[_]| make_assertions(&v, &[(0, Some(0), false, 0), (0, None, false, 1), (0, None, false, 2), (0, None, false, 3), (1, Some(1), false, 5), (1, None, true, 4), (1, None, false, 6), (1, None, false, 7)]);
+         simple_messages!(0, &selector, arena [0, 0, true => v0;]); v[0] = Some(v0);
+         test(&v);
+         test_endorsements(v0, &[vec![0]], 4);
+         simple_messages!(0, &selector, arena [1, 0, true => v1;]); v[1] = Some(v1);
+         test(&v);
+         test_endorsements(v1, &[], 4);
+         simple_messages!(0, &selector, arena [2, 0, true => v2;]); v[2] = Some(v2);
+         test(&v);
+         test_endorsements(v2, &[], 4);
+         simple_messages!(0, &selector, arena [3, 0, true => v3;]); v[3] = Some(v3);
+         test(&v);
+         test_endorsements(v3, &[], 4);
+         simple_messages!(0, &selector, arena [[=> v0; => v1; => v2; ] => 1, 0, true => v5;]); v[4] = Some(v5);
+         test(&v);
+         test_endorsements(v5, &[vec![0, 1], vec![1]], 4);
+         simple_messages!(0, &selector, arena [[=> v1; => v2; => v3; ] => 1, 0, true => v4;]); v[5] = Some(v4);
+         test(&v);
+         test_endorsements(v4, &[], 4);
+         simple_messages!(0, &selector, arena [[=> v4; ] => 2, 0, true => v6;]); v[6] = Some(v6);
+         test(&v);
+         test_endorsements(v6, &[], 4);
+         simple_messages!(0, &selector, arena [[=> v0; => v5; => v6; ] => 3, 0, true => v7;]); v[7] = Some(v7);
+         test(&v);
+         test_endorsements(v7, &[vec![0, 1, 3], vec![1]], 4);
+    }
 }
