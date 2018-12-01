@@ -98,10 +98,8 @@ impl fmt::Display for SecretKey {
     }
 }
 
-pub mod bs58_format {
-    use super::{bs58, PublicKey};
-    use exonum_sodiumoxide as sodiumoxide;
-    use serde::de;
+pub mod bs58_pub_key_format {
+    use super::PublicKey;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
@@ -116,18 +114,26 @@ pub mod bs58_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        match bs58::decode(s).into_vec() {
-            Ok(vec) => {
-                let mut array = [0; 32];
-                if vec.len() == array.len() {
-                    let bytes = &vec[..array.len()];
-                    array.copy_from_slice(bytes);
-                    Ok(PublicKey(sodiumoxide::crypto::sign::ed25519::PublicKey(array)))
-                } else {
-                    Err(de::Error::custom("invalid byte array length"))
-                }
-            }
-            Err(_) => Err(de::Error::custom("invalid base58 string")),
-        }
+        Ok(PublicKey::from(&s))
+    }
+}
+
+pub mod bs58_secret_key_format {
+    use super::SecretKey;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        serializer.serialize_str(String::from(secret_key).as_str())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(SecretKey::from(&s))
     }
 }

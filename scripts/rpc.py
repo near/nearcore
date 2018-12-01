@@ -76,10 +76,17 @@ def _get_account_id(account_alias):
 
 
 class NearRPC(object):
-    def __init__(self, server_url, keystore_file=None, private_key_file=None):
+    def __init__(
+            self,
+            server_url,
+            keystore_binary=None,
+            keystore_path=None,
+            public_key=None,
+    ):
         self._server_url = server_url
-        self._keystore_file = keystore_file
-        self._private_key_file = private_key_file
+        self._keystore_binary = keystore_binary
+        self._keystore_path = keystore_path
+        self._public_key = public_key
         self._nonces = {}
 
     def _get_nonce(self, sender):
@@ -102,14 +109,19 @@ class NearRPC(object):
         return _post(self._server_url, data)['result']
 
     def _sign_transaction_body(self, body):
-        output = subprocess.check_output([
-            self._keystore_file,
+        args = [
+            self._keystore_binary,
             'sign_transaction',
             '--data',
             json.dumps(body),
-            '--private-key-file',
-            self._private_key_file,
-        ])
+            '--keystore-path',
+            self._keystore_path,
+        ]
+
+        if self._public_key is not None:
+            args += ['--public-key', self._public_key]
+
+        output = subprocess.check_output(args)
         return json.loads(output)
 
     def _handle_prepared_transaction_body_response(self, response):
@@ -239,18 +251,24 @@ view_account             {}
             help='account alias of sender',
         )
         parser.add_argument(
-            '-k',
-            '--keystore-file',
+            '-b',
+            '--keystore-binary',
             type=str,
             default='./target/debug/keystore',
             help='location of keystore binary',
         )
         parser.add_argument(
-            '-p',
-            '--private-key-file',
+            '-d',
+            '--keystore-path',
             type=str,
-            default='near_key',
-            help='location of private key file for signing transactions',
+            default='keystore/',
+            help='location of keystore for signing transactions',
+        )
+        parser.add_argument(
+            '-k',
+            '--public-key',
+            type=str,
+            help='public key for signing transactions',
         )
 
     @staticmethod
@@ -261,9 +279,15 @@ view_account             {}
 
     @staticmethod
     def _get_rpc_client(command_args):
-        keystore_file = getattr(command_args, 'keystore_file', None)
-        private_key_file = getattr(command_args, 'private_key_file', None)
-        return NearRPC(command_args.server_url, keystore_file, private_key_file)
+        keystore_binary = getattr(command_args, 'keystore_binary', None)
+        keystore_path = getattr(command_args, 'keystore_path', None)
+        public_key = getattr(command_args, 'public_key', None)
+        return NearRPC(
+            command_args.server_url,
+            keystore_binary,
+            keystore_path,
+            public_key,
+        )
 
     def send_money(self):
         """Send money from one account to another"""
