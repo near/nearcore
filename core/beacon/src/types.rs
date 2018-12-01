@@ -1,4 +1,5 @@
-use primitives::hash::{hash_struct, CryptoHash};
+use primitives::hash::{CryptoHash, hash_struct};
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 use std::sync::Arc;
@@ -48,7 +49,7 @@ impl BeaconBlock {
                 parent_hash,
                 merkle_root_tx: MerkleHash::default(),
                 merkle_root_state,
-                signature: primitives::signature::default_signature(),
+                signature: DEFAULT_SIGNATURE,
                 index,
             },
             transactions,

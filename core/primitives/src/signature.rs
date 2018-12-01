@@ -27,10 +27,13 @@ pub fn get_keypair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-pub fn default_signature() -> Signature {
-    let sig = [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-    sodiumoxide::crypto::sign::ed25519::Signature(sig)
-}
+
+const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] = [
+    0u8;
+    sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES
+];
+
+pub const DEFAULT_SIGNATURE: Signature = sodiumoxide::crypto::sign::ed25519::Signature(SIG);
 
 impl PublicKey {
     pub fn from(s: &str) -> PublicKey {

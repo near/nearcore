@@ -22,7 +22,7 @@ use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use node_cli::chain_spec::get_default_chain_spec;
 use primitives::hash::hash;
-use primitives::signature::default_signature;
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::signer::InMemorySigner;
 use primitives::types::{SignedTransaction, TransactionBody};
 use service::network_handler::NetworkHandler;
@@ -95,7 +95,7 @@ pub fn main() {
                     method_name: String::new(),
                     args: vec![],
                 };
-                let tx = SignedTransaction::new(default_signature(), tx_body);
+                let tx = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
                 client.receive_transaction(tx);
                 Ok(())
             }

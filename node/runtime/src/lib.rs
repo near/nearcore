@@ -357,7 +357,7 @@ mod tests {
     use storage::test_utils::create_state_db;
 
     use super::*;
-    use primitives::signature::default_signature;
+    use primitives::signature::DEFAULT_SIGNATURE;
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -399,7 +399,7 @@ mod tests {
         let runtime = Runtime::default();
         let root = apply_default_genesis_state(&runtime);
         let t = SignedTransaction::new(
-            default_signature(),
+            DEFAULT_SIGNATURE,
             TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 100, String::new(), vec![]),
         );
         let apply_state =
@@ -458,7 +458,7 @@ mod tests {
             method_name: "run_test".to_string(),
             args: vec![],
         };
-        let transaction = SignedTransaction::new(default_signature(), tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, _) = runtime.apply(&apply_state, vec![transaction]);
@@ -479,7 +479,7 @@ mod tests {
             method_name: "deploy".to_string(),
             args: vec![wasm_binary.clone()],
         };
-        let transaction = SignedTransaction::new(default_signature(), tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
@@ -504,7 +504,7 @@ mod tests {
             method_name: "deploy".to_string(),
             args: vec![test_binary.to_vec()],
         };
-        let transaction = SignedTransaction::new(default_signature(), tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
@@ -529,7 +529,7 @@ mod tests {
             method_name: "run_test".to_string(),
             args: vec![],
         };
-        let transaction = SignedTransaction::new(default_signature(), tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);

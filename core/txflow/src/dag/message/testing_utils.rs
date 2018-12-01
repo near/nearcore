@@ -1,5 +1,5 @@
 use super::Message;
-use primitives::signature::default_signature;
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::{MessageDataBody, UID};
 use std::collections::hash_map::DefaultHasher;
@@ -45,7 +45,7 @@ where
         hasher.finish()
     };
     let mut message = Message::new(::primitives::types::SignedMessageData {
-        owner_sig: default_signature(),
+        owner_sig: DEFAULT_SIGNATURE,
         hash,
         body,
     });

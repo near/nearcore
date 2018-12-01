@@ -14,7 +14,7 @@ use futures::{Future, Poll, Async, Stream, Sink};
 use futures::sync::mpsc;
 use tokio::timer::Delay;
 
-use primitives::signature::default_signature;
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
@@ -215,7 +215,7 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> TxFlowTask<'a, P, 
                 let reply = Gossip {
                     sender_uid: self.owner_uid,
                     receiver_uid: gossip.sender_uid,
-                    sender_sig: default_signature(),  // TODO: Sign it.
+                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::FetchReply(reply_messages)
                 };
                 self.send_gossip(reply);
@@ -298,7 +298,7 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> Stream for TxFlowT
             let reply = Gossip {
                 sender_uid: self.owner_uid,
                 receiver_uid,
-                sender_sig: default_signature(),  // TODO: Sign it.
+                sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                 body: GossipBody::Fetch(fetch_hashes.drain().collect())
             };
             self.send_gossip(reply);
@@ -353,7 +353,7 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> Stream for TxFlowT
                 let gossip = Gossip {
                     sender_uid: self.owner_uid,
                     receiver_uid: *w,
-                    sender_sig: default_signature(),  // TODO: Sign it.
+                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::Unsolicited(gossip_body.clone())
                 };
                 self.send_gossip(gossip)
@@ -364,7 +364,7 @@ impl<'a, P: Payload, W: WitnessSelector, S: 'a + SpawnerLike> Stream for TxFlowT
                 let gossip = Gossip {
                     sender_uid: self.owner_uid,
                     receiver_uid: w,
-                    sender_sig: default_signature(),  // TODO: Sign it.
+                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::UnsolicitedReply(gossip_body.clone())
                 };
                 self.send_gossip(gossip)

@@ -109,8 +109,12 @@ class NearRPC(object):
         return _post(self._server_url, data)['result']
 
     def _sign_transaction_body(self, body):
-        args = [
-            self._keystore_binary,
+        if self._keystore_binary is not None:
+            args = [self._keystore_binary]
+        else:
+            args = 'cargo run -p keystore --'.split(g)
+
+        args += [
             'sign_transaction',
             '--data',
             json.dumps(body),
@@ -254,7 +258,6 @@ view_account             {}
             '-b',
             '--keystore-binary',
             type=str,
-            default='./target/debug/keystore',
             help='location of keystore binary',
         )
         parser.add_argument(

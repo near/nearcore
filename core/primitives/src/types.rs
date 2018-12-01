@@ -1,6 +1,6 @@
 use hash::{CryptoHash, hash, hash_struct};
 use signature::{PublicKey, Signature};
-use signature::default_signature;
+use signature::DEFAULT_SIGNATURE;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 
@@ -120,7 +120,7 @@ impl SignedTransaction {
             method_name: String::new(),
             args: vec![],
         };
-        SignedTransaction { sender_sig: default_signature(), hash: hash_struct(&body), body }
+        SignedTransaction { sender_sig: DEFAULT_SIGNATURE, hash: hash_struct(&body), body }
     }
 }
 
