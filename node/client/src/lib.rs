@@ -9,7 +9,7 @@ extern crate chain as blockchain;
 
 use beacon::authority::{Authority, AuthorityConfig};
 use beacon::types::{AuthorityProposal, BeaconBlock};
-use blockchain::{BlockChain, ChainConfig};
+use blockchain::BlockChain;
 use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
@@ -56,7 +56,7 @@ impl Client {
                 .iter()
                 .map(|(public_key, amount)| AuthorityProposal {
                     public_key: PublicKey::from(public_key),
-                    amount: amount.clone(),
+                    amount: *amount,
                 }).collect(),
             epoch_length: chain_spec.beacon_chain_epoch_length,
             num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,

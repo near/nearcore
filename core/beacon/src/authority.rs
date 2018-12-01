@@ -26,10 +26,10 @@ pub struct Authority {
 }
 
 /// Finds threshold for given proposals and number of seats.
-fn find_threshold(proposed: Vec<u64>, num_seats: u64) -> Result<u64, String> {
+fn find_threshold(proposed: &[u64], num_seats: u64) -> Result<u64, String> {
     let sum = proposed.iter().sum();
     for item in proposed.iter() {
-        if item < &num_seats {
+        if *item < num_seats {
             return Err(format!(
                 "Proposed {} must be higher then number of seats {}",
                 item, num_seats
@@ -113,7 +113,8 @@ impl Authority {
         let num_seats =
             self.authority_config.num_seats_per_slot * self.authority_config.epoch_length;
         let mut result = HashMap::default();
-        let threshold = find_threshold(proposals.iter().map(|p| p.amount).collect(), num_seats)
+        let proposal_amounts: Vec<u64> = proposals.iter().map(|p| p.amount).collect();
+        let threshold = find_threshold(proposal_amounts.as_slice(), num_seats)
             .expect("Threshold is not found for given proposals.");
         let mut dup_proposals = vec![];
         for item in proposals {
@@ -159,7 +160,6 @@ impl Authority {
 mod test {
     use super::*;
 
-    use chain::ChainConfig;
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use primitives::traits::Block;
@@ -182,15 +182,9 @@ mod test {
 
     fn test_blockchain(num_blocks: u64) -> BlockChain<BeaconBlock> {
         let storage = Arc::new(MemoryStorage::default());
-        let chain_config = ChainConfig {
-            extra_col: storage::COL_EXTRA,
-            header_col: storage::COL_HEADERS,
-            block_col: storage::COL_BLOCKS,
-            index_col: storage::COL_BLOCK_INDEX,
-        };
         let mut last_block =
             BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
-        let bc = BlockChain::new(chain_config, last_block.clone(), storage);
+        let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
             let block = BeaconBlock::new(i, last_block.hash(), MerkleHash::default(), vec![]);
             bc.insert_block(block.clone());
@@ -226,10 +220,10 @@ mod test {
 
     #[test]
     fn test_find_threshold() {
-        assert_eq!(find_threshold(vec![1000000, 1000000, 10], 10).unwrap(), 200000);
-        assert_eq!(find_threshold(vec![1000000000, 10], 10).unwrap(), 100000000);
-        assert_eq!(find_threshold(vec![1000000000], 1000000000).unwrap(), 1);
-        assert_eq!(find_threshold(vec![1000, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).unwrap(), 1000);
-        assert!(find_threshold(vec![1, 1, 2], 100).is_err());
+        assert_eq!(find_threshold(&[1000000, 1000000, 10], 10).unwrap(), 200000);
+        assert_eq!(find_threshold(&[1000000000, 10], 10).unwrap(), 100000000);
+        assert_eq!(find_threshold(&[1000000000], 1000000000).unwrap(), 1);
+        assert_eq!(find_threshold(&[1000, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).unwrap(), 1000);
+        assert!(find_threshold(&[1, 1, 2], 100).is_err());
     }
 }

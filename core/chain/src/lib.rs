@@ -124,6 +124,7 @@ impl<B: Block> BlockChain<B> {
     pub fn insert_block(&self, block: B) -> bool {
         let block_hash = block.hash();
         if self.is_known(&block_hash) {
+            // TODO: known header but not known block.
             return false;
         }
 
