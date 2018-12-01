@@ -28,11 +28,11 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + Misbehavior
     witness_selector: &'a W,
     starting_epoch: u64,
 
-    misbehavior: RefCell<M>,
+    misbehavior: Box<RefCell<M>>,
 }
 
 impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'a, P, W, M> {
-    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W, misbehavior: RefCell<M>) -> Self {
+    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
             arena: Arena::new(),
@@ -40,7 +40,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
             roots: HashSet::new(),
             witness_selector,
             starting_epoch,
-            misbehavior,
+            misbehavior: Box::new(RefCell::new(M::new())),
         }
     }
 
@@ -204,10 +204,10 @@ mod tests {
     #[test]
     fn incorrect_epoch_simple() {
         let selector = FakeWitnessSelector::new();
-        let misbehavior = DAGMisbehaviorReporter::new();
+        // let misbehavior = DAGMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
+        let mut dag : DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
 
         // Parent have greater epoch than children
         let (a, b);
@@ -238,10 +238,9 @@ mod tests {
         // with smaller epochs it creates them.
 
         let selector = FakeWitnessSelector::new();
-        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
 
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0; 3, 0;] => 0, 1 => a;]);
@@ -261,12 +260,12 @@ mod tests {
         }
     }
 
+    #[test]    
     fn feed_complex_topology() {
         let selector = FakeWitnessSelector::new();
-        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
@@ -281,10 +280,9 @@ mod tests {
     #[test]
     fn check_missing_messages_as_feeding() {
         let selector = FakeWitnessSelector::new();
-        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4 => d;] => 4, 5 => e;]);
@@ -310,10 +308,9 @@ mod tests {
     #[test]
     fn create_roots() {
         let selector = FakeWitnessSelector::new();
-        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
@@ -335,9 +332,8 @@ mod tests {
     #[test]
     fn movable() {
         let selector = FakeWitnessSelector::new();
-        let misbehavior = NoopMisbehaviorReporter::new();
         let data_arena = Arena::new();
-        let mut dag = DAG::new(0, 0, &selector, RefCell::new(misbehavior));
+        let mut dag: DAG<_,_> = DAG::new(0, 0, &selector);
         let (a, b);
         // Add some messages.
         {

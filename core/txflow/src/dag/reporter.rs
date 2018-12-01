@@ -33,8 +33,7 @@ impl MisbehaviorReporter for NoopMisbehaviorReporter{
         Self {}
     }
 
-    fn report(&mut self, violation: ViolationType) {
-
+    fn report(&mut self, _violation: ViolationType) {
     }
 }
 
