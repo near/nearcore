@@ -2,9 +2,8 @@ use client::Client;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
 use rpc::types::{
-    CallViewFunctionRequest, CallViewFunctionResponse,
-    DeployContractRequest, SendMoneyRequest, ScheduleFunctionCallRequest,
-    ViewAccountRequest, ViewAccountResponse,
+    CallViewFunctionRequest, CallViewFunctionResponse, DeployContractRequest,
+    ScheduleFunctionCallRequest, SendMoneyRequest, ViewAccountRequest, ViewAccountResponse,
 };
 use std::sync::Arc;
 
@@ -61,7 +60,7 @@ impl TransactionApi for RpcImpl {
             receiver: r.receiver_account_id,
             amount: r.amount,
             method_name: String::new(),
-            args: Vec::new()
+            args: Vec::new(),
         };
         let transaction = _generate_fake_signed_transaction(body);
         Ok(self.client.receive_transaction(transaction))
@@ -81,11 +80,7 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
-        let call = ViewCall {
-            account: r.account_id,
-            method_name: String::new(),
-            args: Vec::new(),
-        };
+        let call = ViewCall { account: r.account_id, method_name: String::new(), args: Vec::new() };
         let result = self.client.view_call(&call);
         let response = ViewAccountResponse {
             account_id: result.account,
@@ -95,14 +90,12 @@ impl TransactionApi for RpcImpl {
         Ok(response)
     }
 
-    fn rpc_call_view_function(&self, r: CallViewFunctionRequest)
-                              -> JsonRpcResult<(CallViewFunctionResponse)>
-    {
-        let call = ViewCall {
-            account: r.contract_account_id,
-            method_name: r.method_name,
-            args: r.args,
-        };
+    fn rpc_call_view_function(
+        &self,
+        r: CallViewFunctionRequest,
+    ) -> JsonRpcResult<(CallViewFunctionResponse)> {
+        let call =
+            ViewCall { account: r.contract_account_id, method_name: r.method_name, args: r.args };
         let result = self.client.view_call(&call);
         let response = CallViewFunctionResponse {
             account_id: result.account,
@@ -114,7 +107,6 @@ impl TransactionApi for RpcImpl {
     }
 }
 
-
 pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
     let mut io = IoHandler::new();
     io.extend_with(rpc_impl.to_delegate());
@@ -125,10 +117,10 @@ pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
 mod tests {
     extern crate jsonrpc_test;
 
-    use client::test_utils::generate_test_client;
-    use primitives::hash::hash;
     use self::jsonrpc_test::Rpc;
     use super::*;
+    use client::test_utils::generate_test_client;
+    use primitives::hash::hash;
 
     #[test]
     fn test_call() {

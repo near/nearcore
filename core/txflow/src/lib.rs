@@ -1,12 +1,12 @@
 #[macro_use]
 extern crate log;
-extern crate rand;
 extern crate chrono;
+extern crate rand;
 extern crate tokio;
 #[macro_use]
 extern crate futures;
-extern crate typed_arena;
 extern crate primitives;
+extern crate typed_arena;
 #[macro_use]
 mod initializer_tools;
 #[cfg(test)]
@@ -14,4 +14,3 @@ mod initializer_tools;
 mod testing_utils;
 pub mod dag;
 pub mod txflow_task;
-

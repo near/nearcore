@@ -1,8 +1,8 @@
-use hash::{CryptoHash, hash, hash_struct};
+use hash::{hash, hash_struct, CryptoHash};
 use signature::Signature;
 use std::borrow::Borrow;
-use std::hash::{Hash, Hasher};
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;

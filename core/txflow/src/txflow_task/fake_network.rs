@@ -1,12 +1,12 @@
 use super::TxFlowTask;
 
-use futures::{Future, Sink, Stream};
-use futures::future::{join_all, lazy};
+use chrono::Utc;
 use futures::future;
+use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
+use futures::{Future, Sink, Stream};
 use rand;
 use std::collections::HashSet;
-use chrono::Utc;
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::GossipBody;
@@ -20,11 +20,7 @@ struct FakeWitnessSelector {
 
 impl FakeWitnessSelector {
     pub fn new(owner_uid: u64, num_witnesses: u64) -> Self {
-        Self {
-            owner_uid,
-            num_witnesses,
-            all_witnesses: (0..num_witnesses).collect(),
-        }
+        Self { owner_uid, num_witnesses, all_witnesses: (0..num_witnesses).collect() }
     }
 }
 
@@ -83,10 +79,8 @@ impl Payload for FakePayload {
 /// Spawns several TxFlowTasks and mediates their communication channels.
 pub fn spawn_all(num_witnesses: u64) {
     let starting_epoch = 0;
-    let sample_size = (num_witnesses as f64)
-        .sqrt()
-        .max(1.0 as f64)
-        .min(num_witnesses as f64 - 1.0) as usize;
+    let sample_size =
+        (num_witnesses as f64).sqrt().max(1.0 as f64).min(num_witnesses as f64 - 1.0) as usize;
 
     tokio::run(lazy(move || {
         let mut inc_gossip_tx_vec = vec![];
@@ -105,9 +99,14 @@ pub fn spawn_all(num_witnesses: u64) {
             out_gossip_rx_vec.push(_out_gossip_rx);
 
             let task = TxFlowTask::<FakePayload, _>::new(
-                owner_uid, starting_epoch, sample_size,
-                inc_gossip_rx, inc_payload_rx, out_gossip_tx,
-                selector);
+                owner_uid,
+                starting_epoch,
+                sample_size,
+                inc_gossip_rx,
+                inc_payload_rx,
+                out_gossip_tx,
+                selector,
+            );
             tokio::spawn(task.for_each(|_| Ok(())));
         }
 
@@ -123,32 +122,40 @@ pub fn spawn_all(num_witnesses: u64) {
                     None
                 };
                 let gossip_input = inc_gossip_tx_vec_cloned[receiver_uid as usize].clone();
-                tokio::spawn(gossip_input.send(gossip)
-                    .map(|_| ())
-                    .map_err(|e| println!("Error relaying gossip {:?}", e)));
+                tokio::spawn(
+                    gossip_input
+                        .send(gossip)
+                        .map(|_| ())
+                        .map_err(|e| println!("Error relaying gossip {:?}", e)),
+                );
                 epoch
             });
             if tracker_added {
                 tokio::spawn(f.for_each(|_| Ok(())));
             } else {
-                tokio::spawn(f.fold((0, 0), | (min_epoch, max_epoch), _epoch | {
-                    if let Some(epoch) = _epoch {
-                        let mut max_epoch = max_epoch;
-                        let mut min_epoch = min_epoch;
-                        if epoch > max_epoch {
-                            max_epoch = epoch;
-                            println!("{} [{:?}, {:?}]",
-                                     Utc::now().format("%H:%M:%S"),
-                                     min_epoch, max_epoch);
+                tokio::spawn(
+                    f.fold((0, 0), |(min_epoch, max_epoch), _epoch| {
+                        if let Some(epoch) = _epoch {
+                            let mut max_epoch = max_epoch;
+                            let mut min_epoch = min_epoch;
+                            if epoch > max_epoch {
+                                max_epoch = epoch;
+                                println!(
+                                    "{} [{:?}, {:?}]",
+                                    Utc::now().format("%H:%M:%S"),
+                                    min_epoch,
+                                    max_epoch
+                                );
+                            }
+                            if epoch < min_epoch {
+                                min_epoch = epoch;
+                            }
+                            future::ok((min_epoch, max_epoch))
+                        } else {
+                            future::ok((min_epoch, max_epoch))
                         }
-                        if epoch < min_epoch {
-                            min_epoch = epoch;
-                        }
-                        future::ok((min_epoch, max_epoch))
-                    } else {
-                        future::ok((min_epoch, max_epoch))
-                    }
-                }).map(|_| ())
+                    })
+                    .map(|_| ()),
                 );
             }
             tracker_added = true;
@@ -159,13 +166,17 @@ pub fn spawn_all(num_witnesses: u64) {
         for c in &inc_payload_tx_vec {
             let mut payload = FakePayload::new();
             payload.set_content(1);
-            fs.push(c.clone().send(payload)
-                .map(|_| println!("Sending payload"))
-                .map_err(|e| println!("Payload sending error {:?}", e))
+            fs.push(
+                c.clone()
+                    .send(payload)
+                    .map(|_| println!("Sending payload"))
+                    .map_err(|e| println!("Payload sending error {:?}", e)),
             );
         }
 
-        tokio::spawn(join_all(fs).map(|_|()).map_err(|e| println!("Payloads sending error {:?}", e)));
+        tokio::spawn(
+            join_all(fs).map(|_| ()).map_err(|e| println!("Payloads sending error {:?}", e)),
+        );
         Ok(())
     }));
 }

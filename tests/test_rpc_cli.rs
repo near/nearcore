@@ -3,14 +3,14 @@ extern crate lazy_static;
 extern crate serde_json;
 extern crate service;
 
-use service::test_utils::run_test_service;
-use std::thread;
-use std::process::Command;
-use service::rpc::types::ViewAccountResponse;
 use serde_json::Value;
-use std::process::Output;
-use std::borrow::Cow;
 use service::rpc::types::CallViewFunctionResponse;
+use service::rpc::types::ViewAccountResponse;
+use service::test_utils::run_test_service;
+use std::borrow::Cow;
+use std::process::Command;
+use std::process::Output;
+use std::thread;
 
 fn test_service_ready() -> bool {
     thread::spawn(|| run_test_service());
@@ -30,7 +30,9 @@ fn check_result(output: &Output) -> Cow<str> {
 
 #[test]
 fn test_send_money() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED {
+        panic!()
+    }
     let output = Command::new("./scripts/rpc.py")
         .arg("send_money")
         .output()
@@ -42,7 +44,9 @@ fn test_send_money() {
 
 #[test]
 fn test_view_account() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED {
+        panic!()
+    }
     let output = Command::new("./scripts/rpc.py")
         .arg("view_account")
         .output()
@@ -53,7 +57,9 @@ fn test_view_account() {
 
 #[test]
 fn test_deploy() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED {
+        panic!()
+    }
     let output = Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg("test_contract_name")
@@ -67,7 +73,9 @@ fn test_deploy() {
 
 #[test]
 fn test_schedule_function_call() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED {
+        panic!()
+    }
     test_deploy();
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
@@ -82,7 +90,9 @@ fn test_schedule_function_call() {
 
 #[test]
 fn test_call_view_function() {
-    if !*DEVNET_STARTED {panic!()}
+    if !*DEVNET_STARTED {
+        panic!()
+    }
     test_deploy();
     let output = Command::new("./scripts/rpc.py")
         .arg("call_view_function")

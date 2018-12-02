@@ -151,8 +151,8 @@ impl<'a, P: Payload> Message<'a, P> {
 
     /// Computes the aggregated data from the parents and updates the message.
     pub fn aggregate_parents<W>(&mut self, witness_selector: &W)
-        where
-        W: WitnessSelector
+    where
+        W: WitnessSelector,
     {
         for p in &self.parents {
             if !p.is_initialized {
@@ -162,8 +162,7 @@ impl<'a, P: Payload> Message<'a, P> {
             self.approved_epochs.union_update(&p.approved_epochs);
             self.approved_epochs.insert(p.computed_epoch, *p);
 
-            self.approved_representatives
-                .union_update(&p.approved_representatives);
+            self.approved_representatives.union_update(&p.approved_representatives);
             if let Some(epoch) = p.computed_is_representative {
                 self.approved_representatives.insert(epoch, *p);
                 // Representative message endorses itself.
@@ -177,34 +176,31 @@ impl<'a, P: Payload> Message<'a, P> {
                 self.approved_promises.insert(p.computed_epoch - 1, *p, *p);
             }
 
-            self.approved_endorsements
-                .union_update(&p.approved_endorsements);
+            self.approved_endorsements.union_update(&p.approved_endorsements);
             self.approved_endorsements.union_update(
                 &GroupApprovalPerEpoch::approve_groups_per_epoch(&p.computed_endorsements, p),
             );
 
             self.approved_promises.union_update(&p.approved_promises);
-            self.approved_promises
-                .union_update(&GroupApprovalPerEpoch::approve_groups_per_epoch(
-                    &p.computed_promises,
-                    p,
-                ));
+            self.approved_promises.union_update(&GroupApprovalPerEpoch::approve_groups_per_epoch(
+                &p.computed_promises,
+                p,
+            ));
 
             self.approved_complete_epochs.union_update(&p.approved_complete_epochs);
             self.approved_complete_epochs.union_update(&p.computed_complete_epochs);
         }
-        self.approved_complete_epochs.union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
-        self.approved_complete_epochs.union_update(&self.approved_promises.superapproved_messages(witness_selector));
+        self.approved_complete_epochs
+            .union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
+        self.approved_complete_epochs
+            .union_update(&self.approved_promises.superapproved_messages(witness_selector));
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
     fn prev_epoch(&'a self) -> Option<&'a u64> {
         // Iterate over past messages that were created by the current owner and return their max
         // epoch.
-        self.approved_epochs
-            .filter_by_owner(self.data.body.owner_uid)
-            .map(|(epoch, _)| epoch)
-            .max()
+        self.approved_epochs.filter_by_owner(self.data.body.owner_uid).map(|(epoch, _)| epoch).max()
     }
 
     /// Determines whether the epoch of the current message should increase.
@@ -241,7 +237,8 @@ impl<'a, P: Payload> Message<'a, P> {
     {
         // Skip if we already approved representative or kickout for this epoch.
         if self.approved_representatives.contains_epoch(self.computed_epoch)
-            || self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            || self.approved_kickouts.contains_epoch(self.computed_epoch)
+        {
             return None;
         }
         if self.computed_is_epoch_leader {
@@ -260,19 +257,20 @@ impl<'a, P: Payload> Message<'a, P> {
             let owner_uid = self.data.body.owner_uid;
 
             for prev_epoch in (0..self.computed_epoch).rev() {
-                if let Some(group) = self.approved_complete_epochs.messages_by_epoch
-                    .get(&prev_epoch)
+                if let Some(group) =
+                    self.approved_complete_epochs.messages_by_epoch.get(&prev_epoch)
                 {
                     if let Some(messages) = group.messages_by_owner.get(&owner_uid) {
-                       if let Some(message) =  messages.iter().next() {
-                           if message.computed_is_kickout
+                        if let Some(message) = messages.iter().next() {
+                            if message.computed_is_kickout
                                // Check that we haven't created representative for this case yet.
-                               && !self.approved_representatives.contains_epoch(prev_epoch + 1) {
-                               return Some(prev_epoch + 1)
-                           }
-                       } else {
-                           panic!("Should contain at least one element");
-                       }
+                               && !self.approved_representatives.contains_epoch(prev_epoch + 1)
+                            {
+                                return Some(prev_epoch + 1);
+                            }
+                        } else {
+                            panic!("Should contain at least one element");
+                        }
                     }
                 }
             }
@@ -288,9 +286,7 @@ impl<'a, P: Payload> Message<'a, P> {
         W: WitnessSelector,
     {
         self.computed_epoch > 0
-            && !self
-                .approved_representatives
-                .contains_epoch(self.computed_epoch - 1)
+            && !self.approved_representatives.contains_epoch(self.computed_epoch - 1)
     }
 
     /// Determines whether this message serves as an endorsement to some representatives.
@@ -321,26 +317,17 @@ impl<'a, P: Payload> Message<'a, P> {
                 continue;
             };
             // Check if we gave a promise to a kickout in this epoch.
-            if self
-                .approved_promises
-                .contains_any_approval(*epoch, *owner_uid)
-            {
+            if self.approved_promises.contains_any_approval(*epoch, *owner_uid) {
                 continue;
             };
             // Check if we endorsed representative with higher epoch.
-            if self
-                .approved_endorsements
-                .contains_any_future_approvals(*epoch, *owner_uid)
-            {
+            if self.approved_endorsements.contains_any_future_approvals(*epoch, *owner_uid) {
                 continue;
             };
             for owner_repr in reprs.messages_by_owner.values() {
                 for repr in owner_repr {
                     // Check if we already gave an endorsement to exactly the same representative.
-                    if !self
-                        .approved_endorsements
-                        .contains_approval(*epoch, *owner_uid, repr)
-                    {
+                    if !self.approved_endorsements.contains_approval(*epoch, *owner_uid, repr) {
                         result.insert(*epoch, repr);
                     }
                 }
@@ -373,9 +360,7 @@ impl<'a, P: Payload> Message<'a, P> {
                 continue;
             };
             // Check if we endorsed this epoch.
-            if self
-                .approved_endorsements
-                .contains_any_approval(*epoch, *owner_uid)
+            if self.approved_endorsements.contains_any_approval(*epoch, *owner_uid)
                 || self.computed_endorsements.contains_epoch(*epoch)
             {
                 continue;
@@ -383,10 +368,7 @@ impl<'a, P: Payload> Message<'a, P> {
             for owner_kickout in kickouts.messages_by_owner.values() {
                 for kickout in owner_kickout {
                     // Check if we already gave a promise to exactly the same kickout.
-                    if !self
-                        .approved_promises
-                        .contains_approval(*epoch, *owner_uid, kickout)
-                    {
+                    if !self.approved_promises.contains_approval(*epoch, *owner_uid, kickout) {
                         result.insert(*epoch, kickout);
                     }
                 }
@@ -398,8 +380,13 @@ impl<'a, P: Payload> Message<'a, P> {
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data, it is
     /// useful when the message is retrieved from a block on the beacon chain.
-    pub fn init<W>(&mut self, recompute_epoch: bool, recompute_hash: bool, starting_epoch: u64, witness_selector: &W)
-    where
+    pub fn init<W>(
+        &mut self,
+        recompute_epoch: bool,
+        recompute_hash: bool,
+        starting_epoch: u64,
+        witness_selector: &W,
+    ) where
         W: WitnessSelector,
     {
         let owner_uid = self.data.body.owner_uid;
@@ -437,7 +424,8 @@ impl<'a, P: Payload> Message<'a, P> {
             // Check if we have already approved representative or kickout message for the same
             // epoch.
             && !self.approved_representatives.contains_epoch(self.computed_epoch)
-            && !self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            && !self.approved_kickouts.contains_epoch(self.computed_epoch)
+        {
             self.computed_is_kickout = self.is_kickout(witness_selector);
         }
 
@@ -481,7 +469,7 @@ mod tests {
     impl FakeWitnessSelector {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
-                schedule: map!{
+                schedule: map! {
                 0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
                 2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
             }

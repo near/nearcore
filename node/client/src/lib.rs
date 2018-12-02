@@ -49,10 +49,8 @@ impl Client {
             index_col: storage::COL_BEACON_INDEX,
         };
         let runtime = Runtime::new(state_db.clone());
-        let genesis_root = runtime.apply_genesis_state(
-            &chain_spec.balances,
-            &chain_spec.genesis_wasm
-        );
+        let genesis_root =
+            runtime.apply_genesis_state(&chain_spec.balances, &chain_spec.genesis_wasm);
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(chain_config, genesis, storage);
@@ -77,10 +75,7 @@ impl Client {
     }
 
     pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        self.runtime.view(
-            self.beacon_chain.best_block().header().merkle_root_state,
-            view_call
-        )
+        self.runtime.view(self.beacon_chain.best_block().header().merkle_root_state, view_call)
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {

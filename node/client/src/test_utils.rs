@@ -1,14 +1,12 @@
 use chain_spec::ChainSpec;
-use Client;
 use primitives::signer::InMemorySigner;
 use primitives::types::AccountAlias;
 use std::sync::Arc;
 use storage::test_utils::create_memory_db;
+use Client;
 
 fn generate_test_chain_spec() -> ChainSpec {
-    let genesis_wasm = include_bytes!(
-        "../../../core/wasm/runtest/res/wasm_with_mem.wasm"
-    ).to_vec();
+    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     ChainSpec {
         balances: vec![("alice".into(), 100), ("bob".into(), 100)],
         initial_authorities: vec![AccountAlias::from("alice")],

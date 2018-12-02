@@ -18,8 +18,8 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use primitives::hash::CryptoHash;
 use primitives::types::MerkleHash;
 use std::sync::Arc;
-use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 pub use substrate_storage::TrieBackendTransaction;
+use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
 
 mod substrate_storage;
 pub mod test_utils;

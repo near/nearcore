@@ -16,9 +16,7 @@ use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
 use clap::{App, Arg};
 use client::Client;
 use network::protocol::ProtocolConfig;
-use network::service::{
-    generate_service_task, NetworkConfiguration, Service as NetworkService
-};
+use network::service::{generate_service_task, NetworkConfiguration, Service as NetworkService};
 use primitives::signer::InMemorySigner;
 use primitives::traits::GenericResult;
 use service::network_handler::NetworkHandler;
@@ -48,7 +46,8 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
             deserialize_chain_spec(&contents)
         }
         None => get_default_chain_spec(),
-    }.unwrap();
+    }
+    .unwrap();
 
     let storage_path = get_storage_path(base_path);
     let storage = Arc::new(storage::open_database(&storage_path.to_string_lossy()));
@@ -60,7 +59,8 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
         NetworkConfiguration::default(),
         network_handler,
         client.clone(),
-    ).unwrap();
+    )
+    .unwrap();
     let network_task = generate_service_task::<_, _, BeaconBlockHeader>(
         network.network.clone(),
         network.protocol.clone(),
@@ -78,14 +78,16 @@ pub fn run() {
                 .value_name("PATH")
                 .help("Sets a base path for persisted files")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("chain_spec_file")
                 .short("c")
                 .long("chain-spec-file")
                 .value_name("CHAIN_SPEC_FILE")
                 .help("Sets a file location to read a custom chain spec")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     let base_path =
         matches.value_of("base_path").map(|x| Path::new(x)).unwrap_or_else(|| Path::new("."));

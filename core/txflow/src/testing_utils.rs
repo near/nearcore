@@ -9,9 +9,13 @@ impl Payload for FakePayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
-    fn union_update(&mut self, _other: Self) { }
-    fn is_empty(&self) -> bool {true}
-    fn new() -> Self {Self{}}
+    fn union_update(&mut self, _other: Self) {}
+    fn is_empty(&self) -> bool {
+        true
+    }
+    fn new() -> Self {
+        Self {}
+    }
 }
 
 pub fn simple_bare_message(
@@ -31,11 +35,7 @@ pub fn simple_bare_message(
         body.hash(&mut hasher);
         hasher.finish()
     };
-    ::primitives::types::SignedMessageData {
-        owner_sig: 0,
-        hash,
-        body,
-    }
+    ::primitives::types::SignedMessageData { owner_sig: 0, hash, body }
 }
 
 /// Allows to build a DAG from `SignedMessageData` objects by constructing forests.

@@ -3,10 +3,8 @@ use hash_db::Hasher;
 use kvdb::DBValue;
 use primitives::hash::CryptoHash;
 use std::sync::Arc;
-pub use substrate_state_machine::{
-    Backend, Externalities, OverlayedChanges, Storage,
-};
 use substrate_state_machine::InMemoryChangesTrieStorage;
+pub use substrate_state_machine::{Backend, Externalities, OverlayedChanges, Storage};
 
 #[derive(Debug)]
 pub struct CryptoHasher;
@@ -30,10 +28,10 @@ pub type StateExt<'a> =
 
 #[cfg(test)]
 mod tests {
+    use super::super::{StateDb, COL_STATE};
+    use super::*;
     use hash_db::HashDB;
     use std::ops::Deref;
-    use super::*;
-    use super::super::{COL_STATE, StateDb};
 
     fn state_transition(
         backend: &TrieBackend,

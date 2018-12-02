@@ -7,16 +7,23 @@ use primitives::types::*;
 use std::collections::HashSet;
 
 use self::message::Message;
-pub use self::reporter::{MisbehaviorReporter, DAGMisbehaviorReporter, NoopMisbehaviorReporter, ViolationType};
-use typed_arena::Arena;
+pub use self::reporter::{
+    DAGMisbehaviorReporter, MisbehaviorReporter, NoopMisbehaviorReporter, ViolationType,
+};
 use std::cell::RefCell;
+use typed_arena::Arena;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
 /// received from other nodes and store detected violations.
 /// It uses unsafe code to implement a self-referential struct and the interface makes sure that
 /// the references never outlive the instances.
-pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter = NoopMisbehaviorReporter> {
+pub struct DAG<
+    'a,
+    P: 'a + Payload,
+    W: 'a + WitnessSelector,
+    M: 'a + MisbehaviorReporter = NoopMisbehaviorReporter,
+> {
     /// UID of the node.
     owner_uid: UID,
     arena: Arena<Box<Message<'a, P>>>,
@@ -46,9 +53,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
 
     /// Whether there is one root only and it was created by the current owner.
     pub fn is_current_owner_root(&self) -> bool {
-        self.current_root_data()
-            .map(|d| d.body.owner_uid == self.owner_uid)
-            .unwrap_or(false)
+        self.current_root_data().map(|d| d.body.owner_uid == self.owner_uid).unwrap_or(false)
     }
 
     /// There is one or more roots (meaning it is not a very start of the DAG with no messages)
@@ -78,18 +83,14 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
 
     /// Create a copy of the message data from the dag given hash.
     pub fn copy_message_data_by_hash(&self, hash: TxFlowHash) -> Option<SignedMessageData<P>> {
-       self.messages.get(&hash).map(|m| m.data.clone())
+        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
     /// Verify that this message does not violate the protocol.
-    fn verify_message(
-        &mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
-
+    fn verify_message(&mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
         // Check epoch
         if message.computed_epoch != message.data.body.epoch {
-            let mb = ViolationType::BadEpoch {
-                message: message.computed_hash,
-            };
+            let mb = ViolationType::BadEpoch { message: message.computed_hash };
 
             self.misbehavior.borrow_mut().report(mb);
         }
@@ -133,27 +134,29 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
         }
 
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;
-        self.messages.insert(unsafe{&*message_ptr});
-        self.roots.insert(unsafe{&*message_ptr});
+        self.messages.insert(unsafe { &*message_ptr });
+        self.roots.insert(unsafe { &*message_ptr });
         Ok(())
     }
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
     /// the endorsements.
-    pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) -> &'a Message<'a, P> {
-        let mut message = Box::new(Message::new(
-            SignedMessageData {
-                owner_sig: 0,  // Will populate once the epoch is computed.
-                hash: 0,  // Will populate once the epoch is computed.
-                body: MessageDataBody {
-                    owner_uid: self.owner_uid,
-                    parents: (&self.roots).iter().map(|m| m.computed_hash).collect(),
-                    epoch: 0,  // Will be computed later.
-                    payload,
-                    endorsements,
-                }
-            }
-        ));
+    pub fn create_root_message(
+        &mut self,
+        payload: P,
+        endorsements: Vec<Endorsement>,
+    ) -> &'a Message<'a, P> {
+        let mut message = Box::new(Message::new(SignedMessageData {
+            owner_sig: 0, // Will populate once the epoch is computed.
+            hash: 0,      // Will populate once the epoch is computed.
+            body: MessageDataBody {
+                owner_uid: self.owner_uid,
+                parents: (&self.roots).iter().map(|m| m.computed_hash).collect(),
+                epoch: 0, // Will be computed later.
+                payload,
+                endorsements,
+            },
+        }));
         message.parents = self.roots.clone();
         message.init(true, false, self.starting_epoch, self.witness_selector);
         message.assume_computed_hash_epoch();
@@ -167,14 +170,13 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
     use super::*;
+    use primitives::types::UID;
     use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;
-    use primitives::types::UID;
 
     struct FakeWitnessSelector {
         schedule: HashMap<u64, HashSet<UID>>,
@@ -183,7 +185,7 @@ mod tests {
     impl FakeWitnessSelector {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
-                schedule: map!{
+                schedule: map! {
                 0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
                 2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
             }
@@ -208,7 +210,7 @@ mod tests {
         // let misbehavior = DAGMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag : DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
 
         // Parent have greater epoch than children
         let (a, b);
@@ -254,14 +256,13 @@ mod tests {
         for message in &dag.messages {
             if message.computed_hash != b.hash {
                 assert_eq!(message.computed_epoch, message.data.body.epoch);
-            }
-            else{
+            } else {
                 assert_eq!(message.computed_epoch, 1);
             }
         }
     }
 
-    #[test]    
+    #[test]
     fn feed_complex_topology() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
@@ -334,7 +335,7 @@ mod tests {
     fn movable() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
-        let mut dag: DAG<_,_> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
         let (a, b);
         // Add some messages.
         {

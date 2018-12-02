@@ -18,10 +18,7 @@ impl<'a> ContractModule<'a> {
     fn new(original_code: &[u8], config: &'a Config) -> Result<ContractModule<'a>, Error> {
         let module =
             elements::deserialize_buffer(original_code).map_err(|_| Error::Deserialization)?;
-        Ok(ContractModule {
-            module: Some(module),
-            config,
-        })
+        Ok(ContractModule { module: Some(module), config })
     }
 
     /// Ensures that module doesn't declare internal memories.
@@ -30,14 +27,9 @@ impl<'a> ContractModule<'a> {
     /// Memory section contains declarations of internal linear memories, so if we find one
     /// we reject such a module.
     fn ensure_no_internal_memory(&self) -> Result<(), Error> {
-        let module = self
-            .module
-            .as_ref()
-            .expect("On entry to the function `module` can't be None; qed");
-        if module
-            .memory_section()
-            .map_or(false, |ms| !ms.entries().is_empty())
-        {
+        let module =
+            self.module.as_ref().expect("On entry to the function `module` can't be None; qed");
+        if module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
             return Err(Error::InternalMemoryDeclared);
         }
         Ok(())
@@ -48,10 +40,8 @@ impl<'a> ContractModule<'a> {
             .with_grow_cost(self.config.grow_mem_cost)
             .with_forbidden_floats();
 
-        let module = self
-            .module
-            .take()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let module =
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed");
 
         let contract_module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| Error::GasInstrumentation)?;
@@ -61,10 +51,8 @@ impl<'a> ContractModule<'a> {
     }
 
     fn inject_stack_height_metering(&mut self) -> Result<(), Error> {
-        let module = self
-            .module
-            .take()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let module =
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed");
 
         let contract_module =
             pwasm_utils::stack_height::inject_limiter(module, self.config.max_stack_height)
@@ -82,16 +70,11 @@ impl<'a> ContractModule<'a> {
     ///   their signatures.
     /// - if there is a memory import, returns it's descriptor
     fn scan_imports(&self) -> Result<Option<&MemoryType>, Error> {
-        let module = self
-            .module
-            .as_ref()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let module =
+            self.module.as_ref().expect("On entry to the function `module` can't be `None`; qed");
 
         let types = module.type_section().map(|ts| ts.types()).unwrap_or(&[]);
-        let import_entries = module
-            .import_section()
-            .map(|is| is.entries())
-            .unwrap_or(&[]);
+        let import_entries = module.import_section().map(|is| is.entries()).unwrap_or(&[]);
 
         let mut imported_mem_type = None;
 
@@ -111,30 +94,29 @@ impl<'a> ContractModule<'a> {
                 _ => continue,
             };
 
-            let Type::Function(ref _func_ty) = types
-                .get(*type_idx as usize)
-                .ok_or_else(|| Error::Instantiate)?;
+            let Type::Function(ref _func_ty) =
+                types.get(*type_idx as usize).ok_or_else(|| Error::Instantiate)?;
 
             // TODO: Function type check with Env
-			/*
+            /*
 
-			let ext_func = env
-				.funcs
-				.get(import.field().as_bytes())
-				.ok_or_else(|| Error::Instantiate)?;
-			if !ext_func.func_type_matches(func_ty) {
-				return Err(Error::Instantiate);
-			}
-			*/        }
+            let ext_func = env
+                .funcs
+                .get(import.field().as_bytes())
+                .ok_or_else(|| Error::Instantiate)?;
+            if !ext_func.func_type_matches(func_ty) {
+                return Err(Error::Instantiate);
+            }
+            */
+        }
         Ok(imported_mem_type)
     }
 
     fn into_wasm_code(mut self) -> Result<Vec<u8>, Error> {
         elements::serialize(
-            self.module
-                .take()
-                .expect("On entry to the function `module` can't be `None`; qed"),
-        ).map_err(|_| Error::Serialization)
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed"),
+        )
+        .map_err(|_| Error::Serialization)
     }
 }
 
@@ -189,10 +171,7 @@ pub(super) fn prepare_contract(
     };
     let memory = memory.map_err(|_| Error::Memory)?;
 
-    Ok(PreparedContract {
-        instrumented_code: contract_module.into_wasm_code()?,
-        memory,
-    })
+    Ok(PreparedContract { instrumented_code: contract_module.into_wasm_code()?, memory })
 }
 
 #[cfg(test)]
@@ -255,13 +234,14 @@ mod tests {
         assert_matches!(r, Ok(_));
 
         // TODO: Address tests once we check proper function signatures.
-		/*
-		// wrong signature
-		let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
-		assert_matches!(r, Err(Error::Instantiate));
+        /*
+        // wrong signature
+        let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
+        assert_matches!(r, Err(Error::Instantiate));
 
-		// unknown function name
-		let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
-		assert_matches!(r, Err(Error::Instantiate));
-		*/    }
+        // unknown function name
+        let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
+        assert_matches!(r, Err(Error::Instantiate));
+        */
+    }
 }

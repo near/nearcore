@@ -14,7 +14,8 @@ impl Memory {
             memref: MemoryInstance::alloc(
                 Pages(initial as usize),
                 maximum.map(|m| Pages(m as usize)),
-            ).map_err(|_| Error::Memory)?,
+            )
+            .map_err(|_| Error::Memory)?,
         })
     }
 

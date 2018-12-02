@@ -33,7 +33,7 @@ pub mod test_utils;
 
 pub fn run_service(
     client: &Arc<Client>,
-    network_task: impl Future<Item=(), Error=()>,
+    network_task: impl Future<Item = (), Error = ()>,
     produce_blocks_interval: Duration,
 ) -> GenericResult {
     let mut builder = Builder::new();
@@ -53,19 +53,15 @@ pub fn run_service(
     }));
 
     let mut current_thread = runtime::current_thread::Runtime::new().unwrap();
-    let produce_blocks_task = generate_produce_blocks_task(
-        &client,
-        produce_blocks_interval,
-    );
-    let tasks: Vec<Box<Future<Item=(), Error=()>>> = vec![
-        Box::new(network_task),
-        Box::new(produce_blocks_task),
-    ];
+    let produce_blocks_task = generate_produce_blocks_task(&client, produce_blocks_interval);
+    let tasks: Vec<Box<Future<Item = (), Error = ()>>> =
+        vec![Box::new(network_task), Box::new(produce_blocks_task)];
     let task = futures::select_all(tasks)
         .and_then(move |_| {
             info!("Service task failed");
             Ok(())
-        }).map_err(|(r, _, _)| r)
+        })
+        .map_err(|(r, _, _)| r)
         .map_err(|e| {
             debug!(target: "service", "service error: {:?}", e);
         });

@@ -63,7 +63,8 @@ where
                 ));
                 Ok(())
             }
-        }).then(|res| {
+        })
+        .then(|res| {
             match res {
                 Ok(()) => (),
                 Err(err) => error!("Error in the propagation timer: {:?}", err),
@@ -75,7 +76,8 @@ where
     let network = stream::poll_fn({
         let network_service1 = network_service.clone();
         move || network_service1.borrow_mut().poll()
-    }).for_each({
+    })
+    .for_each({
         let network_service1 = network_service.clone();
         let protocol1 = protocol.clone();
         move |event| {
@@ -110,7 +112,8 @@ where
                 protocol.prod_block::<Header>(&mut net_sync);
                 Ok(())
             }
-        }).then(|res| {
+        })
+        .then(|res| {
             match res {
                 Ok(()) => (),
                 Err(err) => error!("Error in the block_production {:?}", err),
@@ -124,7 +127,8 @@ where
         .and_then(move |_| {
             info!("Networking ended");
             Ok(())
-        }).map_err(|(r, _, _)| r)
+        })
+        .map_err(|(r, _, _)| r)
         .map_err(|e| {
             debug!(target: "sub-libp2p", "service error: {:?}", e);
         })

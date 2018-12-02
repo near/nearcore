@@ -15,10 +15,8 @@ pub fn execute(
     ext: &mut External,
     config: &Config,
 ) -> Result<(), Error> {
-    let prepare::PreparedContract {
-        instrumented_code,
-        memory,
-    } = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
+    let prepare::PreparedContract { instrumented_code, memory } =
+        prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
 
     // Parse module from code
     let module = wasmi::Module::from_buffer(&instrumented_code).map_err(Error::Interpreter)?;
@@ -28,13 +26,12 @@ pub fn execute(
     let module_instance = wasmi::ModuleInstance::new(
         &module,
         &wasmi::ImportsBuilder::new().with_resolver("env", &instantiation_resolver),
-    ).map_err(Error::Interpreter)?;
+    )
+    .map_err(Error::Interpreter)?;
 
     let mut runtime = Runtime::new(ext, RuntimeContext {}, memory, config.gas_limit);
 
-    let module_instance = module_instance
-        .run_start(&mut runtime)
-        .map_err(Error::Trap)?;
+    let module_instance = module_instance.run_start(&mut runtime).map_err(Error::Trap)?;
 
     let method_name = ::std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
 

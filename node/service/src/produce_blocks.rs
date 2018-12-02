@@ -1,10 +1,10 @@
+use client::chain::Chain;
 use client::Client;
 use futures::future::Future;
 use futures::stream::Stream;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::Interval;
-use client::chain::Chain;
 
 // should take in a chain rather than a client
 // https://github.com/nearprotocol/nearcore/issues/110
@@ -24,7 +24,8 @@ pub fn generate_produce_blocks_task(
                 }
                 Ok(())
             }
-        }).then(|res| {
+        })
+        .then(|res| {
             match res {
                 Ok(()) => (),
                 Err(err) => error!("Error producing blocks: {:?}", err),

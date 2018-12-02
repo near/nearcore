@@ -35,12 +35,7 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             }
-            _ => {
-                return Err(WasmiError::Instantiation(format!(
-                    "Export {} not found",
-                    field_name
-                )))
-            }
+            _ => return Err(WasmiError::Instantiation(format!("Export {} not found", field_name))),
         };
 
         Ok(func_ref)
@@ -53,9 +48,7 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
     ) -> Result<MemoryRef, WasmiError> {
         match field_name {
             "memory" => Ok(self.memory.memref.clone()),
-            _ => Err(WasmiError::Instantiation(
-                "Memory imported under unknown name".to_owned(),
-            )),
+            _ => Err(WasmiError::Instantiation("Memory imported under unknown name".to_owned())),
         }
     }
 }

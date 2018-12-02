@@ -5,12 +5,12 @@ use wasmi::{self, Error as WasmiError, RuntimeArgs, RuntimeValue, Trap, TrapKind
 
 pub struct RuntimeContext {
     /*
-	pub address: Address,
-	pub sender: Address,
-	pub origin: Address,
-	pub code_address: Address,
-	pub value: U256,
-    */}
+pub address: Address,
+pub sender: Address,
+pub origin: Address,
+pub code_address: Address,
+pub value: U256,
+*/}
 
 /// User trap in native code
 #[allow(unused)]
@@ -128,24 +128,13 @@ impl<'a> Runtime<'a> {
         memory: Memory,
         gas_limit: u64,
     ) -> Runtime {
-        Runtime {
-            ext,
-            _context: context,
-            memory,
-            gas_counter: 0,
-            gas_limit,
-        }
+        Runtime { ext, _context: context, memory, gas_counter: 0, gas_limit }
     }
 
     fn read_buffer(&self, offset: u32) -> Result<Vec<u8>> {
-        let len: u32 = self
-            .memory
-            .get_u32(offset)
-            .map_err(|_| Error::MemoryAccessViolation)?;
-        let buf = self
-            .memory
-            .get(offset + 4, len as usize)
-            .map_err(|_| Error::MemoryAccessViolation)?;
+        let len: u32 = self.memory.get_u32(offset).map_err(|_| Error::MemoryAccessViolation)?;
+        let buf =
+            self.memory.get(offset + 4, len as usize).map_err(|_| Error::MemoryAccessViolation)?;
         Ok(buf)
     }
 
@@ -167,10 +156,7 @@ impl<'a> Runtime<'a> {
         let key_ptr: u32 = args.nth_checked(0)?;
 
         let key = self.read_buffer(key_ptr)?;
-        let val = self
-            .ext
-            .storage_get(&key)
-            .map_err(|_| Error::StorageUpdateError)?;
+        let val = self.ext.storage_get(&key).map_err(|_| Error::StorageUpdateError)?;
         let len = match val {
             Some(v) => v.len(),
             None => 0,
@@ -185,14 +171,9 @@ impl<'a> Runtime<'a> {
         let val_ptr: u32 = args.nth_checked(1)?;
 
         let key = self.read_buffer(key_ptr)?;
-        let val = self
-            .ext
-            .storage_get(&key)
-            .map_err(|_| Error::StorageUpdateError)?;
+        let val = self.ext.storage_get(&key).map_err(|_| Error::StorageUpdateError)?;
         if let Some(buf) = val {
-            self.memory
-                .set(val_ptr, &buf)
-                .map_err(|_| Error::MemoryAccessViolation)?;
+            self.memory.set(val_ptr, &buf).map_err(|_| Error::MemoryAccessViolation)?;
         }
         Ok(())
     }
@@ -206,9 +187,7 @@ impl<'a> Runtime<'a> {
         let val = self.read_buffer(val_ptr)?;
         // TODO: Charge gas for storage
 
-        self.ext
-            .storage_set(&key, &val)
-            .map_err(|_| Error::StorageUpdateError)?;
+        self.ext.storage_set(&key, &val).map_err(|_| Error::StorageUpdateError)?;
         Ok(())
     }
 
@@ -235,10 +214,10 @@ mod ext_impl {
 		{ $e: expr } => { { Ok(Some($e?)) } }
 	}
     /*
-	macro_rules! cast {
-		{ $e: expr } => { { Ok(Some($e)) } }
-	}
-	*/
+    macro_rules! cast {
+        { $e: expr } => { { Ok(Some($e)) } }
+    }
+    */
 
     impl<'a> Externals for super::Runtime<'a> {
         fn invoke_index(
@@ -252,29 +231,29 @@ mod ext_impl {
                 STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(&args)),
                 GAS_FUNC => void!(self.gas(&args)),
                 /*
-				RET_FUNC => void!(self.ret(args)),
-				INPUT_LENGTH_FUNC => cast!(self.input_legnth()),
-				FETCH_INPUT_FUNC => void!(self.fetch_input(args)),
-				PANIC_FUNC => void!(self.panic(args)),
-				DEBUG_FUNC => void!(self.debug(args)),
-				CCALL_FUNC => some!(self.ccall(args)),
-				DCALL_FUNC => some!(self.dcall(args)),
-				SCALL_FUNC => some!(self.scall(args)),
-				VALUE_FUNC => void!(self.value(args)),
-				CREATE_FUNC => some!(self.create(args)),
-				SUICIDE_FUNC => void!(self.suicide(args)),
-				BLOCKHASH_FUNC => void!(self.blockhash(args)),
-				BLOCKNUMBER_FUNC => some!(self.blocknumber()),
-				COINBASE_FUNC => void!(self.coinbase(args)),
-				DIFFICULTY_FUNC => void!(self.difficulty(args)),
-				GASLIMIT_FUNC => void!(self.gaslimit(args)),
-				TIMESTAMP_FUNC => some!(self.timestamp()),
-				ADDRESS_FUNC => void!(self.address(args)),
-				SENDER_FUNC => void!(self.sender(args)),
-				ORIGIN_FUNC => void!(self.origin(args)),
-				ELOG_FUNC => void!(self.elog(args)),
-				CREATE2_FUNC => some!(self.create2(args)),
-				GASLEFT_FUNC => some!(self.gasleft()),
+                RET_FUNC => void!(self.ret(args)),
+                INPUT_LENGTH_FUNC => cast!(self.input_legnth()),
+                FETCH_INPUT_FUNC => void!(self.fetch_input(args)),
+                PANIC_FUNC => void!(self.panic(args)),
+                DEBUG_FUNC => void!(self.debug(args)),
+                CCALL_FUNC => some!(self.ccall(args)),
+                DCALL_FUNC => some!(self.dcall(args)),
+                SCALL_FUNC => some!(self.scall(args)),
+                VALUE_FUNC => void!(self.value(args)),
+                CREATE_FUNC => some!(self.create(args)),
+                SUICIDE_FUNC => void!(self.suicide(args)),
+                BLOCKHASH_FUNC => void!(self.blockhash(args)),
+                BLOCKNUMBER_FUNC => some!(self.blocknumber()),
+                COINBASE_FUNC => void!(self.coinbase(args)),
+                DIFFICULTY_FUNC => void!(self.difficulty(args)),
+                GASLIMIT_FUNC => void!(self.gaslimit(args)),
+                TIMESTAMP_FUNC => some!(self.timestamp()),
+                ADDRESS_FUNC => void!(self.address(args)),
+                SENDER_FUNC => void!(self.sender(args)),
+                ORIGIN_FUNC => void!(self.origin(args)),
+                ELOG_FUNC => void!(self.elog(args)),
+                CREATE2_FUNC => some!(self.create2(args)),
+                GASLEFT_FUNC => some!(self.gasleft()),
                 */
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
