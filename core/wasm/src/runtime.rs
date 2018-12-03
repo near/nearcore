@@ -1,7 +1,8 @@
 use ext::External;
 
 use memory::Memory;
-use wasmi::{self, Error as WasmiError, RuntimeArgs, RuntimeValue, Trap, TrapKind};
+use wasmi::{RuntimeArgs, RuntimeValue};
+use types::RuntimeError as Error;
 
 pub struct RuntimeContext {
     /*
@@ -11,105 +12,6 @@ pub struct RuntimeContext {
 	pub code_address: Address,
 	pub value: U256,
     */}
-
-/// User trap in native code
-#[allow(unused)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum Error {
-    /// Storage read error
-    StorageReadError,
-    /// Storage update error
-    StorageUpdateError,
-    /// Memory access violation
-    MemoryAccessViolation,
-    /// Native code requested execution to finish
-    Return,
-    /// Invalid gas state inside interpreter
-    InvalidGasState,
-    /// Query of the balance resulted in an error
-    BalanceQueryError,
-    /// Failed allocation
-    AllocationFailed,
-    /// Gas limit reached
-    GasLimit,
-    /// Unknown runtime function
-    Unknown,
-    /// Passed string had invalid utf-8 encoding
-    BadUtf8,
-    /// Log event error
-    Log,
-    /// Other error in native code
-    Other,
-    /// Syscall signature mismatch
-    InvalidSyscall,
-    /// Unreachable instruction encountered
-    Unreachable,
-    /// Invalid virtual call
-    InvalidVirtualCall,
-    /// Division by zero
-    DivisionByZero,
-    /// Invalid conversion to integer
-    InvalidConversionToInt,
-    /// Stack overflow
-    StackOverflow,
-    /// Panic with message
-    Panic(String),
-}
-
-impl wasmi::HostError for Error {}
-
-impl From<Trap> for Error {
-    fn from(trap: Trap) -> Self {
-        match *trap.kind() {
-            TrapKind::Unreachable => Error::Unreachable,
-            TrapKind::MemoryAccessOutOfBounds => Error::MemoryAccessViolation,
-            TrapKind::TableAccessOutOfBounds | TrapKind::ElemUninitialized => {
-                Error::InvalidVirtualCall
-            }
-            TrapKind::DivisionByZero => Error::DivisionByZero,
-            TrapKind::InvalidConversionToInt => Error::InvalidConversionToInt,
-            TrapKind::UnexpectedSignature => Error::InvalidVirtualCall,
-            TrapKind::StackOverflow => Error::StackOverflow,
-            TrapKind::Host(_) => Error::Other,
-        }
-    }
-}
-
-impl From<WasmiError> for Error {
-    fn from(err: WasmiError) -> Self {
-        match err {
-            WasmiError::Value(_) => Error::InvalidSyscall,
-            WasmiError::Memory(_) => Error::MemoryAccessViolation,
-            _ => Error::Other,
-        }
-    }
-}
-
-impl ::std::fmt::Display for Error {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::result::Result<(), ::std::fmt::Error> {
-        match *self {
-            Error::StorageReadError => write!(f, "Storage read error"),
-            Error::StorageUpdateError => write!(f, "Storage update error"),
-            Error::MemoryAccessViolation => write!(f, "Memory access violation"),
-            Error::InvalidGasState => write!(f, "Invalid gas state"),
-            Error::BalanceQueryError => write!(f, "Balance query resulted in an error"),
-            Error::Return => write!(f, "Return result"),
-            Error::Unknown => write!(f, "Unknown runtime function invoked"),
-            Error::AllocationFailed => write!(f, "Memory allocation failed (OOM)"),
-            Error::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
-            Error::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
-            Error::Log => write!(f, "Error occured while logging an event"),
-            Error::InvalidSyscall => write!(f, "Invalid syscall signature encountered at runtime"),
-            Error::Other => write!(f, "Other unspecified error"),
-            Error::Unreachable => write!(f, "Unreachable instruction encountered"),
-            Error::InvalidVirtualCall => write!(f, "Invalid virtual call"),
-            Error::DivisionByZero => write!(f, "Division by zero"),
-            Error::StackOverflow => write!(f, "Stack overflow"),
-            Error::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
-            Error::Panic(ref msg) => write!(f, "Panic: {}", msg),
-        }
-    }
-}
 
 type Result<T> = ::std::result::Result<T, Error>;
 
@@ -218,6 +120,24 @@ impl<'a> Runtime<'a> {
             Ok(())
         } else {
             Err(Error::GasLimit)
+        }
+    }
+
+    /// Releases this Runtime instance and parses given result and writes it to the
+    /// output data buffer.
+    pub fn parse_result(self, result: Option<RuntimeValue>, output_data: &mut Vec<u8>) -> Result<()> {
+        match result {
+            Some(RuntimeValue::I32(result_ptr)) => {
+                let buf = self.read_buffer(result_ptr as u32)?;
+                output_data.resize(buf.len(), 0);
+                output_data.copy_from_slice(&buf);
+                Ok(())
+            },
+            None => {
+                output_data.resize(0, 0);
+                Ok(())
+            },
+            _ => Err(Error::InvalidReturn),
         }
     }
 }
