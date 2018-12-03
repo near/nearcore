@@ -8,6 +8,7 @@ use rpc::types::{
     ViewAccountRequest, ViewAccountResponse,
 };
 use std::sync::Arc;
+use futures::sync::mpsc::Sender;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -56,7 +57,20 @@ build_rpc_trait! {
 }
 
 pub struct RpcImpl {
-    pub client: Arc<Client>,
+    client: Arc<Client>,
+    submit_txn_sender: Sender<SignedTransaction>,
+}
+
+impl RpcImpl {
+    pub fn new(
+        client: Arc<Client>,
+        submit_txn_sender: Sender<SignedTransaction>,
+    ) -> Self {
+        RpcImpl {
+            client,
+            submit_txn_sender,
+        }
+    }
 }
 
 impl TransactionApi for RpcImpl {
@@ -133,7 +147,8 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
-        Ok(self.client.receive_transaction(r))
+        self.submit_txn_sender.clone().try_send(r).unwrap();
+        Ok(())
     }
 }
 
@@ -152,11 +167,13 @@ mod tests {
     use primitives::hash::hash;
     use self::jsonrpc_test::Rpc;
     use super::*;
+    use futures::sync::mpsc::channel;
 
     #[test]
     fn test_call() {
         let client = Arc::new(generate_test_client());
-        let rpc_impl = RpcImpl { client };
+        let (submit_txn_sender, _) = channel(1024);
+        let rpc_impl = RpcImpl::new(client, submit_txn_sender);
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = SendMoneyRequest {
