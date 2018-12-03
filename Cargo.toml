@@ -21,6 +21,7 @@ members = [
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/cli",
+    "node/cli2",
     "node/runtime",
     "node/service",
     "node/network",
