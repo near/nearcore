@@ -7,6 +7,9 @@ use wasm::executor;
 use wasm::ext::{External, Result};
 use wasm::types::Config;
 
+extern crate byteorder;
+use byteorder::{ByteOrder, LittleEndian};
+
 #[derive(Default)]
 struct MyExt {
     storage: HashMap<Vec<u8>, Vec<u8>>,
@@ -50,6 +53,11 @@ fn main() {
         &mut ext,
         &config,
     );
+
+    let mut tmp = [0u8; 4];
+    LittleEndian::write_i32(&mut tmp, 20);
+
+    assert_eq!(&output_data, &tmp);
 
     println!("{:?}", result);
 }

@@ -3,6 +3,7 @@
 #![feature(alloc_error_handler)]
 #![feature(alloc)]
 #![feature(allocator_api)]
+#![feature(const_vec_new)]
 
 use core::panic::PanicInfo;
 
@@ -19,6 +20,8 @@ use byteorder::{ByteOrder, LittleEndian};
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+static mut FINAL_RESULT: Vec<u8> = Vec::new();
 
 extern "C" {
     // First 4 bytes are the length of the remaining buffer.
@@ -69,10 +72,16 @@ pub fn get_int(key: u32) -> i32 {
 }
 
 #[no_mangle]
-pub fn run_test() -> i32 {
+pub fn run_test() -> *const u8 {
     put_int(10, 20);
     put_int(50, 150);
-    get_int(10)
+    let int20 = get_int(10);
+    unsafe {
+        FINAL_RESULT.resize(8, 0);
+        LittleEndian::write_u32(&mut FINAL_RESULT[..4], 4);
+        LittleEndian::write_i32(&mut FINAL_RESULT[4..], int20);
+        FINAL_RESULT.as_ptr()
+    }
 }
 
 #[panic_handler]

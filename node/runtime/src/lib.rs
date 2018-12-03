@@ -373,7 +373,7 @@ mod tests {
             runtime.view(root, &ViewCall::func_call(hash(b"bob"), "run_test".to_string(), vec![]));
         assert_eq!(
             result2,
-            ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] }
+            ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![20, 0, 0, 0] }
         );
     }
 
