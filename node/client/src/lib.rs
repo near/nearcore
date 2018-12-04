@@ -10,21 +10,20 @@ extern crate chain as blockchain;
 use beacon::authority::{Authority, AuthorityConfig};
 use beacon::types::{AuthorityProposal, BeaconBlock};
 use blockchain::BlockChain;
-use chain_spec::ChainSpec;
 use import_queue::ImportQueue;
 use node_runtime::{ApplyState, Runtime};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Block, GenericResult, Header, Signer};
-use primitives::types::{BlockId, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::types::{BlockId, SignedTransaction};
 use std::sync::Arc;
 use storage::{StateDb, Storage};
+use node_runtime::chain_spec::ChainSpec;
 
 mod import_queue;
 
 pub mod chain;
-pub mod chain_spec;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
@@ -77,10 +76,6 @@ impl Client {
     pub fn receive_transaction(&self, t: SignedTransaction) {
         debug!(target: "client", "receive transaction {:?}", t);
         self.tx_pool.write().push(t);
-    }
-
-    pub fn view_call(&self, view_call: &ViewCall) -> ViewCallResult {
-        self.runtime.view(self.beacon_chain.best_block().header().body.merkle_root_state, view_call)
     }
 
     pub fn handle_signed_transaction(&self, t: SignedTransaction) -> GenericResult {

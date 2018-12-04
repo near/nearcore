@@ -1,6 +1,6 @@
-use client::chain_spec::ChainSpec;
 use primitives::types::{AccountAlias, PublicKeyAlias};
 use serde_json;
+use node_runtime::chain_spec::ChainSpec;
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]

@@ -3,10 +3,16 @@ name = "node-cli2"
 version = "0.1.0"
 
 [dependencies]
-beacon = { path = "../../core/beacon" }
 clap = "2.32.0"
+futures = "0.1.25"
+tokio = "0.1.11"
+
+beacon = { path = "../../core/beacon" }
+chain = { path = "../../core/chain" }
 client = { path = "../client" }
 network = { path = "../network", features = ["test-utils"] }
+node-runtime = { path = "../runtime" }
+node-rpc = { path = "../rpc" }
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 service = { path = "../service" }

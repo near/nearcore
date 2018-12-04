@@ -11,7 +11,7 @@ primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 chain = { path = "../../core/chain" }
 beacon = { path = "../../core/beacon" }
-node-runtime = { path = "../runtime" }
+node-runtime = { path = "../runtime", features = ["test-utils"] }
 
 [dev-dependencies]
 storage = { path = "../../core/storage", features = ["test-utils"] }

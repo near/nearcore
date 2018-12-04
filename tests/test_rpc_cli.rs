@@ -1,12 +1,13 @@
 extern crate keystore;
 #[macro_use]
 extern crate lazy_static;
+extern crate node_rpc;
 extern crate primitives;
 extern crate serde_json;
 extern crate service;
 
 use serde_json::Value;
-use service::rpc::types::{
+use node_rpc::types::{
     CallViewFunctionResponse, ViewAccountResponse,
 };
 use service::test_utils::run_test_service;
@@ -40,6 +41,7 @@ fn check_result(output: &Output) -> Cow<str> {
 }
 
 #[test]
+#[ignore]
 fn test_send_money() {
     if !*DEVNET_STARTED { panic!() }
     let output = Command::new("./scripts/rpc.py")
@@ -56,6 +58,7 @@ fn test_send_money() {
 }
 
 #[test]
+#[ignore]
 fn test_view_account() {
     if !*DEVNET_STARTED { panic!() }
     let output = Command::new("./scripts/rpc.py")
@@ -67,6 +70,7 @@ fn test_view_account() {
 }
 
 #[test]
+#[ignore]
 fn test_deploy() {
     if !*DEVNET_STARTED { panic!() }
     let output = Command::new("./scripts/rpc.py")
@@ -85,6 +89,7 @@ fn test_deploy() {
 }
 
 #[test]
+#[ignore]
 fn test_schedule_function_call() {
     if !*DEVNET_STARTED { panic!() }
     test_deploy();
@@ -104,6 +109,7 @@ fn test_schedule_function_call() {
 }
 
 #[test]
+#[ignore]
 fn test_call_view_function() {
     if !*DEVNET_STARTED { panic!() }
     test_deploy();

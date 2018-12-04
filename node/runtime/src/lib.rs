@@ -1,6 +1,7 @@
 extern crate beacon;
 extern crate bincode;
 extern crate byteorder;
+extern crate chain;
 extern crate kvdb;
 #[macro_use]
 extern crate log;
@@ -29,6 +30,13 @@ use primitives::utils::concat;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result};
+use chain::BlockChain;
+use beacon::types::BeaconBlock;
+use primitives::traits::Block;
+
+pub mod chain_spec;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
 const RUNTIME_DATA: &[u8] = b"runtime";
 
@@ -343,6 +351,25 @@ impl Runtime {
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
         self.state_db.commit(&mut transaction).expect("Failed to commit genesis state");
         genesis_root
+    }
+}
+
+pub struct StateDbViewer {
+    beacon_chain: BlockChain<BeaconBlock>,
+    runtime: Runtime,
+}
+
+impl StateDbViewer {
+    pub fn new(beacon_chain: BlockChain<BeaconBlock>, runtime: Runtime) -> Self {
+        StateDbViewer {
+            beacon_chain,
+            runtime,
+        }
+    }
+
+    pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
+        let root = self.beacon_chain.best_block().header().body.merkle_root_state;
+        self.runtime.view(root, &view_call)
     }
 }
 

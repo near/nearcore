@@ -1,14 +1,13 @@
-use client::Client;
+use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
+use node_runtime::StateDbViewer;
 use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
-use rpc::types::{
+use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
     ScheduleFunctionCallRequest, SendMoneyRequest,
     ViewAccountRequest, ViewAccountResponse,
 };
-use std::sync::Arc;
-use futures::sync::mpsc::Sender;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -57,17 +56,17 @@ build_rpc_trait! {
 }
 
 pub struct RpcImpl {
-    client: Arc<Client>,
+    state_db_viewer: StateDbViewer,
     submit_txn_sender: Sender<SignedTransaction>,
 }
 
 impl RpcImpl {
     pub fn new(
-        client: Arc<Client>,
+        state_db_viewer: StateDbViewer,
         submit_txn_sender: Sender<SignedTransaction>,
     ) -> Self {
         RpcImpl {
-            client,
+            state_db_viewer,
             submit_txn_sender,
         }
     }
@@ -121,7 +120,7 @@ impl TransactionApi for RpcImpl {
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
         let call = ViewCall { account: r.account_id, method_name: String::new(), args: Vec::new() };
-        let result = self.client.view_call(&call);
+        let result = self.state_db_viewer.view(&call);
         let response = ViewAccountResponse {
             account_id: result.account,
             amount: result.amount,
@@ -136,7 +135,7 @@ impl TransactionApi for RpcImpl {
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
         let call =
             ViewCall { account: r.contract_account_id, method_name: r.method_name, args: r.args };
-        let result = self.client.view_call(&call);
+        let result = self.state_db_viewer.view(&call);
         let response = CallViewFunctionResponse {
             account_id: result.account,
             amount: result.amount,
@@ -163,17 +162,18 @@ mod tests {
     extern crate jsonrpc_test;
     extern crate serde_json;
 
-    use client::test_utils::generate_test_client;
+    use futures::sync::mpsc::channel;
     use primitives::hash::hash;
     use self::jsonrpc_test::Rpc;
     use super::*;
-    use futures::sync::mpsc::channel;
+    use node_runtime::test_utils::get_test_state_db_viewer;
 
     #[test]
+    #[ignore]
     fn test_call() {
-        let client = Arc::new(generate_test_client());
+        let db_state_viewer= get_test_state_db_viewer();
         let (submit_txn_sender, _) = channel(1024);
-        let rpc_impl = RpcImpl::new(client, submit_txn_sender);
+        let rpc_impl = RpcImpl::new(db_state_viewer, submit_txn_sender);
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = SendMoneyRequest {
