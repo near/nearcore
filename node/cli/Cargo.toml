@@ -12,6 +12,7 @@ serde_json = "1.0"
 
 client = { path = "../client" }
 network = { path = "../network", features = ["test-utils"] }
+node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 service = { path = "../service" }

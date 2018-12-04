@@ -8,7 +8,7 @@ name = "nearcore"
 path = "node/src/main.rs"
 
 [dependencies]
-node-cli = { path = "./node/cli" }
+node-cli2 = { path = "./node/cli2" }
 node-runtime = { path = "./node/runtime" }
 
 [workspace]
@@ -23,6 +23,7 @@ members = [
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/cli",
     "node/cli2",
+    "node/rpc",
     "node/runtime",
     "node/service",
     "node/network",
@@ -37,6 +38,7 @@ exclude = [
 [dev-dependencies]
 lazy_static = "1.2.0"
 keystore = { path = "./test-utils/keygen" }
+node-rpc = { path = "./node/rpc" }
 primitives = { path = "./core/primitives" }
 serde_json = "1.0.0"
 service = { path = "./node/service", features = ["test-utils"] }

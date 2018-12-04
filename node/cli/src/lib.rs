@@ -2,6 +2,7 @@ extern crate beacon;
 extern crate clap;
 extern crate client;
 extern crate network;
+extern crate node_runtime;
 extern crate primitives;
 extern crate serde;
 #[macro_use]

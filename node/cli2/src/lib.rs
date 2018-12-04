@@ -1,7 +1,11 @@
 extern crate beacon;
+extern crate chain;
 extern crate clap;
 extern crate client;
+extern crate futures;
 extern crate network;
+extern crate node_rpc;
+extern crate node_runtime;
 extern crate primitives;
 extern crate serde;
 #[macro_use]
@@ -10,11 +14,21 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate service;
 extern crate storage;
+extern crate tokio;
 
 use clap::{App, Arg};
+use futures::future;
+use futures::sync::mpsc::channel;
+use node_rpc::api::RpcImpl;
 use std::path::Path;
 use std::sync::Arc;
 use storage::Storage;
+use node_runtime::Runtime;
+use storage::StateDb;
+use beacon::types::BeaconBlock;
+use primitives::hash::CryptoHash;
+use chain::BlockChain;
+use node_runtime::StateDbViewer;
 
 pub mod chain_spec;
 
@@ -25,8 +39,29 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 }
 
 fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
-    let _storage = get_storage(base_path);
-    let _chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
+    let storage = get_storage(base_path);
+    let chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
+
+    let state_db = Arc::new(StateDb::new(storage.clone()));
+    let runtime = Runtime::new(state_db);
+    let genesis_root = runtime.apply_genesis_state(
+        &chain_spec.accounts,
+        &chain_spec.genesis_wasm,
+    );
+
+    let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
+    let beacon_chain = BlockChain::new(genesis, storage.clone());
+
+    let state_db_viewer = StateDbViewer::new(beacon_chain, runtime);
+    let (submit_txn_tx, _submit_txn_rx) = channel(1024);
+    let rpc_impl = RpcImpl::new(state_db_viewer, submit_txn_tx);
+    let rpc_handler = node_rpc::api::get_handler(rpc_impl);
+    let server = node_rpc::server::get_server(rpc_handler);
+
+    tokio::run(future::lazy(|| {
+        server.wait();
+        Ok(())
+    }));
 }
 
 pub fn run() {

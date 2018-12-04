@@ -1,26 +1,18 @@
 [package]
-name = "service"
+name = "node-rpc"
 version = "0.1.0"
 
 [dependencies]
-env_logger = "0.5"
+jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
+jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
+jsonrpc-http-server = { git = "https://github.com/paritytech/jsonrpc" }
 futures = "0.1.25"
-log = "0.4"
-parking_lot = "0.6.4"
 serde = "1.0"
 serde_derive = "1.0"
-tokio = "0.1.11"
 
-client = { path = "../client" }
-network = { path = "../network" }
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
 
 [dev-dependencies]
 jsonrpc-test = { git = "https://github.com/paritytech/jsonrpc" }
 serde_json = "1.0.0"
-
-client = { path = "../client", features = ["test-utils"] }
-
-[features]
-test-utils = ["client/test-utils"]

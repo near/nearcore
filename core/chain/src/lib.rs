@@ -88,7 +88,8 @@ impl<B: Block> BlockChain<B> {
             Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
                 // Insert genesis block into cache.
-                bc.insert_block(genesis);
+                bc.insert_block(genesis.clone());
+                bc.update_best_block(genesis);
                 genesis_hash
             }
         };
@@ -117,6 +118,19 @@ impl<B: Block> BlockChain<B> {
             Ok(Some(_)) => true,
             _ => false,
         }
+    }
+
+    fn update_best_block(&self, block: B) {
+        let block_hash = block.hash();
+        let mut best_block = self.best_block.write();
+        *best_block = block;
+        let mut db_transaction = self.storage.transaction();
+        db_transaction.put(
+            storage::COL_EXTRA,
+            BLOCKCHAIN_BEST_BLOCK,
+            block_hash.as_ref(),
+        );
+        self.storage.write(db_transaction).expect("Database write failed");
     }
 
     /// Inserts a verified block.
@@ -155,15 +169,7 @@ impl<B: Block> BlockChain<B> {
         if let Some(_parent_details) = maybe_parent {
             // TODO: rewind parents if they were not processed somehow?
             if block.header().index() > self.best_block.read().header().index() {
-                let mut best_block = self.best_block.write();
-                *best_block = block;
-                let mut db_transaction = self.storage.transaction();
-                db_transaction.put(
-                    storage::COL_EXTRA,
-                    BLOCKCHAIN_BEST_BLOCK,
-                    block_hash.as_ref(),
-                );
-                self.storage.write(db_transaction).expect("Database write failed");
+                self.update_best_block(block);
             }
             false
         } else {

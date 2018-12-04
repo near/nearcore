@@ -2,7 +2,7 @@ use std::path::Path;
 use std::io::Read;
 use std::fs::File;
 
-use client::chain_spec::ChainSpec;
+use node_runtime::chain_spec::ChainSpec;
 use primitives::types::{AccountAlias, PublicKeyAlias};
 use serde_json;
 

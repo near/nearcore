@@ -1,5 +1,5 @@
-extern crate node_cli;
+extern crate node_cli2;
 
 fn main() {
-    node_cli::run();
+    node_cli2::run();
 }
