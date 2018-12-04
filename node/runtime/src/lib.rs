@@ -23,7 +23,7 @@ use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
-    AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall,
+    AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, ViewCall,
     ViewCallResult, PromiseId,
 };
 use primitives::utils::concat;
@@ -323,7 +323,7 @@ impl Runtime {
 
     pub fn apply_genesis_state(
         &self,
-        balances: &[(AccountAlias, PublicKeyAlias, u64)],
+        balances: &[(AccountAlias, ReadablePublicKey, u64)],
         wasm_binary: &[u8],
     ) -> MerkleHash {
         let mut state_db_update =

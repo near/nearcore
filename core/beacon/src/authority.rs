@@ -124,14 +124,13 @@ impl Authority {
                 }
             }
         }
-        // assert_eq!(dup_proposals.len(), num_seats);
+        assert_eq!(dup_proposals.len(), num_seats as usize);
         for i in 0..self.authority_config.epoch_length {
-            //            let start: usize = (i * self.authority_config.num_seats_per_slot).into();
-            //            let authorities = dup_proposals[usize::from(i * self.authority_config.num_seats_per_slot)..usize::from((i + 1) * self.authority_config.num_seats_per_slot)];
-            let authorities = dup_proposals.clone();
+            let start = (i * self.authority_config.num_seats_per_slot) as usize;
+            let end = ((i + 1) * self.authority_config.num_seats_per_slot) as usize;
             result.insert(
                 self.current_epoch * self.authority_config.epoch_length + i + 1,
-                authorities,
+                dup_proposals[start..end].to_vec(),
             );
         }
         result
@@ -195,16 +194,16 @@ mod test {
 
     #[test]
     fn test_authority_genesis() {
-        let authority_config = get_test_config(5, 2, 2);
+        let authority_config = get_test_config(4, 2, 2);
         let initial_authorities: Vec<PublicKey> =
             authority_config.initial_authorities.iter().map(|a| a.public_key).collect();
         let bc = test_blockchain(0);
         let mut authority = Authority::new(authority_config, &bc);
         assert_eq!(authority.get_authorities(0).unwrap(), vec![]);
-        assert_eq!(authority.get_authorities(1).unwrap(), initial_authorities);
-        assert_eq!(authority.get_authorities(2).unwrap(), initial_authorities);
-        assert_eq!(authority.get_authorities(3).unwrap(), initial_authorities);
-        assert_eq!(authority.get_authorities(4).unwrap(), initial_authorities);
+        assert_eq!(authority.get_authorities(1).unwrap(), initial_authorities[0..2].to_vec());
+        assert_eq!(authority.get_authorities(2).unwrap(), initial_authorities[2..4].to_vec());
+        assert_eq!(authority.get_authorities(3).unwrap(), initial_authorities[0..2].to_vec());
+        assert_eq!(authority.get_authorities(4).unwrap(), initial_authorities[2..4].to_vec());
         assert!(authority.get_authorities(5).is_err());
         let header = BeaconBlockHeader::new(
             1,

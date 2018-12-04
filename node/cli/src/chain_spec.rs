@@ -1,12 +1,13 @@
-use primitives::types::{AccountAlias, PublicKeyAlias};
 use serde_json;
+
 use node_runtime::chain_spec::ChainSpec;
+use primitives::types::{AccountAlias, ReadablePublicKey};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
-    accounts: Vec<(AccountAlias, PublicKeyAlias, u64)>,
-    initial_authorities: Vec<(PublicKeyAlias, u64)>,
+    accounts: Vec<(AccountAlias, ReadablePublicKey, u64)>,
+    initial_authorities: Vec<(ReadablePublicKey, u64)>,
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
