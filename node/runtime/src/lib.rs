@@ -24,12 +24,12 @@ use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall,
-    ViewCallResult,
+    ViewCallResult, PromiseId,
 };
 use primitives::utils::concat;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::ext::{External, Result};
+use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 use chain::BlockChain;
 use beacon::types::BeaconBlock;
 use primitives::traits::Block;
@@ -108,17 +108,47 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
 }
 
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
         Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
         let value = self.state_db_update.get(&storage_key);
         Ok(value.map(|buf| buf.to_vec()))
     }
+
+    fn promise_create(
+        &mut self,
+        _account_alias: AccountAlias,
+        _method_name: Vec<u8>,
+        _arguments: Vec<u8>,
+        _mana: u32,
+        _amount: u64,
+    ) -> ExtResult<PromiseId> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn promise_then(
+        &mut self,
+        _promise_id: PromiseId,
+        _method_name: Vec<u8>,
+        _arguments: Vec<u8>,
+        _mana: u32,
+    ) -> ExtResult<PromiseId> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn promise_and(
+        &mut self,
+        _promise_id1: PromiseId,
+        _promise_id2: PromiseId,
+    ) -> ExtResult<PromiseId> {
+        Err(ExtError::NotImplemented)
+    }
+
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {

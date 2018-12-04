@@ -21,6 +21,8 @@ pub type StructSignature = Signature;
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
 pub type BLSSignature = Signature;
+/// ID of a promise
+pub type PromiseId = Vec<u8>;
 
 impl<'a> From<&'a AccountAlias> for AccountId {
     fn from(alias: &AccountAlias) -> Self {
