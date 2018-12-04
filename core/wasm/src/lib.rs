@@ -9,6 +9,8 @@ extern crate assert_matches;
 #[cfg(test)]
 extern crate wabt;
 
+extern crate primitives;
+
 pub mod executor;
 pub mod ext;
 mod memory;

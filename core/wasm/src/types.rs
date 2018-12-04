@@ -52,6 +52,10 @@ pub enum RuntimeError {
     MemoryAccessViolation,
     /// Native code returned incorrect value
     InvalidReturn,
+    /// Error in external promise method
+    PromiseError,
+    /// Invalid promise index given by the WASM
+    InvalidPromiseIndex,
     /// Invalid gas state inside interpreter
     InvalidGasState,
     /// Query of the balance resulted in an error
@@ -122,6 +126,8 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::InvalidGasState => write!(f, "Invalid gas state"),
             RuntimeError::BalanceQueryError => write!(f, "Balance query resulted in an error"),
             RuntimeError::InvalidReturn => write!(f, "Invalid return value"),
+            RuntimeError::PromiseError => write!(f, "Error in the external promise method"),
+            RuntimeError::InvalidPromiseIndex => write!(f, "Invalid promise index given by WASM"),
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
             RuntimeError::AllocationFailed => write!(f, "Memory allocation failed (OOM)"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),

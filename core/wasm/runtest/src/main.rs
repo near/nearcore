@@ -4,11 +4,14 @@ use std::fs;
 extern crate wasm;
 
 use wasm::executor;
-use wasm::ext::{External, Result};
+use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 use wasm::types::Config;
 
 extern crate byteorder;
 use byteorder::{ByteOrder, LittleEndian};
+
+extern crate primitives;
+use primitives::types::{AccountAlias, PromiseId};
 
 #[derive(Default)]
 struct MyExt {
@@ -16,13 +19,13 @@ struct MyExt {
 }
 
 impl External for MyExt {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
         self.storage.insert(Vec::from(key), Vec::from(value));
         Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let value = self.storage.get(key);
         match value {
             Some(buf) => {
@@ -35,6 +38,36 @@ impl External for MyExt {
             }
         }
     }
+
+    fn promise_create(
+        &mut self,
+        _account_alias: AccountAlias,
+        _method_name: Vec<u8>,
+        _arguments: Vec<u8>,
+        _mana: u32,
+        _amount: u64,
+    ) -> ExtResult<PromiseId> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn promise_then(
+        &mut self,
+        _promise_id: PromiseId,
+        _method_name: Vec<u8>,
+        _arguments: Vec<u8>,
+        _mana: u32,
+    ) -> ExtResult<PromiseId> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn promise_and(
+        &mut self,
+        _promise_id1: PromiseId,
+        _promise_id2: PromiseId,
+    ) -> ExtResult<PromiseId> {
+        Err(ExtError::NotImplemented)
+    }
+
 }
 
 fn main() {

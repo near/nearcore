@@ -28,6 +28,23 @@ extern "C" {
     fn storage_write(key: *const u8, value: *const u8);
     fn storage_read_len(key: *const u8) -> u32;
     fn storage_read_into(key: *const u8, value: *mut u8);
+
+    fn promise_create(
+        account_alias: *const u8,
+        method_name: *const u8,
+        arguments: *const u8,
+        mana: u32,
+        amount: u64,
+    ) -> u32;
+
+    fn promise_then(
+        promise_index: u32,
+        method_name: *const u8,
+        arguments: *const u8,
+        mana: u32,
+    ) -> u32;
+
+    fn promise_and(promise_index1: u32, promise_index2: u32) -> u32;
 }
 
 pub fn storage_read(key: *const u8) -> Vec<u8> {

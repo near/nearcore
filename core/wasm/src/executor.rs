@@ -46,6 +46,8 @@ pub fn execute(
 
     let result = module_instance.invoke_export(method_name, &[], &mut runtime)?;
 
+    let _gas_used = runtime.gas_counter;
+
     runtime.parse_result(result, output_data)?;
 
     Ok(())

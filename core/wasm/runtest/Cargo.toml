@@ -4,5 +4,7 @@ version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
-wasm = { path = "../" }
 byteorder = { version = "1", default-features = false }
+
+wasm = { path = "../" }
+primitives = { path = "../../primitives" }
