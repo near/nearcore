@@ -5,3 +5,4 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
 wasm = { path = "../" }
+byteorder = { version = "1", default-features = false }

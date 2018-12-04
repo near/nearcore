@@ -11,13 +11,13 @@ pub fn execute(
     code: &[u8],
     method_name: &[u8],
     _input_data: &[u8],
-    _output_data: &mut Vec<u8>,
+    output_data: &mut Vec<u8>,
     ext: &mut External,
     config: &Config,
 ) -> Result<(), Error> {
     let prepare::PreparedContract {
         instrumented_code,
-        memory,
+        memory
     } = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
 
     // Parse module from code
@@ -44,7 +44,9 @@ pub fn execute(
         _ => (),
     };
 
-    let _result = module_instance.invoke_export(method_name, &[], &mut runtime)?;
+    let result = module_instance.invoke_export(method_name, &[], &mut runtime)?;
+
+    runtime.parse_result(result, output_data)?;
 
     Ok(())
 }
