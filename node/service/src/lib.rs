@@ -24,6 +24,8 @@ use rpc::api::RpcImpl;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime;
+use futures::sync::mpsc::channel;
+use futures::stream::Stream;
 
 pub mod network_handler;
 mod produce_blocks;
@@ -42,7 +44,8 @@ pub fn run_service(
     builder.filter(None, log::LevelFilter::Info);
     builder.init();
 
-    let rpc_impl = RpcImpl { client: client.clone() };
+    let (submit_txn_tx, submit_txn_rx) = channel(1024);
+    let rpc_impl = RpcImpl::new(client.clone(), submit_txn_tx);
     let rpc_handler = rpc::api::get_handler(rpc_impl);
     let server = rpc::server::get_server(rpc_handler);
 
@@ -51,6 +54,12 @@ pub fn run_service(
         server.wait();
         Ok(())
     }));
+
+    let submit_txn_task = submit_txn_rx.fold(client.clone(), |client, t| {
+        client.receive_transaction(t);
+        future::ok(client.clone())
+    }).map(|_| ());
+    background_thread.spawn(submit_txn_task);
 
     let mut current_thread = runtime::current_thread::Runtime::new().unwrap();
     let produce_blocks_task = generate_produce_blocks_task(
