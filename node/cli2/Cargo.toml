@@ -15,7 +15,7 @@ node-runtime = { path = "../runtime" }
 node-rpc = { path = "../rpc" }
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
-rpc_server = { path = "../rpc_server" }
+service = { path = "../service" }
 
 serde = "1.0"
 serde_derive = "1.0"
