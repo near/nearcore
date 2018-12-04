@@ -3,9 +3,9 @@ extern crate chain;
 extern crate clap;
 extern crate client;
 extern crate futures;
-extern crate network;
 extern crate node_rpc;
 extern crate node_runtime;
+extern crate network2;
 extern crate primitives;
 extern crate serde;
 #[macro_use]
@@ -20,6 +20,7 @@ use clap::{App, Arg};
 use futures::future;
 use futures::sync::mpsc::channel;
 use node_rpc::api::RpcImpl;
+use network2::protocol_config::ProtocolConfig;
 use std::path::Path;
 use std::sync::Arc;
 use storage::Storage;
@@ -30,7 +31,7 @@ use primitives::hash::CryptoHash;
 use chain::BlockChain;
 use node_runtime::StateDbViewer;
 
-pub mod chain_spec;
+mod chain_spec;
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
@@ -59,6 +60,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let server = node_rpc::server::get_server(rpc_handler);
 
     tokio::run(future::lazy(|| {
+        tokio::spawn(network2::create_network_task(ProtocolConfig::default()));
         server.wait();
         Ok(())
     }));
