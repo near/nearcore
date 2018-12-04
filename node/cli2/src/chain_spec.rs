@@ -1,6 +1,6 @@
-use std::path::Path;
-use std::io::Read;
 use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 
 use node_runtime::chain_spec::ChainSpec;
 use primitives::types::{AccountAlias, PublicKeyAlias};
@@ -20,13 +20,15 @@ struct ChainSpecRef {
 struct ChainSpecDeserializer(#[serde(with = "ChainSpecRef")] ChainSpec);
 
 pub fn deserialize_chain_spec(config: &str) -> ChainSpec {
-    serde_json::from_str(config).map(|ChainSpecDeserializer(c)| c)
+    serde_json::from_str(config)
+        .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the chain spec.")
 }
 
 pub fn get_default_chain_spec() -> ChainSpec {
     let data = include_bytes!("../res/default_chain.json");
-    serde_json::from_slice(data).map(|ChainSpecDeserializer(c)| c)
+    serde_json::from_slice(data)
+        .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the default chain spec.")
 }
 

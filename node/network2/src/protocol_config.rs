@@ -22,3 +22,18 @@ impl ProtocolConfig {
         ProtocolConfig { protocol_id: ProtocolId::default(), secret }
     }
 }
+
+
+impl Default for ProtocolConfig {
+    fn default() -> Self {
+        let secret = create_secret();
+        ProtocolConfig::new(ProtocolId::default(), secret)
+    }
+}
+
+// This was pulle dout from test_utils.rs. TODO: Replace it later.
+fn create_secret() -> Secret {
+    let mut secret: Secret = [0; 32];
+    secret[31] = 1;
+    secret
+}
