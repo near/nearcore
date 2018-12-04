@@ -1,15 +1,16 @@
 mod message;
 mod reporter;
 
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use self::message::Message;
 pub use self::reporter::{MisbehaviorReporter, DAGMisbehaviorReporter, NoopMisbehaviorReporter, ViolationType};
 use typed_arena::Arena;
-use std::cell::RefCell;
 
 /// The data-structure of the TxFlow DAG that supports adding messages and updating counters/flags,
 /// but does not support communication-related logic. Also does verification of the messages
@@ -143,7 +144,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
     pub fn create_root_message(&mut self, payload: P, endorsements: Vec<Endorsement>) -> &'a Message<'a, P> {
         let mut message = Box::new(Message::new(
             SignedMessageData {
-                owner_sig: 0,  // Will populate once the epoch is computed.
+                owner_sig: DEFAULT_SIGNATURE,  // Will populate once the epoch is computed.
                 hash: 0,  // Will populate once the epoch is computed.
                 body: MessageDataBody {
                     owner_uid: self.owner_uid,

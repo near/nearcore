@@ -10,6 +10,8 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate service;
 extern crate storage;
+#[macro_use]
+extern crate log;
 
 use beacon::types::BeaconBlockHeader;
 use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
@@ -20,7 +22,7 @@ use network::service::{
     generate_service_task, NetworkConfiguration, Service as NetworkService
 };
 use primitives::signer::InMemorySigner;
-use primitives::traits::GenericResult;
+use primitives::traits::{GenericResult, Signer};
 use service::network_handler::NetworkHandler;
 use service::run_service;
 use std::fs::File;
@@ -50,9 +52,10 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
         None => get_default_chain_spec(),
     }.unwrap();
 
+    let signer = Arc::new(InMemorySigner::new());
+    info!("Public key: {}", signer.public_key());
     let storage_path = get_storage_path(base_path);
     let storage = Arc::new(storage::open_database(&storage_path.to_string_lossy()));
-    let signer = Arc::new(InMemorySigner::new());
     let client = Arc::new(Client::new(&chain_spec, storage, signer));
     let network_handler = NetworkHandler { client: client.clone() };
     let network = NetworkService::new(

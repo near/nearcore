@@ -11,17 +11,21 @@ extern crate serde_derive;
 extern crate storage;
 extern crate wasm;
 
-use beacon::authority::AuthorityChangeSet;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use kvdb::DBValue;
+use serde::{de::DeserializeOwned, Serialize};
+
+use beacon::types::AuthorityProposal;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
-use primitives::types::AccountAlias;
-use primitives::types::{AccountId, MerkleHash, SignedTransaction, ViewCall, ViewCallResult};
+use primitives::types::{
+    AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall,
+    ViewCallResult,
+};
 use primitives::utils::concat;
-use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result};
@@ -73,7 +77,7 @@ pub struct ApplyState {
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub transaction: storage::TrieBackendTransaction,
-    pub authority_change_set: AuthorityChangeSet,
+    pub authority_proposals: Vec<AuthorityProposal>,
 }
 
 struct RuntimeExt<'a, 'b: 'a> {
@@ -133,7 +137,7 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
-        authority_change_set: &mut AuthorityChangeSet,
+        authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> bool {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender: Option<Account> =
@@ -188,10 +192,10 @@ impl Runtime {
                 if transaction.body.sender == transaction.body.receiver {
                     if sender.amount >= transaction.body.amount && sender.public_keys.is_empty() {
                         runtime_data.put_stake(transaction.body.sender, transaction.body.amount);
-                        authority_change_set.proposed.insert(
-                            transaction.body.sender,
-                            (sender.public_keys[0], transaction.body.amount),
-                        );
+                        authority_proposals.push(AuthorityProposal {
+                            public_key: sender.public_keys[0],
+                            amount: transaction.body.amount,
+                        });
                         set(state_update, RUNTIME_DATA, &runtime_data);
                         true
                     } else {
@@ -240,7 +244,11 @@ impl Runtime {
                     set(state_update, &account_id_to_bytes(transaction.body.receiver), &account);
                     true
                 } else {
-                    debug!("Receiver {:?} does not exist", transaction.body.receiver);
+                    debug!(
+                        target: "runtime",
+                        "Receiver {:?} does not exist",
+                        transaction.body.receiver,
+                    );
                     false
                 }
             }
@@ -261,9 +269,9 @@ impl Runtime {
     ) -> (Vec<SignedTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
-        let mut authority_change_set = AuthorityChangeSet::default();
+        let mut authority_proposals = vec![];
         for t in transactions {
-            if self.apply_transaction(&mut state_update, &t, &mut authority_change_set) {
+            if self.apply_transaction(&mut state_update, &t, &mut authority_proposals) {
                 state_update.commit();
                 filtered_transactions.push(t);
             } else {
@@ -271,7 +279,7 @@ impl Runtime {
             }
         }
         let (transaction, new_root) = state_update.finalize();
-        (filtered_transactions, ApplyResult { root: new_root, transaction, authority_change_set })
+        (filtered_transactions, ApplyResult { root: new_root, transaction, authority_proposals })
     }
 
     pub fn view(&self, root: MerkleHash, view_call: &ViewCall) -> ViewCallResult {
@@ -313,18 +321,18 @@ impl Runtime {
 
     pub fn apply_genesis_state(
         &self,
-        balances: &[(AccountAlias, u64)],
+        balances: &[(AccountAlias, PublicKeyAlias, u64)],
         wasm_binary: &[u8],
     ) -> MerkleHash {
         let mut state_db_update =
             storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
-        balances.iter().for_each(|(account_alias, balance)| {
+        balances.iter().for_each(|(account_alias, public_key, balance)| {
             set(
                 &mut state_db_update,
                 &account_id_to_bytes(AccountId::from(account_alias)),
                 &Account {
-                    public_keys: vec![],
+                    public_keys: vec![PublicKey::from(public_key)],
                     amount: *balance,
                     nonce: 0,
                     code: wasm_binary.to_vec(),
@@ -340,12 +348,16 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use primitives::hash::hash;
-    use primitives::types::TransactionBody;
     use std::fs;
     use std::sync::Arc;
+
+    use primitives::hash::hash;
+    use primitives::signature::get_keypair;
+    use primitives::types::TransactionBody;
     use storage::test_utils::create_state_db;
+
+    use super::*;
+    use primitives::signature::DEFAULT_SIGNATURE;
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -354,10 +366,15 @@ mod tests {
     }
 
     fn apply_default_genesis_state(runtime: &Runtime) -> MerkleHash {
-        let balances = vec![("alice".into(), 0), ("bob".into(), 100), ("john".into(), 0)];
+        let (public_key, _) = get_keypair();
+        let accounts = vec![
+            ("alice".into(), public_key.to_string(), 0),
+            ("bob".into(), public_key.to_string(), 100),
+            ("john".into(), public_key.to_string(), 0),
+        ];
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
-        runtime.apply_genesis_state(&balances, &wasm_binary)
+        runtime.apply_genesis_state(&accounts, &wasm_binary)
     }
 
     #[test]
@@ -382,7 +399,7 @@ mod tests {
         let runtime = Runtime::default();
         let root = apply_default_genesis_state(&runtime);
         let t = SignedTransaction::new(
-            123,
+            DEFAULT_SIGNATURE,
             TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 100, String::new(), vec![]),
         );
         let apply_state =
@@ -441,7 +458,7 @@ mod tests {
             method_name: "run_test".to_string(),
             args: vec![],
         };
-        let transaction = SignedTransaction::new(123, tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, _) = runtime.apply(&apply_state, vec![transaction]);
@@ -462,7 +479,7 @@ mod tests {
             method_name: "deploy".to_string(),
             args: vec![wasm_binary.clone()],
         };
-        let transaction = SignedTransaction::new(123, tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
@@ -487,7 +504,7 @@ mod tests {
             method_name: "deploy".to_string(),
             args: vec![test_binary.to_vec()],
         };
-        let transaction = SignedTransaction::new(123, tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
@@ -512,7 +529,7 @@ mod tests {
             method_name: "run_test".to_string(),
             args: vec![],
         };
-        let transaction = SignedTransaction::new(123, tx_body);
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);

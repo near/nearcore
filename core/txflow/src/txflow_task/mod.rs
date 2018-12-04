@@ -7,6 +7,7 @@ use futures::{Future, Poll, Async, Stream, Sink};
 use futures::sync::mpsc;
 use tokio::timer::Delay;
 
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
@@ -203,7 +204,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                 let reply = Gossip {
                     sender_uid: self.owner_uid,
                     receiver_uid: gossip.sender_uid,
-                    sender_sig: 0,  // TODO: Sign it.
+                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::FetchReply(reply_messages)
                 };
                 self.send_gossip(reply);
@@ -273,7 +274,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             let reply = Gossip {
                 sender_uid: self.owner_uid,
                 receiver_uid,
-                sender_sig: 0,  // TODO: Sign it.
+                sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                 body: GossipBody::Fetch(hashes.drain().collect())
             };
             gossips_to_send.push(reply);
@@ -331,7 +332,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 let gossip = Gossip {
                     sender_uid: self.owner_uid,
                     receiver_uid: *w,
-                    sender_sig: 0,  // TODO: Sign it.
+                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::Unsolicited(gossip_body.clone())
                 };
                 self.send_gossip(gossip)
@@ -342,7 +343,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 let gossip = Gossip {
                     sender_uid: self.owner_uid,
                     receiver_uid: w,
-                    sender_sig: 0,  // TODO: Sign it.
+                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::UnsolicitedReply(gossip_body.clone())
                 };
                 self.send_gossip(gossip)

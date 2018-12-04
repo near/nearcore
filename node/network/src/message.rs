@@ -6,7 +6,10 @@ pub type RequestId = u64;
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum MessageBody<B, H> {
     //TODO: add different types of messages here
-    Transaction(SignedTransaction),
+
+    // Box is used here because SignedTransaction
+    // is significantly larger than other enum members
+    Transaction(Box<SignedTransaction>),
     Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),

@@ -25,10 +25,10 @@ mod substrate_storage;
 pub mod test_utils;
 
 pub const COL_STATE: Option<u32> = Some(0);
-pub const COL_BEACON_EXTRA: Option<u32> = Some(1);
-pub const COL_BEACON_BLOCKS: Option<u32> = Some(2);
-pub const COL_BEACON_HEADERS: Option<u32> = Some(3);
-pub const COL_BEACON_INDEX: Option<u32> = Some(4);
+pub const COL_EXTRA: Option<u32> = Some(1);
+pub const COL_BLOCKS: Option<u32> = Some(2);
+pub const COL_HEADERS: Option<u32> = Some(3);
+pub const COL_BLOCK_INDEX: Option<u32> = Some(4);
 pub const TOTAL_COLUMNS: Option<u32> = Some(5);
 
 /// Provides a way to access Storage and record changes with future commit.

@@ -3,15 +3,17 @@ use std::io::Read;
 use std::fs::File;
 
 use client::chain_spec::ChainSpec;
-use primitives::types::AccountAlias;
+use primitives::types::{AccountAlias, PublicKeyAlias};
 use serde_json;
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
-    balances: Vec<(AccountAlias, u64)>,
-    initial_authorities: Vec<AccountAlias>,
+    accounts: Vec<(AccountAlias, PublicKeyAlias, u64)>,
+    initial_authorities: Vec<(PublicKeyAlias, u64)>,
     genesis_wasm: Vec<u8>,
+    beacon_chain_epoch_length: u64,
+    beacon_chain_num_seats_per_slot: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -43,10 +45,12 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<&Path>) -> ChainSpec 
 #[test]
 fn test_deserialize() {
     let data = json!({
-        "balances": [["alice", 2]],
-        "initial_authorities": ["john"],
-        "genesis_wasm": [0,1]
+        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
+        "initial_authorities": [("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
+        "genesis_wasm": [0,1],
+        "beacon_chain_epoch_length": 10,
+        "beacon_chain_num_seats_per_slot": 100,
     });
     let spec = deserialize_chain_spec(&data.to_string());
-    assert_eq!(spec.initial_authorities[0], "john");
+    assert_eq!(spec.initial_authorities[0], ("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50));
 }

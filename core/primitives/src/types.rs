@@ -1,5 +1,6 @@
 use hash::{CryptoHash, hash, hash_struct};
-use signature::Signature;
+use signature::{PublicKey, Signature};
+use signature::DEFAULT_SIGNATURE;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::collections::HashSet;
@@ -8,12 +9,14 @@ use std::collections::HashSet;
 pub type UID = u64;
 /// Account alias. Can be an easily identifiable string, when hashed creates the AccountId.
 pub type AccountAlias = String;
+/// Public key alias. Used to human readable public key.
+pub type PublicKeyAlias = String;
 /// Account identifier. Provides access to user's state.
 pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
-pub type StructSignature = u128;
+pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Part of the BLS signature.
@@ -22,6 +25,12 @@ pub type BLSSignature = Signature;
 impl<'a> From<&'a AccountAlias> for AccountId {
     fn from(alias: &AccountAlias) -> Self {
         hash(alias.as_bytes())
+    }
+}
+
+impl<'a> From<&'a PublicKeyAlias> for PublicKey {
+    fn from(alias: &PublicKeyAlias) -> Self {
+        PublicKey::from(alias)
     }
 }
 
@@ -85,14 +94,21 @@ impl TransactionBody {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
-    sender_sig: StructSignature,
-    hash: CryptoHash,
+    pub sender_sig: StructSignature,
+    pub hash: CryptoHash,
     pub body: TransactionBody,
 }
 
 impl SignedTransaction {
-    pub fn new(sender_sig: StructSignature, body: TransactionBody) -> SignedTransaction {
-        SignedTransaction { sender_sig, hash: hash_struct(&body), body }
+    pub fn new(
+        sender_sig: StructSignature,
+        body: TransactionBody,
+    ) -> SignedTransaction {
+        SignedTransaction {
+            sender_sig,
+            hash: hash_struct(&body),
+            body,
+        }
     }
 
     // this is for tests
@@ -105,61 +121,8 @@ impl SignedTransaction {
             method_name: String::new(),
             args: vec![],
         };
-        SignedTransaction { sender_sig: StructSignature::default(), hash: hash_struct(&body), body }
+        SignedTransaction { sender_sig: DEFAULT_SIGNATURE, hash: hash_struct(&body), body }
     }
-}
-
-// 2. State structs.
-
-#[derive(Hash, Debug)]
-pub struct State {
-    // TODO: Fill in.
-}
-
-// 3. Epoch blocks produced by verifiers running inside a shard.
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub struct EpochBlockHeader {
-    pub shard_id: u32,
-    pub verifier_epoch: u64,
-    pub txflow_epoch: u64,
-    pub prev_header_hash: CryptoHash,
-
-    pub states_merkle_root: MerkleHash,
-    pub new_transactions_merkle_root: MerkleHash,
-    pub cancelled_transactions_merkle_root: MerkleHash,
-}
-
-#[derive(Hash, Debug)]
-pub struct SignedEpochBlockHeader {
-    pub bls_sig: BLSSignature,
-    pub epoch_block_header: EpochBlockHeader,
-}
-
-#[derive(Hash, Debug)]
-pub struct FullEpochBlockBody {
-    states: Vec<State>,
-    new_transactions: Vec<SignedTransaction>,
-    cancelled_transactions: Vec<SignedTransaction>,
-}
-
-#[derive(Hash, Debug)]
-pub enum MerkleStateNode {
-    Hash(MerkleHash),
-    State(State),
-}
-
-#[derive(Hash, Debug)]
-pub enum MerkleSignedTransactionNode {
-    Hash(MerkleHash),
-    SignedTransaction(SignedTransaction),
-}
-
-#[derive(Hash, Debug)]
-pub struct ShardedEpochBlockBody {
-    states_subtree: Vec<MerkleStateNode>,
-    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
-    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
 }
 
 // 4. TxFlow-specific structs.
@@ -175,12 +138,6 @@ pub type TxFlowHash = u64;
 pub struct Endorsement {
     pub epoch: u64,
     pub signature: BLSSignature,
-}
-
-#[derive(Hash, Debug)]
-pub struct InShardPayload {
-    pub transactions: Vec<SignedTransaction>,
-    pub epoch_block_header: Option<SignedEpochBlockHeader>,
 }
 
 #[derive(Hash, Debug)]

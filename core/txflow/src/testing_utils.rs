@@ -1,3 +1,4 @@
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::traits::Payload;
 use primitives::types::UID;
 use std::hash::{Hash, Hasher};
@@ -32,7 +33,7 @@ pub fn simple_bare_message(
         hasher.finish()
     };
     ::primitives::types::SignedMessageData {
-        owner_sig: 0,
+        owner_sig: DEFAULT_SIGNATURE,
         hash,
         body,
     }

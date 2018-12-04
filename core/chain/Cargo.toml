@@ -1,5 +1,5 @@
 [package]
-name = "beacon"
+name = "chain"
 version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
@@ -11,4 +11,6 @@ parking_lot = "0.6"
 
 primitives = { path = "../primitives" }
 storage = { path = "../storage" }
-chain = { path = "../chain" }
+
+[dev-dependencies]
+beacon = { path = "../beacon" }

@@ -1,31 +1,95 @@
 use primitives::hash::{hash_struct, CryptoHash};
+use primitives::signature::{DEFAULT_SIGNATURE, PublicKey};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct BeaconBlockHeader {
+pub struct AuthorityProposal {
+    /// Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// Stake / weight of the authority.
+    pub amount: u64,
+}
+
+//pub struct BeaconBlockBody {
+//    /// Parent hash.
+//    pub parent_hash: CryptoHash,
+//    /// Block index.
+//    pub index: u64,
+//    /// Authority proposals.
+//    pub authority_proposal: Vec<AuthorityProposal>,
+//    /// Shard block hash.
+//    pub shard_block_hash: CryptoHash,
+//}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlockHeaderBody {
     /// Parent hash.
     pub parent_hash: CryptoHash,
     /// Block index.
     pub index: u64,
     pub merkle_root_tx: MerkleHash,
     pub merkle_root_state: MerkleHash,
-    // TODO: time, height?
+    pub authority_proposal: Vec<AuthorityProposal>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlockHeader {
+    pub body: BeaconBlockHeaderBody,
     pub signature: BLSSignature,
+    pub authority_mask: Vec<bool>,
+}
+
+impl BeaconBlockHeader {
+    pub fn new(
+        index: u64,
+        parent_hash: CryptoHash,
+        merkle_root_tx: MerkleHash,
+        merkle_root_state: MerkleHash,
+        signature: BLSSignature,
+        authority_mask: Vec<bool>,
+        authority_proposal: Vec<AuthorityProposal>,
+    ) -> Self {
+        BeaconBlockHeader {
+            body: BeaconBlockHeaderBody {
+                index,
+                parent_hash,
+                merkle_root_tx,
+                merkle_root_state,
+                authority_proposal,
+            },
+            signature,
+            authority_mask,
+        }
+    }
+    pub fn empty(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash) -> Self {
+        BeaconBlockHeader {
+            body: BeaconBlockHeaderBody {
+                index,
+                parent_hash,
+                merkle_root_tx: MerkleHash::default(),
+                merkle_root_state,
+                authority_proposal: vec![],
+            },
+            authority_mask: vec![],
+            signature: DEFAULT_SIGNATURE,
+        }
+    }
 }
 
 impl Header for BeaconBlockHeader {
     fn hash(&self) -> CryptoHash {
+        // WTF?
         hash_struct(&self)
     }
 
     fn index(&self) -> u64 {
-        self.index
+        self.body.index
     }
 
     fn parent_hash(&self) -> CryptoHash {
-        self.parent_hash
+        self.body.parent_hash
     }
 }
 
@@ -44,13 +108,7 @@ impl BeaconBlock {
         transactions: Vec<SignedTransaction>,
     ) -> Self {
         BeaconBlock {
-            header: BeaconBlockHeader {
-                parent_hash,
-                merkle_root_tx: MerkleHash::default(),
-                merkle_root_state,
-                signature: primitives::signature::default_signature(),
-                index,
-            },
+            header: BeaconBlockHeader::empty(index, parent_hash, merkle_root_state),
             transactions,
         }
     }

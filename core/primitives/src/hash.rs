@@ -54,24 +54,19 @@ impl fmt::Display for CryptoHash {
 
 pub mod bs58_format {
     use super::{bs58, CryptoHash};
-    use serde::{Deserialize, Serializer, Deserializer};
     use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(
-        crypto_hash: &CryptoHash,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
     {
         serializer.serialize_str(String::from(crypto_hash).as_str())
     }
 
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<CryptoHash, D::Error>
-        where
-            D: Deserializer<'de>,
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<CryptoHash, D::Error>
+    where
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         match bs58::decode(s).into_vec() {

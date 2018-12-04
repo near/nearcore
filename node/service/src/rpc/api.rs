@@ -3,45 +3,81 @@ use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
 use rpc::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
-    DeployContractRequest, SendMoneyRequest, ScheduleFunctionCallRequest,
+    DeployContractRequest, PreparedTransactionBodyResponse,
+    ScheduleFunctionCallRequest, SendMoneyRequest,
     ViewAccountRequest, ViewAccountResponse,
 };
 use std::sync::Arc;
+use futures::sync::mpsc::Sender;
 
 build_rpc_trait! {
     pub trait TransactionApi {
         /// Receive new transaction.
         #[rpc(name = "send_money")]
-        fn rpc_send_money(&self, SendMoneyRequest) -> JsonRpcResult<()>;
+        fn rpc_send_money(
+            &self,
+            SendMoneyRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Deploy smart contract.
         #[rpc(name = "deploy_contract")]
-        fn rpc_deploy_contract(&self, DeployContractRequest) -> JsonRpcResult<()>;
+        fn rpc_deploy_contract(
+            &self,
+            DeployContractRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Call method on smart contract.
         #[rpc(name = "schedule_function_call")]
-        fn rpc_schedule_function_call(&self, ScheduleFunctionCallRequest) -> JsonRpcResult<()>;
+        fn rpc_schedule_function_call(
+            &self,
+            ScheduleFunctionCallRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Call view function on smart contract.
         #[rpc(name = "call_view_function")]
-        fn rpc_call_view_function(&self, CallViewFunctionRequest) -> JsonRpcResult<(CallViewFunctionResponse)>;
+        fn rpc_call_view_function(
+            &self,
+            CallViewFunctionRequest
+        ) -> JsonRpcResult<(CallViewFunctionResponse)>;
 
         /// View account.
         #[rpc(name = "view_account")]
-        fn rpc_view_account(&self, ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse>;
+        fn rpc_view_account(
+            &self,
+            ViewAccountRequest
+        ) -> JsonRpcResult<ViewAccountResponse>;
+
+        /// Submit transaction.
+        #[rpc(name = "submit_transaction")]
+        fn rpc_submit_transaction(
+            &self,
+            SignedTransaction
+        ) -> JsonRpcResult<()>;
     }
 }
 
 pub struct RpcImpl {
-    pub client: Arc<Client>,
+    client: Arc<Client>,
+    submit_txn_sender: Sender<SignedTransaction>,
 }
 
-fn _generate_fake_signed_transaction(body: TransactionBody) -> SignedTransaction {
-    SignedTransaction::new(123, body)
+impl RpcImpl {
+    pub fn new(
+        client: Arc<Client>,
+        submit_txn_sender: Sender<SignedTransaction>,
+    ) -> Self {
+        RpcImpl {
+            client,
+            submit_txn_sender,
+        }
+    }
 }
 
 impl TransactionApi for RpcImpl {
-    fn rpc_deploy_contract(&self, r: DeployContractRequest) -> JsonRpcResult<()> {
+    fn rpc_deploy_contract(
+        &self,
+        r: DeployContractRequest,
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody {
             nonce: r.nonce,
             sender: r.sender_account_id,
@@ -50,24 +86,28 @@ impl TransactionApi for RpcImpl {
             method_name: "deploy".into(),
             args: vec![r.wasm_byte_array],
         };
-        let transaction = _generate_fake_signed_transaction(body);
-        Ok(self.client.receive_transaction(transaction))
+        Ok(PreparedTransactionBodyResponse { body })
     }
 
-    fn rpc_send_money(&self, r: SendMoneyRequest) -> JsonRpcResult<()> {
+    fn rpc_send_money(
+        &self,
+        r: SendMoneyRequest,
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody {
             nonce: r.nonce,
             sender: r.sender_account_id,
             receiver: r.receiver_account_id,
             amount: r.amount,
             method_name: String::new(),
-            args: Vec::new()
+            args: Vec::new(),
         };
-        let transaction = _generate_fake_signed_transaction(body);
-        Ok(self.client.receive_transaction(transaction))
+        Ok(PreparedTransactionBodyResponse { body })
     }
 
-    fn rpc_schedule_function_call(&self, r: ScheduleFunctionCallRequest) -> JsonRpcResult<()> {
+    fn rpc_schedule_function_call(
+        &self,
+        r: ScheduleFunctionCallRequest,
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody {
             nonce: r.nonce,
             sender: r.sender_account_id,
@@ -76,16 +116,11 @@ impl TransactionApi for RpcImpl {
             method_name: r.method_name,
             args: r.args,
         };
-        let transaction = _generate_fake_signed_transaction(body);
-        Ok(self.client.receive_transaction(transaction))
+        Ok(PreparedTransactionBodyResponse { body })
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
-        let call = ViewCall {
-            account: r.account_id,
-            method_name: String::new(),
-            args: Vec::new(),
-        };
+        let call = ViewCall { account: r.account_id, method_name: String::new(), args: Vec::new() };
         let result = self.client.view_call(&call);
         let response = ViewAccountResponse {
             account_id: result.account,
@@ -95,14 +130,12 @@ impl TransactionApi for RpcImpl {
         Ok(response)
     }
 
-    fn rpc_call_view_function(&self, r: CallViewFunctionRequest)
-                              -> JsonRpcResult<(CallViewFunctionResponse)>
-    {
-        let call = ViewCall {
-            account: r.contract_account_id,
-            method_name: r.method_name,
-            args: r.args,
-        };
+    fn rpc_call_view_function(
+        &self,
+        r: CallViewFunctionRequest,
+    ) -> JsonRpcResult<(CallViewFunctionResponse)> {
+        let call =
+            ViewCall { account: r.contract_account_id, method_name: r.method_name, args: r.args };
         let result = self.client.view_call(&call);
         let response = CallViewFunctionResponse {
             account_id: result.account,
@@ -112,8 +145,12 @@ impl TransactionApi for RpcImpl {
         };
         Ok(response)
     }
-}
 
+    fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
+        self.submit_txn_sender.clone().try_send(r).unwrap();
+        Ok(())
+    }
+}
 
 pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
     let mut io = IoHandler::new();
@@ -124,16 +161,19 @@ pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
 #[cfg(test)]
 mod tests {
     extern crate jsonrpc_test;
+    extern crate serde_json;
 
     use client::test_utils::generate_test_client;
     use primitives::hash::hash;
     use self::jsonrpc_test::Rpc;
     use super::*;
+    use futures::sync::mpsc::channel;
 
     #[test]
     fn test_call() {
         let client = Arc::new(generate_test_client());
-        let rpc_impl = RpcImpl { client };
+        let (submit_txn_sender, _) = channel(1024);
+        let rpc_impl = RpcImpl::new(client, submit_txn_sender);
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = SendMoneyRequest {
@@ -142,6 +182,18 @@ mod tests {
             receiver_account_id: hash(b"bob"),
             amount: 1,
         };
-        assert_eq!(rpc.request("send_money", &[t]), "null");
+        let expected = PreparedTransactionBodyResponse {
+            body: TransactionBody {
+                nonce: 0,
+                sender: hash(b"alice"),
+                receiver: hash(b"bob"),
+                amount: 1,
+                method_name: String::new(),
+                args: Vec::new(),
+            },
+        };
+        let raw = &rpc.request("send_money", &[t]);
+        let response = serde_json::from_str(&raw).unwrap();
+        assert_eq!(expected, response);
     }
 }

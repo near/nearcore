@@ -18,17 +18,18 @@ use clap::{App, Arg};
 use client::Client;
 use env_logger::Builder;
 use futures::{Future, Stream};
-use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use network::service::generate_service_task;
+use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use node_cli::chain_spec::get_default_chain_spec;
 use primitives::hash::hash;
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::signer::InMemorySigner;
 use primitives::types::{SignedTransaction, TransactionBody};
 use service::network_handler::NetworkHandler;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::timer::Interval;
 use tokio::runtime::current_thread::Runtime;
+use tokio::timer::Interval;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -94,7 +95,7 @@ pub fn main() {
                     method_name: String::new(),
                     args: vec![],
                 };
-                let tx = SignedTransaction::new(123, tx_body);
+                let tx = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
                 client.receive_transaction(tx);
                 Ok(())
             }

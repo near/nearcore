@@ -16,6 +16,7 @@ members = [
     "core/primitives",
     "core/storage",
     "core/txflow",
+    "core/chain",
     "core/beacon",
     "core/wasm",
     "core/wasm/runtest",
@@ -26,7 +27,8 @@ members = [
     "node/service",
     "node/network",
     "test-utils/node",
-    "test-utils/devnet"
+    "test-utils/devnet",
+    "test-utils/keygen"
 ]
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",
@@ -34,5 +36,7 @@ exclude = [
 
 [dev-dependencies]
 lazy_static = "1.2.0"
+keystore = { path = "./test-utils/keygen" }
+primitives = { path = "./core/primitives" }
 serde_json = "1.0.0"
 service = { path = "./node/service", features = ["test-utils"] }
