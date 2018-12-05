@@ -5,17 +5,23 @@ use prepare;
 use resolver::EnvModuleResolver;
 
 use runtime::Runtime;
-use types::*;
+use types::{Config, ReturnData, Error};
+
+#[derive(Debug, Clone)]
+pub struct ExecutionOutcome {
+    pub gas_used: u64,
+    pub mana_used: u64,
+    pub return_data: ReturnData,
+}
 
 pub fn execute(
     code: &[u8],
     method_name: &[u8],
     input_data: &[u8],
     result_data: &[Option<Vec<u8>>],
-    output_data: &mut Vec<u8>,
     ext: &mut External,
     config: &Config,
-) -> Result<(), Error> {
+) -> Result<ExecutionOutcome, Error> {
     let prepare::PreparedContract {
         instrumented_code,
         memory
@@ -50,11 +56,12 @@ pub fn execute(
         _ => (),
     };
 
-    let result = module_instance.invoke_export(method_name, &[], &mut runtime)?;
+    module_instance.invoke_export(method_name, &[], &mut runtime)?;
 
-    let _gas_used = runtime.gas_counter;
-
-    runtime.parse_result(result, output_data)?;
-
-    Ok(())
+    // TODO: Add MANA usage counter
+    Ok(ExecutionOutcome {
+        gas_used: runtime.gas_counter,
+        mana_used: 0,
+        return_data: runtime.return_data,
+    })
 }

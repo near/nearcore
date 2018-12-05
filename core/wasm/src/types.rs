@@ -1,3 +1,4 @@
+use primitives::types::PromiseId;
 use wasmi::{Error as WasmiError, Trap, TrapKind};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -190,9 +191,17 @@ impl From<RuntimeError> for Error {
     }
 }
 
+/// Returned data from the method. 
 #[derive(Clone, Debug)]
-pub struct ExecutionParams {
-    pub config: Config,
+pub enum ReturnData {
+    /// Method returned some value or data.
+    Value(Vec<u8>),
+
+    /// Method returned a promise.
+    Promise(PromiseId),
+
+    /// Method hasn't returned any data or promise.
+    None,
 }
 
 // TODO: Extract it to the root of the crate

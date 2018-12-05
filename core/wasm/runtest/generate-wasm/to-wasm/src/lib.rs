@@ -21,8 +21,6 @@ use byteorder::{ByteOrder, LittleEndian};
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-static mut FINAL_RESULT: Vec<u8> = Vec::new();
-
 #[allow(unused)]
 extern "C" {
     // First 4 bytes are the length of the remaining buffer.
@@ -37,6 +35,9 @@ extern "C" {
     fn result_is_ok(index: u32) -> bool;
     fn result_read_len(index: u32) -> u32;
     fn result_read_into(index: u32, value: *mut u8);
+
+    fn return_value(value: *const u8);
+    fn return_promise(promise_index: u32);
 
     fn promise_create(
         account_alias: *const u8,
@@ -83,12 +84,12 @@ fn result_read(index: u32) -> Vec<u8> {
     }
 }
 
-fn return_int(res: i32) -> *const u8 {
+fn return_int(res: i32) {
+    let mut buf = [0u8; 8];
+    LittleEndian::write_u32(&mut buf[..4], 4);
+    LittleEndian::write_i32(&mut buf[4..], res);
     unsafe {
-        FINAL_RESULT.resize(8, 0);
-        LittleEndian::write_u32(&mut FINAL_RESULT[..4], 4);
-        LittleEndian::write_i32(&mut FINAL_RESULT[4..], res);
-        FINAL_RESULT.as_ptr()
+        return_value(buf.as_ptr())
     }
 }
 
@@ -125,7 +126,7 @@ pub fn get_int(key: u32) -> i32 {
 }
 
 #[no_mangle]
-pub fn run_test() -> *const u8 {
+pub fn run_test() {
     put_int(10, 20);
     put_int(50, 150);
     let res = get_int(10);
@@ -133,7 +134,7 @@ pub fn run_test() -> *const u8 {
 }
 
 #[no_mangle]
-pub fn sum_with_input() -> *const u8 {
+pub fn sum_with_input() {
     let input = input_read();
     assert!(input.len() == 8);
     let a = LittleEndian::read_i32(&input[..4]);
@@ -143,7 +144,7 @@ pub fn sum_with_input() -> *const u8 {
 }
 
 #[no_mangle]
-pub fn sum_with_multiple_results() -> *const u8 {
+pub fn sum_with_multiple_results() {
     unsafe {
         let cnt = result_count();
         if cnt == 0 {
