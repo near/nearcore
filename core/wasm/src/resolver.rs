@@ -44,6 +44,30 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32, ValueType::I32][..], Some(ValueType::I32)),
                 ids::PROMISE_AND_FUNC,
             ),
+            "input_read_len" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I32)),
+                ids::INPUT_READ_LEN_FUNC,
+            ),
+            "input_read_into" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::INPUT_READ_INTO_FUNC,
+            ),
+            "result_count" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I32)),
+                ids::RESULT_COUNT_FUNC,
+            ),
+            "result_is_ok" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
+                ids::RESULT_IS_OK_FUNC,
+            ),
+            "result_read_len" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
+                ids::RESULT_READ_LEN_FUNC,
+            ),
+            "result_read_into" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32][..], None),
+                ids::RESULT_READ_INTO_FUNC,
+            ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             }
