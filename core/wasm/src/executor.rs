@@ -4,13 +4,14 @@ use wasmi;
 use prepare;
 use resolver::EnvModuleResolver;
 
-use runtime::{Runtime, RuntimeContext};
+use runtime::Runtime;
 use types::*;
 
 pub fn execute(
     code: &[u8],
     method_name: &[u8],
-    _input_data: &[u8],
+    input_data: &[u8],
+    result_data: &[Option<Vec<u8>>],
     output_data: &mut Vec<u8>,
     ext: &mut External,
     config: &Config,
@@ -30,7 +31,12 @@ pub fn execute(
         &wasmi::ImportsBuilder::new().with_resolver("env", &instantiation_resolver),
     ).map_err(Error::Interpreter)?;
 
-    let mut runtime = Runtime::new(ext, RuntimeContext {}, memory, config.gas_limit);
+    let mut runtime = Runtime::new(
+        ext,
+        input_data,
+        result_data,
+        memory,
+        config.gas_limit);
 
     let module_instance = module_instance
         .run_start(&mut runtime)

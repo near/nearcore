@@ -56,6 +56,10 @@ pub enum RuntimeError {
     PromiseError,
     /// Invalid promise index given by the WASM
     InvalidPromiseIndex,
+    /// Invalid result index given by the WASM to read results
+    InvalidResultIndex,
+    // WASM is trying to read data from a result that is an error
+    ResultIsNotOk,
     /// Invalid gas state inside interpreter
     InvalidGasState,
     /// Query of the balance resulted in an error
@@ -128,6 +132,8 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::InvalidReturn => write!(f, "Invalid return value"),
             RuntimeError::PromiseError => write!(f, "Error in the external promise method"),
             RuntimeError::InvalidPromiseIndex => write!(f, "Invalid promise index given by WASM"),
+            RuntimeError::InvalidResultIndex => write!(f, "Invalid result index given by the WASM to read results"),
+            RuntimeError::ResultIsNotOk => write!(f, "WASM is trying to read data from a result that is an error"),
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
             RuntimeError::AllocationFailed => write!(f, "Memory allocation failed (OOM)"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),

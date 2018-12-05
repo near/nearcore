@@ -6,20 +6,12 @@ use types::RuntimeError as Error;
 
 use primitives::types::{AccountAlias, PromiseId};
 
-pub struct RuntimeContext {
-    /*
-	pub address: Address,
-	pub sender: Address,
-	pub origin: Address,
-	pub code_address: Address,
-	pub value: U256,
-    */}
-
 type Result<T> = ::std::result::Result<T, Error>;
 
 pub struct Runtime<'a> {
     ext: &'a mut External,
-    _context: RuntimeContext,
+    input_data: &'a [u8],
+    result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
     pub gas_counter: u64,
     gas_limit: u64,
@@ -28,14 +20,16 @@ pub struct Runtime<'a> {
 
 impl<'a> Runtime<'a> {
     pub fn new(
-        ext: &mut External,
-        context: RuntimeContext,
+        ext: &'a mut External,
+        input_data: &'a [u8],
+        result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
         gas_limit: u64,
-    ) -> Runtime {
+    ) -> Runtime<'a> {
         Runtime {
             ext,
-            _context: context,
+            input_data,
+            result_data,
             memory,
             gas_counter: 0,
             gas_limit,
@@ -77,7 +71,7 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    /// Read from the storage to wasm memory
+    /// Returns length of the value from the storage
     fn storage_read_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let key_ptr: u32 = args.nth_checked(0)?;
 
@@ -94,7 +88,7 @@ impl<'a> Runtime<'a> {
         Ok(RuntimeValue::I32(len as i32))
     }
 
-    /// Read from the storage to wasm memory
+    /// Reads from the storage to wasm memory
     fn storage_read_into(&mut self, args: &RuntimeArgs) -> Result<()> {
         let key_ptr: u32 = args.nth_checked(0)?;
         let val_ptr: u32 = args.nth_checked(1)?;
@@ -112,7 +106,7 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    /// Write to storage from wasm memory
+    /// Writes to storage from wasm memory
     fn storage_write(&mut self, args: &RuntimeArgs) -> Result<()> {
         let key_ptr: u32 = args.nth_checked(0)?;
         let val_ptr: u32 = args.nth_checked(1)?;
@@ -194,6 +188,64 @@ impl<'a> Runtime<'a> {
         Ok(RuntimeValue::I32(promise_index as i32))
     }
 
+    /// Returns length of the input (arguments)
+    fn input_read_len(&self) -> Result<RuntimeValue> {
+        Ok(RuntimeValue::I32(self.input_data.len() as u32 as i32))
+    }
+
+    /// Reads from the input (arguments) to wasm memory
+    fn input_read_into(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let val_ptr: u32 = args.nth_checked(0)?;
+        self.memory
+            .set(val_ptr, &self.input_data)
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(())
+    }
+
+    /// Returns the number of results.
+    /// Results are available as part of the callback from a promise.
+    fn result_count(&self) -> Result<RuntimeValue> {
+        Ok(RuntimeValue::I32(self.result_data.len() as u32 as i32))
+    }
+
+    fn result_is_ok(&self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let result_index: u32 = args.nth_checked(0)?;
+
+        let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
+
+        Ok(RuntimeValue::I32(result.is_some() as i32))
+    }
+
+    /// Returns length of the result (arguments)
+    fn result_read_len(&self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let result_index: u32 = args.nth_checked(0)?;
+
+        let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
+
+        match result {
+            Some(buf) => Ok(RuntimeValue::I32(buf.len() as u32 as i32)),
+            None => Err(Error::ResultIsNotOk),
+        }
+    }
+
+    /// Read from the input to wasm memory
+    fn result_read_into(&self, args: &RuntimeArgs) -> Result<()> {
+        let result_index: u32 = args.nth_checked(0)?;
+        let val_ptr: u32 = args.nth_checked(1)?;
+
+        let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
+
+        match result {
+            Some(buf) => {
+                self.memory
+                    .set(val_ptr, &buf)
+                    .map_err(|_| Error::MemoryAccessViolation)?;
+                Ok(())
+            }
+            None => Err(Error::ResultIsNotOk),
+        }
+    }
+
     /// Releases this Runtime instance and parses given result and writes it to the
     /// output data buffer.
     pub fn parse_result(self, result: Option<RuntimeValue>, output_data: &mut Vec<u8>) -> Result<()> {
@@ -225,11 +277,6 @@ mod ext_impl {
     macro_rules! some {
 		{ $e: expr } => { { Ok(Some($e?)) } }
 	}
-    /*
-	macro_rules! cast {
-		{ $e: expr } => { { Ok(Some($e)) } }
-	}
-	*/
 
     impl<'a> Externals for super::Runtime<'a> {
         fn invoke_index(
@@ -245,31 +292,12 @@ mod ext_impl {
                 PROMISE_CREATE_FUNC => some!(self.promise_create(&args)),
                 PROMISE_THEN_FUNC => some!(self.promise_then(&args)),
                 PROMISE_AND_FUNC => some!(self.promise_and(&args)),
-                /*
-				RET_FUNC => void!(self.ret(args)),
-				INPUT_LENGTH_FUNC => cast!(self.input_legnth()),
-				FETCH_INPUT_FUNC => void!(self.fetch_input(args)),
-				PANIC_FUNC => void!(self.panic(args)),
-				DEBUG_FUNC => void!(self.debug(args)),
-				CCALL_FUNC => some!(self.ccall(args)),
-				DCALL_FUNC => some!(self.dcall(args)),
-				SCALL_FUNC => some!(self.scall(args)),
-				VALUE_FUNC => void!(self.value(args)),
-				CREATE_FUNC => some!(self.create(args)),
-				SUICIDE_FUNC => void!(self.suicide(args)),
-				BLOCKHASH_FUNC => void!(self.blockhash(args)),
-				BLOCKNUMBER_FUNC => some!(self.blocknumber()),
-				COINBASE_FUNC => void!(self.coinbase(args)),
-				DIFFICULTY_FUNC => void!(self.difficulty(args)),
-				GASLIMIT_FUNC => void!(self.gaslimit(args)),
-				TIMESTAMP_FUNC => some!(self.timestamp()),
-				ADDRESS_FUNC => void!(self.address(args)),
-				SENDER_FUNC => void!(self.sender(args)),
-				ORIGIN_FUNC => void!(self.origin(args)),
-				ELOG_FUNC => void!(self.elog(args)),
-				CREATE2_FUNC => some!(self.create2(args)),
-				GASLEFT_FUNC => some!(self.gasleft()),
-                */
+                INPUT_READ_LEN_FUNC => some!(self.input_read_len()),
+                INPUT_READ_INTO_FUNC => void!(self.input_read_into(&args)),
+                RESULT_COUNT_FUNC => some!(self.result_count()),
+                RESULT_IS_OK_FUNC => some!(self.result_is_ok(&args)),
+                RESULT_READ_LEN_FUNC => some!(self.result_read_len(&args)),
+                RESULT_READ_INTO_FUNC => void!(self.result_read_into(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }
