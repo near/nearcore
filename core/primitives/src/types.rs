@@ -143,7 +143,9 @@ pub struct Endorsement {
 }
 
 #[derive(Hash, Debug)]
-pub struct BeaconChainPayload {}
+pub struct BeaconChainPayload {
+    pub body: Vec<SignedTransaction>,
+}
 
 #[derive(Debug, Clone)]
 /// Not signed data representing TxFlow message.
@@ -206,12 +208,9 @@ pub struct ConsensusBlockHeader {
 }
 
 #[derive(Hash, Debug)]
-pub struct ConsensusBlockBody<P, C> {
+pub struct ConsensusBlockBody<P> {
     /// TxFlow messages that constitute that consensus block together with the endorsements.
     pub messages: Vec<SignedMessageData<P>>,
-
-    /// The content specific to where the TxFlow is used: in shard or in beacon chain.
-    pub content: C,
 }
 
 // 4.2 Gossip-specific structs.
