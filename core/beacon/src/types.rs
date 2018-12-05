@@ -1,5 +1,5 @@
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::{DEFAULT_SIGNATURE, PublicKey};
+use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 use std::sync::Arc;
