@@ -3,7 +3,7 @@ mod group_approvals;
 
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::hash::{Hash, Hasher};
 
 use primitives::traits::{Payload, WitnessSelector};
@@ -44,8 +44,10 @@ pub struct Message<'a, P: 'a + Payload> {
     computed_complete_epochs: GroupsPerEpoch<'a, P>,
 
     // The following are the approved messages, grouped by different criteria.
+    /// UID -> most recent message from that owner
+    approved_most_recent: HashMap<types::UID, Message<'a, P>>,
     /// Epoch -> messages that have that epoch.
-    approved_epochs: GroupsPerEpoch<'a, P>,
+    pub approved_epochs: GroupsPerEpoch<'a, P>,
     /// Epoch -> a/all representatives of that epoch (supports forks).
     approved_representatives: GroupsPerEpoch<'a, P>,
     /// Epoch -> a/all kickouts of that epoch (supports forks).
@@ -125,6 +127,7 @@ impl<'a, P: Payload> Message<'a, P> {
             computed_promises: GroupsPerEpoch::new(),
             computed_complete_epochs: GroupsPerEpoch::new(),
 
+            approved_most_recent: HashMap::new(),
             approved_epochs: GroupsPerEpoch::new(),
             approved_representatives: GroupsPerEpoch::new(),
             approved_kickouts: GroupsPerEpoch::new(),
