@@ -27,7 +27,6 @@ members = [
     "node/runtime",
     "node/service",
     "node/network",
-    "node/network2",
     "test-utils/node",
     "test-utils/devnet",
     "test-utils/keygen"

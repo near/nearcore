@@ -10,7 +10,6 @@ tokio = "0.1.11"
 beacon = { path = "../../core/beacon" }
 chain = { path = "../../core/chain" }
 client = { path = "../client" }
-network2 = { path = "../network2", features = ["test-utils"] }
 node-runtime = { path = "../runtime" }
 node-rpc = { path = "../rpc" }
 primitives = { path = "../../core/primitives" }
