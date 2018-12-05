@@ -3,7 +3,7 @@ mod group_approvals;
 
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashSet, HashMap};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
 use primitives::traits::{Payload, WitnessSelector};
@@ -44,8 +44,6 @@ pub struct Message<'a, P: 'a + Payload> {
     computed_complete_epochs: GroupsPerEpoch<'a, P>,
 
     // The following are the approved messages, grouped by different criteria.
-    /// UID -> most recent message from that owner
-    approved_most_recent: HashMap<types::UID, Message<'a, P>>,
     /// Epoch -> messages that have that epoch.
     pub approved_epochs: GroupsPerEpoch<'a, P>,
     /// Epoch -> a/all representatives of that epoch (supports forks).
@@ -127,7 +125,6 @@ impl<'a, P: Payload> Message<'a, P> {
             computed_promises: GroupsPerEpoch::new(),
             computed_complete_epochs: GroupsPerEpoch::new(),
 
-            approved_most_recent: HashMap::new(),
             approved_epochs: GroupsPerEpoch::new(),
             approved_representatives: GroupsPerEpoch::new(),
             approved_kickouts: GroupsPerEpoch::new(),
@@ -198,6 +195,10 @@ impl<'a, P: Payload> Message<'a, P> {
         }
         self.approved_complete_epochs.union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
         self.approved_complete_epochs.union_update(&self.approved_promises.superapproved_messages(witness_selector));
+    }
+
+    pub fn approve(&self, message: &Message<'a, P>) -> bool{
+        self.approved_epochs.contains_message(message)
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
