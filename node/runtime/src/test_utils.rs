@@ -28,10 +28,11 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
     let chain_spec = generate_test_chain_spec();
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
-    let runtime = Runtime::new(state_db.clone());
+    let runtime = Runtime::new(state_db);
     let genesis_root = runtime.apply_genesis_state(
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
+        &chain_spec.initial_authorities
     );
 
     let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);

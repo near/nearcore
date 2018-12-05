@@ -61,6 +61,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let genesis_root = runtime.apply_genesis_state(
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
+        &chain_spec.initial_authorities,
     );
 
     let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);

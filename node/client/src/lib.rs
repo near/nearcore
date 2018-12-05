@@ -45,7 +45,7 @@ impl Client {
         let state_db = Arc::new(StateDb::new(storage.clone()));
         let runtime = Runtime::new(state_db.clone());
         let genesis_root =
-            runtime.apply_genesis_state(&chain_spec.accounts, &chain_spec.genesis_wasm);
+            runtime.apply_genesis_state(&chain_spec.accounts, &chain_spec.genesis_wasm, &chain_spec.initial_authorities);
 
         let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
         let beacon_chain = BlockChain::new(genesis, storage);

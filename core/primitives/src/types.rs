@@ -67,6 +67,7 @@ pub struct ViewCallResult {
     pub account: AccountId,
     pub nonce: u64,
     pub amount: u64,
+    pub stake: u64,
     pub result: Vec<u8>,
 }
 
