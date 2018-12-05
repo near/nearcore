@@ -9,7 +9,7 @@ use super::Message;
 /// * representative message(s) of epoch X (there are more than one if there is a fork);
 /// * kickout message(s) that kickout epoch X (again, more than one if there is a fork);
 /// * messages of epoch X (it is perfectly normal to have multiple of them).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Group<'a, P: 'a + Payload> {
     /// Messages aggregated by owner uid.
     pub messages_by_owner: HashMap<UID, HashSet<&'a Message<'a, P>>>,
@@ -62,7 +62,7 @@ impl<'a, P: 'a + Payload> Clone for Group<'a, P> {
 }
 
 /// Mapping of groups to epochs.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct GroupsPerEpoch<'a, P: 'a + Payload> {
     pub messages_by_epoch: HashMap<u64, Group<'a, P>>,
 }
