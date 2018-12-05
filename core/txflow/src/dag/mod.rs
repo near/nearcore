@@ -82,6 +82,35 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
+    fn are_fork(message0: &Message<'a, P>, message1: &Message<'a, P>) -> bool {
+        // both message must belong to the same owner to form a fork
+        if message0.data.body.owner_uid != message1.data.body.owner_uid {
+            return false;
+        }
+
+        // check m1 approve m0 or m0 approve m1
+        message1.approved_epochs.contains_message(message0) |
+        message0.approved_epochs.contains_message(message1)
+    }
+
+    /// Check if a message from a fork with at least one message from the current 
+    /// point of view of the DAG and return the fork pair. 
+    /// Notice in case there is a multi-fork only first detected fork is reported.
+    fn detect_fork(&self, message: &Message<'a, P>) -> Option<(TxFlowHash, TxFlowHash)> {
+        // Iterate over all roots to detect from each point of view what is the most
+        // recent message from the same owner than `message`
+        for root in &self.roots {
+            // Iterate over all epochs from present to past.
+
+            // This can be avoided aggregating in each message most recent message 
+            // of each participant from its point of view.
+            for epoch in (0..root.computed_epoch + 1).rev() {
+            }
+        }
+
+        None
+    }
+
     /// Verify correctness of this message regarding txflow protocol.
     /// Report all misbehavior as soon as they are detected.
     fn verify_message(
@@ -91,6 +120,12 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
         if message.computed_epoch != message.data.body.epoch {
             let mb = ViolationType::BadEpoch(message.computed_hash);
             self.misbehavior.borrow_mut().report(mb);
+        }
+
+        // Check fork
+        if let Some(fork_data) = self.detect_fork(message) {
+            let mb = ViolationType::ForkAttempt(fork_data.0, fork_data.1);
+            self.misbehavior.borrow_mut().report(mb);   
         }
 
         Ok(())
@@ -353,6 +388,24 @@ mod tests {
             for m in all_messages {
                 assert!(moved_dag.add_existing_message((*m).clone()).is_ok());
             }
+        }
+    }
+
+    /// Unfinished test
+    #[test]
+    fn notice_simple_fork() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
+
+        let a;
+
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0 => a;] => 3, 1;]);
+        simple_bare_messages!(data_arena, all_messages [[2, 0; => a;] => 3, 1;]);
+
+        for m in &all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
         }
     }
 }

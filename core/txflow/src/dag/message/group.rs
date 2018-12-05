@@ -113,4 +113,14 @@ impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
     pub fn contains_epoch(&self, epoch: u64) -> bool {
         self.messages_by_epoch.contains_key(&epoch)
     }
+
+    pub fn contains_message(&self, message: &Message<'a, P>) -> bool {
+        if let Some(group) = self.messages_by_epoch.get(&message.computed_epoch) {
+            if let Some(messages) = group.filter_by_owner(message.data.body.owner_uid) {
+                return messages.contains(message);
+            }
+        };
+
+        false
+    }
 }
