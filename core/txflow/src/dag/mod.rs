@@ -6,7 +6,7 @@ use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use self::message::Message;
 pub use self::reporter::{MisbehaviorReporter, DAGMisbehaviorReporter, NoopMisbehaviorReporter, ViolationType};
@@ -25,6 +25,9 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + Misbehavior
     messages: HashSet<&'a Message<'a, P>>,
     /// Stores all current roots.
     roots: HashSet<&'a Message<'a, P>>,
+    /// Store last message from each participant in the DAG.
+    /// In case of a fork only one is stored arbitrarely.
+    recent_message: HashMap<UID, &'a Message<'a, P>>,
 
     witness_selector: &'a W,
     starting_epoch: u64,
@@ -39,6 +42,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
             arena: Arena::new(),
             messages: HashSet::new(),
             roots: HashSet::new(),
+            recent_message: HashMap::new(),
             witness_selector,
             starting_epoch,
             misbehavior: Box::new(RefCell::new(M::new())),
@@ -82,33 +86,21 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
-    fn are_fork(message0: &Message<'a, P>, message1: &Message<'a, P>) -> bool {
-        // both message must belong to the same owner to form a fork
-        if message0.data.body.owner_uid != message1.data.body.owner_uid {
-            return false;
-        }
-
-        // check m1 approve m0 or m0 approve m1
-        message1.approved_epochs.contains_message(message0) |
-        message0.approved_epochs.contains_message(message1)
-    }
-
     /// Check if a message from a fork with at least one message from the current 
     /// point of view of the DAG and return the fork pair. 
-    /// Notice in case there is a multi-fork only first detected fork is reported.
+    /// Notice in case there is a multi-fork only one pair is reported.
     fn detect_fork(&self, message: &Message<'a, P>) -> Option<(TxFlowHash, TxFlowHash)> {
-        // Iterate over all roots to detect from each point of view what is the most
-        // recent message from the same owner than `message`
-        for root in &self.roots {
-            // Iterate over all epochs from present to past.
-
-            // This can be avoided aggregating in each message most recent message 
-            // of each participant from its point of view.
-            for epoch in (0..root.computed_epoch + 1).rev() {
-            }
+        match self.recent_message.get(&message.data.body.owner_uid) {
+            Some(head) => {
+                if !message.approve(head) {
+                    Some((head.computed_hash, message.computed_hash))
+                }
+                else{
+                    None
+                }
+            },
+            None => None
         }
-
-        None
     }
 
     /// Verify correctness of this message regarding txflow protocol.
@@ -166,9 +158,11 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
             self.roots.remove(p);
         }
 
+        let owner = message.data.body.owner_uid;
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;
         self.messages.insert(unsafe{&*message_ptr});
         self.roots.insert(unsafe{&*message_ptr});
+        self.recent_message.insert(owner, unsafe{&*message_ptr});
         Ok(())
     }
 
@@ -239,7 +233,6 @@ mod tests {
     #[test]
     fn incorrect_epoch_simple() {
         let selector = FakeWitnessSelector::new();
-        // let misbehavior = DAGMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag : DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
@@ -397,15 +390,17 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
 
         let a;
 
-        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0 => a;] => 3, 1;]);
-        simple_bare_messages!(data_arena, all_messages [[2, 0; => a;] => 3, 1;]);
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0 => a;] => 3, 0;]);
+        simple_bare_messages!(data_arena, all_messages [[2, 0; => a;] => 3, 0;]);
 
         for m in &all_messages {
             assert!(dag.add_existing_message((*m).clone()).is_ok());
         }
+
+        println!("Violations: {}", &dag.misbehavior.borrow().violations.len());
     }
 }
