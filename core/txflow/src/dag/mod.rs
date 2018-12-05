@@ -82,16 +82,14 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
-    /// Verify that this message does not violate the protocol.
+    /// Verify correctness of this message regarding txflow protocol.
+    /// Report all misbehavior as soon as they are detected.
     fn verify_message(
         &mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
 
         // Check epoch
         if message.computed_epoch != message.data.body.epoch {
-            let mb = ViolationType::BadEpoch {
-                message: message.computed_hash,
-            };
-
+            let mb = ViolationType::BadEpoch(message.computed_hash);
             self.misbehavior.borrow_mut().report(mb);
         }
 
@@ -226,7 +224,7 @@ mod tests {
         assert_eq!(dag.misbehavior.borrow().violations.len(), 2);
 
         for violation in &dag.misbehavior.borrow().violations {
-            if let ViolationType::BadEpoch { message: _ } = violation {
+            if let ViolationType::BadEpoch(_) = violation {
                 // expected violation type
             } else {
                 assert!(false);
@@ -335,7 +333,7 @@ mod tests {
     fn movable() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
-        let mut dag: DAG<_,_> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
         let (a, b);
         // Add some messages.
         {
