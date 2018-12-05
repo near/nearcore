@@ -24,7 +24,7 @@ use network::service::{
 };
 use primitives::signer::InMemorySigner;
 use primitives::traits::{GenericResult, Signer};
-use service::network_handler::NetworkHandler;
+use network::network_handler::NetworkHandler;
 use service::run_service;
 use std::fs::File;
 use std::io::Read;
