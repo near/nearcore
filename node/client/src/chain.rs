@@ -76,7 +76,7 @@ impl Chain<BeaconBlock> for Client {
             block_index: last_block.header().index() + 1,
         };
         let (filtered_transactions, mut apply_result) =
-            self.runtime.apply(&apply_state, transactions, &mut receipts);
+            self.runtime.borrow_mut().apply(&apply_state, transactions, &mut receipts);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,

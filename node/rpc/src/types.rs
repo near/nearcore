@@ -1,5 +1,5 @@
 use primitives::hash::bs58_format;
-use primitives::types::{AccountId, CallBack};
+use primitives::types::{AccountId, TransactionBody, CallBack};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {

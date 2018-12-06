@@ -17,15 +17,16 @@ use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Block, GenericResult, Header, Signer};
-use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction, ViewCall, ViewCallResult};
+use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
 use std::sync::Arc;
+use std::rc::Rc;
+use std::cell::RefCell;
 use storage::{StateDb, Storage};
 use node_runtime::chain_spec::ChainSpec;
 
 mod import_queue;
 pub mod chain;
 mod tx_pool;
-pub mod chain_spec;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
@@ -33,7 +34,7 @@ pub mod test_utils;
 pub struct Client {
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
-    runtime: Runtime,
+    runtime: Rc<RefCell<Runtime>>,
     authority: Authority,
     beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
@@ -68,7 +69,7 @@ impl Client {
             signer,
             state_db,
             beacon_chain,
-            runtime,
+            runtime: Rc::new(RefCell::new(runtime)),
             authority,
             tx_pool: RwLock::new(TransactionPool::new()),
             import_queue: RwLock::new(ImportQueue::new()),
@@ -118,8 +119,8 @@ impl Client {
                 parent_block_hash: parent_hash,
             };
             let (filtered_transactions, mut apply_result) =
-                self.runtime.apply(&apply_state, transactions, &mut vec![]);
-            if apply_result.root != header.merkle_root_state
+                self.runtime.borrow_mut().apply(&apply_state, transactions, &mut vec![]);
+            if apply_result.root != header.body.merkle_root_state
                 || filtered_transactions.len() != num_transactions
             {
                 // TODO: something really bad happened

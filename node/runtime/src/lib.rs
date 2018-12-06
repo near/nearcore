@@ -21,19 +21,19 @@ use serde::{de::DeserializeOwned, Serialize};
 use beacon::types::AuthorityProposal;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
-use primitives::traits::{Decode, Encode};
+use primitives::traits::{Decode, Encode, Block};
 use primitives::types::{
     AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, TransactionBody,
-    ReceiptTransaction, ViewCall, ViewCallResult, PromiseId,
+    ReceiptTransaction, ReceiptBody, AsyncCall, CallBack, ViewCall, ViewCallResult, PromiseId,
+    CallBackId,
 };
-use primitives::utils::concat;
+use primitives::utils::{concat, index_to_bytes};
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 use wasm::types::ReturnData;
 use chain::BlockChain;
 use beacon::types::BeaconBlock;
-use primitives::traits::Block;
 
 pub mod chain_spec;
 #[cfg(feature = "test-utils")]
@@ -89,22 +89,63 @@ pub struct ApplyResult {
     pub authority_proposals: Vec<AuthorityProposal>,
 }
 
+#[allow(dead_code)]
+struct CallBackInfo {
+    method_name: Vec<u8>,
+    args: Vec<u8>,
+    mana: u32,
+}
+
+impl CallBackInfo {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: u32) -> Self {
+        CallBackInfo {
+            method_name,
+            args,
+            mana,
+        }
+    }
+}
+
 struct RuntimeExt<'a, 'b: 'a> {
     state_db_update: &'a mut StateDbUpdate<'b>,
     storage_prefix: Vec<u8>,
+    receipts: HashMap<PromiseId, ReceiptTransaction>,
+    callback_info: HashMap<CallBackId, CallBackInfo>,
+    account_id: AccountId,
+    nonce: u64,
+    transaction_hash: Vec<u8>,
 }
 
 impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
-    fn new(state_db_update: &'a mut StateDbUpdate<'b>, receiver: AccountId) -> Self {
-        let mut prefix = account_id_to_bytes(receiver);
+    fn new(
+        state_db_update: &'a mut StateDbUpdate<'b>,
+        account_id: AccountId,
+        transaction_hash: Vec<u8>
+    ) -> Self {
+        let mut prefix = account_id_to_bytes(account_id);
         prefix.append(&mut b",".to_vec());
-        RuntimeExt { state_db_update, storage_prefix: prefix }
+        RuntimeExt { 
+            state_db_update,
+            storage_prefix: prefix,
+            receipts: HashMap::new(),
+            callback_info: HashMap::new(),
+            account_id,
+            nonce: 0,
+            transaction_hash,
+        }
     }
 
     fn create_storage_key(&self, key: &[u8]) -> Vec<u8> {
         let mut storage_key = self.storage_prefix.clone();
         storage_key.extend_from_slice(key);
         storage_key
+    }
+
+    fn create_nonce(&mut self) -> Vec<u8> {
+        let mut nonce: Vec<u8> = self.transaction_hash.clone();
+        nonce.append(&mut index_to_bytes(self.nonce));
+        self.nonce += 1;
+        nonce
     }
 }
 
@@ -123,33 +164,62 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
 
     fn promise_create(
         &mut self,
-        _account_alias: AccountAlias,
-        _method_name: Vec<u8>,
-        _arguments: Vec<u8>,
-        _mana: u32,
-        _amount: u64,
+        account_alias: AccountAlias,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        mana: u32,
+        amount: u64,
     ) -> ExtResult<PromiseId> {
-        Err(ExtError::NotImplemented)
+        let nonce = self.create_nonce();
+        let receipt = ReceiptTransaction::new(
+            self.account_id,
+            (&account_alias).into(),
+            nonce.clone(),
+            ReceiptBody::NewCall(AsyncCall::new(
+                amount,
+                mana,
+                method_name,
+                arguments,
+            )),
+        );
+        let promise_id = PromiseId::Receipt(nonce);
+        self.receipts.insert(promise_id.clone(), receipt);
+        Ok(promise_id)
     }
 
     fn promise_then(
         &mut self,
-        _promise_id: PromiseId,
-        _method_name: Vec<u8>,
-        _arguments: Vec<u8>,
-        _mana: u32,
+        promise_id: PromiseId,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        mana: u32,
     ) -> ExtResult<PromiseId> {
-        Err(ExtError::NotImplemented)
+        let callback_id = self.create_nonce();
+        let receipt = match self.receipts.get_mut(&promise_id) {
+            Some(r) => r,
+            _ => return Err(ExtError::PromiseIdNotFound)
+        };
+        match receipt.body {
+            ReceiptBody::NewCall(ref mut async_call) => {
+                async_call.callback = Some(callback_id.clone());
+            }
+            _ => {
+                return Err(ExtError::WrongPromise);
+            }
+        }
+        let callback_info = CallBackInfo::new(method_name, arguments, mana);
+        self.callback_info.insert(callback_id.clone(), callback_info);
+        Ok(PromiseId::CallBack(callback_id))
     }
 
+    #[allow(unused)]
     fn promise_and(
         &mut self,
-        _promise_id1: PromiseId,
-        _promise_id2: PromiseId,
+        promise_id1: PromiseId,
+        promise_id2: PromiseId,
     ) -> ExtResult<PromiseId> {
-        Err(ExtError::NotImplemented)
+        unimplemented!();
     }
-
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
@@ -163,67 +233,48 @@ fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
         .unwrap_or_else(|| { debug!("set value failed"); })
 }
 
-/// executes code in wasm and updates state
-fn wasm_execute(
-    state_update: &mut StateDbUpdate,
-    account_id: AccountId,
-    code: &[u8],
-    method_name: &[u8],
-    input: &[u8],
-    output: &mut Vec<u8>,
-    config: &wasm::types::Config
-) -> Result<(), String> {
-    let mut runtime_ext = RuntimeExt::new(
-        state_update,
-        account_id,
-    );
-    executor::execute(
-        code,
-        method_name,
-        input,
-        output,
-        &mut runtime_ext,
-        config,
-    ).map_err(|e| {
-        format!("wasm execution failed with error: {:?}", e)
-    })
-}
-
 pub struct Runtime {
     state_db: Arc<StateDb>,
+    callback_info: HashMap<CallBackId, CallBackInfo>,
 }
 
 impl Runtime {
     pub fn new(state_db: Arc<StateDb>) -> Self {
-        Runtime { state_db }
+        Runtime { state_db, callback_info: HashMap::new() }
     }
 
     fn send_money(
         &self,
         state_update: &mut StateDbUpdate,
-        body: &TransactionBody,
+        transaction: &SignedTransaction,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
-    ) -> Result<Option<ReceiptTransaction>, String> {
-        let staked = runtime_data.at_stake(body.sender);
-        if sender.amount - staked >= body.amount {
-            sender.amount -= body.amount;
-            sender.nonce = body.nonce;
-            set(state_update, &account_id_to_bytes(body.sender), sender);
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let staked = runtime_data.at_stake(transaction.body.sender);
+        if sender.amount - staked >= transaction.body.amount {
+            sender.amount -= transaction.body.amount;
+            sender.nonce = transaction.body.nonce;
+            set(state_update, &account_id_to_bytes(transaction.body.sender), sender);
             let receipt = ReceiptTransaction::new(
-                body.sender,
-                body.receiver,
-                body.amount,
-                b"deposit".to_vec(),
-                vec![],
-                vec![],
+                transaction.body.sender,
+                transaction.body.receiver,
+                transaction.hash.into(),
+                ReceiptBody::NewCall(AsyncCall::new(
+                    transaction.body.amount,
+                    1,
+                    b"deposit".to_vec(),
+                    vec![],
+                ))
             );
-            Ok(Some(receipt))
+            Ok(vec![receipt])
         } else {
             Err(
                 format!(
                     "Account {} tries to send {}, but has staked {} and only has {}",
-                    body.sender, body.amount, staked, sender.amount
+                    transaction.body.sender,
+                    transaction.body.amount,
+                    staked,
+                    sender.amount
                 )
             )
         }
@@ -235,16 +286,16 @@ impl Runtime {
         body: &TransactionBody,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
-        authority_change_set: &mut AuthorityChangeSet,
-    ) -> Result<Option<ReceiptTransaction>, String>{
+        authority_proposals: &mut Vec<AuthorityProposal>,
+    ) -> Result<Vec<ReceiptTransaction>, String>{
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
             runtime_data.put_stake(body.sender, body.amount);
-            authority_change_set.proposed.insert(
-                body.sender,
-                (sender.public_keys[0], body.amount),
-            );
+            authority_proposals.push(AuthorityProposal {
+                public_key: sender.public_keys[0],
+                amount: body.amount,
+            });
             set(state_update, RUNTIME_DATA, &runtime_data);
-            Ok(None)
+            Ok(vec![])
         } else if sender.amount < body.amount {
             let err_msg = format!(
                 "Account {} tries to stake {}, but only has {}",
@@ -258,140 +309,38 @@ impl Runtime {
         }
     }
 
-    // deploy smart contract
-    fn deploy(
-        &self,
-        state_update: &mut StateDbUpdate,
-        body: &TransactionBody,
-        sender: &mut Account,
-    ) -> Result<Option<ReceiptTransaction>, String> {
-        if body.args.is_empty() {
-            return Err("deploy requires at least 1 argument".to_string());
-        }
-        if body.sender == body.receiver {
-            sender.code = body.args[0].clone();
-            set(
-                state_update,
-                &account_id_to_bytes(body.sender),
-                sender,
-            );
-            Ok(None)
-        } else {
-            let receipt = ReceiptTransaction::new(
-                body.sender,
-                body.receiver,
-                body.amount,
-                b"deploy".to_vec(),
-                body.args.clone(),
-                vec![],
-            );
-            Ok(Some(receipt))
-        }
-    }
-
-    /// call to other contracts, only generates receipt
-    fn apply_call(
-        &self,
-        body: &TransactionBody,
-    ) -> Result<Option<ReceiptTransaction>, String> {
-        if body.sender == body.receiver {
-            return Err("target of call is self".to_string());
-        }
-        // Here we require the argument of call to be the 
-        // method in the other contract, as well as arguments
-        // to that method. Ideally this should be done inside wasm
-        // i.e, the wasm executor will return the receipt
-        if body.args.is_empty() {
-            return Err("call has no arguments".to_string());
-        }
-        let mut args = body.args.clone();
-        let method_name = args.remove(0);
-        let receipt = ReceiptTransaction::new(
-            body.sender,
-            body.receiver,
-            body.amount,
-            method_name,
-            args,
-            vec![],
-        );
-        Ok(Some(receipt))
-    }
-
-    fn apply_call_with_callback(
-        &self,
-        body: &TransactionBody,
-    ) -> Result<Option<ReceiptTransaction>, String> {
-        if body.sender == body.receiver {
-            return Err("target of call is self".to_string());
-        }
-        if body.args.is_empty() {
-            return Err("call has no arguments".to_string());
-        }
-        let mut args = body.args.clone();
-        let method_name = args.remove(0);
-        let receipt = ReceiptTransaction::new(
-            body.sender,
-            body.receiver,
-            body.amount,
-            method_name,
-            args,
-            body.call_backs.clone(),
-        );
-        Ok(Some(receipt))
-    }
-
-    fn handle_special_calls(
+    fn handle_special_async_call(
         &self,
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
         account: &mut Account,
         runtime_data: &mut RuntimeData,
-        authority_change_set: &mut AuthorityChangeSet,
-    ) -> (Result<Option<ReceiptTransaction>, String>, bool) {
-        let lift = |res| { (res, true) };
-        match transaction.body.method_name.as_str() {
-            "send_money" => {
-                lift(self.send_money(
-                    state_update,
-                    &transaction.body,
-                    account,
-                    runtime_data
-                ))
-            }
-            "staking" => {
-                lift(self.staking(
-                    state_update,
-                    &transaction.body,
-                    account,
-                    runtime_data,
-                    authority_change_set,
-                ))
-            }
-            "deploy" => {
-                lift(self.deploy(
-                    state_update,
-                    &transaction.body,
-                    account
-                ))
-            }
-            "call" => {
-                lift(self.apply_call(&transaction.body))
-            }
-            "call_with_call_back" => {
-                lift(self.apply_call_with_callback(&transaction.body))
-            }
-            _ => (Err(String::new()), false)
+        authority_proposals: &mut Vec<AuthorityProposal>
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        if transaction.body.method_name == b"send_money".to_vec() {
+            self.send_money(state_update, transaction, account, runtime_data)
+        } else if transaction.body.method_name == b"staking".to_vec() {
+            self.staking(
+                state_update,
+                &transaction.body,
+                account,
+                runtime_data,
+                authority_proposals
+            )
+        } else {
+            // not a special call
+            Err(String::new())
         }
     }
 
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
-        &self,
+        &mut self,
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
-        authority_change_set: &mut AuthorityChangeSet,
-    ) -> Result<Option<ReceiptTransaction>, String> {
+        authority_proposals: &mut Vec<AuthorityProposal>,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender: Option<Account> =
             get(state_update, &account_id_to_bytes(transaction.body.sender));
@@ -400,130 +349,145 @@ impl Runtime {
                 if transaction.body.nonce <= sender.nonce {
                     return Err(format!("Transaction nonce {} is invalid", transaction.body.nonce));
                 }
-                let (res, is_special) = self.handle_special_calls(
-                    state_update, transaction, &mut sender, &mut runtime_data, authority_change_set
+                let special_call_res = self.handle_special_async_call(
+                    state_update,
+                    transaction,
+                    &mut sender,
+                    &mut runtime_data,
+                    authority_proposals
                 );
-                if is_special {
-                    return res;
+                match special_call_res {
+                    Ok(res) => return Ok(res),
+                    Err(s) => {
+                        if !s.is_empty() {
+                            return Err(s);
+                        }
+                    }
                 }
-                wasm_execute(
+                let mut runtime_ext = RuntimeExt::new(
                     state_update,
                     transaction.body.sender,
+                    transaction.hash.into()
+                );
+                executor::execute(
                     &sender.code,
-                    transaction.body.method_name.as_bytes(),
-                    &concat(transaction.body.args.clone()),
+                    &transaction.body.method_name,
+                    &transaction.body.args,
                     &mut vec![],
-                    &wasm::types::Config::default(),
-                ).map(|_| None)
+                    &mut runtime_ext,
+                    &wasm::types::Config::default()
+                ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                self.callback_info.extend(runtime_ext.callback_info);
+                Ok(runtime_ext.receipts.values().cloned().collect())
             }
             (None, _) => Err("runtime data does not exist".to_string()),
             _ => Err(format!("sender {} does not exist", transaction.body.sender))
         }
     }
 
+    #[allow(unused)]
     fn deposit(
         &self,
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
         receiver: &mut Account
-    ) -> Result<Option<ReceiptTransaction>, String> {
-        receiver.amount += receipt.amount;
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        match receipt.body {
+            ReceiptBody::NewCall(ref async_call) => {
+                receiver.amount += async_call.amount;
+            }
+            _ => return Err("Deposit does not come from an async call".to_string())
+        }
         set(
             state_update,
             &account_id_to_bytes(receipt.receiver),
             receiver
         );
-        Ok(None)
-    }
-
-    fn apply_callback(
-        &self,
-        state_update: &mut StateDbUpdate,
-        receipt: &ReceiptTransaction,
-        receiver: &Account
-    ) -> Result<Option<ReceiptTransaction>, String> {
-        // We don't want to copy the entire call back stack in case
-        // it is unnecessary (when the receipt returns to the original sender)
-        // need to figure out the most efficient way to do this
-        let mut start_copy = false;
-        let mut new_call_backs = vec![];
-        for call_back in receipt.call_backs.iter() {
-            // need to figure out whether this is allowed
-            if !start_copy && call_back.caller != receipt.receiver {
-                start_copy = true;
-            }
-            if start_copy {
-                new_call_backs.push(call_back.clone());
-            } else {
-                let res = wasm_execute(
-                    state_update,
-                    receipt.receiver,
-                    &receiver.code,
-                    call_back.method_name.as_bytes(),
-                    &call_back.ret_val.clone().unwrap_or_default(),
-                    &mut vec![],
-                    &wasm::types::Config::default(),
-                );
-                if let Err(s) = res {
-                    return Err(s);
-                }
-            }
-        }
-        if new_call_backs.is_empty() {
-            Ok(None)
-        } else {
-            let next_receiver = new_call_backs[0].caller;
-            let new_receipt = ReceiptTransaction::new(
-                receipt.receiver,
-                next_receiver,
-                0,
-                b"callback".to_vec(),
-                vec![],
-                new_call_backs,
-            );
-            Ok(Some(new_receipt))
-        }
+        Ok(vec![])
     }
 
     fn apply_receipt(
         &self,
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
-    ) -> Result<Option<ReceiptTransaction>, String> {
+    ) -> Result<Vec<ReceiptTransaction>, String> {
         let receiver_id = account_id_to_bytes(receipt.receiver);
         let receiver: Option<Account> = get(state_update, &receiver_id);
         match receiver {
             Some(mut receiver) => {
-                if receipt.method_name == b"deposit".to_vec() {
-                    self.deposit(state_update, receipt, &mut receiver)
-                } else if receipt.method_name == b"callback".to_vec() {
-                    self.apply_callback(state_update, receipt, &receiver)
-                } else {
-                    wasm_execute(
-                        state_update,
-                        receipt.receiver,
-                        &receiver.code,
-                        &receipt.method_name,
-                        &concat(receipt.args.clone()),
-                        &mut vec![],
-                        &wasm::types::Config::default(),
-                    ).map(|_| {
-                        if receipt.call_backs.is_empty() {
-                            // No callbacks, we end here
-                            None
-                        } else {
-                            // TODO: put return value in the first callback
-                            let new_receipt = ReceiptTransaction::new(
-                                receipt.receiver,
-                                receipt.sender,
-                                0, // what should the amount be?
-                                b"callback".to_vec(),
-                                vec![],
-                                receipt.call_backs.clone()
-                            );
-                            Some(new_receipt)
+                match &receipt.body {
+                    ReceiptBody::NewCall(async_call) => {
+                        if async_call.method_name == b"deposit".to_vec() {
+                            return self.deposit(state_update, receipt, &mut receiver);
                         }
-                    })
+                        let mut runtime_ext = RuntimeExt::new(
+                            state_update,
+                            receipt.sender,
+                            receipt.nonce.clone()
+                        );
+                        match &async_call.callback {
+                            Some(callback_id) => {
+                                let mut result = vec![];
+                                executor::execute(
+                                    &receiver.code,
+                                    &async_call.method_name,
+                                    &async_call.args,
+                                    &mut result,
+                                    &mut runtime_ext,
+                                    &wasm::types::Config::default(),
+                                ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                                let callback = CallBack {
+                                    id: callback_id.clone(),
+                                    results: Some(result),
+                                    num_results: 1
+                                };
+                                let new_receipt = ReceiptTransaction::new(
+                                    receipt.receiver,
+                                    receipt.sender,
+                                    runtime_ext.create_nonce(),
+                                    ReceiptBody::CallBack(callback),
+                                );
+                                Ok(vec![new_receipt])
+                            }
+                            _ => {
+                                executor::execute(
+                                    &receiver.code,
+                                    &async_call.method_name,
+                                    &async_call.args,
+                                    &mut vec![],
+                                    &mut runtime_ext,
+                                    &wasm::types::Config::default(),
+                                )
+                                .map(|_| vec![])
+                                .map_err(|e| format!("wasm exeuction failed with error: {:?}", e))
+                            }
+                        }
+                    },
+                    ReceiptBody::CallBack(callback) => {
+                        let mut runtime_ext = RuntimeExt::new(
+                            state_update,
+                            receipt.sender,
+                            receipt.nonce.clone()
+                        );
+                        match self.callback_info.get(&callback.id) {
+                            Some(callback_info) => {
+                                executor::execute(
+                                    &receiver.code,
+                                    &callback_info.method_name,
+                                    &callback_info.args,
+                                    &mut vec![],
+                                    &mut runtime_ext,
+                                    &wasm::types::Config::default(),
+                                ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                                Ok(runtime_ext.receipts.values().cloned().collect())
+                            },
+                            _ => {
+                                Err(format!("callback id: {:?} not found", callback.id))
+                            }
+                        }
+                    }
+                    // TODO: handle refund
+                    ReceiptBody::Refund => unimplemented!()
                 }
             }
             _ => Err(format!("receiver {} does not exist", receipt.receiver))
@@ -531,7 +495,7 @@ impl Runtime {
     }
 
     pub fn apply(
-        &self,
+        &mut self,
         apply_state: &ApplyState,
         transactions: Vec<SignedTransaction>,
         receipts: &mut Vec<ReceiptTransaction>,
@@ -540,16 +504,12 @@ impl Runtime {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
         for t in transactions {
-            match self.apply_signed_transaction(&mut state_update, &t, &mut authority_change_set) {
-                Ok(Some(receipt)) => {
-                    receipts.push(receipt);
+            match self.apply_signed_transaction(&mut state_update, &t, &mut authority_proposals) {
+                Ok(mut new_receipts) => {
+                    receipts.append(&mut new_receipts);
                     state_update.commit();
                     filtered_transactions.push(t);
                 }
-                Ok(None) => {
-                    state_update.commit();
-                    filtered_transactions.push(t);
-                },
                 Err(s) => {
                     debug!(target: "runtime", "{}", s);
                     state_update.rollback();
@@ -559,16 +519,11 @@ impl Runtime {
         // receipts to be recorded in the block
         // for now it is not useful as we don't have shards
         let mut filtered_receipts = vec![];
-        while !receipts.is_empty() {
-            let receipt = receipts.remove(0);
+        while let Some(receipt) = receipts.pop() {
             match self.apply_receipt(&mut state_update, &receipt) {
-                Ok(Some(new_receipt)) => {
+                Ok(mut new_receipts) => {
                     state_update.commit();
-                    receipts.push(new_receipt);
-                    filtered_receipts.push(receipt);
-                }
-                Ok(None) => {
-                    state_update.commit();
+                    receipts.append(&mut new_receipts);
                     filtered_receipts.push(receipt);
                 }
                 Err(s) => {
@@ -583,7 +538,7 @@ impl Runtime {
         // sharding support
         (
             filtered_transactions,
-            ApplyResult { root: new_root, transaction, authority_change_set },
+            ApplyResult { root: new_root, transaction, authority_proposals },
         )
     }
 
@@ -689,7 +644,7 @@ mod tests {
 
     use primitives::hash::hash;
     use primitives::types::{TransactionBody, CallBack};
-    use primitives::signature::DEFAULT_SIGNATURE;
+    use primitives::signature::{get_keypair, DEFAULT_SIGNATURE};
 
     use storage::test_utils::create_state_db;
 
@@ -699,7 +654,10 @@ mod tests {
 
     impl Default for Runtime {
         fn default() -> Runtime {
-            Runtime { state_db: Arc::new(create_state_db()) }
+            Runtime { 
+                state_db: Arc::new(create_state_db()),
+                callback_info: HashMap::new()
+            }
         }
     }
 
@@ -747,16 +705,15 @@ mod tests {
 
     #[test]
     fn test_smart_contract() {
-        let (runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let mut runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"alice"),
             receiver: hash(b"bob"),
             amount: 0,
-            method_name: "run_test".to_string(),
+            method_name: b"run_test".to_vec(),
             args: vec![],
-            call_backs: vec![],
         };
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState { 
@@ -772,8 +729,8 @@ mod tests {
     // we need to figure out how to deal with the case where account does not exist
     // especially in the context of sharding
     fn test_upload_contract() {
-        let (runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let mut runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
         let tx_body = TransactionBody {
@@ -781,9 +738,8 @@ mod tests {
             sender: hash(b"alice"),
             receiver: hash(b"xyz"),
             amount: 0,
-            method_name: "deploy".to_string(),
-            args: vec![wasm_binary.clone()],
-            call_backs: vec![],
+            method_name: b"deploy".to_vec(),
+            args: wasm_binary.clone(),
         };
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
@@ -800,18 +756,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
-        let (runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let mut runtime = Runtime::default();
+        let root = apply_default_genesis_state(&runtime);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"bob"),
             receiver: hash(b"bob"),
             amount: 0,
-            method_name: "deploy".to_string(),
-            args: vec![test_binary.to_vec()],
-            call_backs: vec![],
+            method_name: b"deploy".to_vec(),
+            args: test_binary.to_vec(),
         };
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
@@ -832,16 +788,15 @@ mod tests {
 
     #[test]
     fn test_send_money() {
-        let runtime = Runtime::default();
+        let mut runtime = Runtime::default();
         let root = apply_default_genesis_state(&runtime);
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"alice"),
             receiver: hash(b"bob"),
             amount: 10,
-            method_name: "send_money".to_string(),
+            method_name: b"send_money".to_vec(),
             args: vec![],
-            call_backs: vec![],
         };
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
@@ -880,56 +835,5 @@ mod tests {
                 result: vec![],
             }
         );
-    }
-
-    #[test]
-    fn test_simple_call() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
-        let tx_body = TransactionBody {
-            nonce: 1,
-            sender: hash(b"bob"),
-            receiver: hash(b"alice"),
-            amount: 10,
-            method_name: "call".to_string(),
-            args: vec![b"run_test".to_vec()],
-            call_backs: vec![],
-        };
-        let transaction = SignedTransaction::new(123, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
-        );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_ne!(root, apply_result.root);
-    }
-
-    #[test]
-    fn test_call_with_callback() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
-        let call_back = CallBack {
-            method_name: "run_test".to_string(),
-            ret_val: None,
-            caller: hash(b"bob"),
-        };
-        let tx_body = TransactionBody {
-            nonce: 1,
-            sender: hash(b"bob"),
-            receiver: hash(b"alice"),
-            amount: 10,
-            method_name: "call_with_call_back".to_string(),
-            args: vec![b"run_test".to_vec()],
-            call_backs: vec![call_back],
-        };
-        let transaction = SignedTransaction::new(123, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
-        );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_ne!(root, apply_result.root);
     }
 }

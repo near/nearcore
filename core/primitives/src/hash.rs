@@ -49,6 +49,12 @@ impl From<Vec<u8>> for CryptoHash {
     }
 }
 
+impl Into<Vec<u8>> for CryptoHash {
+    fn into(self) -> Vec<u8> {
+        (self.0).0.to_vec()
+    }
+}
+
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", String::from(self))

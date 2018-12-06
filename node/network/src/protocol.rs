@@ -396,8 +396,8 @@ mod tests {
         let network_service = Rc::new(RefCell::new(default_network_service()));
         let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::new(
-            123,
-            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![], vec![]),
+            DEFAULT_SIGNATURE,
+            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
         ));
         assert_eq!(client.num_transactions(), 1);
         assert_eq!(client.num_blocks_in_queue(), 0);

@@ -38,6 +38,8 @@ pub mod ids {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     NotImplemented,
+    PromiseIdNotFound,
+    WrongPromise,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
