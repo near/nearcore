@@ -177,14 +177,16 @@ pub struct Callback {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub results: Vec<Option<Vec<u8>>>,
+    pub mana: u32,
 }
 
 impl Callback {
-    pub fn new(method_name: Vec<u8>, args: Vec<u8>) -> Self {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: u32) -> Self {
         Callback {
             method_name,
             args,
             results: vec![],
+            mana,
         }
     }
 }

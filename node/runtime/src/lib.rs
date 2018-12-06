@@ -177,7 +177,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
         promise_id: PromiseId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        _mana: u32,
+        mana: u32,
     ) -> ExtResult<PromiseId> {
         let callback_id = self.create_nonce();
         let receipt = match self.receipts.get_mut(&promise_id) {
@@ -194,7 +194,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
                 };
                 let callback_info = CallbackInfo::new(callback_id.clone(), 0, shard_id);
                 async_call.callback = Some(callback_info);
-                let mut callback = Callback::new(method_name, arguments);
+                let mut callback = Callback::new(method_name, arguments, mana);
                 callback.results.resize(result_index + 1, None);
                 self.callbacks.insert(callback_id.clone(), callback);
                 Ok(PromiseId::Callback(callback_id))
