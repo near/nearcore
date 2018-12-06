@@ -32,7 +32,7 @@ impl NetSyncIo {
     }
 
     /// Report a peer for misbehaviour.
-    fn report_peer(&mut self, who: NodeIndex, reason: Severity) {
+    pub fn report_peer(&mut self, who: NodeIndex, reason: Severity) {
         info!("Purposefully dropping {} ; reason: {:?}", who, reason);
         match reason {
             Severity::Bad(_) => self.network.lock().ban_node(who),
@@ -42,17 +42,17 @@ impl NetSyncIo {
     }
 
     /// Send a packet to a peer.
-    fn send(&mut self, who: NodeIndex, data: Vec<u8>) {
+    pub fn send(&mut self, who: NodeIndex, data: Vec<u8>) {
         self.network.lock().send_custom_message(who, self.protocol, data)
     }
 
     /// Returns information on p2p session
-    fn peer_id(&self, who: NodeIndex) -> Option<PeerId> {
+    pub fn peer_id(&self, who: NodeIndex) -> Option<PeerId> {
         self.network.lock().peer_id_of_node(who).cloned()
     }
 
     /// Returns peer identifier string
-    fn peer_debug_info(&self, who: NodeIndex) -> String {
+    pub fn peer_debug_info(&self, who: NodeIndex) -> String {
         let net = self.network.lock();
         if let (Some(peer_id), Some(addr)) = (net.peer_id_of_node(who), net.node_endpoint(who)) {
             format!("{:?} through {:?}", peer_id, addr)

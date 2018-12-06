@@ -36,7 +36,7 @@ use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, StateDbViewer};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use service::network_handler::ChannelNetworkHandler;
+use network::network_handler::ChannelNetworkHandler;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
