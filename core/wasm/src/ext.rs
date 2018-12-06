@@ -20,13 +20,15 @@ pub mod ids {
     pub const PROMISE_THEN_FUNC: usize = 410;
     pub const PROMISE_AND_FUNC: usize = 420;
 
-    // Function arguments and result
+    // Function arguments, result and returns
     pub const INPUT_READ_LEN_FUNC: usize = 500;
     pub const INPUT_READ_INTO_FUNC: usize = 510;
     pub const RESULT_COUNT_FUNC: usize = 520;
     pub const RESULT_IS_OK_FUNC: usize = 530;
     pub const RESULT_READ_LEN_FUNC: usize = 540;
     pub const RESULT_READ_INTO_FUNC: usize = 550;
+    pub const RETURN_VALUE_FUNC: usize = 560;
+    pub const RETURN_PROMISE_FUNC: usize = 570;
 
     // Dev
     pub const PANIC_FUNC: usize = 1000;

@@ -68,6 +68,14 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32, ValueType::I32][..], None),
                 ids::RESULT_READ_INTO_FUNC,
             ),
+            "return_value" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::RETURN_VALUE_FUNC,
+            ),
+            "return_promise" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::RETURN_PROMISE_FUNC,
+            ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             }

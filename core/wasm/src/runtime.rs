@@ -2,7 +2,7 @@ use ext::External;
 
 use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
-use types::RuntimeError as Error;
+use types::{RuntimeError as Error, ReturnData};
 
 use primitives::types::{AccountAlias, PromiseId};
 
@@ -16,6 +16,7 @@ pub struct Runtime<'a> {
     pub gas_counter: u64,
     gas_limit: u64,
     promise_ids: Vec<PromiseId>,
+    pub return_data: ReturnData,
 }
 
 impl<'a> Runtime<'a> {
@@ -34,6 +35,7 @@ impl<'a> Runtime<'a> {
             gas_counter: 0,
             gas_limit,
             promise_ids: Vec::new(),
+            return_data: ReturnData::None,
         }
     }
 
@@ -246,22 +248,22 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    /// Releases this Runtime instance and parses given result and writes it to the
-    /// output data buffer.
-    pub fn parse_result(self, result: Option<RuntimeValue>, output_data: &mut Vec<u8>) -> Result<()> {
-        match result {
-            Some(RuntimeValue::I32(result_ptr)) => {
-                let buf = self.read_buffer(result_ptr as u32)?;
-                output_data.resize(buf.len(), 0);
-                output_data.copy_from_slice(&buf);
-                Ok(())
-            },
-            None => {
-                output_data.resize(0, 0);
-                Ok(())
-            },
-            _ => Err(Error::InvalidReturn),
-        }
+    pub fn return_value(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let return_val_ptr: u32 = args.nth_checked(0)?;
+        let return_val = self.read_buffer(return_val_ptr)?;
+
+        self.return_data = ReturnData::Value(return_val);
+
+        Ok(())
+    }
+
+    pub fn return_promise(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let promise_index: u32 = args.nth_checked(0)?;
+        let promise_id = self.promise_index_to_id(promise_index)?;
+
+        self.return_data = ReturnData::Promise(promise_id);
+
+        Ok(())
     }
 }
 
@@ -298,6 +300,8 @@ mod ext_impl {
                 RESULT_IS_OK_FUNC => some!(self.result_is_ok(&args)),
                 RESULT_READ_LEN_FUNC => some!(self.result_read_len(&args)),
                 RESULT_READ_INTO_FUNC => void!(self.result_read_into(&args)),
+                RETURN_VALUE_FUNC => void!(self.return_value(&args)),
+                RETURN_PROMISE_FUNC => void!(self.return_promise(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }

@@ -30,6 +30,7 @@ use primitives::utils::concat;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
+use wasm::types::ReturnData;
 use chain::BlockChain;
 use beacon::types::BeaconBlock;
 use primitives::traits::Block;
@@ -211,7 +212,6 @@ impl Runtime {
                             transaction.body.method_name.as_bytes(),
                             &concat(transaction.body.args.clone()),
                             &[],
-                            &mut vec![],
                             &mut runtime_ext,
                             &wasm::types::Config::default(),
                         );
@@ -378,13 +378,16 @@ impl StateDbViewer {
                         view_call.method_name.as_bytes(),
                         &concat(view_call.args.clone()),
                         &[],
-                        &mut result,
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
                     );
                     match wasm_res {
                         Ok(res) => {
                             debug!(target: "runtime", "result of execution: {:?}", res);
+                            // TODO: Handle other ExecutionOutcome results
+                            if let ReturnData::Value(buf) = res.return_data {
+                                result.extend(&buf);
+                            }
                         }
                         Err(e) => {
                             debug!(target: "runtime", "wasm execution failed with error: {:?}", e);

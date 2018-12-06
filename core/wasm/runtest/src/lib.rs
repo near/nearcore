@@ -71,14 +71,13 @@ mod tests {
     use byteorder::{ByteOrder, LittleEndian};
     use std::fs;
     use wasm::executor;
-    use wasm::types::{Error, Config};
+    use wasm::types::{Error, Config, ReturnData};
     
     use super::*;
 
-    fn run(method_name: &[u8], input_data: &[u8], result_data: &[Option<Vec<u8>>]) -> Result<Vec<u8>, Error> {
+    fn run(method_name: &[u8], input_data: &[u8], result_data: &[Option<Vec<u8>>]) -> Result<ReturnData, Error> {
         let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
 
-        let mut output_data = Vec::new();
         let mut ext = MyExt::default();
         let config = Config::default();
 
@@ -87,12 +86,9 @@ mod tests {
             &method_name,
             &input_data,
             &result_data,
-            &mut output_data,
             &mut ext,
             &config,
-        )?;
-
-        Ok(output_data)
+        ).map(|outcome| outcome.return_data)
     }
 
     fn encode_int(val: i32) -> [u8; 4] {
@@ -105,13 +101,16 @@ mod tests {
     fn test_storage()  {
         let input_data = [0u8; 0];
         
-        let output_data = run(
+        let return_data = run(
             b"run_test",
             &input_data,
             &[],
         ).expect("ok");
         
-        assert_eq!(&output_data, &encode_int(20));
+        match return_data {
+            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_int(20)),
+            _ => assert!(false, "Expected returned value"),
+        };
     }
 
 
@@ -119,13 +118,16 @@ mod tests {
     fn test_input()  {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0];
 
-        let output_data = run(
+        let return_data = run(
             b"sum_with_input",
             &input_data,
             &[],
         ).expect("ok");
         
-        assert_eq!(&output_data, &encode_int(40));
+        match return_data {
+            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_int(40)),
+            _ => assert!(false, "Expected returned value"),
+        };
     }
 
     #[test]
@@ -137,13 +139,15 @@ mod tests {
             Some(encode_int(6).to_vec()),
         ];
         
-        let output_data = run(
+        let return_data = run(
             b"sum_with_multiple_results",
             &input_data,
             &result_data,
         ).expect("ok");
         
-        assert_eq!(&output_data, &encode_int(12));
-
+        match return_data {
+            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_int(12)),
+            _ => assert!(false, "Expected returned value"),
+        };
     }
 }
