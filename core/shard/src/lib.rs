@@ -114,6 +114,10 @@ impl SignedBlock for SignedShardBlock {
     fn add_signature(&mut self, signature: PartialSignature) {
         self.signature.push(signature);
     }
+
+    fn weight(&self) -> u128 {
+        1
+    }
 }
 
 pub type ShardBlockChain = chain::BlockChain<SignedShardBlock>;

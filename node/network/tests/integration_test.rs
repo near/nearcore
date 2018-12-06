@@ -78,14 +78,17 @@ fn get_test_protocol(
 
 #[test]
 fn test_block_catch_up_from_start() {
+    use chain::SignedBlock;
     let storage1 = Arc::new(create_memory_db());
     let genesis_block = SignedBeaconBlock::new(
         0, CryptoHash::default(), vec![], CryptoHash::default()
     );
     // chain1
     let beacon_chain1 = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage1.clone()));
-    let block1 = SignedBeaconBlock::new(1, genesis_block.hash, vec![], CryptoHash::default());
-    let block2 = SignedBeaconBlock::new(2, block1.hash, vec![], CryptoHash::default());
+    let mut block1 = SignedBeaconBlock::new(1, genesis_block.hash, vec![], CryptoHash::default());
+    let mut block2 = SignedBeaconBlock::new(2, block1.hash, vec![], CryptoHash::default());
+    block1.add_signature(primitives::signature::DEFAULT_SIGNATURE);
+    block2.add_signature(primitives::signature::DEFAULT_SIGNATURE);
     beacon_chain1.insert_block(block1.clone());
     beacon_chain1.insert_block(block2.clone());
     assert_eq!(beacon_chain1.best_index(), 2);

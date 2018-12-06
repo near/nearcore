@@ -109,9 +109,9 @@ impl BlockProducer {
                 apply_result.authority_proposals,
                 shard_block.block_hash()
             );
-            let signature = shard_block.sign(self.signer.clone());
+            let signature = shard_block.sign(&*self.signer);
             shard_block.add_signature(signature);
-            let signature = block.sign(self.signer.clone());
+            let signature = block.sign(&*self.signer);
             block.add_signature(signature);
             self.shard_chain.insert_block(shard_block.clone());
             self.beacon_chain.insert_block(block.clone());

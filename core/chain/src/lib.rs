@@ -1,6 +1,8 @@
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate storage;
 
 use std::collections::HashMap;
@@ -43,12 +45,22 @@ pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwne
     fn block_hash(&self) -> CryptoHash;
 
     /// Signs this block with given signer and returns part of multi signature.
-    fn sign(&self, signer: Arc<Signer>) -> PartialSignature {
+    fn sign(&self, signer: &Signer) -> PartialSignature {
         signer.sign(&self.block_hash())
     }
 
     /// Add signature to multi sign.
     fn add_signature(&mut self, signature: PartialSignature);
+
+    fn weight(&self) -> u128;
+}
+
+/// A block plus its "virtual" fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockIndex<B> {
+    pub block: B,
+    // Note: zero weight indicates orphan-chain (ancestry cannot be traced to genesis)
+    pub cumulative_weight: u128,
 }
 
 /// General BlockChain container.
@@ -60,12 +72,13 @@ pub struct BlockChain<B: SignedBlock> {
     /// Best block key of current blockchain. Key length is CryptoHash length + "best" bytes.
     best_block_key: [u8; 36],
     /// Tip of the known chain.
-    best_block: RwLock<B>,
+    best_block_index: RwLock<BlockIndex<B>>,
     /// Headers indexed by hash
     headers: RwLock<HashMap<Vec<u8>, B::SignedHeader>>,
     /// Blocks indexed by hash
-    blocks: RwLock<HashMap<Vec<u8>, B>>,
+    blocks: RwLock<HashMap<Vec<u8>, BlockIndex<B>>>,
     /// Maps block index to hash.
+    // TODO: This doesn't handle forks at all and needs to be rewritten
     index_to_hash: RwLock<HashMap<Vec<u8>, CryptoHash>>,
     // TODO: state?
 }
@@ -114,11 +127,15 @@ impl<B: SignedBlock> BlockChain<B> {
         let mut best_block_key = [0; 36];
         best_block_key[..32].copy_from_slice(genesis_hash.as_ref());
         best_block_key[32..].copy_from_slice(BLOCKCHAIN_BEST_BLOCK);
+        let genesis_index = BlockIndex {
+            block: genesis,
+            cumulative_weight: 1,
+        };
         let bc = BlockChain {
             storage,
             genesis_hash,
             best_block_key,
-            best_block: RwLock::new(genesis.clone()),
+            best_block_index: RwLock::new(genesis_index.clone()),
             headers: RwLock::new(HashMap::new()),
             blocks: RwLock::new(HashMap::new()),
             index_to_hash: RwLock::new(HashMap::new()),
@@ -129,16 +146,15 @@ impl<B: SignedBlock> BlockChain<B> {
             Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
                 // Insert genesis block into cache.
-                bc.insert_block(genesis.clone());
-                bc.update_best_block(genesis);
+                bc.insert_block_index(&genesis_index);
                 genesis_hash
             }
         };
 
         {
-            let mut best_block = bc.best_block.write();
+            let mut best_block = bc.best_block_index.write();
             *best_block = bc
-                .get_block(&BlockId::Hash(best_block_hash))
+                .get_block_index(&BlockId::Hash(best_block_hash))
                 .expect("Not found best block in the chain");
         }
 
@@ -146,8 +162,12 @@ impl<B: SignedBlock> BlockChain<B> {
         bc
     }
 
+    pub fn best_block_index(&self) -> BlockIndex<B> {
+        self.best_block_index.read().clone()
+    }
+
     pub fn best_block(&self) -> B {
-        self.best_block.read().clone()
+        self.best_block_index().block
     }
 
     #[inline]
@@ -171,10 +191,10 @@ impl<B: SignedBlock> BlockChain<B> {
         }
     }
 
-    fn update_best_block(&self, block: B) {
-        let block_hash = block.block_hash();
-        let mut best_block = self.best_block.write();
-        *best_block = block;
+    fn update_best_block(&self, block_index: BlockIndex<B>) {
+        let block_hash = block_index.block.block_hash();
+        let mut best_block_index = self.best_block_index.write();
+        *best_block_index = block_index;
         let mut db_transaction = self.storage.transaction();
         db_transaction.put(storage::COL_EXTRA, &self.best_block_key, block_hash.as_ref());
         self.storage.write(db_transaction).expect("Database write failed");
@@ -189,13 +209,36 @@ impl<B: SignedBlock> BlockChain<B> {
             return false;
         }
 
+        let mut cumulative_weight = 0;
+
+        let maybe_parent = self.get_block_index(&BlockId::Hash(block.header().parent_hash()));
+        let mut result = true;
+        if let Some(parent_details) = maybe_parent {
+            if parent_details.cumulative_weight > 0 {
+                cumulative_weight = block.weight() + parent_details.cumulative_weight;
+            }
+            result = false
+        }
+        let block_index = BlockIndex { block, cumulative_weight };
+        self.insert_block_index(&block_index);
+        if block_index.cumulative_weight > self.best_block_index.read().cumulative_weight {
+            self.update_best_block(block_index);
+        }
+
+        result
+    }
+
+    fn insert_block_index(&self, block_index: &BlockIndex<B>) {
+        let block = &block_index.block;
+        let block_hash = block.block_hash();
+
         // Store block in db.
         write_with_cache(
             &self.storage,
             storage::COL_BLOCKS,
             &self.blocks,
             block_hash.as_ref(),
-            &block,
+            &block_index,
         );
         write_with_cache(
             &self.storage,
@@ -211,17 +254,6 @@ impl<B: SignedBlock> BlockChain<B> {
             &index_to_bytes(block.header().index()),
             &block_hash,
         );
-
-        let maybe_parent = self.get_header(&BlockId::Hash(block.header().parent_hash()));
-        if let Some(_parent_details) = maybe_parent {
-            // TODO: rewind parents if they were not processed somehow?
-            if block.header().index() > self.best_block.read().header().index() {
-                self.update_best_block(block);
-            }
-            false
-        } else {
-            true
-        }
     }
 
     fn get_block_hash_by_index(&self, index: u64) -> Option<CryptoHash> {
@@ -233,15 +265,20 @@ impl<B: SignedBlock> BlockChain<B> {
         )
     }
 
-    fn get_block_by_hash(&self, block_hash: &CryptoHash) -> Option<B> {
+    fn get_block_index_by_hash(&self, block_hash: &CryptoHash) -> Option<BlockIndex<B>> {
         read_with_cache(&self.storage, storage::COL_BLOCKS, &self.blocks, block_hash.as_ref())
     }
 
-    pub fn get_block(&self, id: &BlockId) -> Option<B> {
+    pub fn get_block_index(&self, id: &BlockId) -> Option<BlockIndex<B>> {
         match id {
-            BlockId::Number(num) => self.get_block_by_hash(&self.get_block_hash_by_index(*num)?),
-            BlockId::Hash(hash) => self.get_block_by_hash(hash),
+            BlockId::Number(num) => self.get_block_index_by_hash(&self.get_block_hash_by_index(*num)?),
+            BlockId::Hash(hash) => self.get_block_index_by_hash(hash),
         }
+    }
+
+    pub fn get_block(&self, id: &BlockId) -> Option<B> {
+        let block_index = self.get_block_index(id)?;
+        Some(block_index.block)
     }
 
     fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::SignedHeader> {

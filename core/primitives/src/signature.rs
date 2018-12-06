@@ -1,6 +1,7 @@
 extern crate exonum_sodiumoxide as sodiumoxide;
 
 use bs58;
+use hash;
 use std::fmt;
 
 pub use signature::sodiumoxide::crypto::sign::ed25519::Seed;
@@ -11,7 +12,7 @@ pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
 
-pub type Signature = sodiumoxide::crypto::sign::ed25519::Signature;
+pub use signature::sodiumoxide::crypto::sign::ed25519::Signature;
 
 pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
     sodiumoxide::crypto::sign::ed25519::sign_detached(data, &secret_key.0)
@@ -29,6 +30,10 @@ pub fn get_keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
 pub fn get_keypair() -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::gen_keypair();
     (PublicKey(public_key), SecretKey(secret_key))
+}
+
+pub fn verify_signature(signature: &Signature, hash: &hash::CryptoHash, pubkey: &PublicKey) -> bool {
+    sodiumoxide::crypto::sign::ed25519::verify_detached(signature, hash.as_ref(), &pubkey.0)
 }
 
 const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
