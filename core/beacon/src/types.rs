@@ -1,5 +1,5 @@
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::{DEFAULT_SIGNATURE, PublicKey};
+use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
 use std::sync::Arc;
@@ -12,17 +12,6 @@ pub struct AuthorityProposal {
     pub amount: u64,
 }
 
-//pub struct BeaconBlockBody {
-//    /// Parent hash.
-//    pub parent_hash: CryptoHash,
-//    /// Block index.
-//    pub index: u64,
-//    /// Authority proposals.
-//    pub authority_proposal: Vec<AuthorityProposal>,
-//    /// Shard block hash.
-//    pub shard_block_hash: CryptoHash,
-//}
-
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeaderBody {
     /// Parent hash.
@@ -31,6 +20,7 @@ pub struct BeaconBlockHeaderBody {
     pub index: u64,
     pub merkle_root_tx: MerkleHash,
     pub merkle_root_state: MerkleHash,
+    /// Authority proposals.
     pub authority_proposal: Vec<AuthorityProposal>,
 }
 
@@ -80,8 +70,8 @@ impl BeaconBlockHeader {
 
 impl Header for BeaconBlockHeader {
     fn hash(&self) -> CryptoHash {
-        // WTF?
-        hash_struct(&self)
+        // TODO: must be hash of the block.
+        hash_struct(&self.body)
     }
 
     fn index(&self) -> u64 {

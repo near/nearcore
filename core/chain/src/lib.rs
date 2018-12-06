@@ -13,6 +13,7 @@ use primitives::types::BlockId;
 use primitives::utils::index_to_bytes;
 use storage::Storage;
 
+const BLOCKCHAIN_GENESIS_BLOCK: &[u8] = b"genesis";
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
 /// General BlockChain container.
@@ -82,9 +83,14 @@ impl<B: Block> BlockChain<B> {
             index_to_hash: RwLock::new(HashMap::new()),
         };
 
+        // Check if blockchain is the same / exists.
+        assert!(match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_GENESIS_BLOCK) {
+            Ok(Some(old_genesis)) => CryptoHash::new(old_genesis.as_ref()) == genesis_hash,
+            _ => true,
+        }, "Storage contains different genesis block. Either specify different storage path or clear current staorge.");
+
         // Load best block hash from storage.
-        let best_block_hash = match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK)
-        {
+        let best_block_hash = match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK) {
             Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
                 // Insert genesis block into cache.
@@ -125,11 +131,7 @@ impl<B: Block> BlockChain<B> {
         let mut best_block = self.best_block.write();
         *best_block = block;
         let mut db_transaction = self.storage.transaction();
-        db_transaction.put(
-            storage::COL_EXTRA,
-            BLOCKCHAIN_BEST_BLOCK,
-            block_hash.as_ref(),
-        );
+        db_transaction.put(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK, block_hash.as_ref());
         self.storage.write(db_transaction).expect("Database write failed");
     }
 
@@ -187,12 +189,7 @@ impl<B: Block> BlockChain<B> {
     }
 
     fn get_block_by_hash(&self, block_hash: &CryptoHash) -> Option<B> {
-        read_with_cache(
-            &self.storage,
-            storage::COL_BLOCKS,
-            &self.blocks,
-            block_hash.as_ref(),
-        )
+        read_with_cache(&self.storage, storage::COL_BLOCKS, &self.blocks, block_hash.as_ref())
     }
 
     pub fn get_block(&self, id: &BlockId) -> Option<B> {
@@ -203,12 +200,7 @@ impl<B: Block> BlockChain<B> {
     }
 
     fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::Header> {
-        read_with_cache(
-            &self.storage,
-            storage::COL_HEADERS,
-            &self.headers,
-            block_hash.as_ref(),
-        )
+        read_with_cache(&self.storage, storage::COL_HEADERS, &self.headers, block_hash.as_ref())
     }
 
     pub fn get_header(&self, id: &BlockId) -> Option<B::Header> {

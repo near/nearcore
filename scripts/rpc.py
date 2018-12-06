@@ -159,6 +159,9 @@ class NearRPC(object):
         response = self._call_rpc('send_money', params)
         return self._handle_prepared_transaction_body_response(response)
 
+    def stake(self, sender, amount):
+        self.send_money(sender, sender, amount)
+
     def schedule_function_call(
             self,
             sender,
@@ -210,12 +213,14 @@ deploy                   {}
 send_money               {}
 schedule_function_call   {}
 view_account             {}
+stake                    {}
             """.format(
                 self.call_view_function.__doc__,
                 self.deploy.__doc__,
                 self.send_money.__doc__,
                 self.schedule_function_call.__doc__,
                 self.view_account.__doc__,
+                self.stake.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -367,6 +372,21 @@ view_account             {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.view_account(args.account)
+
+    def stake(self):
+        """Stake money for validation"""
+        parser = self._get_command_parser(self.stake.__doc__)
+        self._add_transaction_args(parser)
+        parser.add_argument(
+            '-a',
+            '--amount',
+            type=int,
+            default=0,
+            help='amount of money to stake',
+        )
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.stake(args.sender, args.amount)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 use chain::BlockChain;
+use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::BlockId;
+use rand::{Rng, SeedableRng, StdRng};
 use std::collections::HashMap;
 use types::{AuthorityProposal, BeaconBlock, BeaconBlockHeader};
 
@@ -21,8 +23,12 @@ pub struct Authority {
     current_epoch: u64,
     /// Cache of current authorities for given index.
     current: HashMap<u64, Vec<PublicKey>>,
+    /// Cache of current threshold.
+    current_threshold: HashMap<u64, u64>,
     /// Proposals in the given epoch.
-    proposals: Vec<AuthorityProposal>,
+    proposals: HashMap<String, i64>,
+    /// Proposals per epoch.
+    accepted_proposals: HashMap<u64, Vec<AuthorityProposal>>,
 }
 
 /// Finds threshold for given proposals and number of seats.
@@ -67,13 +73,18 @@ impl Authority {
         let mut authority = Authority {
             authority_config,
             current: HashMap::default(),
-            proposals: vec![],
+            current_threshold: HashMap::default(),
+            proposals: HashMap::default(),
             current_epoch: 0,
+            accepted_proposals: HashMap::default(),
         };
 
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
-        let initial_authority =
-            authority.proposals_to_authority(0, &authority.authority_config.initial_authorities);
+        let (initial_authority, threshold) = authority.proposals_to_authority(
+            &CryptoHash::default(),
+            &authority.authority_config.initial_authorities,
+            0,
+        );
         // Initial authorities operate for first two epochs.
         for (index, value) in initial_authority.iter() {
             authority.current.insert(*index, value.clone());
@@ -81,6 +92,14 @@ impl Authority {
                 .current
                 .insert(*index + authority.authority_config.epoch_length, value.clone());
         }
+        authority.current_threshold.insert(0, threshold);
+        authority.current_threshold.insert(1, threshold);
+        authority
+            .accepted_proposals
+            .insert(0, authority.authority_config.initial_authorities.clone());
+        authority
+            .accepted_proposals
+            .insert(1, authority.authority_config.initial_authorities.clone());
 
         let last_index = blockchain.best_block().header.body.index;
         for index in 1..last_index {
@@ -94,28 +113,77 @@ impl Authority {
     }
 
     pub fn process_block_header(&mut self, header: &BeaconBlockHeader) {
-        for authority_proposal in header.body.authority_proposal.iter() {
-            self.proposals.push(authority_proposal.clone());
+        // Always skip genesis block.
+        if header.body.index == 0 {
+            return;
         }
-        let epoch = header.body.index / self.authority_config.epoch_length;
-        if epoch != self.current_epoch {
-            let authorities = self.proposals_to_authority(0, &self.proposals);
+        for authority_proposal in header.body.authority_proposal.iter() {
+            self.proposals.insert(
+                authority_proposal.public_key.to_string(),
+                authority_proposal.amount as i64,
+            );
+        }
+        let header_authorities =
+            self.get_authorities(header.body.index).expect("Processing block has unexpected index");
+        for (i, participated) in header.authority_mask.iter().enumerate() {
+            if !participated {
+                let threshold = *self
+                    .current_threshold
+                    .get(&self.current_epoch)
+                    .expect("Missing threshold for current epoch") as i64;
+                *self.proposals.entry(header_authorities[i].to_string()).or_insert(0) -= threshold;
+            }
+        }
+        let next_epoch = header.body.index / self.authority_config.epoch_length;
+        if next_epoch != self.current_epoch {
+            let mut new_proposals: Vec<AuthorityProposal> = self
+                .proposals
+                .iter()
+                .filter_map(|(public_key, amount)| {
+                    if *amount > 0 {
+                        Some(AuthorityProposal {
+                            public_key: public_key.into(),
+                            amount: *amount as u64,
+                        })
+                    } else {
+                        None
+                    }
+                }).collect();
+            for proposal in self
+                .accepted_proposals
+                .get(&self.current_epoch)
+                .expect("Missing proposals for current epoch")
+                .iter()
+            {
+                let amount = *self.proposals.get(&proposal.public_key.to_string()).unwrap_or(&0);
+                if (amount < 0 && proposal.amount > (-amount) as u64) || amount == 0 {
+                    new_proposals.push(proposal.clone());
+                }
+            }
+            let (authorities, threshold) =
+                self.proposals_to_authority(&CryptoHash::default(), &new_proposals, 2);
             self.current.extend(authorities);
+            self.current_threshold.insert(next_epoch, threshold);
+            self.current_epoch = next_epoch;
+            self.proposals = HashMap::default();
+            self.accepted_proposals.insert(next_epoch, new_proposals);
             // TODO: clean up current for old epochs.
         }
     }
 
     fn proposals_to_authority(
         &self,
-        _seed: u64,
+        seed: &CryptoHash,
         proposals: &[AuthorityProposal],
-    ) -> HashMap<u64, Vec<PublicKey>> {
+        epoch_offset: u64,
+    ) -> (HashMap<u64, Vec<PublicKey>>, u64) {
         let num_seats =
             self.authority_config.num_seats_per_slot * self.authority_config.epoch_length;
         let mut result = HashMap::default();
         let proposal_amounts: Vec<u64> = proposals.iter().map(|p| p.amount).collect();
         let threshold = find_threshold(proposal_amounts.as_slice(), num_seats)
             .expect("Threshold is not found for given proposals.");
+
         let mut dup_proposals = vec![];
         for item in proposals {
             if item.amount >= threshold {
@@ -124,17 +192,28 @@ impl Authority {
                 }
             }
         }
-        // assert_eq!(dup_proposals.len(), num_seats);
+        assert!(
+            dup_proposals.len() >= num_seats as usize,
+            "Number of selected seats {} < total number of seats {}",
+            dup_proposals.len(),
+            num_seats
+        );
+
+        // Shuffle proposals.
+        let seed: Vec<usize> = seed.as_ref().iter().map(|i| *i as usize).collect();
+        let mut rng: StdRng = SeedableRng::from_seed(seed.as_ref());
+        rng.shuffle(&mut dup_proposals);
+
+        // Distribute proposals into slots.
         for i in 0..self.authority_config.epoch_length {
-            //            let start: usize = (i * self.authority_config.num_seats_per_slot).into();
-            //            let authorities = dup_proposals[usize::from(i * self.authority_config.num_seats_per_slot)..usize::from((i + 1) * self.authority_config.num_seats_per_slot)];
-            let authorities = dup_proposals.clone();
+            let start = (i * self.authority_config.num_seats_per_slot) as usize;
+            let end = ((i + 1) * self.authority_config.num_seats_per_slot) as usize;
             result.insert(
-                self.current_epoch * self.authority_config.epoch_length + i + 1,
-                authorities,
+                (self.current_epoch + epoch_offset) * self.authority_config.epoch_length + i + 1,
+                dup_proposals[start..end].to_vec(),
             );
         }
-        result
+        (result, threshold)
     }
 
     /// Returns authorities for given block number.
@@ -162,7 +241,7 @@ mod test {
 
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
-    use primitives::traits::Block;
+    use primitives::traits::{Block, Header};
     use primitives::types::MerkleHash;
     use std::sync::Arc;
     use storage::test_utils::MemoryStorage;
@@ -195,27 +274,44 @@ mod test {
 
     #[test]
     fn test_authority_genesis() {
-        let authority_config = get_test_config(5, 2, 2);
+        let authority_config = get_test_config(4, 2, 2);
         let initial_authorities: Vec<PublicKey> =
             authority_config.initial_authorities.iter().map(|a| a.public_key).collect();
         let bc = test_blockchain(0);
         let mut authority = Authority::new(authority_config, &bc);
         assert_eq!(authority.get_authorities(0).unwrap(), vec![]);
-        assert_eq!(authority.get_authorities(1).unwrap(), initial_authorities);
-        assert_eq!(authority.get_authorities(2).unwrap(), initial_authorities);
-        assert_eq!(authority.get_authorities(3).unwrap(), initial_authorities);
-        assert_eq!(authority.get_authorities(4).unwrap(), initial_authorities);
-        assert!(authority.get_authorities(5).is_err());
-        let header = BeaconBlockHeader::new(
-            1,
-            bc.genesis_hash,
-            MerkleHash::default(),
-            MerkleHash::default(),
-            primitives::signature::DEFAULT_SIGNATURE,
-            vec![true, false, true, true, true],
-            vec![],
+        assert_eq!(
+            authority.get_authorities(1).unwrap(),
+            vec![initial_authorities[0], initial_authorities[3]]
         );
-        authority.process_block_header(&header);
+        assert_eq!(
+            authority.get_authorities(2).unwrap(),
+            vec![initial_authorities[2], initial_authorities[1]]
+        );
+        assert_eq!(
+            authority.get_authorities(3).unwrap(),
+            vec![initial_authorities[0], initial_authorities[3]]
+        );
+        assert_eq!(
+            authority.get_authorities(4).unwrap(),
+            vec![initial_authorities[2], initial_authorities[1]]
+        );
+        assert!(authority.get_authorities(5).is_err());
+        let mut header1 = BeaconBlockHeader::empty(1, bc.genesis_hash, MerkleHash::default());
+        // Authority #1 didn't show up.
+        header1.authority_mask = vec![true, false];
+        let mut header2 = BeaconBlockHeader::empty(2, header1.hash(), MerkleHash::default());
+        header2.authority_mask = vec![true, true];
+        authority.process_block_header(&header1);
+        authority.process_block_header(&header2);
+        assert_eq!(
+            authority.get_authorities(5).unwrap(),
+            vec![initial_authorities[1], initial_authorities[0]]
+        );
+        assert_eq!(
+            authority.get_authorities(6).unwrap(),
+            vec![initial_authorities[0], initial_authorities[2]]
+        );
     }
 
     #[test]

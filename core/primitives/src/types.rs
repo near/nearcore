@@ -10,7 +10,7 @@ pub type UID = u64;
 /// Account alias. Can be an easily identifiable string, when hashed creates the AccountId.
 pub type AccountAlias = String;
 /// Public key alias. Used to human readable public key.
-pub type PublicKeyAlias = String;
+pub type ReadablePublicKey = String;
 /// Account identifier. Provides access to user's state.
 pub type AccountId = CryptoHash;
 // TODO: Separate cryptographic hash from the hashmap hash.
@@ -30,8 +30,8 @@ impl<'a> From<&'a AccountAlias> for AccountId {
     }
 }
 
-impl<'a> From<&'a PublicKeyAlias> for PublicKey {
-    fn from(alias: &PublicKeyAlias) -> Self {
+impl<'a> From<&'a ReadablePublicKey> for PublicKey {
+    fn from(alias: &ReadablePublicKey) -> Self {
         PublicKey::from(alias)
     }
 }
@@ -67,6 +67,7 @@ pub struct ViewCallResult {
     pub account: AccountId,
     pub nonce: u64,
     pub amount: u64,
+    pub stake: u64,
     pub result: Vec<u8>,
 }
 

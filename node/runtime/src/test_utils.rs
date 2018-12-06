@@ -1,6 +1,6 @@
 use StateDbViewer;
 use chain_spec::ChainSpec;
-use primitives::signature::get_keypair;
+use primitives::signature::{PublicKey, get_keypair};
 use std::sync::Arc;
 use storage::test_utils::create_memory_db;
 use Runtime;
@@ -11,13 +11,13 @@ use chain::BlockChain;
 
 pub fn generate_test_chain_spec() -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let (public_key, _) = get_keypair();
+    let public_keys: Vec<PublicKey> = (0..2).map(|_| get_keypair().0).collect();
     ChainSpec {
         accounts: vec![
-            ("alice".to_string(), public_key.to_string(), 100),
-            ("bob".to_string(), public_key.to_string(), 0),
+            ("alice".to_string(), public_keys[0].to_string(), 100),
+            ("bob".to_string(), public_keys[1].to_string(), 0),
         ],
-        initial_authorities: vec![(public_key.to_string(), 50)],
+        initial_authorities: vec![(public_keys[0].to_string(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
@@ -32,6 +32,7 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
     let genesis_root = runtime.apply_genesis_state(
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
+        &chain_spec.initial_authorities
     );
 
     let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);

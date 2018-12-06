@@ -23,7 +23,7 @@ use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
-    AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, ViewCall,
+    AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, ViewCall,
     ViewCallResult, PromiseId,
 };
 use primitives::utils::concat;
@@ -323,12 +323,12 @@ impl Runtime {
 
     pub fn apply_genesis_state(
         &self,
-        balances: &[(AccountAlias, PublicKeyAlias, u64)],
+        balances: &[(AccountAlias, ReadablePublicKey, u64)],
         wasm_binary: &[u8],
+        initial_authorities: &[(ReadablePublicKey, u64)]
     ) -> MerkleHash {
         let mut state_db_update =
             storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
-        set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
         balances.iter().for_each(|(account_alias, public_key, balance)| {
             set(
                 &mut state_db_update,
@@ -341,6 +341,12 @@ impl Runtime {
                 },
             );
         });
+        let pk_to_acc_id: HashMap<ReadablePublicKey, AccountId> = balances.iter().map(|(account_alias, public_key, _)| (public_key.to_string(), AccountId::from(account_alias))).collect();
+        let stake = initial_authorities.iter().map(|(pk, amount)| (*pk_to_acc_id.get(pk).expect("Missing account for public key"), *amount)).collect();
+        let runtime_data = RuntimeData {
+            stake
+        };
+        set(&mut state_db_update, RUNTIME_DATA, &runtime_data);
         let (mut transaction, genesis_root) = state_db_update.finalize();
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
         self.state_db.commit(&mut transaction).expect("Failed to commit genesis state");
@@ -368,6 +374,7 @@ impl StateDbViewer {
 
     fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).expect("Runtime data is missing");
         match get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
             Some(account) => {
                 let mut result = vec![];
@@ -397,12 +404,13 @@ impl StateDbViewer {
                 ViewCallResult {
                     account: view_call.account,
                     amount: account.amount,
+                    stake: runtime_data.at_stake(view_call.account),
                     nonce: account.nonce,
                     result,
                 }
             }
             None => {
-                ViewCallResult { account: view_call.account, amount: 0, nonce: 0, result: vec![] }
+                ViewCallResult { account: view_call.account, amount: 0, stake: 0, nonce: 0, result: vec![] }
             }
         }
     }
@@ -434,13 +442,13 @@ mod tests {
         let result = viewer.view(&ViewCall::balance(hash(b"alice")));
         assert_eq!(
             result,
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![] }
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![] }
         );
         let result2 =
             viewer.view(&ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]));
         assert_eq!(
             result2,
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![20, 0, 0, 0] }
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![20, 0, 0, 0] }
         );
     }
 
@@ -459,11 +467,19 @@ mod tests {
                 vec![],
             ),
         );
-        let apply_state = ApplyState {
-            root,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, apply_result) = runtime.apply(&apply_state, vec![t]);
+        // Bob staked 50, so can't transfer all 100.
+        assert_eq!(filtered_tx.len(), 0);
+        assert_eq!(root, apply_result.root);
+
+        let t = SignedTransaction::new(
+            DEFAULT_SIGNATURE,
+            TransactionBody::new(1, hash(b"alice"), hash(b"bob"), 50, String::new(), vec![]),
+        );
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![t]);
         runtime.state_db.commit(&mut apply_result.transaction).ok();
         assert_eq!(filtered_tx.len(), 1);
@@ -472,7 +488,8 @@ mod tests {
             result1,
             ViewCallResult {
                 account: hash(b"alice"),
-                amount: 0,
+                amount: 50,
+                stake: 50,
                 nonce: 1,
                 result: vec![],
             }
@@ -482,7 +499,8 @@ mod tests {
             result2,
             ViewCallResult {
                 account: hash(b"bob"),
-                amount: 100,
+                amount: 50,
+                stake: 0,
                 nonce: 0,
                 result: vec![],
             }
@@ -623,6 +641,7 @@ mod tests {
                 nonce: 1,
                 account: hash(b"alice"),
                 amount: 90,
+                stake: 50,
                 result: vec![],
             }
         );
@@ -636,6 +655,7 @@ mod tests {
                 nonce: 0,
                 account: hash(b"bob"),
                 amount: 10,
+                stake: 0,
                 result: vec![],
             }
         );
