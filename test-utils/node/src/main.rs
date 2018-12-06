@@ -79,8 +79,8 @@ pub fn main() {
     let service =
         Service::new(protocol_config, net_config, network_handler, client.clone()).unwrap();
     let task = generate_service_task::<_, _, BeaconBlockHeader>(
-        service.network.clone(),
-        service.protocol.clone(),
+        &service.network,
+        &service.protocol,
     );
     // produce some fake transactions once in a while
     let tx_period = Duration::from_millis(1000);

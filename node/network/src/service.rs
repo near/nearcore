@@ -40,8 +40,8 @@ impl<B: Block, H: ProtocolHandler> Service<B, H> {
 }
 
 pub fn generate_service_task<B, H, Header>(
-    network_service: Arc<Mutex<NetworkService>>,
-    protocol: Arc<Protocol<B, H>>,
+    network_service: &Arc<Mutex<NetworkService>>,
+    protocol: &Arc<Protocol<B, H>>,
 //) -> impl Future<Item = (), Error = ()>
 ) -> Box<impl Future<Item=(), Error=()>>
 where
@@ -118,8 +118,8 @@ mod tests {
         let mut runtime = tokio::runtime::current_thread::Runtime::new().unwrap();
         for service in services.iter() {
             let task = generate_service_task::<MockBlock, MockProtocolHandler, MockBlockHeader>(
-                service.network.clone(),
-                service.protocol.clone(),
+                &service.network,
+                &service.protocol,
             );
             runtime.spawn(task);
         }

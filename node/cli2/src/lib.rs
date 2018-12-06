@@ -120,10 +120,10 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         client.clone(),
     ).unwrap();
     let network_task = generate_service_task::<_, _, BeaconBlockHeader>(
-        network.network.clone(),
-        network.protocol.clone(),
+        &network.network,
+        &network.protocol,
     );
-    
+
     tokio::run(network_task);
 }
 

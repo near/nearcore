@@ -68,8 +68,8 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
         client.clone(),
     ).unwrap();
     let network_task = generate_service_task::<_, _, BeaconBlockHeader>(
-        network.network.clone(),
-        network.protocol.clone(),
+        &network.network,
+        &network.protocol,
     );
     let produce_blocks_interval = Duration::from_secs(2);
     run_service(&client, network_task, produce_blocks_interval)
