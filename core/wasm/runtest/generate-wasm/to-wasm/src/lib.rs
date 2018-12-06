@@ -23,11 +23,20 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 static mut FINAL_RESULT: Vec<u8> = Vec::new();
 
+#[allow(unused)]
 extern "C" {
     // First 4 bytes are the length of the remaining buffer.
     fn storage_write(key: *const u8, value: *const u8);
     fn storage_read_len(key: *const u8) -> u32;
     fn storage_read_into(key: *const u8, value: *mut u8);
+
+    fn input_read_len() -> u32;
+    fn input_read_into(value: *mut u8);
+
+    fn result_count() -> u32;
+    fn result_is_ok(index: u32) -> bool;
+    fn result_read_len(index: u32) -> u32;
+    fn result_read_into(index: u32, value: *mut u8);
 
     fn promise_create(
         account_alias: *const u8,
@@ -47,12 +56,39 @@ extern "C" {
     fn promise_and(promise_index1: u32, promise_index2: u32) -> u32;
 }
 
-pub fn storage_read(key: *const u8) -> Vec<u8> {
+fn storage_read(key: *const u8) -> Vec<u8> {
     unsafe {
         let len = storage_read_len(key);
         let mut vec = vec![0u8; len as usize];
         storage_read_into(key, vec.as_mut_ptr());
         vec
+    }
+}
+
+fn input_read() -> Vec<u8> {
+    unsafe {
+        let len = input_read_len();
+        let mut vec = vec![0u8; len as usize];
+        input_read_into(vec.as_mut_ptr());
+        vec
+    }
+}
+
+fn result_read(index: u32) -> Vec<u8> {
+    unsafe {
+        let len = result_read_len(index);
+        let mut vec = vec![0u8; len as usize];
+        result_read_into(index, vec.as_mut_ptr());
+        vec
+    }
+}
+
+fn return_int(res: i32) -> *const u8 {
+    unsafe {
+        FINAL_RESULT.resize(8, 0);
+        LittleEndian::write_u32(&mut FINAL_RESULT[..4], 4);
+        LittleEndian::write_i32(&mut FINAL_RESULT[4..], res);
+        FINAL_RESULT.as_ptr()
     }
 }
 
@@ -92,12 +128,35 @@ pub fn get_int(key: u32) -> i32 {
 pub fn run_test() -> *const u8 {
     put_int(10, 20);
     put_int(50, 150);
-    let int20 = get_int(10);
+    let res = get_int(10);
+    return_int(res)
+}
+
+#[no_mangle]
+pub fn sum_with_input() -> *const u8 {
+    let input = input_read();
+    assert!(input.len() == 8);
+    let a = LittleEndian::read_i32(&input[..4]);
+    let b = LittleEndian::read_i32(&input[4..]);
+    let sum = a + b;
+    return_int(sum)
+}
+
+#[no_mangle]
+pub fn sum_with_multiple_results() -> *const u8 {
     unsafe {
-        FINAL_RESULT.resize(8, 0);
-        LittleEndian::write_u32(&mut FINAL_RESULT[..4], 4);
-        LittleEndian::write_i32(&mut FINAL_RESULT[4..], int20);
-        FINAL_RESULT.as_ptr()
+        let cnt = result_count();
+        if cnt == 0 {
+            return return_int(-100);
+        }
+        let mut sum = 0;
+        for index in 0..cnt {
+            if !result_is_ok(index) {
+                return return_int(-100);
+            }
+            sum += LittleEndian::read_i32(&result_read(index));
+        }
+        return_int(sum)
     }
 }
 
