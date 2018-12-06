@@ -379,7 +379,9 @@ impl Runtime {
                     &wasm::types::Config::default()
                 ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                 self.callback_info.extend(runtime_ext.callback_info);
-                Ok(runtime_ext.receipts.values().cloned().collect())
+                let receipts: Vec<ReceiptTransaction> = 
+                    runtime_ext.receipts.drain().map(|(_, v)| v).collect();
+                Ok(receipts)
             }
             (None, _) => Err("runtime data does not exist".to_string()),
             _ => Err(format!("sender {} does not exist", transaction.body.sender))
@@ -407,7 +409,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        &self,
+        &mut self,
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
     ) -> Result<Vec<ReceiptTransaction>, String> {
@@ -472,7 +474,7 @@ impl Runtime {
                             receipt.sender,
                             receipt.nonce.clone()
                         );
-                        match self.callback_info.get(&callback.id) {
+                        let receipts = match self.callback_info.get(&callback.id) {
                             Some(callback_info) => {
                                 executor::execute(
                                     &receiver.code,
@@ -482,12 +484,14 @@ impl Runtime {
                                     &mut runtime_ext,
                                     &wasm::types::Config::default(),
                                 ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-                                Ok(runtime_ext.receipts.values().cloned().collect())
+                                runtime_ext.receipts.drain().map(|(_, v)| v).collect()
                             },
                             _ => {
-                                Err(format!("callback id: {:?} not found", callback.id))
+                                return Err(format!("callback id: {:?} not found", callback.id));
                             }
-                        }
+                        };
+                        self.callback_info.remove(&callback.id);
+                        Ok(receipts)
                     }
                     // TODO: handle refund
                     ReceiptBody::Refund => unimplemented!()
@@ -565,8 +569,15 @@ impl Runtime {
                 },
             );
         });
-        let pk_to_acc_id: HashMap<ReadablePublicKey, AccountId> = balances.iter().map(|(account_alias, public_key, _)| (public_key.to_string(), AccountId::from(account_alias))).collect();
-        let stake = initial_authorities.iter().map(|(pk, amount)| (*pk_to_acc_id.get(pk).expect("Missing account for public key"), *amount)).collect();
+        let pk_to_acc_id: HashMap<ReadablePublicKey, AccountId> = 
+            balances
+                .iter()
+                .map(|(account_alias, public_key, _)| (public_key.to_string(), AccountId::from(account_alias)))
+                .collect();
+        let stake = initial_authorities
+            .iter()
+            .map(|(pk, amount)| (*pk_to_acc_id.get(pk).expect("Missing account for public key"), *amount))
+            .collect();
         let runtime_data = RuntimeData {
             stake
         };
