@@ -19,15 +19,11 @@ extern crate tokio;
 extern crate parking_lot;
 
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use beacon_chain_handler::{
-    BeaconBlockProducer, BeaconChainConsensusBlockBody,
-    ConsensusHandler,
-};
 use chain::BlockChain;
 use clap::{App, Arg};
 use client::Client;
 use futures::future;
-use futures::sync::mpsc::{channel, Receiver};
+use futures::sync::mpsc::channel;
 use network::protocol::ProtocolConfig;
 use network::service::{
     generate_service_task, NetworkConfiguration, Service as NetworkService
@@ -40,7 +36,6 @@ use network::network_handler::ChannelNetworkHandler;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
-use tokio::prelude::*;
 use parking_lot::RwLock;
 
 mod chain_spec;
@@ -51,15 +46,7 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 
-fn get_beacon_block_producer_task(
-    consensus_handler: &Arc<BeaconBlockProducer>,
-    receiver: Receiver<BeaconChainConsensusBlockBody>
-) -> impl Future<Item = (), Error = ()> {
-    receiver.fold(consensus_handler.clone(), |consensus_handler, body| {
-        consensus_handler.produce_block(body);
-        future::ok(consensus_handler)
-    }).and_then(|_| Ok(()))
-}
+
 
 fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     // Create shared-state objects.
@@ -67,8 +54,8 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
 
     let state_db = Arc::new(StateDb::new(storage.clone()));
-    let runtime = Runtime::new(state_db.clone());
-    let genesis_root = runtime.apply_genesis_state(
+    let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
+    let genesis_root = runtime.write().apply_genesis_state(
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
         &chain_spec.initial_authorities,
@@ -91,24 +78,20 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         Ok(())
     }));
 
-    // Create task that given a consensus (with transactions) and the current state (taken from
-    // the chain) computes the new state (using runtime) and signs it.
+    // Create a task that consumes the consensuses and produces the beacon chain blocks.
     let signer = Arc::new(InMemorySigner::default());
-    let beacon_block_producer = Arc::new(BeaconBlockProducer::new(
-        beacon_chain.clone(),
-        runtime,
-        signer.clone(),
-        state_db.clone(),
-    ));
     let (
         _beacon_block_consensus_body_tx,
         beacon_block_consensus_body_rx,
     ) = channel(1024);
-    let block_produce_task = get_beacon_block_producer_task(
-        &beacon_block_producer,
+    let block_producer_task = beacon_chain_handler::producer::create_beacon_block_producer_task(
+        beacon_chain.clone(),
+        runtime.clone(),
+        signer.clone(),
+        state_db.clone(),
         beacon_block_consensus_body_rx,
     );
-    tokio::spawn(block_produce_task);
+    tokio::spawn(block_producer_task);
 
     // Create network task.
     let network_handler = ChannelNetworkHandler::new(submit_txn_tx.clone());
