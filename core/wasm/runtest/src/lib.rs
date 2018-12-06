@@ -75,7 +75,13 @@ mod tests {
     
     use super::*;
 
-    fn run(method_name: &[u8], input_data: &[u8], result_data: &[Option<Vec<u8>>]) -> Result<ReturnData, Error> {
+    fn run(
+        method_name: &[u8],
+        input_data: &[u8],
+        result_data: &[Option<Vec<u8>>],
+        mana_limit: u32,
+    ) -> Result<ReturnData, Error> {
+        
         let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
 
         let mut ext = MyExt::default();
@@ -88,6 +94,7 @@ mod tests {
             &result_data,
             &mut ext,
             &config,
+            mana_limit,
         ).map(|outcome| outcome.return_data)
     }
 
@@ -105,6 +112,7 @@ mod tests {
             b"run_test",
             &input_data,
             &[],
+            0,
         ).expect("ok");
         
         match return_data {
@@ -122,6 +130,7 @@ mod tests {
             b"sum_with_input",
             &input_data,
             &[],
+            0,
         ).expect("ok");
         
         match return_data {
@@ -143,6 +152,7 @@ mod tests {
             b"sum_with_multiple_results",
             &input_data,
             &result_data,
+            0,
         ).expect("ok");
         
         match return_data {

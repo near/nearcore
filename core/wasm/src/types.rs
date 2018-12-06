@@ -67,6 +67,8 @@ pub enum RuntimeError {
     BalanceQueryError,
     /// Failed allocation
     AllocationFailed,
+    /// Mana limit exceeded
+    ManaLimit,
     /// Gas limit reached
     GasLimit,
     /// Unknown runtime function
@@ -138,6 +140,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
             RuntimeError::AllocationFailed => write!(f, "Memory allocation failed (OOM)"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
+            RuntimeError::ManaLimit => write!(f, "Mana limit exceeded"),
             RuntimeError::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
             RuntimeError::Log => write!(f, "Error occured while logging an event"),
             RuntimeError::InvalidSyscall => write!(f, "Invalid syscall signature encountered at runtime"),

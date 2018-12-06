@@ -71,5 +71,4 @@ pub trait External {
         promise_id1: PromiseId,
         promise_id2: PromiseId,
     ) -> Result<PromiseId>;
-
 }

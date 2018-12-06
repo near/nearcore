@@ -13,6 +13,8 @@ pub struct Runtime<'a> {
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
+    pub mana_counter: u32,
+    mana_limit: u32,
     pub gas_counter: u64,
     gas_limit: u64,
     promise_ids: Vec<PromiseId>,
@@ -25,6 +27,7 @@ impl<'a> Runtime<'a> {
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
+        mana_limit: u32,
         gas_limit: u64,
     ) -> Runtime<'a> {
         Runtime {
@@ -32,6 +35,8 @@ impl<'a> Runtime<'a> {
             input_data,
             result_data,
             memory,
+            mana_counter: 0,
+            mana_limit,
             gas_counter: 0,
             gas_limit,
             promise_ids: Vec::new(),
@@ -70,6 +75,27 @@ impl<'a> Runtime<'a> {
                 self.gas_counter = prev + amount;
                 true
             }
+        }
+    }
+
+    fn charge_mana(&mut self, mana: u32) -> bool {
+        let prev = self.mana_counter;
+        match prev.checked_add(mana) {
+            // mana charge overflow protection
+            None => false,
+            Some(val) if val > self.mana_limit => false,
+            Some(_) => {
+                self.mana_counter = prev + mana;
+                true
+            }
+        }
+    }
+
+    fn charge_mana_or_fail(&mut self, mana: u32) -> Result<()> {
+        if self.charge_mana(mana) {
+            Ok(())
+        } else {
+            Err(Error::ManaLimit)
         }
     }
 
@@ -143,6 +169,10 @@ impl<'a> Runtime<'a> {
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
 
+        // Charging separately reserved mana + 1 to call this promise.
+        self.charge_mana_or_fail(mana)?;
+        self.charge_mana_or_fail(1)?;
+
         let promise_id = self.ext
             .promise_create(accound_alias, method_name, arguments, mana, amount)
             .map_err(|_| Error::PromiseError)?;
@@ -162,6 +192,16 @@ impl<'a> Runtime<'a> {
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
+
+        // Charging separately reserved mana + N to add callback for the promise.
+        // N is the number of callbacks in case of promise joiner.
+        self.charge_mana_or_fail(mana)?;
+        let num_promises = match &promise_id {
+            PromiseId::Receipt(_) => 1,
+            PromiseId::Callback(_) => return Err(Error::PromiseError),
+            PromiseId::Joiner(v) => v.len() as u32,
+        };
+        self.charge_mana_or_fail(num_promises)?;
 
         let promise_id = self.ext
             .promise_then(promise_id, method_name, arguments, mana)

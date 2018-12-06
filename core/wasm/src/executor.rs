@@ -10,7 +10,7 @@ use types::{Config, ReturnData, Error};
 #[derive(Debug, Clone)]
 pub struct ExecutionOutcome {
     pub gas_used: u64,
-    pub mana_used: u64,
+    pub mana_used: u32,
     pub return_data: ReturnData,
 }
 
@@ -21,6 +21,7 @@ pub fn execute(
     result_data: &[Option<Vec<u8>>],
     ext: &mut External,
     config: &Config,
+    mana_limit: u32,
 ) -> Result<ExecutionOutcome, Error> {
     let prepare::PreparedContract {
         instrumented_code,
@@ -42,6 +43,7 @@ pub fn execute(
         input_data,
         result_data,
         memory,
+        mana_limit,
         config.gas_limit);
 
     let module_instance = module_instance
@@ -61,7 +63,7 @@ pub fn execute(
     // TODO: Add MANA usage counter
     Ok(ExecutionOutcome {
         gas_used: runtime.gas_counter,
-        mana_used: 0,
+        mana_used: runtime.mana_counter,
         return_data: runtime.return_data,
     })
 }
