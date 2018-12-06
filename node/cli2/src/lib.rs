@@ -64,7 +64,9 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         &chain_spec.initial_authorities,
     );
 
-    let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
+    let genesis = BeaconBlock::new(
+        0, CryptoHash::default(), genesis_root, vec![], vec![]
+    );
     let beacon_chain = Arc::new(BlockChain::new(genesis, storage.clone()));
     let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     let (submit_txn_tx, _submit_txn_rx) = channel(1024);

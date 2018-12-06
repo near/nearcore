@@ -35,7 +35,9 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
         &chain_spec.initial_authorities
     );
 
-    let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
+    let genesis = BeaconBlock::new(
+        0, CryptoHash::default(), genesis_root, vec![], vec![]
+    );
     let beacon_chain = Arc::new(BlockChain::new(genesis, storage));
 
     let state_db_viewer = StateDbViewer {

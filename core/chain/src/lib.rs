@@ -229,7 +229,9 @@ mod tests {
     #[test]
     fn test_genesis() {
         let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
+        let genesis = BeaconBlock::new(
+            0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]
+        );
         let bc = BlockChain::new(genesis.clone(), storage);
         assert_eq!(bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(), genesis);
         assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
@@ -238,9 +240,13 @@ mod tests {
     #[test]
     fn test_restart_chain() {
         let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
+        let genesis = BeaconBlock::new(
+            0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]
+        );
         let bc = BlockChain::new(genesis.clone(), storage.clone());
-        let block1 = BeaconBlock::new(1, genesis.hash(), MerkleHash::default(), vec![]);
+        let block1 = BeaconBlock::new(
+            1, genesis.hash(), MerkleHash::default(), vec![], vec![]
+        );
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().hash(), block1.hash());
         assert_eq!(bc.best_block().header().index(), 1);

@@ -262,10 +262,10 @@ mod test {
     fn test_blockchain(num_blocks: u64) -> BlockChain<BeaconBlock> {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
-            BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![]);
+            BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]);
         let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.hash(), MerkleHash::default(), vec![]);
+            let block = BeaconBlock::new(i, last_block.hash(), MerkleHash::default(), vec![], vec![]);
             bc.insert_block(block.clone());
             last_block = block;
         }
