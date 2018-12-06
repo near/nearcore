@@ -1,5 +1,5 @@
 use client::chain::Chain;
-use io::{NetSyncIo, SyncIo};
+use io::NetSyncIo;
 use message::{self, Message, MessageBody};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;

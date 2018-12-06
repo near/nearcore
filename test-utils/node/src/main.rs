@@ -25,7 +25,7 @@ use primitives::hash::hash;
 use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::signer::InMemorySigner;
 use primitives::types::{SignedTransaction, TransactionBody};
-use service::network_handler::NetworkHandler;
+use network::network_handler::NetworkHandler;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::current_thread::Runtime;

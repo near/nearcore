@@ -18,7 +18,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime;
 
-pub mod network_handler;
 mod produce_blocks;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;

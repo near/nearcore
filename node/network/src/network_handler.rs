@@ -1,5 +1,5 @@
 use client::Client;
-use network::protocol::ProtocolHandler;
+use protocol::ProtocolHandler;
 use primitives::traits::GenericResult;
 use primitives::types::SignedTransaction;
 use std::sync::Arc;
