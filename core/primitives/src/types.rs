@@ -181,6 +181,12 @@ pub struct CallBack {
     pub num_results: u32,
 }
 
+impl CallBack {
+    pub fn new(id: CallBackId, results: Option<Vec<u8>>, num_results: u32) -> Self {
+        CallBack { id, results, num_results }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor

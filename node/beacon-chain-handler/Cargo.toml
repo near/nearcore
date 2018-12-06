@@ -8,3 +8,5 @@ chain = { path = "../../core/chain" }
 primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../runtime" }
 storage = { path = "../../core/storage" }
+
+parking_lot = "0.6"

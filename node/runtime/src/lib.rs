@@ -23,7 +23,7 @@ use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode, Block};
 use primitives::types::{
-    AccountAlias, AccountId, MerkleHash, PublicKeyAlias, SignedTransaction, TransactionBody,
+    AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallBack, ViewCall, ViewCallResult, PromiseId,
     CallBackId,
 };
@@ -369,11 +369,12 @@ impl Runtime {
                     transaction.body.sender,
                     transaction.hash.into()
                 );
+                // the result of this execution is not used for now
                 executor::execute(
                     &sender.code,
                     &transaction.body.method_name,
                     &transaction.body.args,
-                    &mut vec![],
+                    &[],
                     &mut runtime_ext,
                     &wasm::types::Config::default()
                 ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
@@ -385,7 +386,6 @@ impl Runtime {
         }
     }
 
-    #[allow(unused)]
     fn deposit(
         &self,
         state_update: &mut StateDbUpdate,
@@ -425,41 +425,44 @@ impl Runtime {
                             receipt.sender,
                             receipt.nonce.clone()
                         );
+                        let wasm_result = executor::execute(
+                            &receiver.code,
+                            &async_call.method_name,
+                            &async_call.args,
+                            &[],
+                            &mut runtime_ext,
+                            &wasm::types::Config::default(),
+                        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                        let mut gen_receipt = |callback_id: &CallBackId, return_data| {
+                            let callback = match return_data {
+                                ReturnData::Value(v) => {
+                                    CallBack::new(callback_id.clone(), Some(v), 1)
+                                }
+                                ReturnData::None => {
+                                    CallBack::new(callback_id.clone(), None, 0)
+                                }
+                                ReturnData::Promise(PromiseId::CallBack(id)) => {
+                                    CallBack::new(id, None, 0)
+                                }
+                                _ => return Err("return data is a non-callback promise".to_string())
+                            };
+                            let new_receipt = ReceiptTransaction::new(
+                                receipt.receiver,
+                                receipt.sender,
+                                runtime_ext.create_nonce(),
+                                ReceiptBody::CallBack(callback),
+                            );
+                            Ok(vec![new_receipt])
+                        };
                         match &async_call.callback {
-                            Some(callback_id) => {
-                                let mut result = vec![];
-                                executor::execute(
-                                    &receiver.code,
-                                    &async_call.method_name,
-                                    &async_call.args,
-                                    &mut result,
-                                    &mut runtime_ext,
-                                    &wasm::types::Config::default(),
-                                ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-                                let callback = CallBack {
-                                    id: callback_id.clone(),
-                                    results: Some(result),
-                                    num_results: 1
-                                };
-                                let new_receipt = ReceiptTransaction::new(
-                                    receipt.receiver,
-                                    receipt.sender,
-                                    runtime_ext.create_nonce(),
-                                    ReceiptBody::CallBack(callback),
-                                );
-                                Ok(vec![new_receipt])
-                            }
-                            _ => {
-                                executor::execute(
-                                    &receiver.code,
-                                    &async_call.method_name,
-                                    &async_call.args,
-                                    &mut vec![],
-                                    &mut runtime_ext,
-                                    &wasm::types::Config::default(),
-                                )
-                                .map(|_| vec![])
-                                .map_err(|e| format!("wasm exeuction failed with error: {:?}", e))
+                            Some(callback_id) => gen_receipt(callback_id, wasm_result.return_data),
+                            None => {
+                                match wasm_result.return_data {
+                                    ReturnData::Promise(_) => {
+                                        Err("No callback but return value is a promise".to_string())
+                                    }
+                                    _ => Ok(vec![])
+                                }
                             }
                         }
                     },
@@ -475,7 +478,7 @@ impl Runtime {
                                     &receiver.code,
                                     &callback_info.method_name,
                                     &callback_info.args,
-                                    &mut vec![],
+                                    &[],
                                     &mut runtime_ext,
                                     &wasm::types::Config::default(),
                                 ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
@@ -600,7 +603,7 @@ impl StateDbViewer {
             Some(account) => {
                 let mut result = vec![];
                 if !view_call.method_name.is_empty() {
-                    let mut runtime_ext = RuntimeExt::new(&mut state_update, view_call.account);
+                    let mut runtime_ext = RuntimeExt::new(&mut state_update, view_call.account, vec![]);
                     let wasm_res = executor::execute(
                         &account.code,
                         view_call.method_name.as_bytes(),
@@ -631,7 +634,13 @@ impl StateDbViewer {
                 }
             }
             None => {
-                ViewCallResult { account: view_call.account, amount: 0, stake: 0, nonce: 0, result: vec![] }
+                ViewCallResult { 
+                    account: view_call.account,
+                    amount: 0,
+                    stake: 0,
+                    nonce: 0,
+                    result: vec![]
+                }
             }
         }
     }
@@ -643,8 +652,8 @@ mod tests {
     use std::sync::Arc;
 
     use primitives::hash::hash;
-    use primitives::types::{TransactionBody, CallBack};
-    use primitives::signature::{get_keypair, DEFAULT_SIGNATURE};
+    use primitives::types::TransactionBody;
+    use primitives::signature::DEFAULT_SIGNATURE;
 
     use storage::test_utils::create_state_db;
 
@@ -705,8 +714,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract() {
-        let mut runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"alice"),
@@ -729,8 +738,8 @@ mod tests {
     // we need to figure out how to deal with the case where account does not exist
     // especially in the context of sharding
     fn test_upload_contract() {
-        let mut runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
         let tx_body = TransactionBody {
@@ -759,8 +768,8 @@ mod tests {
     #[should_panic]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
-        let mut runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"bob"),
@@ -788,8 +797,8 @@ mod tests {
 
     #[test]
     fn test_send_money() {
-        let mut runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody {
             nonce: 1,
             sender: hash(b"alice"),
