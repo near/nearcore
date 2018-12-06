@@ -20,13 +20,13 @@ pub fn create_beacon_block_producer_task(
     state_db: Arc<StateDb>,
     receiver: Receiver<BeaconChainConsensusBlockBody>
 ) -> impl Future<Item = (), Error = ()> {
-    let beacon_block_producer = Arc::new(BeaconBlockProducer::new(
+    let beacon_block_producer = BeaconBlockProducer::new(
         beacon_chain,
         runtime,
         signer,
         state_db,
-    ));
-    receiver.fold(beacon_block_producer.clone(), |beacon_block_producer, body| {
+    );
+    receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
         beacon_block_producer.produce_block(body);
         future::ok(beacon_block_producer)
     }).and_then(|_| Ok(()))
