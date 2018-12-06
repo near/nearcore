@@ -86,6 +86,10 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let rpc_impl = RpcImpl::new(state_db_viewer, submit_txn_tx.clone());
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let server = node_rpc::server::get_server(rpc_handler);
+    tokio::spawn(future::lazy(|| {
+        server.wait();
+        Ok(())
+    }));
 
     // Create task that given a consensus (with transactions) and the current state (taken from
     // the chain) computes the new state (using runtime) and signs it.
@@ -119,12 +123,8 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         network.network.clone(),
         network.protocol.clone(),
     );
-    tokio::spawn(network_task);
-
-    tokio::run(future::lazy(|| {
-        server.wait();
-        Ok(())
-    }));
+    
+    tokio::run(network_task);
 }
 
 pub fn run() {
