@@ -29,7 +29,6 @@ use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, StateDbViewer};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::SignedTransaction;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
@@ -44,7 +43,7 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 }
 
 fn get_beacon_block_producer_task(
-    consensus_handler: Arc<ConsensusHandler<BeaconBlock, Vec<SignedTransaction>>>,
+    consensus_handler: &Arc<BeaconBlockProducer>,
     receiver: Receiver<BeaconChainConsensusBlockBody>
 ) -> impl Future<Item = (), Error = ()> {
     receiver.fold(consensus_handler.clone(), |consensus_handler, body| {
@@ -84,7 +83,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         beacon_block_consensus_body_rx,
     ) = channel(1024);
     let block_produce_task = get_beacon_block_producer_task(
-        beacon_block_producer,
+        &beacon_block_producer,
         beacon_block_consensus_body_rx,
     );
     tokio::spawn(block_produce_task);
