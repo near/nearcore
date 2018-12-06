@@ -81,16 +81,14 @@ mod tests {
         let mut ext = MyExt::default();
         let config = Config::default();
 
-        let outcome = executor::execute(
+        executor::execute(
             &wasm_binary,
             &method_name,
             &input_data,
             &result_data,
             &mut ext,
             &config,
-        )?;
-
-        Ok(outcome.return_data)
+        ).map(|outcome| outcome.return_data)
     }
 
     fn encode_int(val: i32) -> [u8; 4] {
