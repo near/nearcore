@@ -200,11 +200,8 @@ impl Authority {
         );
 
         // Shuffle proposals.
-        let mut seed_usize = vec![];
-        for i in 0..32 {
-            seed_usize.push(seed.as_ref()[i] as usize);
-        }
-        let mut rng: StdRng = SeedableRng::from_seed(seed_usize.as_ref());
+        let seed: Vec<usize> = seed.as_ref().iter().map(|i| *i as usize).collect();
+        let mut rng: StdRng = SeedableRng::from_seed(seed.as_ref());
         rng.shuffle(&mut dup_proposals);
 
         // Distribute proposals into slots.
