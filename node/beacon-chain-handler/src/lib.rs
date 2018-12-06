@@ -8,3 +8,4 @@ extern crate parking_lot;
 extern crate tokio;
 
 pub mod producer;
+pub mod importer;

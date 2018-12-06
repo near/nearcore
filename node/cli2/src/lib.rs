@@ -93,6 +93,16 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     );
     tokio::spawn(block_producer_task);
 
+    // Create task that can import beacon chain blocks from other peers.
+    let (_beacon_block_tx, beacon_block_rx) = channel(1024);
+    let block_importer_task = beacon_chain_handler::importer::create_beacon_block_importer_task(
+        beacon_chain.clone(),
+        runtime.clone(),
+        state_db.clone(),
+        beacon_block_rx
+    );
+    tokio::spawn(block_importer_task);
+
     // Create network task.
     let network_handler = ChannelNetworkHandler::new(submit_txn_tx.clone());
     let client = Arc::new(RwLock::new(Client::new(&chain_spec, storage, signer)));

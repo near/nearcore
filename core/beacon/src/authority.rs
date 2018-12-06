@@ -265,7 +265,7 @@ mod test {
             BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]);
         let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.hash(), MerkleHash::default(), vec![], vec![]);
+            let block = BeaconBlock::new(i, last_block.header_hash(), MerkleHash::default(), vec![], vec![]);
             bc.insert_block(block.clone());
             last_block = block;
         }

@@ -1,3 +1,5 @@
+//! ConsensusHandler consumes consensuses, retrieves the most recent state, computes the new
+//! state, signs it and puts in on the BeaconChain.
 use beacon::types::BeaconBlock;
 use chain::BlockChain;
 use node_runtime::{ApplyState, Runtime};
@@ -9,7 +11,7 @@ use std::sync::Arc;
 use storage::StateDb;
 use parking_lot::RwLock;
 use futures::sync::mpsc::Receiver;
-use futures::{Future, Stream, Sink, future};
+use futures::{Future, Stream, future};
 
 pub fn create_beacon_block_producer_task(
     beacon_chain: Arc<BlockChain<BeaconBlock>>,
@@ -48,7 +50,7 @@ impl BeaconBlockProducer {
         signer: Arc<Signer>,
         state_db: Arc<StateDb>,
     ) -> Self {
-        BeaconBlockProducer {
+        Self {
             beacon_chain,
             runtime,
             signer,
@@ -71,7 +73,7 @@ impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProduc
         let last_block = self.beacon_chain.best_block();
         let apply_state = ApplyState {
             root: last_block.header().body.merkle_root_state,
-            parent_block_hash: last_block.hash(),
+            parent_block_hash: last_block.header_hash(),
             block_index: last_block.header().index() + 1,
         };
         let (filtered_transactions, mut apply_result) =
@@ -79,7 +81,7 @@ impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProduc
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,
-            last_block.hash(),
+            last_block.header_hash(),
             apply_result.root,
             filtered_transactions,
         );

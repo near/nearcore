@@ -103,7 +103,7 @@ impl Client {
 
     /// Import a block. Returns true if it is successfully inserted into the chain
     fn import_block(&self, block: BeaconBlock) -> bool {
-        if self.beacon_chain.is_known(&block.hash()) {
+        if self.beacon_chain.is_known(&block.header_hash()) {
             return false;
         }
         let parent_hash = block.header().parent_hash();
@@ -156,7 +156,7 @@ mod tests {
         let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            genesis_block.hash(),
+            genesis_block.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![]
@@ -171,14 +171,14 @@ mod tests {
         let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            genesis_block.hash(),
+            genesis_block.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![]
         );
         let block2 = BeaconBlock::new(
             2,
-            block1.hash(),
+            block1.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![]
@@ -207,14 +207,14 @@ mod tests {
         let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            genesis_block.hash(),
+            genesis_block.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![],
         );
         let block2 = BeaconBlock::new(
             2,
-            block1.hash(),
+            block1.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![],

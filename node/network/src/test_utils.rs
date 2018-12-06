@@ -169,7 +169,7 @@ impl Block for MockBlock {
     fn new(_header: Self::Header, _body: Self::Body) -> Self {
         MockBlock {}
     }
-    fn hash(&self) -> CryptoHash {
+    fn header_hash(&self) -> CryptoHash {
         CryptoHash::default()
     }
 }

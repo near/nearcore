@@ -35,7 +35,7 @@ impl Chain<BeaconBlock> for Client {
 
     fn best_hash(&self) -> CryptoHash {
         let best_block = self.beacon_chain.best_block();
-        best_block.hash()
+        best_block.header_hash()
     }
 
     fn best_index(&self) -> u64 {
@@ -49,13 +49,13 @@ impl Chain<BeaconBlock> for Client {
 
     fn import_blocks(&self, blocks: Vec<BeaconBlock>) {
         for block in blocks {
-            let mut hash = block.hash();
+            let mut hash = block.header_hash();
             let mut b = block;
             while self.import_block(b) {
                 match self.import_queue.write().remove(&hash) {
                     Some(next_block) => {
                         b = next_block;
-                        hash = b.hash();
+                        hash = b.header_hash();
                     }
                     None => {
                         break;
@@ -72,7 +72,7 @@ impl Chain<BeaconBlock> for Client {
         let (transactions, mut receipts) = self.tx_pool.write().drain();
         let apply_state = ApplyState {
             root: last_block.header().body.merkle_root_state,
-            parent_block_hash: last_block.hash(),
+            parent_block_hash: last_block.header_hash(),
             block_index: last_block.header().index() + 1,
         };
         let (filtered_transactions, filtered_receipts, mut apply_result) =
@@ -80,7 +80,7 @@ impl Chain<BeaconBlock> for Client {
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,
-            last_block.hash(),
+            last_block.header_hash(),
             apply_result.root,
             filtered_transactions,
             filtered_receipts,

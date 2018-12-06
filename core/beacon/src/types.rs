@@ -3,6 +3,7 @@ use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{BLSSignature, MerkleHash, SignedTransaction, ReceiptTransaction};
 use std::sync::Arc;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthorityProposal {
@@ -71,6 +72,7 @@ impl BeaconBlockHeader {
 impl Header for BeaconBlockHeader {
     fn hash(&self) -> CryptoHash {
         // TODO: must be hash of the block.
+        // TODO: Must not be recomputed.
         hash_struct(&self.body)
     }
 
@@ -107,7 +109,7 @@ impl BeaconBlockBody {
 
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BeaconBlock {
     pub header: BeaconBlockHeader,
     pub body: BeaconBlockBody
@@ -129,7 +131,7 @@ impl BeaconBlock {
     }
 
     pub fn sign(&mut self, signer: &Arc<Signer>) {
-        self.header.signature = signer.sign(&self.hash());
+        self.header.signature = signer.sign(&self.header_hash());
     }
 }
 
@@ -153,7 +155,21 @@ impl Block for BeaconBlock {
         BeaconBlock { header, body }
     }
 
-    fn hash(&self) -> CryptoHash {
+    fn header_hash(&self) -> CryptoHash {
         self.header.hash()
     }
 }
+
+impl Hash for BeaconBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.header.hash().hash(state);
+    }
+}
+
+impl PartialEq for BeaconBlock {
+    fn eq(&self, other: &BeaconBlock) -> bool {
+        self.header.hash() == other.header.hash()
+    }
+}
+
+impl Eq for BeaconBlock {}

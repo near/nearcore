@@ -60,7 +60,7 @@ pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq
     fn body(&self) -> &Self::Body;
     fn deconstruct(self) -> (Self::Header, Self::Body);
     fn new(header: Self::Header, body: Self::Body) -> Self;
-    fn hash(&self) -> CryptoHash;
+    fn header_hash(&self) -> CryptoHash;
 }
 
 /// Trait to abstract the way signing happens.
