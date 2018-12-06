@@ -169,12 +169,9 @@ class NearRPC(object):
         amount,
         method_name,
         args=None,
-        call_backs=None,
     ):
         if args is None:
             args = [[]]
-        if call_backs is None:
-            call_backs = []
 
         nonce = self._get_nonce(sender)
         params = {
@@ -184,7 +181,6 @@ class NearRPC(object):
             'amount': amount,
             'method_name': method_name,
             'args': args,
-            'call_backs': call_backs,
         }
         self._update_nonce(sender)
         response = self._call_rpc('schedule_function_call', params)

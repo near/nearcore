@@ -23,14 +23,16 @@ pub type MerkleHash = CryptoHash;
 pub type BLSSignature = Signature;
 
 pub type ReceiptId = Vec<u8>;
-pub type CallBackId = Vec<u8>;
+pub type CallbackId = Vec<u8>;
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum PromiseId {
     Receipt(ReceiptId),
-    CallBack(CallBackId),
+    Callback(CallbackId),
     Joiner(Vec<ReceiptId>),
 }
+
+pub type ShardId = u32;
 
 impl<'a> From<&'a AccountAlias> for AccountId {
     fn from(alias: &AccountAlias) -> Self {
@@ -146,7 +148,7 @@ impl SignedTransaction {
 #[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ReceiptBody {
     NewCall(AsyncCall),
-    CallBack(CallBack),
+    Callback(CallbackResult),
     Refund,
 }
 
@@ -156,11 +158,11 @@ pub struct AsyncCall {
     pub mana: u32,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
-    pub callback: Option<CallBackId>,
+    pub callback: Option<CallbackInfo>,
 }
 
 impl AsyncCall {
-    pub fn new(amount: u64, mana: u32, method_name: Vec<u8>, args: Vec<u8>) -> Self {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>, amount: u64, mana: u32) -> Self {
         AsyncCall {
             amount,
             mana,
@@ -171,19 +173,51 @@ impl AsyncCall {
     }
 }
 
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct CallBack {
-    // callback id
-    pub id: CallBackId,
-    // results
-    pub results: Option<Vec<u8>>,
-    // number of results expected,
-    pub num_results: u32,
+pub struct Callback {
+    pub method_name: Vec<u8>,
+    pub args: Vec<u8>,
+    pub results: Vec<Option<Vec<u8>>>,
 }
 
-impl CallBack {
-    pub fn new(id: CallBackId, results: Option<Vec<u8>>, num_results: u32) -> Self {
-        CallBack { id, results, num_results }
+impl Callback {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>) -> Self {
+        Callback {
+            method_name,
+            args,
+            results: vec![],
+        }
+    }
+}
+
+#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CallbackInfo {
+    // callback id
+    pub id: CallbackId,
+    // index to write to
+    pub result_index: usize,
+    // shard that it came from
+    pub shard_id: ShardId,
+}
+
+impl CallbackInfo {
+    pub fn new(id: CallbackId, result_index: usize, shard_id: ShardId) -> Self {
+        CallbackInfo { id, result_index, shard_id }
+    }
+}
+
+#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CallbackResult {
+    // callback id
+    pub id: CallbackId,
+    // callback result
+    pub result: Option<Vec<u8>>,
+    // index to write to
+    pub result_index: usize,
+}
+
+impl CallbackResult {
+    pub fn new(id: CallbackId, result: Option<Vec<u8>>, result_index: usize) -> Self {
+        CallbackResult { id, result, result_index }
     }
 }
 

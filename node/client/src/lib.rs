@@ -118,7 +118,7 @@ impl Client {
                 block_index: last_header.body.index,
                 parent_block_hash: parent_hash,
             };
-            let (filtered_transactions, mut apply_result) =
+            let (filtered_transactions, _, mut apply_result) =
                 self.runtime.borrow_mut().apply(&apply_state, transactions, &mut vec![]);
             if apply_result.root != header.body.merkle_root_state
                 || filtered_transactions.len() != num_transactions
