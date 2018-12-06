@@ -96,6 +96,7 @@ fn test_schedule_function_call() {
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
         .arg("test_contract_name")
+        .arg("0")
         .arg("run_test")
         .arg("-d")
         .arg(KEY_STORE_PATH)

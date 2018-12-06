@@ -4,7 +4,7 @@ use message::{self, Message, MessageBody};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, Decode, Encode, GenericResult, Header as BlockHeader};
-use primitives::types::{BlockId, SignedTransaction};
+use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
 use rand::{seq, thread_rng};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -81,6 +81,7 @@ pub struct Protocol<B: Block, H: ProtocolHandler> {
 
 pub trait ProtocolHandler: 'static {
     fn handle_transaction(&self, transaction: SignedTransaction) -> GenericResult;
+    fn handle_receipt(&self, receipt: ReceiptTransaction) -> GenericResult;
 }
 
 impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
@@ -121,6 +122,11 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
     pub fn on_transaction_message(&self, tx: SignedTransaction) {
         //TODO: communicate to consensus
         self.handler.as_ref().unwrap().handle_transaction(tx).unwrap();
+    }
+
+    // we will not actually need this until we have shards
+    fn on_receipt_message(&self, receipt: ReceiptTransaction) {
+        self.handler.as_ref().unwrap().handle_receipt(receipt).unwrap();
     }
 
     fn on_status_message<Header: BlockHeader>(
@@ -234,6 +240,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         };
         match message.body {
             MessageBody::Transaction(tx) => { self.on_transaction_message(*tx) }
+            MessageBody::Receipt(receipt) => self.on_receipt_message(receipt),
             MessageBody::Status(status) => {
                 self.on_status_message::<Header>(net_sync, peer, &status)
             }
@@ -344,7 +351,7 @@ mod tests {
     use super::*;
     use client::test_utils::*;
     use primitives::hash::hash;
-    use primitives::types;
+    use primitives::types::{SignedTransaction, TransactionBody};
     use std::cell::RefCell;
     use std::rc::Rc;
     use test_utils::*;
@@ -361,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let tx = types::SignedTransaction::empty();
+        let tx = SignedTransaction::empty();
         let message: Message<MockBlock, MockBlockHeader> =
             Message::new(MessageBody::Transaction(Box::new(tx)));
         let config = ProtocolConfig::default();
@@ -376,7 +383,7 @@ mod tests {
         let config = ProtocolConfig::default();
         let mock_client = Arc::new(MockClient::default());
         let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-        let tx = types::SignedTransaction::empty();
+        let tx = SignedTransaction::empty();
         protocol.on_transaction_message(tx);
     }
 
@@ -390,7 +397,7 @@ mod tests {
         let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::new(
             DEFAULT_SIGNATURE,
-            types::TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
+            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
         ));
         assert_eq!(client.num_transactions(), 1);
         assert_eq!(client.num_blocks_in_queue(), 0);

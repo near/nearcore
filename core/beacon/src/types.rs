@@ -1,7 +1,7 @@
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
 use primitives::traits::{Block, Header, Signer};
-use primitives::types::{BLSSignature, MerkleHash, SignedTransaction};
+use primitives::types::{BLSSignature, MerkleHash, SignedTransaction, ReceiptTransaction};
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -84,9 +84,33 @@ impl Header for BeaconBlockHeader {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlockBody {
+    pub transactions: Vec<SignedTransaction>,
+    pub receipts: Vec<ReceiptTransaction>,
+}
+
+impl BeaconBlockBody {
+    pub fn new(transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptTransaction>) -> Self {
+        BeaconBlockBody {
+            transactions,
+            receipts,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.transactions.len() + self.receipts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlock {
     pub header: BeaconBlockHeader,
-    pub transactions: Vec<SignedTransaction>,
+    pub body: BeaconBlockBody
     // TODO: weight
 }
 
@@ -96,10 +120,11 @@ impl BeaconBlock {
         parent_hash: CryptoHash,
         merkle_root_state: MerkleHash,
         transactions: Vec<SignedTransaction>,
+        receipts: Vec<ReceiptTransaction>,
     ) -> Self {
         BeaconBlock {
             header: BeaconBlockHeader::empty(index, parent_hash, merkle_root_state),
-            transactions,
+            body: BeaconBlockBody::new(transactions, receipts),
         }
     }
 
@@ -110,22 +135,22 @@ impl BeaconBlock {
 
 impl Block for BeaconBlock {
     type Header = BeaconBlockHeader;
-    type Body = Vec<SignedTransaction>;
+    type Body = BeaconBlockBody;
 
     fn header(&self) -> &Self::Header {
         &self.header
     }
 
     fn body(&self) -> &Self::Body {
-        &self.transactions
+        &self.body
     }
 
     fn deconstruct(self) -> (Self::Header, Self::Body) {
-        (self.header, self.transactions)
+        (self.header, self.body)
     }
 
     fn new(header: Self::Header, body: Self::Body) -> Self {
-        BeaconBlock { header, transactions: body }
+        BeaconBlock { header, body }
     }
 
     fn hash(&self) -> CryptoHash {

@@ -69,20 +69,21 @@ impl Chain<BeaconBlock> for Client {
         // TODO: compute actual merkle root and state, as well as signature, and
         // use some reasonable fork-choice rule
         let last_block = self.beacon_chain.best_block();
-        let transactions = std::mem::replace(&mut *self.tx_pool.write(), vec![]);
+        let (transactions, mut receipts) = self.tx_pool.write().drain();
         let apply_state = ApplyState {
             root: last_block.header().body.merkle_root_state,
             parent_block_hash: last_block.hash(),
             block_index: last_block.header().index() + 1,
         };
-        let (filtered_transactions, mut apply_result) =
-            self.runtime.apply(&apply_state, transactions);
+        let (filtered_transactions, filtered_receipts, mut apply_result) =
+            self.runtime.borrow_mut().apply(&apply_state, transactions, &mut receipts);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,
             last_block.hash(),
             apply_result.root,
             filtered_transactions,
+            filtered_receipts,
         );
         block.sign(&self.signer);
         self.beacon_chain.insert_block(block.clone());

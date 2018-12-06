@@ -2,6 +2,7 @@ use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use node_runtime::StateDbViewer;
 use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
+use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
@@ -83,7 +84,7 @@ impl TransactionApi for RpcImpl {
             receiver: r.contract_account_id,
             amount: 0,
             method_name: "deploy".into(),
-            args: vec![r.wasm_byte_array],
+            args: r.wasm_byte_array,
         };
         Ok(PreparedTransactionBodyResponse { body })
     }
@@ -97,7 +98,7 @@ impl TransactionApi for RpcImpl {
             sender: r.sender_account_id,
             receiver: r.receiver_account_id,
             amount: r.amount,
-            method_name: String::new(),
+            method_name: vec![],
             args: Vec::new(),
         };
         Ok(PreparedTransactionBodyResponse { body })
@@ -112,8 +113,8 @@ impl TransactionApi for RpcImpl {
             sender: r.sender_account_id,
             receiver: r.contract_account_id,
             amount: 0,
-            method_name: r.method_name,
-            args: r.args,
+            method_name: r.method_name.into_bytes(),
+            args: concat(r.args),
         };
         Ok(PreparedTransactionBodyResponse { body })
     }
@@ -188,7 +189,7 @@ mod tests {
                 sender: hash(b"alice"),
                 receiver: hash(b"bob"),
                 amount: 1,
-                method_name: String::new(),
+                method_name: vec![],
                 args: Vec::new(),
             },
         };

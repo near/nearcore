@@ -92,7 +92,7 @@ pub fn main() {
                     amount: 1,
                     sender: hash(b"bob"),
                     receiver: hash(b"alice"),
-                    method_name: String::new(),
+                    method_name: vec![],
                     args: vec![],
                 };
                 let tx = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);

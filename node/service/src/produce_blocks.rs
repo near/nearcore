@@ -19,8 +19,8 @@ pub fn generate_produce_blocks_task(
                 // relies specifically on Chain trait
                 let block = client.prod_block();
                 // relies specifically on BeaconBlock Body type
-                if !block.transactions.is_empty() {
-                    info!(target: "service", "Transactions: {:?}", block.transactions);
+                if !block.body.is_empty() {
+                    info!(target: "service", "Block body: {:?}", block.body);
                 }
                 Ok(())
             }

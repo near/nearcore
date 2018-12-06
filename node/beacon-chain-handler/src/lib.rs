@@ -3,6 +3,7 @@ extern crate chain;
 extern crate node_runtime;
 extern crate primitives;
 extern crate storage;
+extern crate parking_lot;
 
 use beacon::types::BeaconBlock;
 use chain::BlockChain;
@@ -12,6 +13,7 @@ use primitives::traits::Signer;
 use primitives::types::ConsensusBlockBody;
 use primitives::types::SignedTransaction;
 use std::sync::Arc;
+use parking_lot::RwLock;
 use storage::StateDb;
 
 pub trait ConsensusHandler<B: Block, P>: Send + Sync {
@@ -20,7 +22,7 @@ pub trait ConsensusHandler<B: Block, P>: Send + Sync {
 
 pub struct BeaconBlockProducer {
     beacon_chain: Arc<BlockChain<BeaconBlock>>,
-    runtime: Runtime,
+    runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
 }
@@ -34,7 +36,7 @@ impl BeaconBlockProducer {
     ) -> Self {
         BeaconBlockProducer {
             beacon_chain,
-            runtime,
+            runtime: Arc::new(RwLock::new(runtime)),
             signer,
             state_db,
         }
@@ -58,14 +60,15 @@ impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProduc
             parent_block_hash: last_block.hash(),
             block_index: last_block.header().index() + 1,
         };
-        let (filtered_transactions, mut apply_result) =
-            self.runtime.apply(&apply_state, transactions);
+        let (filtered_transactions, filtered_receipts, mut apply_result) =
+            self.runtime.write().apply(&apply_state, transactions, &mut vec![]);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,
             last_block.hash(),
             apply_result.root,
             filtered_transactions,
+            filtered_receipts,
         );
         block.sign(&self.signer);
         self.beacon_chain.insert_block(block.clone());

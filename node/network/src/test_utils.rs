@@ -87,6 +87,11 @@ impl ProtocolHandler for MockProtocolHandler {
         println!("{:?}", t);
         Ok(())
     }
+
+    fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
+        println!("{:?}", receipt);
+        Ok(())
+    }
 }
 
 pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
@@ -180,6 +185,10 @@ pub struct MockHandler {
 impl ProtocolHandler for MockHandler {
     fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
         self.client.handle_signed_transaction(t)
+    }
+    
+    fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
+        self.client.handle_receipt_transaction(receipt)
     }
 }
 
