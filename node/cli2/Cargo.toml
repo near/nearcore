@@ -8,6 +8,7 @@ futures = "0.1.25"
 tokio = "0.1.11"
 
 beacon = { path = "../../core/beacon" }
+beacon-chain-handler = { path = "../beacon-chain-handler" }
 chain = { path = "../../core/chain" }
 client = { path = "../client" }
 node-runtime = { path = "../runtime" }

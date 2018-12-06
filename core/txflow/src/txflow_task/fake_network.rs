@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::TxFlowTask;
 
 use futures::{Future, Sink, Stream};

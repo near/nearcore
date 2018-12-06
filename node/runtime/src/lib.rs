@@ -321,7 +321,52 @@ impl Runtime {
         (filtered_transactions, ApplyResult { root: new_root, transaction, authority_proposals })
     }
 
-    pub fn view(&self, root: MerkleHash, view_call: &ViewCall) -> ViewCallResult {
+    pub fn apply_genesis_state(
+        &self,
+        balances: &[(AccountAlias, PublicKeyAlias, u64)],
+        wasm_binary: &[u8],
+    ) -> MerkleHash {
+        let mut state_db_update =
+            storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
+        set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
+        balances.iter().for_each(|(account_alias, public_key, balance)| {
+            set(
+                &mut state_db_update,
+                &account_id_to_bytes(AccountId::from(account_alias)),
+                &Account {
+                    public_keys: vec![PublicKey::from(public_key)],
+                    amount: *balance,
+                    nonce: 0,
+                    code: wasm_binary.to_vec(),
+                },
+            );
+        });
+        let (mut transaction, genesis_root) = state_db_update.finalize();
+        // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
+        self.state_db.commit(&mut transaction).expect("Failed to commit genesis state");
+        genesis_root
+    }
+}
+
+pub struct StateDbViewer {
+    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+    state_db: Arc<StateDb>,
+}
+
+impl StateDbViewer {
+    pub fn new(beacon_chain: Arc<BlockChain<BeaconBlock>>, state_db: Arc<StateDb>) -> Self {
+        StateDbViewer {
+            beacon_chain,
+            state_db,
+        }
+    }
+
+    pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
+        let root = self.beacon_chain.best_block().header().body.merkle_root_state;
+        self.view_at(view_call, root)
+    }
+
+    fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         match get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
             Some(account) => {
@@ -358,65 +403,21 @@ impl Runtime {
             }
         }
     }
-
-    pub fn apply_genesis_state(
-        &self,
-        balances: &[(AccountAlias, PublicKeyAlias, u64)],
-        wasm_binary: &[u8],
-    ) -> MerkleHash {
-        let mut state_db_update =
-            storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
-        set(&mut state_db_update, RUNTIME_DATA, &RuntimeData::default());
-        balances.iter().for_each(|(account_alias, public_key, balance)| {
-            set(
-                &mut state_db_update,
-                &account_id_to_bytes(AccountId::from(account_alias)),
-                &Account {
-                    public_keys: vec![PublicKey::from(public_key)],
-                    amount: *balance,
-                    nonce: 0,
-                    code: wasm_binary.to_vec(),
-                },
-            );
-        });
-        let (mut transaction, genesis_root) = state_db_update.finalize();
-        // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
-        self.state_db.commit(&mut transaction).expect("Failed to commit genesis state");
-        genesis_root
-    }
-}
-
-pub struct StateDbViewer {
-    beacon_chain: BlockChain<BeaconBlock>,
-    runtime: Runtime,
-}
-
-impl StateDbViewer {
-    pub fn new(beacon_chain: BlockChain<BeaconBlock>, runtime: Runtime) -> Self {
-        StateDbViewer {
-            beacon_chain,
-            runtime,
-        }
-    }
-
-    pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
-        let root = self.beacon_chain.best_block().header().body.merkle_root_state;
-        self.runtime.view(root, &view_call)
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::sync::Arc;
 
     use primitives::hash::hash;
-    use primitives::signature::get_keypair;
     use primitives::types::TransactionBody;
     use storage::test_utils::create_state_db;
 
     use super::*;
     use primitives::signature::DEFAULT_SIGNATURE;
+    use test_utils::get_test_state_db_viewer;
+    use test_utils::get_runtime_and_state_db_viewer;
+    use std::fs;
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -424,58 +425,64 @@ mod tests {
         }
     }
 
-    fn apply_default_genesis_state(runtime: &Runtime) -> MerkleHash {
-        let (public_key, _) = get_keypair();
-        let accounts = vec![
-            ("alice".into(), public_key.to_string(), 0),
-            ("bob".into(), public_key.to_string(), 100),
-            ("john".into(), public_key.to_string(), 0),
-        ];
-        let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
-            .expect("Unable to read file");
-        runtime.apply_genesis_state(&accounts, &wasm_binary)
-    }
-
     #[test]
     fn test_genesis_state() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
-        let result = runtime.view(root, &ViewCall::balance(hash(b"bob")));
+        let viewer = get_test_state_db_viewer();
+        let result = viewer.view(&ViewCall::balance(hash(b"alice")));
         assert_eq!(
             result,
-            ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![] }
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![] }
         );
         let result2 =
-            runtime.view(root, &ViewCall::func_call(hash(b"bob"), "run_test".to_string(), vec![]));
+            viewer.view(&ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]));
         assert_eq!(
             result2,
-            ViewCallResult { account: hash(b"bob"), amount: 100, nonce: 0, result: vec![20, 0, 0, 0] }
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![20, 0, 0, 0] }
         );
     }
 
     #[test]
     fn test_transfer_stake() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let t = SignedTransaction::new(
             DEFAULT_SIGNATURE,
-            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 100, String::new(), vec![]),
+            TransactionBody::new(
+                1,
+                hash(b"alice"),
+                hash(b"bob"),
+                100,
+                String::new(),
+                vec![],
+            ),
         );
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let apply_state = ApplyState {
+            root,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+        };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![t]);
-        assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).ok();
         assert_eq!(filtered_tx.len(), 1);
-        let result1 = runtime.view(apply_result.root, &ViewCall::balance(hash(b"bob")));
+        let result1 = viewer.view_at(&ViewCall::balance(hash(b"alice")), apply_result.root);
         assert_eq!(
             result1,
-            ViewCallResult { account: hash(b"bob"), amount: 0, nonce: 1, result: vec![] }
+            ViewCallResult {
+                account: hash(b"alice"),
+                amount: 0,
+                nonce: 1,
+                result: vec![],
+            }
         );
-        let result2 = runtime.view(apply_result.root, &ViewCall::balance(hash(b"alice")));
+        let result2 = viewer.view_at(&ViewCall::balance(hash(b"bob")), apply_result.root);
         assert_eq!(
             result2,
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, result: vec![] }
+            ViewCallResult {
+                account: hash(b"bob"),
+                amount: 100,
+                nonce: 0,
+                result: vec![],
+            }
         );
     }
 
@@ -507,32 +514,35 @@ mod tests {
 
     #[test]
     fn test_smart_contract() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody {
             nonce: 1,
-            sender: hash(b"bob"),
-            receiver: hash(b"alice"),
+            sender: hash(b"alice"),
+            receiver: hash(b"bob"),
             amount: 0,
             method_name: "run_test".to_string(),
             args: vec![],
         };
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let apply_state = ApplyState {
+            root,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+        };
         let (filtered_tx, _) = runtime.apply(&apply_state, vec![transaction]);
         assert_eq!(filtered_tx.len(), 1);
     }
 
     #[test]
     fn test_upload_contract() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
         let tx_body = TransactionBody {
             nonce: 1,
-            sender: hash(b"bob"),
+            sender: hash(b"alice"),
             receiver: hash(b"xyz"),
             amount: 0,
             method_name: "deploy".to_string(),
@@ -553,12 +563,12 @@ mod tests {
     #[test]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody {
             nonce: 1,
-            sender: hash(b"bob"),
-            receiver: hash(b"alice"),
+            sender: hash(b"alice"),
+            receiver: hash(b"bob"),
             amount: 0,
             method_name: "deploy".to_string(),
             args: vec![test_binary.to_vec()],
@@ -571,39 +581,60 @@ mod tests {
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
-        let new_account: Account =
-            get(&mut new_state_update, &account_id_to_bytes(hash(b"alice"))).unwrap();
+        let new_account: Account = get(
+            &mut new_state_update,
+            &account_id_to_bytes(hash(b"bob"))
+        ).unwrap();
         assert_eq!(new_account.code, test_binary.to_vec())
     }
 
     #[test]
     fn test_send_money_and_execute_contract() {
-        let runtime = Runtime::default();
-        let root = apply_default_genesis_state(&runtime);
+        let (runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody {
             nonce: 1,
-            sender: hash(b"bob"),
-            receiver: hash(b"alice"),
+            sender: hash(b"alice"),
+            receiver: hash(b"bob"),
             amount: 10,
             method_name: "run_test".to_string(),
             args: vec![],
         };
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let apply_state = ApplyState {
+            root,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+        };
         let (filtered_tx, mut apply_result) = runtime.apply(&apply_state, vec![transaction]);
         assert_eq!(filtered_tx.len(), 1);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = runtime.view(apply_result.root, &ViewCall::balance(hash(b"bob")));
+        let result1 = viewer.view_at(
+            &ViewCall::balance(hash(b"alice")),
+            apply_result.root,
+        );
         assert_eq!(
             result1,
-            ViewCallResult { nonce: 1, account: hash(b"bob"), amount: 90, result: vec![] }
+            ViewCallResult {
+                nonce: 1,
+                account: hash(b"alice"),
+                amount: 90,
+                result: vec![],
+            }
         );
-        let result2 = runtime.view(apply_result.root, &ViewCall::balance(hash(b"alice")));
+        let result2 = viewer.view_at(
+            &ViewCall::balance(hash(b"bob")),
+            apply_result.root,
+        );
         assert_eq!(
             result2,
-            ViewCallResult { nonce: 0, account: hash(b"alice"), amount: 10, result: vec![] }
+            ViewCallResult {
+                nonce: 0,
+                account: hash(b"bob"),
+                amount: 10,
+                result: vec![],
+            }
         );
     }
 }

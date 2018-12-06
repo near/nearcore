@@ -1,4 +1,5 @@
 extern crate beacon;
+extern crate beacon_chain_handler;
 extern crate chain;
 extern crate clap;
 extern crate client;
@@ -15,19 +16,23 @@ extern crate service;
 extern crate storage;
 extern crate tokio;
 
+use beacon::types::BeaconBlock;
+use beacon_chain_handler::{
+    BeaconBlockProducer, BeaconChainConsensusBlockBody,
+    ConsensusHandler,
+};
+use chain::BlockChain;
 use clap::{App, Arg};
 use futures::future;
-use futures::sync::mpsc::channel;
+use futures::sync::mpsc::{channel, Receiver};
 use node_rpc::api::RpcImpl;
+use node_runtime::{Runtime, StateDbViewer};
+use primitives::hash::CryptoHash;
+use primitives::signer::InMemorySigner;
 use std::path::Path;
 use std::sync::Arc;
-use storage::Storage;
-use node_runtime::Runtime;
-use storage::StateDb;
-use beacon::types::BeaconBlock;
-use primitives::hash::CryptoHash;
-use chain::BlockChain;
-use node_runtime::StateDbViewer;
+use storage::{StateDb, Storage};
+use tokio::prelude::*;
 
 mod chain_spec;
 
@@ -37,25 +42,51 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 
+fn get_beacon_block_producer_task(
+    consensus_handler: &Arc<BeaconBlockProducer>,
+    receiver: Receiver<BeaconChainConsensusBlockBody>
+) -> impl Future<Item = (), Error = ()> {
+    receiver.fold(consensus_handler.clone(), |consensus_handler, body| {
+        consensus_handler.produce_block(body);
+        future::ok(consensus_handler)
+    }).and_then(|_| Ok(()))
+}
+
 fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let storage = get_storage(base_path);
     let chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
 
     let state_db = Arc::new(StateDb::new(storage.clone()));
-    let runtime = Runtime::new(state_db);
+    let runtime = Runtime::new(state_db.clone());
     let genesis_root = runtime.apply_genesis_state(
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
     );
 
     let genesis = BeaconBlock::new(0, CryptoHash::default(), genesis_root, vec![]);
-    let beacon_chain = BlockChain::new(genesis, storage.clone());
-
-    let state_db_viewer = StateDbViewer::new(beacon_chain, runtime);
+    let beacon_chain = Arc::new(BlockChain::new(genesis, storage.clone()));
+    let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     let (submit_txn_tx, _submit_txn_rx) = channel(1024);
     let rpc_impl = RpcImpl::new(state_db_viewer, submit_txn_tx);
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let server = node_rpc::server::get_server(rpc_handler);
+
+    let signer = Arc::new(InMemorySigner::default());
+    let beacon_block_producer = Arc::new(BeaconBlockProducer::new(
+        beacon_chain.clone(),
+        runtime,
+        signer,
+        state_db.clone(),
+    ));
+    let (
+        _beacon_block_consensus_body_tx,
+        beacon_block_consensus_body_rx,
+    ) = channel(1024);
+    let block_produce_task = get_beacon_block_producer_task(
+        &beacon_block_producer,
+        beacon_block_consensus_body_rx,
+    );
+    tokio::spawn(block_produce_task);
 
     tokio::run(future::lazy(|| {
         server.wait();

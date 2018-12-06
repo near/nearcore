@@ -1,0 +1,10 @@
+[package]
+name = "beacon-chain-handler"
+version = "0.1.0"
+
+[dependencies]
+beacon = { path = "../../core/beacon" }
+chain = { path = "../../core/chain" }
+primitives = { path = "../../core/primitives" }
+node-runtime = { path = "../runtime" }
+storage = { path = "../../core/storage" }

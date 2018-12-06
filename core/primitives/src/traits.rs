@@ -110,8 +110,8 @@ pub trait TxFlow<P: Payload> {
     /// Subscribes to the consensus blocks produced by TxFlow. The consensus blocks contain messages
     /// with payload + some content specific to whether TxFlow is used on the Beacon Chain or in
     /// the shard.
-    fn subscribe_to_consensus_blocks<C>(
+    fn subscribe_to_consensus_blocks(
         &mut self,
-        subscriber: &Fn(types::ConsensusBlockBody<P, C>),
+        subscriber: &Fn(types::ConsensusBlockBody<P>),
     ) -> GenericResult;
 }

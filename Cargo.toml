@@ -21,6 +21,7 @@ members = [
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
+    "node/beacon-chain-handler",
     "node/cli",
     "node/cli2",
     "node/rpc",
