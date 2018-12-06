@@ -15,4 +15,5 @@ network = { path = "../network", features = ["test-utils"] }
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
+parking_lot = "0.6"
 service = { path = "../service" }

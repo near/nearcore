@@ -3,9 +3,10 @@ use run_service;
 use std::sync::Arc;
 use std::time::Duration;
 use network::test_utils::get_noop_network_task;
+use parking_lot::RwLock;
 
 pub fn run_test_service() {
-    let client = Arc::new(generate_test_client());
+    let client = Arc::new(RwLock::new(generate_test_client()));
     let network_task = get_noop_network_task();
     let produce_blocks_interval_duration = Duration::from_secs(2);
     run_service(

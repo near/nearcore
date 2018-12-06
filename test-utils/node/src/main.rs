@@ -21,6 +21,7 @@ use futures::{Future, Stream};
 use network::service::generate_service_task;
 use network::{protocol::ProtocolConfig, service::Service, test_utils::*};
 use node_cli::chain_spec::get_default_chain_spec;
+use parking_lot::RwLock;
 use primitives::hash::hash;
 use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::signer::InMemorySigner;
@@ -68,7 +69,7 @@ pub fn main() {
     let chain_spec = get_default_chain_spec().unwrap();
     let storage = Arc::new(storage::test_utils::create_memory_db());
     let signer = Arc::new(InMemorySigner::new());
-    let client = Arc::new(Client::new(&chain_spec, storage, signer));
+    let client = Arc::new(RwLock::new(Client::new(&chain_spec, storage, signer)));
     let protocol_config = if is_root {
         ProtocolConfig::new_with_default_id(special_secret())
     } else {
@@ -96,7 +97,7 @@ pub fn main() {
                     args: vec![],
                 };
                 let tx = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-                client.receive_transaction(tx);
+                client.write().receive_transaction(tx);
                 Ok(())
             }
         }).map_err(|_| ());

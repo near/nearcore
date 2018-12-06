@@ -4,6 +4,7 @@ extern crate client;
 extern crate network;
 extern crate node_runtime;
 extern crate primitives;
+extern crate parking_lot;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -31,6 +32,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use parking_lot::RwLock;
 
 pub mod chain_spec;
 
@@ -57,7 +59,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericRes
     info!("Public key: {}", signer.public_key());
     let storage_path = get_storage_path(base_path);
     let storage = Arc::new(storage::open_database(&storage_path.to_string_lossy()));
-    let client = Arc::new(Client::new(&chain_spec, storage, signer));
+    let client = Arc::new(RwLock::new(Client::new(&chain_spec, storage, signer)));
     let network_handler = NetworkHandler { client: client.clone() };
     let network = NetworkService::new(
         ProtocolConfig::default(),

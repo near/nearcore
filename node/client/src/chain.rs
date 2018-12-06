@@ -7,7 +7,7 @@ use primitives::types::BlockId;
 
 /// Chain Backend trait
 /// an abstraction that communicates chain info to network
-pub trait Chain<B: Block> {
+pub trait Chain<B: Block>: Send + Sync {
     // get block from id
     fn get_block(&self, id: &BlockId) -> Option<B>;
     // get block header from id
