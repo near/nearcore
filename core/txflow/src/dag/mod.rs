@@ -86,9 +86,17 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
-    /// Check if a message from a fork with at least one message from the current 
-    /// point of view of the DAG and return the fork pair. 
-    /// Notice in case there is a multi-fork only one pair is reported.
+    /// Check if a message form a fork with at least one message from the point of view of the DAG.
+    /// Notice in case there is a multi-fork at least first fork is reported.
+    /// IMPORTANT: The way is currently implemented don't log all forks. 
+    /// If Alice create a fork (A0, A1) this fork is detected properly but the last message stored 
+    /// is A1, and if a new message A2 approve A1 but not A0, then fork between A2 and A0 is 
+    /// not detected. In cases of fork it might be ok detecting one fork, cause even if more 
+    /// forks from the same participant happens, he will be slashed anyway. It is not a good idea 
+    /// store all pair of message forming a fork, cause there might be a quadratic number of forks 
+    /// (related to the number of messages). 
+    /// 
+    /// Example: (A0 -> A2 -> A4 -> ... and A1 -> A3 -> A5 -> ...)
     fn detect_fork(&self, message: &Message<'a, P>) -> Option<(TxFlowHash, TxFlowHash)> {
         match self.recent_message.get(&message.data.body.owner_uid) {
             Some(head) => {
