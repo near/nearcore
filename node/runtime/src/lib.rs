@@ -134,6 +134,10 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
         self.nonce += 1;
         nonce
     }
+
+    fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
+        self.receipts.drain().map(|(_, v)| v).collect()
+    }
 }
 
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
@@ -303,6 +307,36 @@ impl Runtime {
         }
     }
 
+    fn call_function(
+        &mut self,
+        state_update: &mut StateDbUpdate,
+        sender: &mut Account,
+        sender_account_id: AccountId,
+        hash: CryptoHash,
+        method_name: &[u8],
+        args: &[u8],
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let mut runtime_ext = RuntimeExt::new(
+            state_update,
+            sender_account_id,
+            hash.into()
+        );
+        // the result of this execution is not used for now
+        executor::execute(
+            &sender.code,
+            &method_name,
+            args,
+            &[],
+            &mut runtime_ext,
+            &wasm::types::Config::default(),
+            DEFAULT_MANA_LIMIT
+        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+        self.callbacks.extend(runtime_ext.callbacks);
+        let receipts: Vec<ReceiptTransaction> =
+            runtime_ext.receipts.drain().map(|(_, v)| v).collect();
+        Ok(receipts)
+    }
+
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
@@ -368,37 +402,6 @@ impl Runtime {
         }
     }
 
-    fn call_function(
-        &mut self,
-        state_update: &mut StateDbUpdate,
-        sender: &mut Account,
-        sender_account_id: AccountId,
-        hash: CryptoHash,
-        method_name: &[u8],
-        args: &[u8],
-    ) -> Result<Vec<ReceiptTransaction>, String> {
-        let mut runtime_ext = RuntimeExt::new(
-            state_update,
-            sender_account_id,
-            hash.into()
-        );
-        // the result of this execution is not used for now
-        // TODO: Use rate limiter for MANA
-        executor::execute(
-            &sender.code,
-            &method_name,
-            args,
-            &[],
-            &mut runtime_ext,
-            &wasm::types::Config::default(),
-            DEFAULT_MANA_LIMIT,
-        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-        self.callbacks.extend(runtime_ext.callbacks);
-        let receipts: Vec<ReceiptTransaction> =
-            runtime_ext.receipts.drain().map(|(_, v)| v).collect();
-        Ok(receipts)
-    }
-
     fn deposit(
         &self,
         state_update: &mut StateDbUpdate,
@@ -451,17 +454,28 @@ impl Runtime {
                     CallbackResult::new(callback_id.clone(), None, result_index)
                 }
                 ReturnData::Promise(PromiseId::Callback(id)) => {
-                    CallbackResult::new(id, None, result_index)
+                    for receipt in runtime_ext.receipts.values_mut() {
+                        if let ReceiptBody::NewCall(ref mut call) = receipt.body {
+                            if let Some(ref mut callback) = call.callback {
+                                callback.id = id.clone();
+                                // there should be only one receipt with such id
+                                break;
+                            }
+                        }
+                    }
+                    CallbackResult::new(callback_id.clone(), None, result_index)
                 }
                 _ => return Err("return data is a non-callback promise".to_string())
             };
+            let mut receipts = runtime_ext.get_receipts();
             let new_receipt = ReceiptTransaction::new(
                 receiver_id,
                 sender_id,
                 runtime_ext.create_nonce(),
                 ReceiptBody::Callback(callback_res),
             );
-            Ok(vec![new_receipt])
+            receipts.push(new_receipt);
+            Ok(receipts)
         };
         match &async_call.callback {
             Some(callback_info) => {
@@ -513,7 +527,7 @@ impl Runtime {
                         callback.mana,
                     ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                     needs_removal = true;
-                    runtime_ext.receipts.drain().map(|(_, v)| v).collect()
+                    runtime_ext.get_receipts()
                 } else {
                     // otherwise no receipt is generated
                     vec![]
@@ -592,7 +606,6 @@ impl Runtime {
             }
         }
         // receipts to be recorded in the block
-        // for now it is not useful as we don't have shards
         let mut filtered_receipts = vec![];
         while let Some(receipt) = receipts.pop() {
             // execute same shard receipts
@@ -613,8 +626,7 @@ impl Runtime {
         }
         let (transaction, new_root) = state_update.finalize();
         // Since we only have one shard, all receipts will be executed,
-        // so no receipts is recorded here. Will change once we add
-        // sharding support
+        // filtered_receipts should be empty
         (
             filtered_transactions,
             filtered_receipts,
@@ -851,7 +863,7 @@ mod tests {
     fn test_simple_smart_contract_with_args() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
-        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction{
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: hash(b"alice"),
             contract_id: hash(b"bob"),
