@@ -9,7 +9,7 @@ pub struct Memory {
 
 #[allow(unused)]
 impl Memory {
-    pub fn new(initial: u32, maximum: Option<u32>) -> Result<Memory, Error> {
+    pub fn init(initial: u32, maximum: Option<u32>) -> Result<Memory, Error> {
         Ok(Memory {
             memref: MemoryInstance::alloc(
                 Pages(initial as usize),

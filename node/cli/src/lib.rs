@@ -102,7 +102,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
     let protocol = Protocol::<_, BeaconBlockHeader>::new(
-        protocol_config.clone(),
+        protocol_config,
         beacon_chain.clone(),
         beacon_block_tx.clone(),
         transactions_tx.clone(),
