@@ -15,7 +15,7 @@ struct ContractModule<'a> {
 }
 
 impl<'a> ContractModule<'a> {
-    fn new(original_code: &[u8], config: &'a Config) -> Result<ContractModule<'a>, Error> {
+    fn init(original_code: &[u8], config: &'a Config) -> Result<ContractModule<'a>, Error> {
         let module =
             elements::deserialize_buffer(original_code).map_err(|_| Error::Deserialization)?;
         Ok(ContractModule {
@@ -157,7 +157,7 @@ pub(super) fn prepare_contract(
     original_code: &[u8],
     config: &Config,
 ) -> Result<PreparedContract, Error> {
-    let mut contract_module = ContractModule::new(original_code, config)?;
+    let mut contract_module = ContractModule::init(original_code, config)?;
     contract_module.ensure_no_internal_memory()?;
     contract_module.inject_gas_metering()?;
     contract_module.inject_stack_height_metering()?;
@@ -180,12 +180,12 @@ pub(super) fn prepare_contract(
                 // to configured maximum.
                 return Err(Error::Memory);
             }
-            (initial, maximum) => Memory::new(initial, maximum),
+            (initial, maximum) => Memory::init(initial, maximum),
         }
     } else {
         // If none memory imported then just crate an empty placeholder.
         // Any access to it will lead to out of bounds trap.
-        Memory::new(0, Some(0))
+        Memory::init(0, Some(0))
     };
     let memory = memory.map_err(|_| Error::Memory)?;
 

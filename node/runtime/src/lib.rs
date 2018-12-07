@@ -38,7 +38,6 @@ use chain::BlockChain;
 use beacon::types::BeaconBlock;
 
 pub mod chain_spec;
-#[cfg(feature = "test-utils")]
 pub mod test_utils;
 
 const RUNTIME_DATA: &[u8] = b"runtime";

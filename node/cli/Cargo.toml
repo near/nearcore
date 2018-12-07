@@ -3,17 +3,20 @@ name = "node-cli"
 version = "0.1.0"
 
 [dependencies]
-beacon = { path = "../../core/beacon" }
 clap = "2.32.0"
-log = "0.4"
+futures = "0.1.25"
+tokio = "0.1.11"
+
+beacon = { path = "../../core/beacon" }
+beacon-chain-handler = { path = "../beacon-chain-handler" }
+chain = { path = "../../core/chain" }
+network = { path = "../network", features = ["test-utils"] }
+node-runtime = { path = "../runtime" }
+node-rpc = { path = "../rpc" }
+parking_lot = "0.6"
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-
-client = { path = "../client" }
-network = { path = "../network", features = ["test-utils"] }
-node-runtime = { path = "../runtime" }
-primitives = { path = "../../core/primitives" }
-storage = { path = "../../core/storage" }
-parking_lot = "0.6"
-service = { path = "../service" }
