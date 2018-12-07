@@ -440,6 +440,7 @@ impl Runtime {
             &[],
             &mut runtime_ext,
             &wasm::types::Config::default(),
+            async_call.mana,
         ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
         let mut gen_receipt = |callback_id: &CallbackId, return_data, result_index| {
             let callback_res = match return_data {
@@ -509,6 +510,7 @@ impl Runtime {
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
+                        callback.mana,
                     ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                     needs_removal = true;
                     runtime_ext.receipts.drain().map(|(_, v)| v).collect()
@@ -693,7 +695,7 @@ impl StateDbViewer {
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
-                        DEFAULT_MANA_LIMIT,
+                        0,
                     );
                     match wasm_res {
                         Ok(res) => {
