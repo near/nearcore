@@ -34,7 +34,7 @@ pub mod test_utils;
 pub struct Client {
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
-    runtime: Rc<RefCell<Runtime>>,
+    runtime: Arc<RwLock<Runtime>>,
     authority: Authority,
     beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
@@ -71,7 +71,7 @@ impl Client {
             signer,
             state_db,
             beacon_chain,
-            runtime: Rc::new(RefCell::new(runtime)),
+            runtime: Arc::new(RwLock::new(runtime)),
             authority,
             tx_pool: RwLock::new(TransactionPool::new()),
             import_queue: RwLock::new(ImportQueue::new()),
@@ -103,7 +103,7 @@ impl Client {
 
     /// Import a block. Returns true if it is successfully inserted into the chain
     fn import_block(&self, block: BeaconBlock) -> bool {
-        if self.beacon_chain.is_known(&block.hash()) {
+        if self.beacon_chain.is_known(&block.header_hash()) {
             return false;
         }
         let parent_hash = block.header().parent_hash();
@@ -122,7 +122,7 @@ impl Client {
                 parent_block_hash: parent_hash,
             };
             let (filtered_transactions, filtered_receipts, mut apply_result) =
-                self.runtime.borrow_mut().apply(&apply_state, body.transactions, &mut body.receipts);
+                self.runtime.write().apply(&apply_state, body.transactions, &mut body.receipts);
             if apply_result.root != header.body.merkle_root_state
                 || filtered_transactions.len() != num_transactions
                 || filtered_receipts.len() != num_receipts
@@ -156,7 +156,7 @@ mod tests {
         let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            genesis_block.hash(),
+            genesis_block.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![]
@@ -171,14 +171,14 @@ mod tests {
         let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            genesis_block.hash(),
+            genesis_block.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![]
         );
         let block2 = BeaconBlock::new(
             2,
-            block1.hash(),
+            block1.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![]
@@ -207,14 +207,14 @@ mod tests {
         let genesis_block = client.beacon_chain.best_block();
         let block1 = BeaconBlock::new(
             1,
-            genesis_block.hash(),
+            genesis_block.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![],
         );
         let block2 = BeaconBlock::new(
             2,
-            block1.hash(),
+            block1.header_hash(),
             genesis_block.header().body.merkle_root_state,
             vec![],
             vec![],

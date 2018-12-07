@@ -1,14 +1,12 @@
 use client::chain::Chain;
 use error::Error;
-use futures::{self, stream, Future, Stream};
+use futures::{stream, Future, Stream};
 use io::NetSyncIo;
 use primitives::traits::{Block, Header as BlockHeader};
 use protocol::ProtocolHandler;
 use protocol::{self, Protocol, ProtocolConfig};
-use std::cell::RefCell;
-use std::io;
-use std::rc::Rc;
 use std::sync::Arc;
+use parking_lot::{Mutex, RwLock};
 use std::time::Duration;
 pub use substrate_network_libp2p::NetworkConfiguration;
 use substrate_network_libp2p::{
@@ -17,11 +15,10 @@ use substrate_network_libp2p::{
 use tokio::timer::Interval;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
-const BLOCK_PROD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct Service<B: Block, H: ProtocolHandler> {
-    pub network: Rc<RefCell<NetworkService>>,
-    pub protocol: Rc<Protocol<B, H>>,
+    pub network: Arc<Mutex<NetworkService>>,
+    pub protocol: Arc<Protocol<B, H>>,
 }
 
 impl<B: Block, H: ProtocolHandler> Service<B, H> {
@@ -29,13 +26,13 @@ impl<B: Block, H: ProtocolHandler> Service<B, H> {
         config: ProtocolConfig,
         net_config: NetworkConfiguration,
         handler: H,
-        chain: Arc<Chain<B>>,
+        chain: Arc<RwLock<Chain<B>>>,
     ) -> Result<Service<B, H>, Error> {
         let version = [protocol::CURRENT_VERSION as u8];
         let registered = RegisteredProtocol::new(config.protocol_id, &version);
-        let protocol = Rc::new(Protocol::new(config, handler, chain));
+        let protocol = Arc::new(Protocol::new(config, handler, chain));
         let service = match start_service(net_config, Some(registered)) {
-            Ok(s) => Rc::new(RefCell::new(s)),
+            Ok(s) => Arc::new(Mutex::new(s)),
             Err(e) => return Err(e.into()),
         };
         Ok(Service { network: service, protocol })
@@ -43,9 +40,10 @@ impl<B: Block, H: ProtocolHandler> Service<B, H> {
 }
 
 pub fn generate_service_task<B, H, Header>(
-    network_service: Rc<RefCell<NetworkService>>,
-    protocol: Rc<Protocol<B, H>>,
-) -> impl Future<Item = (), Error = ()>
+    network_service: &Arc<Mutex<NetworkService>>,
+    protocol: &Arc<Protocol<B, H>>,
+//) -> impl Future<Item = (), Error = ()>
+) -> Box<impl Future<Item=(), Error=()>>
 where
     B: Block,
     H: ProtocolHandler,
@@ -74,7 +72,7 @@ where
     // events handler
     let network = stream::poll_fn({
         let network_service1 = network_service.clone();
-        move || network_service1.borrow_mut().poll()
+        move || network_service1.lock().poll()
     }).for_each({
         let network_service1 = network_service.clone();
         let protocol1 = protocol.clone();
@@ -101,33 +99,10 @@ where
         }
     });
 
-    // block producing logic (fake for now)
-    let block_production = Interval::new_interval(BLOCK_PROD_TIMEOUT)
-        .for_each({
-            move |_| {
-                let mut net_sync =
-                    NetSyncIo::new(network_service.clone(), protocol.config.protocol_id);
-                protocol.prod_block::<Header>(&mut net_sync);
-                Ok(())
-            }
-        }).then(|res| {
-            match res {
-                Ok(()) => (),
-                Err(err) => error!("Error in the block_production {:?}", err),
-            };
-            Ok(())
-        });
-
-    let futures: Vec<Box<Future<Item = (), Error = io::Error>>> =
-        vec![Box::new(timer), Box::new(network), Box::new(block_production)];
-    futures::select_all(futures)
-        .and_then(move |_| {
-            info!("Networking ended");
-            Ok(())
-        }).map_err(|(r, _, _)| r)
-        .map_err(|e| {
-            debug!(target: "sub-libp2p", "service error: {:?}", e);
-        })
+    Box::new(network.select(timer).and_then(|_| {
+        info!("Networking stopped");
+        Ok(())
+    }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)))
 }
 
 #[cfg(test)]
@@ -143,8 +118,8 @@ mod tests {
         let mut runtime = tokio::runtime::current_thread::Runtime::new().unwrap();
         for service in services.iter() {
             let task = generate_service_task::<MockBlock, MockProtocolHandler, MockBlockHeader>(
-                service.network.clone(),
-                service.protocol.clone(),
+                &service.network,
+                &service.protocol,
             );
             runtime.spawn(task);
         }

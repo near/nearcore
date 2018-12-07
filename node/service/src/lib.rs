@@ -17,13 +17,14 @@ use produce_blocks::generate_produce_blocks_task;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime;
+use parking_lot::RwLock;
 
 mod produce_blocks;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
 pub fn run_service(
-    client: &Arc<Client>,
+    client: &Arc<RwLock<Client>>,
     network_task: impl Future<Item=(), Error=()>,
     produce_blocks_interval: Duration,
 ) -> GenericResult {

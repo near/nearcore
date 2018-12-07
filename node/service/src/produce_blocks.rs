@@ -5,11 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::Interval;
 use client::chain::Chain;
+use parking_lot::RwLock;
 
 // should take in a chain rather than a client
 // https://github.com/nearprotocol/nearcore/issues/110
 pub fn generate_produce_blocks_task(
-    client: &Arc<Client>,
+    client: &Arc<RwLock<Client>>,
     interval: Duration,
 ) -> impl Future<Item = (), Error = ()> {
     Interval::new_interval(interval)
@@ -17,7 +18,7 @@ pub fn generate_produce_blocks_task(
             let client = client.clone();
             move |_| {
                 // relies specifically on Chain trait
-                let block = client.prod_block();
+                let block = client.write().prod_block();
                 // relies specifically on BeaconBlock Body type
                 if !block.body.is_empty() {
                     info!(target: "service", "Block body: {:?}", block.body);

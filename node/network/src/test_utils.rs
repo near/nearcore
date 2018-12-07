@@ -15,6 +15,7 @@ use service::Service;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
+use parking_lot::RwLock;
 use substrate_network_libp2p::{
     NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol,
     Secret, Service as NetworkService, start_service,
@@ -108,7 +109,7 @@ pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockPro
     let secret = create_secret();
     let root_config = test_config_with_secret(&addresses[0], vec![], secret);
     let handler = MockProtocolHandler::default();
-    let mock_client = Arc::new(MockClient::default());
+    let mock_client = Arc::new(RwLock::new(MockClient::default()));
     let root_service =
         Service::new(ProtocolConfig::default(), root_config, handler, mock_client.clone()).unwrap();
     let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
@@ -168,7 +169,7 @@ impl Block for MockBlock {
     fn new(_header: Self::Header, _body: Self::Body) -> Self {
         MockBlock {}
     }
-    fn hash(&self) -> CryptoHash {
+    fn header_hash(&self) -> CryptoHash {
         CryptoHash::default()
     }
 }
@@ -179,16 +180,16 @@ pub struct MockClient {
 }
 
 pub struct MockHandler {
-    pub client: Arc<Client>,
+    pub client: Arc<RwLock<Client>>,
 }
 
 impl ProtocolHandler for MockHandler {
     fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
-        self.client.handle_signed_transaction(t)
+        self.client.write().handle_signed_transaction(t)
     }
     
     fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
-        self.client.handle_receipt_transaction(receipt)
+        self.client.write().handle_receipt_transaction(receipt)
     }
 }
 

@@ -73,7 +73,7 @@ fn read_with_cache<T: Clone + Decode>(
 
 impl<B: Block> BlockChain<B> {
     pub fn new(genesis: B, storage: Arc<Storage>) -> Self {
-        let genesis_hash = genesis.hash();
+        let genesis_hash = genesis.header_hash();
         let bc = BlockChain {
             storage,
             genesis_hash,
@@ -127,7 +127,7 @@ impl<B: Block> BlockChain<B> {
     }
 
     fn update_best_block(&self, block: B) {
-        let block_hash = block.hash();
+        let block_hash = block.header_hash();
         let mut best_block = self.best_block.write();
         *best_block = block;
         let mut db_transaction = self.storage.transaction();
@@ -138,7 +138,7 @@ impl<B: Block> BlockChain<B> {
     /// Inserts a verified block.
     /// Returns true if block is disconnected.
     pub fn insert_block(&self, block: B) -> bool {
-        let block_hash = block.hash();
+        let block_hash = block.header_hash();
         if self.is_known(&block_hash) {
             // TODO: known header but not known block.
             return false;
@@ -233,7 +233,7 @@ mod tests {
             0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]
         );
         let bc = BlockChain::new(genesis.clone(), storage);
-        assert_eq!(bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(), genesis);
+        assert_eq!(bc.get_block(&BlockId::Hash(genesis.header_hash())).unwrap(), genesis);
         assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
     }
 
@@ -245,15 +245,15 @@ mod tests {
         );
         let bc = BlockChain::new(genesis.clone(), storage.clone());
         let block1 = BeaconBlock::new(
-            1, genesis.hash(), MerkleHash::default(), vec![], vec![]
+            1, genesis.header_hash(), MerkleHash::default(), vec![], vec![]
         );
         assert_eq!(bc.insert_block(block1.clone()), false);
-        assert_eq!(bc.best_block().hash(), block1.hash());
+        assert_eq!(bc.best_block().header_hash(), block1.header_hash());
         assert_eq!(bc.best_block().header().index(), 1);
         // Create new BlockChain that reads from the same storage.
         let other_bc = BlockChain::new(genesis.clone(), storage.clone());
-        assert_eq!(other_bc.best_block().hash(), block1.hash());
+        assert_eq!(other_bc.best_block().header_hash(), block1.header_hash());
         assert_eq!(other_bc.best_block().header().index(), 1);
-        assert_eq!(other_bc.get_block(&BlockId::Hash(block1.hash())).unwrap(), block1);
+        assert_eq!(other_bc.get_block(&BlockId::Hash(block1.header_hash())).unwrap(), block1);
     }
 }

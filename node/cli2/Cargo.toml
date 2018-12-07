@@ -11,8 +11,10 @@ beacon = { path = "../../core/beacon" }
 beacon-chain-handler = { path = "../beacon-chain-handler" }
 chain = { path = "../../core/chain" }
 client = { path = "../client" }
+network = { path = "../network", features = ["test-utils"] }
 node-runtime = { path = "../runtime" }
 node-rpc = { path = "../rpc" }
+parking_lot = "0.6"
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 service = { path = "../service" }
