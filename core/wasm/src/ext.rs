@@ -65,11 +65,4 @@ pub trait External {
         arguments: Vec<u8>,
         mana: u32,
     ) -> Result<PromiseId>;
-
-    fn promise_and(
-        &mut self,
-        promise_id1: PromiseId,
-        promise_id2: PromiseId,
-    ) -> Result<PromiseId>;
-
 }

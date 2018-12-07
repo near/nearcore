@@ -41,6 +41,7 @@ pub mod chain_spec;
 pub mod test_utils;
 
 const RUNTIME_DATA: &[u8] = b"runtime";
+const DEFAULT_MANA_LIMIT: u32 = 20;
 
 /// Runtime data that is stored in the state.
 /// TODO: Look into how to store this not in a single element of the StateDb.
@@ -203,15 +204,6 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             }
         }
     }
-
-    #[allow(unused)]
-    fn promise_and(
-        &mut self,
-        promise_id1: PromiseId,
-        promise_id2: PromiseId,
-    ) -> ExtResult<PromiseId> {
-        unimplemented!();
-    }
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
@@ -362,13 +354,15 @@ impl Runtime {
                     transaction.hash.into()
                 );
                 // the result of this execution is not used for now
+                // TODO: Use rate limiter for MANA
                 executor::execute(
                     &sender.code,
                     &transaction.body.method_name,
                     &transaction.body.args,
                     &[],
                     &mut runtime_ext,
-                    &wasm::types::Config::default()
+                    &wasm::types::Config::default(),
+                    DEFAULT_MANA_LIMIT,
                 ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                 self.callbacks.extend(runtime_ext.callbacks);
                 let receipts: Vec<ReceiptTransaction> = 
@@ -426,6 +420,7 @@ impl Runtime {
                             &[],
                             &mut runtime_ext,
                             &wasm::types::Config::default(),
+                            async_call.mana,
                         ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                         let mut gen_receipt = |callback_id: &CallbackId, return_data, result_index| {
                             let callback_res = match return_data {
@@ -487,6 +482,7 @@ impl Runtime {
                                         &[],
                                         &mut runtime_ext,
                                         &wasm::types::Config::default(),
+                                        callback.mana,
                                     ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                                     needs_removal = true;
                                     runtime_ext.receipts.drain().map(|(_, v)| v).collect()
@@ -638,6 +634,7 @@ impl StateDbViewer {
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
+                        DEFAULT_MANA_LIMIT,
                     );
                     match wasm_res {
                         Ok(res) => {

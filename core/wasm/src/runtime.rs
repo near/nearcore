@@ -4,7 +4,8 @@ use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
 use types::{RuntimeError as Error, ReturnData};
 
-use primitives::types::{AccountAlias, PromiseId};
+use primitives::types::{AccountAlias, PromiseId, ReceiptId};
+use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
 
@@ -13,6 +14,8 @@ pub struct Runtime<'a> {
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
+    pub mana_counter: u32,
+    mana_limit: u32,
     pub gas_counter: u64,
     gas_limit: u64,
     promise_ids: Vec<PromiseId>,
@@ -25,6 +28,7 @@ impl<'a> Runtime<'a> {
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
+        mana_limit: u32,
         gas_limit: u64,
     ) -> Runtime<'a> {
         Runtime {
@@ -32,6 +36,8 @@ impl<'a> Runtime<'a> {
             input_data,
             result_data,
             memory,
+            mana_counter: 0,
+            mana_limit,
             gas_counter: 0,
             gas_limit,
             promise_ids: Vec::new(),
@@ -70,6 +76,27 @@ impl<'a> Runtime<'a> {
                 self.gas_counter = prev + amount;
                 true
             }
+        }
+    }
+
+    fn charge_mana(&mut self, mana: u32) -> bool {
+        let prev = self.mana_counter;
+        match prev.checked_add(mana) {
+            // mana charge overflow protection
+            None => false,
+            Some(val) if val > self.mana_limit => false,
+            Some(_) => {
+                self.mana_counter = prev + mana;
+                true
+            }
+        }
+    }
+
+    fn charge_mana_or_fail(&mut self, mana: u32) -> Result<()> {
+        if self.charge_mana(mana) {
+            Ok(())
+        } else {
+            Err(Error::ManaLimit)
         }
     }
 
@@ -143,6 +170,10 @@ impl<'a> Runtime<'a> {
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
 
+        // Charging separately reserved mana + 1 to call this promise.
+        self.charge_mana_or_fail(mana)?;
+        self.charge_mana_or_fail(1)?;
+
         let promise_id = self.ext
             .promise_create(accound_alias, method_name, arguments, mana, amount)
             .map_err(|_| Error::PromiseError)?;
@@ -163,6 +194,16 @@ impl<'a> Runtime<'a> {
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
 
+        // Charging separately reserved mana + N to add callback for the promise.
+        // N is the number of callbacks in case of promise joiner.
+        self.charge_mana_or_fail(mana)?;
+        let num_promises = match &promise_id {
+            PromiseId::Receipt(_) => 1,
+            PromiseId::Callback(_) => return Err(Error::PromiseError),
+            PromiseId::Joiner(v) => v.len() as u32,
+        };
+        self.charge_mana_or_fail(num_promises)?;
+
         let promise_id = self.ext
             .promise_then(promise_id, method_name, arguments, mana)
             .map_err(|_| Error::PromiseError)?;
@@ -177,13 +218,36 @@ impl<'a> Runtime<'a> {
         let promise_index1: u32 = args.nth_checked(0)?;
         let promise_index2: u32 = args.nth_checked(1)?;
 
-        let promise_id1 = self.promise_index_to_id(promise_index1)?;
-        let promise_id2 = self.promise_index_to_id(promise_index2)?;
+        let promise_ids = [
+            self.promise_index_to_id(promise_index1)?,
+            self.promise_index_to_id(promise_index2)?,
+        ];
 
-        let promise_id = self.ext
-            .promise_and(promise_id1, promise_id2)
-            .map_err(|_| Error::PromiseError)?;
+        let mut receipt_ids = vec![];
+        let mut unique_receipt_ids = HashSet::new();
+        {
+            let mut add_receipt_id = |receipt_id: ReceiptId| -> Result<()> {
+                if !unique_receipt_ids.insert(receipt_id.clone()) {
+                    return Err(Error::PromiseError);
+                }
+                receipt_ids.push(receipt_id);
+                Ok(())
+            };
 
+            for promise_id in promise_ids.iter() {
+                match promise_id {
+                    PromiseId::Receipt(receipt_id) => add_receipt_id(receipt_id.clone())?,
+                    PromiseId::Callback(_) => return Err(Error::PromiseError),
+                    PromiseId::Joiner(v) => {
+                        for receipt_id in v {
+                            add_receipt_id(receipt_id.clone())?
+                        }
+                    },
+                };
+            }
+        }
+
+        let promise_id = PromiseId::Joiner(receipt_ids);
         let promise_index = self.promise_ids.len();
         self.promise_ids.push(promise_id);
 
