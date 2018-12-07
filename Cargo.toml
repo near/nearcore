@@ -8,7 +8,7 @@ name = "nearcore"
 path = "node/src/main.rs"
 
 [dependencies]
-node-cli2 = { path = "./node/cli2" }
+node-cli = { path = "./node/cli" }
 node-runtime = { path = "./node/runtime" }
 
 [workspace]
@@ -23,7 +23,6 @@ members = [
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/beacon-chain-handler",
     "node/cli",
-    "node/cli2",
     "node/rpc",
     "node/runtime",
     "node/service",

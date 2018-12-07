@@ -69,7 +69,7 @@ where
             Ok(())
         });
 
-    // events handler
+    // Handles messages coming from the network.
     let network = stream::poll_fn({
         let network_service1 = network_service.clone();
         move || network_service1.lock().poll()
@@ -98,6 +98,8 @@ where
             Ok(())
         }
     });
+
+    // Handles messages going into the network.
 
     Box::new(network.select(timer).and_then(|_| {
         info!("Networking stopped");

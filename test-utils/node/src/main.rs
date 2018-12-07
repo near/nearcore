@@ -66,7 +66,7 @@ pub fn main() {
         println!("boot node: {}", boot_node);
         test_config(&addr, vec![boot_node])
     };
-    let chain_spec = get_default_chain_spec().unwrap();
+    let chain_spec = get_default_chain_spec();
     let storage = Arc::new(storage::test_utils::create_memory_db());
     let signer = Arc::new(InMemorySigner::new());
     let client = Arc::new(RwLock::new(Client::new(&chain_spec, storage, signer)));
