@@ -25,7 +25,7 @@ use primitives::traits::{Decode, Encode, Block};
 use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
-    ViewCall, ViewCallResult, PromiseId, CallbackId,
+    ViewCall, ViewCallResult, PromiseId, CallbackId, ReceiptId,
 };
 use primitives::utils::{
     concat, index_to_bytes, account_to_shard_id
@@ -96,7 +96,7 @@ pub struct ApplyResult {
 struct RuntimeExt<'a, 'b: 'a> {
     state_db_update: &'a mut StateDbUpdate<'b>,
     storage_prefix: Vec<u8>,
-    receipts: HashMap<PromiseId, ReceiptTransaction>,
+    receipts: HashMap<ReceiptId, ReceiptTransaction>,
     callbacks: HashMap<CallbackId, Callback>,
     account_id: AccountId,
     nonce: u64,
@@ -169,8 +169,8 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
                 mana,
             )),
         );
-        let promise_id = PromiseId::Receipt(nonce);
-        self.receipts.insert(promise_id.clone(), receipt);
+        let promise_id = PromiseId::Receipt(nonce.clone());
+        self.receipts.insert(nonce, receipt);
         Ok(promise_id)
     }
 
@@ -182,29 +182,36 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
         mana: u32,
     ) -> ExtResult<PromiseId> {
         let callback_id = self.create_nonce();
-        let receipt = match self.receipts.get_mut(&promise_id) {
-            Some(r) => r,
-            _ => return Err(ExtError::PromiseIdNotFound)
+        let receipt_ids = match promise_id {
+            PromiseId::Receipt(r) => vec![r],
+            PromiseId::Joiner(rs) => rs,
+            PromiseId::Callback(_) => return Err(ExtError::WrongPromise)
         };
-        match receipt.body {
-            ReceiptBody::NewCall(ref mut async_call) => {
-                let shard_id = account_to_shard_id(self.account_id);
-                let result_index = match promise_id {
-                    PromiseId::Receipt(_) => 0,
-                    PromiseId::Callback(_) => 0,
-                    PromiseId::Joiner(v) => v.len(),
-                };
-                let callback_info = CallbackInfo::new(callback_id.clone(), 0, shard_id);
-                async_call.callback = Some(callback_info);
-                let mut callback = Callback::new(method_name, arguments, mana);
-                callback.results.resize(result_index + 1, None);
-                self.callbacks.insert(callback_id.clone(), callback);
-                Ok(PromiseId::Callback(callback_id))
-            }
-            _ => {
-                Err(ExtError::WrongPromise)
+        let mut callback = Callback::new(method_name, arguments, mana);
+        callback.results.resize(receipt_ids.len(), None);
+        for (index, receipt_id) in receipt_ids.iter().enumerate() {
+            let receipt = match self.receipts.get_mut(receipt_id) {
+                Some(r) => r,
+                _ => return Err(ExtError::PromiseIdNotFound)
+            };
+            match receipt.body {
+                ReceiptBody::NewCall(ref mut async_call) => {
+                    let shard_id = account_to_shard_id(self.account_id);
+                    let callback_info = CallbackInfo::new(callback_id.clone(), index, shard_id);
+                    match async_call.callback {
+                        Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
+                        None => {
+                            async_call.callback = Some(callback_info);
+                        }
+                    }
+                }
+                _ => {
+                    return Err(ExtError::WrongPromise);
+                }
             }
         }
+        self.callbacks.insert(callback_id.clone(), callback);
+        Ok(PromiseId::Callback(callback_id))
     }
 }
 
@@ -412,6 +419,114 @@ impl Runtime {
         Ok(vec![])
     }
 
+    fn apply_async_call(
+        &mut self,
+        state_update: &mut StateDbUpdate,
+        async_call: &AsyncCall,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        nonce: Vec<u8>,
+        receiver: &Account,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let mut runtime_ext = RuntimeExt::new(
+            state_update,
+            sender_id,
+            nonce,
+        );
+        let wasm_result = executor::execute(
+            &receiver.code,
+            &async_call.method_name,
+            &async_call.args,
+            &[],
+            &mut runtime_ext,
+            &wasm::types::Config::default(),
+        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+        let mut gen_receipt = |callback_id: &CallbackId, return_data, result_index| {
+            let callback_res = match return_data {
+                ReturnData::Value(v) => {
+                    CallbackResult::new(callback_id.clone(), Some(v), result_index)
+                }
+                ReturnData::None => {
+                    CallbackResult::new(callback_id.clone(), None, result_index)
+                }
+                ReturnData::Promise(PromiseId::Callback(id)) => {
+                    CallbackResult::new(id, None, result_index)
+                }
+                _ => return Err("return data is a non-callback promise".to_string())
+            };
+            let new_receipt = ReceiptTransaction::new(
+                receiver_id,
+                sender_id,
+                runtime_ext.create_nonce(),
+                ReceiptBody::Callback(callback_res),
+            );
+            Ok(vec![new_receipt])
+        };
+        match &async_call.callback {
+            Some(callback_info) => {
+                let result_index = callback_info.result_index;
+                gen_receipt(
+                    &callback_info.id,
+                    wasm_result.return_data,
+                    result_index
+                )
+            } 
+            None => {
+                match wasm_result.return_data {
+                    ReturnData::Promise(_) => {
+                        Err("No callback but return value is a promise".to_string())
+                    }
+                    _ => Ok(vec![])
+                }
+            }
+        }
+    }
+
+    fn apply_callback(
+        &mut self,
+        state_update: &mut StateDbUpdate,
+        callback_res: &CallbackResult,
+        sender_id: AccountId,
+        nonce: Vec<u8>,
+        receiver: &Account,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let mut runtime_ext = RuntimeExt::new(
+            state_update,
+            sender_id,
+            nonce,
+        );
+        let mut needs_removal = false;
+        let receipts = match self.callbacks.get_mut(&callback_res.id) {
+            Some(callback) => {
+                let expected_num_results = callback.results.len();
+                callback.results[callback_res.result_index] = callback_res.result.clone();
+                // if we have gathered all results, execute the callback
+                if callback_res.result_index == expected_num_results - 1 {
+                    executor::execute(
+                        &receiver.code,
+                        &callback.method_name,
+                        &callback.args,
+                        &[],
+                        &mut runtime_ext,
+                        &wasm::types::Config::default(),
+                    ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                    needs_removal = true;
+                    runtime_ext.receipts.drain().map(|(_, v)| v).collect()
+                } else {
+                    // otherwise no receipt is generated
+                    vec![]
+                }
+            },
+            _ => {
+                return Err(format!("callback id: {:?} not found", callback_res.id));
+            }
+        };
+        if needs_removal {
+            self.callbacks.remove(&callback_res.id);
+        }
+        Ok(receipts)
+    }
+
     fn apply_receipt(
         &mut self,
         state_update: &mut StateDbUpdate,
@@ -426,97 +541,23 @@ impl Runtime {
                         if async_call.method_name == b"deposit".to_vec() {
                             return self.deposit(state_update, receipt, &mut receiver);
                         }
-                        let mut runtime_ext = RuntimeExt::new(
+                        self.apply_async_call(
                             state_update,
+                            &async_call,
                             receipt.sender,
-                            receipt.nonce.clone()
-                        );
-                        let wasm_result = executor::execute(
-                            &receiver.code,
-                            &async_call.method_name,
-                            &async_call.args,
-                            &[],
-                            &mut runtime_ext,
-                            &wasm::types::Config::default(),
-                            async_call.mana,
-                        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-                        let mut gen_receipt = |callback_id: &CallbackId, return_data, result_index| {
-                            let callback_res = match return_data {
-                                ReturnData::Value(v) => {
-                                    CallbackResult::new(callback_id.clone(), Some(v), result_index)
-                                }
-                                ReturnData::None => {
-                                    CallbackResult::new(callback_id.clone(), None, result_index)
-                                }
-                                ReturnData::Promise(PromiseId::Callback(id)) => {
-                                    CallbackResult::new(id, None, result_index)
-                                }
-                                _ => return Err("return data is a non-callback promise".to_string())
-                            };
-                            let new_receipt = ReceiptTransaction::new(
-                                receipt.receiver,
-                                receipt.sender,
-                                runtime_ext.create_nonce(),
-                                ReceiptBody::Callback(callback_res),
-                            );
-                            Ok(vec![new_receipt])
-                        };
-                        match &async_call.callback {
-                            Some(callback_info) => {
-                                let result_index = callback_info.result_index;
-                                gen_receipt(
-                                    &callback_info.id,
-                                    wasm_result.return_data,
-                                    result_index
-                                )
-                            } 
-                            None => {
-                                match wasm_result.return_data {
-                                    ReturnData::Promise(_) => {
-                                        Err("No callback but return value is a promise".to_string())
-                                    }
-                                    _ => Ok(vec![])
-                                }
-                            }
-                        }
+                            receipt.receiver,
+                            receipt.nonce.clone(),
+                            &receiver,
+                        )
                     },
                     ReceiptBody::Callback(callback_res) => {
-                        let mut runtime_ext = RuntimeExt::new(
+                        self.apply_callback(
                             state_update,
+                            &callback_res,
                             receipt.sender,
-                            receipt.nonce.clone()
-                        );
-                        let mut needs_removal = false;
-                        let receipts = match self.callbacks.get_mut(&callback_res.id) {
-                            Some(callback) => {
-                                let expected_num_results = callback.results.len();
-                                callback.results[callback_res.result_index] = callback_res.result.clone();
-                                // if we have gathered all results, execute the callback
-                                if callback_res.result_index == expected_num_results - 1 {
-                                    executor::execute(
-                                        &receiver.code,
-                                        &callback.method_name,
-                                        &callback.args,
-                                        &[],
-                                        &mut runtime_ext,
-                                        &wasm::types::Config::default(),
-                                        callback.mana,
-                                    ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-                                    needs_removal = true;
-                                    runtime_ext.receipts.drain().map(|(_, v)| v).collect()
-                                } else {
-                                    // otherwise no receipt is generated
-                                    vec![]
-                                }
-                            },
-                            _ => {
-                                return Err(format!("callback id: {:?} not found", callback_res.id));
-                            }
-                        };
-                        if needs_removal {
-                            self.callbacks.remove(&callback_res.id);
-                        }
-                        Ok(receipts)
+                            receipt.nonce.clone(),
+                            &receiver,
+                        )
                     }
                     // TODO: handle refund
                     ReceiptBody::Refund => unimplemented!()

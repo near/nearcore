@@ -40,6 +40,7 @@ pub enum Error {
     NotImplemented,
     PromiseIdNotFound,
     WrongPromise,
+    PromiseAlreadyHasCallback,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
