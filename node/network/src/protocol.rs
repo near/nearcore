@@ -315,8 +315,7 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         for (peer, time_stamp) in peer_info
             .iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
-            .chain(handshaking_peers.iter())
-        {
+            .chain(handshaking_peers.iter()) {
             if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
                 trace!(target: "sync", "Timeout {}", *peer);
                 aborting.push(*peer);
@@ -356,6 +355,7 @@ mod tests {
     use std::rc::Rc;
     use test_utils::*;
     use primitives::signature::DEFAULT_SIGNATURE;
+    use primitives::types::SendMoneyTransaction;
 
     impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
@@ -397,7 +397,12 @@ mod tests {
         let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
         protocol.on_transaction_message(SignedTransaction::new(
             DEFAULT_SIGNATURE,
-            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
+            TransactionBody::SendMoney(SendMoneyTransaction {
+                nonce: 1,
+                sender: hash(b"bob"),
+                receiver: hash(b"alice"),
+                amount: 10,
+            }),
         ));
         assert_eq!(client.num_transactions(), 1);
         assert_eq!(client.num_blocks_in_queue(), 0);

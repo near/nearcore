@@ -1,7 +1,10 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use node_runtime::StateDbViewer;
-use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
+use primitives::types::{
+    DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
+    SignedTransaction, StakeTransaction, TransactionBody, ViewCall,
+};
 use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
@@ -85,14 +88,12 @@ impl TransactionApi for RpcImpl {
         &self,
         r: DeployContractRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
-        let body = TransactionBody {
+        let body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: r.nonce,
-            sender: r.sender_account_id,
-            receiver: r.contract_account_id,
-            amount: 0,
-            method_name: "deploy".into(),
-            args: r.wasm_byte_array,
-        };
+            owner: r.owner_account_id,
+            contract_id: r.contract_account_id,
+            wasm_byte_array: r.wasm_byte_array
+        });
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -100,14 +101,12 @@ impl TransactionApi for RpcImpl {
         &self,
         r: SendMoneyRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
-        let body = TransactionBody {
+        let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: r.nonce,
             sender: r.sender_account_id,
             receiver: r.receiver_account_id,
             amount: r.amount,
-            method_name: vec![],
-            args: vec![],
-        };
+        });
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -115,14 +114,11 @@ impl TransactionApi for RpcImpl {
         &self,
         r: StakeRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
-        let body = TransactionBody {
+        let body = TransactionBody::Stake(StakeTransaction {
             nonce: r.nonce,
-            sender: r.staker_account_id,
-            receiver: r.staker_account_id,
+            staker: r.staker_account_id,
             amount: r.amount,
-            method_name: vec![],
-            args: vec![],
-        };
+        });
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -130,14 +126,13 @@ impl TransactionApi for RpcImpl {
         &self,
         r: ScheduleFunctionCallRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
-        let body = TransactionBody {
+        let body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: r.nonce,
-            sender: r.sender_account_id,
-            receiver: r.contract_account_id,
-            amount: 0,
+            originator: r.originator_account_id,
+            contract_id: r.contract_account_id,
             method_name: r.method_name.into_bytes(),
             args: concat(r.args),
-        };
+        });
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -192,9 +187,8 @@ mod tests {
     use node_runtime::test_utils::get_test_state_db_viewer;
 
     #[test]
-    #[ignore]
     fn test_call() {
-        let db_state_viewer= get_test_state_db_viewer();
+        let db_state_viewer = get_test_state_db_viewer();
         let (submit_txn_sender, _) = channel(1024);
         let rpc_impl = RpcImpl::new(db_state_viewer, submit_txn_sender);
         let handler = get_handler(rpc_impl);
@@ -206,14 +200,12 @@ mod tests {
             amount: 1,
         };
         let expected = PreparedTransactionBodyResponse {
-            body: TransactionBody {
+            body: TransactionBody::SendMoney(SendMoneyTransaction {
                 nonce: 0,
                 sender: hash(b"alice"),
                 receiver: hash(b"bob"),
                 amount: 1,
-                method_name: vec![],
-                args: Vec::new(),
-            },
+            }),
         };
         let raw = &rpc.request("send_money", &[t]);
         let response = serde_json::from_str(&raw).unwrap();

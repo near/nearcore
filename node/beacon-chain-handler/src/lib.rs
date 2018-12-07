@@ -16,8 +16,8 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use storage::StateDb;
 
-pub trait ConsensusHandler<B: Block, P>: Send + Sync {
-    fn produce_block(&self, body: ConsensusBlockBody<P>) -> B;
+pub trait ConsensusHandler<P>: Send + Sync {
+    fn produce_block(&self, body: ConsensusBlockBody<P>);
 }
 
 pub struct BeaconBlockProducer {
@@ -45,8 +45,8 @@ impl BeaconBlockProducer {
 
 pub type BeaconChainConsensusBlockBody = ConsensusBlockBody<Vec<SignedTransaction>>;
 
-impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProducer {
-    fn produce_block(&self, body: BeaconChainConsensusBlockBody) -> BeaconBlock {
+impl ConsensusHandler<Vec<SignedTransaction>> for BeaconBlockProducer {
+    fn produce_block(&self, body: BeaconChainConsensusBlockBody) {
         // TODO: verify signature
         let transactions = body.messages.iter()
             .flat_map(|message| message.clone().body.payload)
@@ -72,6 +72,5 @@ impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProduc
         );
         block.sign(&self.signer);
         self.beacon_chain.insert_block(block.clone());
-        block
     }
 }

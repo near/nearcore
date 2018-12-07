@@ -30,6 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::current_thread::Runtime;
 use tokio::timer::Interval;
+use primitives::types::SendMoneyTransaction;
 
 fn create_addr(host: &str, port: &str) -> String {
     format!("/ip4/{}/tcp/{}", host, port)
@@ -87,14 +88,12 @@ pub fn main() {
         .for_each({
             let client = client.clone();
             move |_| {
-                let tx_body = TransactionBody {
+                let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
                     nonce: 1,
                     amount: 1,
                     sender: hash(b"bob"),
                     receiver: hash(b"alice"),
-                    method_name: vec![],
-                    args: vec![],
-                };
+                });
                 let tx = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
                 client.receive_transaction(tx);
                 Ok(())

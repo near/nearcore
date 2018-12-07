@@ -45,7 +45,7 @@ impl From<Vec<u8>> for CryptoHash {
         let mut array = [0; 32];
         let bytes = &v.as_slice()[..32];
         array.copy_from_slice(bytes);
-        CryptoHash { 0: Digest(array) }
+        CryptoHash(Digest(array))
     }
 }
 
