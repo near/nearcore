@@ -1,9 +1,9 @@
-use hash::{CryptoHash, hash, hash_struct};
-use signature::{PublicKey, Signature};
+use hash::{hash, hash_struct, CryptoHash};
 use signature::DEFAULT_SIGNATURE;
+use signature::{PublicKey, Signature};
 use std::borrow::Borrow;
-use std::hash::{Hash, Hasher};
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -101,14 +101,7 @@ impl TransactionBody {
         method_name: String,
         args: Vec<u8>,
     ) -> Self {
-        TransactionBody { 
-            nonce,
-            sender,
-            receiver,
-            amount,
-            method_name: method_name.into(),
-            args,
-        }
+        TransactionBody { nonce, sender, receiver, amount, method_name: method_name.into(), args }
     }
 }
 
@@ -120,15 +113,13 @@ pub struct SignedTransaction {
 }
 
 impl SignedTransaction {
-    pub fn new(
-        sender_sig: StructSignature,
-        body: TransactionBody,
-    ) -> SignedTransaction {
-        SignedTransaction {
-            sender_sig,
-            hash: hash_struct(&body),
-            body,
-        }
+    pub fn new<F>(body: TransactionBody, sign_fn: F) -> SignedTransaction
+    where
+        F: Fn(&CryptoHash) -> StructSignature,
+    {
+        let hash = hash_struct(&body);
+        let sender_sig = sign_fn(&hash);
+        SignedTransaction { sender_sig, hash, body }
     }
 
     // this is for tests
@@ -163,13 +154,7 @@ pub struct AsyncCall {
 
 impl AsyncCall {
     pub fn new(method_name: Vec<u8>, args: Vec<u8>, amount: u64, mana: u32) -> Self {
-        AsyncCall {
-            amount,
-            mana,
-            method_name,
-            args,
-            callback: None,
-        }
+        AsyncCall { amount, mana, method_name, args, callback: None }
     }
 }
 
@@ -182,12 +167,7 @@ pub struct Callback {
 
 impl Callback {
     pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: u32) -> Self {
-        Callback {
-            method_name,
-            args,
-            results: vec![],
-            mana,
-        }
+        Callback { method_name, args, results: vec![], mana }
     }
 }
 
@@ -234,18 +214,8 @@ pub struct ReceiptTransaction {
 }
 
 impl ReceiptTransaction {
-    pub fn new(
-        sender: AccountId,
-        receiver: AccountId,
-        nonce: Vec<u8>,
-        body: ReceiptBody
-    ) -> Self {
-        ReceiptTransaction {
-            sender,
-            receiver,
-            nonce,
-            body,
-        }
+    pub fn new(sender: AccountId, receiver: AccountId, nonce: Vec<u8>, body: ReceiptBody) -> Self {
+        ReceiptTransaction { sender, receiver, nonce, body }
     }
 }
 

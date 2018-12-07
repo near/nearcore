@@ -1,7 +1,9 @@
 use futures::sync::mpsc::Sender;
-use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
+use jsonrpc_core::{IoHandler, Result as JsonRpcResult, Error, ErrorCode};
 use node_runtime::StateDbViewer;
-use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
+use primitives::types::{SignedTransaction, TransactionBody, ViewCall, StructSignature,};
+use primitives::hash::CryptoHash;
+use primitives::signature::{PublicKey, SecretKey, get_keypair, sign};
 use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
@@ -59,6 +61,9 @@ build_rpc_trait! {
 pub struct RpcImpl {
     state_db_viewer: StateDbViewer,
     submit_txn_sender: Sender<SignedTransaction>,
+    // TODO: This is a temporary solution. We should be using a real signer to sign it.
+    // Instead we temporarily sign the transactions here.
+    keypair: (PublicKey, SecretKey),
 }
 
 impl RpcImpl {
@@ -69,7 +74,13 @@ impl RpcImpl {
         RpcImpl {
             state_db_viewer,
             submit_txn_sender,
+            keypair: get_keypair(),
         }
+    }
+
+    // TOOD: Remove once we have a proper signer.
+    fn sign_hash(&self, hash: &CryptoHash) -> StructSignature {
+        sign(hash.as_ref(), &self.keypair.1)
     }
 }
 
@@ -86,6 +97,12 @@ impl TransactionApi for RpcImpl {
             method_name: "deploy".into(),
             args: r.wasm_byte_array,
         };
+        let transaction = SignedTransaction::new(body.clone(), |h| self.sign_hash(h));
+        self.submit_txn_sender.clone().try_send(transaction).map_err(
+            |e| {
+                error!("Error deploying contract {:?}", e);
+                Error::new(ErrorCode::InternalError)
+            })?;
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -101,6 +118,12 @@ impl TransactionApi for RpcImpl {
             method_name: vec![],
             args: Vec::new(),
         };
+        let transaction = SignedTransaction::new(body.clone(), |h| self.sign_hash(h));
+        self.submit_txn_sender.clone().try_send(transaction).map_err(
+            |e| {
+                error!("Error sending money {:?}", e);
+                Error::new(ErrorCode::InternalError)
+            })?;
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -116,6 +139,12 @@ impl TransactionApi for RpcImpl {
             method_name: r.method_name.into_bytes(),
             args: concat(r.args),
         };
+        let transaction = SignedTransaction::new(body.clone(), |h| self.sign_hash(h));
+        self.submit_txn_sender.clone().try_send(transaction).map_err(
+            |e| {
+                error!("Error scheduling function call {:?}", e);
+                Error::new(ErrorCode::InternalError)
+            })?;
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -147,7 +176,11 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
-        self.submit_txn_sender.clone().try_send(r).unwrap();
+        self.submit_txn_sender.clone().try_send(r).map_err(
+            |e| {
+                error!("Error submitting transaction {:?}", e);
+                Error::new(ErrorCode::InternalError)
+            })?;
         Ok(())
     }
 }

@@ -772,7 +772,7 @@ mod tests {
             method_name: b"run_test".to_vec(),
             args: vec![],
         };
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let transaction = SignedTransaction::new(tx_body, |_| DEFAULT_SIGNATURE);
         let apply_state = ApplyState { 
             root, parent_block_hash: CryptoHash::default(), block_index: 0
         };
@@ -825,7 +825,7 @@ mod tests {
             method_name: b"deploy".to_vec(),
             args: wasm_binary.clone(),
         };
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let transaction = SignedTransaction::new(tx_body, |_| DEFAULT_SIGNATURE);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
@@ -854,7 +854,7 @@ mod tests {
             method_name: b"deploy".to_vec(),
             args: test_binary.to_vec(),
         };
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let transaction = SignedTransaction::new(tx_body,|_| DEFAULT_SIGNATURE);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
@@ -884,7 +884,7 @@ mod tests {
             method_name: b"send_money".to_vec(),
             args: vec![],
         };
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let transaction = SignedTransaction::new(tx_body, |_| DEFAULT_SIGNATURE);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
