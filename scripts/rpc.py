@@ -342,13 +342,15 @@ stake                    {}
         parser.add_argument('contract_name', type=str)
         parser.add_argument('amount', type=int)
         parser.add_argument('function_name', type=str)
+        parser.add_argument('args', nargs='?', type=str, default=None)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.schedule_function_call(
             args.sender,
             args.contract_name,
-            args.amount,
             args.function_name,
+            args.amount,
+            args.args
         )
 
     def call_view_function(self):
