@@ -2,7 +2,6 @@ extern crate beacon;
 extern crate beacon_chain_handler;
 extern crate chain;
 extern crate clap;
-extern crate client;
 extern crate futures;
 extern crate network;
 extern crate node_rpc;
@@ -13,7 +12,6 @@ extern crate serde;
 extern crate serde_derive;
 #[cfg_attr(test, macro_use)]
 extern crate serde_json;
-extern crate service;
 extern crate storage;
 extern crate tokio;
 extern crate parking_lot;
@@ -21,22 +19,18 @@ extern crate parking_lot;
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use chain::BlockChain;
 use clap::{App, Arg};
-use client::Client;
 use futures::future;
 use futures::sync::mpsc::channel;
-use network::protocol::ProtocolConfig;
-use network::service::{
-    generate_service_task, NetworkConfiguration, Service as NetworkService
-};
+use network::protocol::{Protocol, ProtocolConfig};
+use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, StateDbViewer};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use network::network_handler::ChannelNetworkHandler;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 
 pub mod chain_spec;
 
@@ -67,9 +61,9 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     // Create RPC Server.
     let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     // TODO: TxFlow should be listening on these transactions.
-    let (submit_txn_tx, _submit_txn_rx) = channel(1024);
-    let (submit_receipt_tx, _submit_receipt_rx) = channel(1024);
-    let rpc_impl = RpcImpl::new(state_db_viewer, submit_txn_tx.clone());
+    let (transactions_tx, _transactions_rx) = channel(1024);
+    let (receipts_tx, _receipts_rx) = channel(1024);
+    let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx.clone());
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let server = node_rpc::server::get_server(rpc_handler);
     tokio::spawn(future::lazy(|| {
@@ -93,7 +87,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     tokio::spawn(block_producer_task);
 
     // Create task that can import beacon chain blocks from other peers.
-    let (_beacon_block_tx, beacon_block_rx) = channel(1024);
+    let (beacon_block_tx, beacon_block_rx) = channel(1024);
     let block_importer_task = beacon_chain_handler::importer::create_beacon_block_importer_task(
         beacon_chain.clone(),
         runtime.clone(),
@@ -102,20 +96,26 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     );
     tokio::spawn(block_importer_task);
 
-    // Create network task.
-    let network_handler = ChannelNetworkHandler::new(submit_txn_tx.clone(), submit_receipt_tx.clone());
-    let client = Arc::new(RwLock::new(Client::new(&chain_spec, storage, signer)));
-    let network = NetworkService::new(
-        ProtocolConfig::default(),
-        NetworkConfiguration::default(),
-        network_handler,
-        client.clone(),
-    ).unwrap();
-    let network_task = generate_service_task::<_, _, BeaconBlockHeader>(
-        &network.network,
-        &network.protocol,
+    // Create protocol and the network_task.
+    // Note, that network and RPC are using the same channels to send transactions and receipts for
+    // processing.
+    let (net_messages_tx, net_messages_rx) = channel(1024);
+    let protocol_config = ProtocolConfig::default();
+    let protocol = Protocol::<_, BeaconBlockHeader>::new(
+        protocol_config.clone(),
+        beacon_chain.clone(),
+        beacon_block_tx.clone(),
+        transactions_tx.clone(),
+        receipts_tx.clone(),
+        net_messages_tx.clone()
     );
-
+    let network_service = Arc::new(Mutex::new(new_network_service(
+        &protocol_config,
+        NetworkConfiguration::default(),
+    )));
+    let (network_task, messages_handler_task)
+        = create_network_task(network_service, protocol, net_messages_rx);
+    tokio::spawn(messages_handler_task);
     tokio::run(network_task);
 }
 

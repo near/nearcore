@@ -1,16 +1,16 @@
-use client::chain::Chain;
-use io::NetSyncIo;
 use message::{self, Message, MessageBody};
 use parking_lot::RwLock;
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Encode, GenericResult, Header as BlockHeader};
+use primitives::traits::{Block, Decode, Header as BlockHeader};
 use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
-use rand::{seq, thread_rng};
 use std::collections::HashMap;
+use chain::BlockChain;
 use std::sync::Arc;
 use std::time;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 use test_utils;
+use futures::sync::mpsc::Sender;
+use futures::{stream, Future, Sink};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -64,47 +64,51 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-#[allow(dead_code)]
-pub struct Protocol<B: Block, H: ProtocolHandler> {
+pub struct Protocol<B: Block, Header: BlockHeader> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
-    // peers that are in the handshaking process
+    /// Peers that are in the handshaking process.
     handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
-    // info about peers
+    /// Info about peers.
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
-    // backend client
-    chain: Arc<RwLock<Chain<B>>>,
-    // callbacks
-    handler: Option<Box<H>>,
-    // phantom data for keep T
+    /// Chain info, for read-only access.
+    chain: Arc<BlockChain<B>>,
+    /// Channel into which the protocol sends the new blocks.
+    block_sender: Sender<B>,
+    /// Channel into which the protocol sends the received transactions.
+    transaction_sender: Sender<SignedTransaction>,
+    /// Channel into which the protocol sends the received receipts.
+    receipt_sender: Sender<ReceiptTransaction>,
+    /// Channel into which the protocol sends the messages that should be send back to the network.
+    message_sender: Sender<(NodeIndex, Message<B, Header>)>,
 }
 
-pub trait ProtocolHandler: 'static {
-    fn handle_transaction(&self, transaction: SignedTransaction) -> GenericResult;
-    fn handle_receipt(&self, receipt: ReceiptTransaction) -> GenericResult;
-}
-
-impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
-    pub fn new(config: ProtocolConfig, handler: H, chain: Arc<RwLock<Chain<B>>>) -> Protocol<B, H> {
-        Protocol {
+impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
+    pub fn new(config: ProtocolConfig,
+               chain: Arc<BlockChain<B>>,
+               block_sender: Sender<B>,
+               transaction_sender: Sender<SignedTransaction>,
+               receipt_sender: Sender<ReceiptTransaction>,
+               message_sender: Sender<(NodeIndex, Message<B, Header>)>,
+    ) -> Self {
+        Self {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
-            handler: Some(Box::new(handler)),
             chain,
+            block_sender,
+            transaction_sender,
+            receipt_sender,
+            message_sender,
         }
     }
 
-    pub fn on_peer_connected<Header: BlockHeader>(
-        &self,
-        net_sync: &mut NetSyncIo,
-        peer: NodeIndex,
-    ) {
+    pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
         let status = message::Status::default();
         let message: Message<_, Header> = Message::new(MessageBody::Status(status));
-        self.send_message(net_sync, peer, &message);
+        self.send_message(peer, message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
@@ -112,51 +116,40 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn sample_peers(&self, num_to_sample: usize) -> Result<Vec<NodeIndex>, ()> {
-        let mut rng = thread_rng();
-        let peer_info = self.peer_info.read();
-        let owned_peers = peer_info.keys().cloned();
-        seq::sample_iter(&mut rng, owned_peers, num_to_sample).map_err(|_| ())
+    pub fn on_transaction_message(&self, transaction: SignedTransaction) {
+        let copied_tx = self.transaction_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send(transaction)
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the transactions {:?}", e)),
+        );
     }
 
-    pub fn on_transaction_message(&self, tx: SignedTransaction) {
-        //TODO: communicate to consensus
-        self.handler.as_ref().unwrap().handle_transaction(tx).unwrap();
-    }
-
-    // we will not actually need this until we have shards
+    /// Note, we will not actually need this until we have shards.
     fn on_receipt_message(&self, receipt: ReceiptTransaction) {
-        self.handler.as_ref().unwrap().handle_receipt(receipt).unwrap();
+        let copied_tx = self.receipt_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send(receipt)
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the receipts {:?}", e)),
+        );
     }
 
-    fn on_status_message<Header: BlockHeader>(
-        &self,
-        net_sync: &mut NetSyncIo,
-        peer: NodeIndex,
-        status: &message::Status,
-    ) {
+    fn on_status_message(
+        &self, peer: NodeIndex,
+        status: &message::Status
+    ) -> Result<(), (NodeIndex, Severity)> {
         if status.version != CURRENT_VERSION {
-            debug!(target: "sync", "Version mismatch");
-            net_sync.report_peer(
-                peer,
-                Severity::Bad(&format!("Peer uses incompatible version {}", status.version)),
-            );
-            return;
+            return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if status.genesis_hash != self.chain.read().genesis_hash() {
-            net_sync.report_peer(
-                peer,
-                Severity::Bad(&format!(
-                    "peer has different genesis hash (ours {:?}, theirs {:?})",
-                    self.chain.read().genesis_hash(),
-                    status.genesis_hash
-                )),
-            );
-            return;
+        if status.genesis_hash != self.chain.genesis_hash {
+            return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.chain.read().best_index();
+        let best_index = self.chain.best_block().header().index();
         let mut next_request_id = 0;
         if status.best_index > best_index {
             let request = message::BlockRequest {
@@ -166,8 +159,8 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
                 max: None,
             };
             next_request_id += 1;
-            let message: Message<_, Header> = Message::new(MessageBody::BlockRequest(request));
-            self.send_message(net_sync, peer, &message);
+            let message = Message::new(MessageBody::BlockRequest(request));
+            self.send_message(peer, message);
         }
 
         let peer_info = PeerInfo {
@@ -180,23 +173,23 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
         };
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);
+        Ok(())
     }
 
-    fn on_block_request<Header: BlockHeader>(
+    fn on_block_request(
         &self,
-        net_sync: &mut NetSyncIo,
         peer: NodeIndex,
         request: message::BlockRequest,
     ) {
         let mut blocks = Vec::new();
         let mut id = request.from;
         let max = std::cmp::min(request.max.unwrap_or(u64::max_value()), MAX_BLOCK_DATA_RESPONSE);
-        while let Some(block) = self.chain.read().get_block(&id) {
+        while let Some(block) = self.chain.get_block(&id) {
             blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
             }
-            let header = self.chain.read().get_header(&id).unwrap();
+            let header = self.chain.get_header(&id).unwrap();
             let block_index = header.index();
             let block_hash = header.hash();
             let reach_end = match request.to {
@@ -210,104 +203,89 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
             id = BlockId::Number(block_index);
         }
         let response = message::BlockResponse { id: request.id, blocks };
-        let message: Message<_, Header> = Message::new(MessageBody::BlockResponse(response));
-        self.send_message(net_sync, peer, &message);
+        let message = Message::new(MessageBody::BlockResponse(response));
+        self.send_message(peer, message);
+    }
+
+    fn on_incoming_block(&self, block: B) {
+        let copied_tx = self.block_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send(block)
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the blocks {:?}", e)),
+        );
     }
 
     fn on_block_response(
         &self,
-        _net_sync: &mut NetSyncIo,
         _peer: NodeIndex,
         response: message::BlockResponse<B>,
     ) {
-        // TODO: validate response
-        self.chain.write().import_blocks(response.blocks);
+        let copied_tx = self.block_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send_all(stream::iter_ok(response.blocks))
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the blocks {:?}", e)),
+        );
     }
 
-    pub fn on_message<Header: BlockHeader>(
-        &self,
-        net_sync: &mut NetSyncIo,
-        peer: NodeIndex,
-        data: &[u8],
-    ) {
-        let message: Message<_, Header> = match Decode::decode(data) {
-            Some(m) => m,
-            _ => {
-                debug!("cannot decode message: {:?}", data);
-                net_sync.report_peer(peer, Severity::Bad("invalid message format"));
-                return;
-            }
-        };
+    pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
+        let message: Message<B, Header> = Decode::decode(data)
+            .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
+
         match message.body {
-            MessageBody::Transaction(tx) => { self.on_transaction_message(*tx) }
-            MessageBody::Receipt(receipt) => self.on_receipt_message(receipt),
+            MessageBody::Transaction(tx) => {
+                self.on_transaction_message(*tx);
+            },
+            MessageBody::Receipt(receipt) => {
+                self.on_receipt_message(receipt);
+            },
             MessageBody::Status(status) => {
-                self.on_status_message::<Header>(net_sync, peer, &status)
-            }
-            MessageBody::BlockRequest(request) => {
-                self.on_block_request::<Header>(net_sync, peer, request)
-            }
+                self.on_status_message(peer, &status)?;
+            },
+            MessageBody::BlockRequest(request) => self.on_block_request(peer, request),
             MessageBody::BlockResponse(response) => {
                 let request = {
                     let mut peers = self.peer_info.write();
-                    if let Some(ref mut peer_info) = peers.get_mut(&peer) {
-                        peer_info.request_timestamp = None;
-                        match peer_info.block_request.take() {
-                            Some(r) => r,
-                            None => {
-                                net_sync.report_peer(
-                                    peer,
-                                    Severity::Bad("Unexpected response packet received from peer"),
-                                );
-                                return;
-                            }
-                        }
-                    } else {
-                        net_sync.report_peer(
-                            peer,
-                            Severity::Bad("Unexpected packet received from peer"),
-                        );
-                        return;
-                    }
+                    let mut peer_info = peers.get_mut(&peer)
+                        .ok_or((peer, Severity::Bad("Unexpected packet received from peer")))?;
+                    peer_info.block_request.take()
+                            .ok_or((peer, Severity::Bad("Unexpected response packet received from peer")))?
                 };
                 if request.id != response.id {
                     trace!(target: "sync", "Ignoring mismatched response packet from {} (expected {} got {})", peer, request.id, response.id);
-                    return;
+                    return Ok(())
                 }
-                self.on_block_response(net_sync, peer, response)
-            }
+                self.on_block_response(peer, response);
+            },
             MessageBody::BlockAnnounce(ann) => {
                 debug!(target: "sync", "receive block announcement: {:?}", ann);
                 // header is actually block for now
                 match ann {
                     message::BlockAnnounce::Block(b) => {
-                        self.chain.write().import_blocks(vec![b]);
+                        self.on_incoming_block(b);
                     }
                     _ => unimplemented!(),
                 }
-            }
+            },
         }
+        Ok(())
     }
 
-    pub fn send_message<Header: BlockHeader>(
-        &self,
-        net_sync: &mut NetSyncIo,
-        node_index: NodeIndex,
-        message: &Message<B, Header>,
-    ) {
-        match Encode::encode(message) {
-            Some(data) => {
-                net_sync.send(node_index, data);
-            }
-            _ => {
-                // this should never happen
-                error!("FATAL: cannot encode message: {:?}", message);
-                return;
-            }
-        };
+    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header>) {
+        let copied_tx = self.message_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send((receiver_index, message))
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the blocks {:?}", e)),
+        );
     }
 
-    pub fn maintain_peers(&self, net_sync: &mut NetSyncIo) {
+    /// Returns the list of peers that have timedout.
+    pub fn maintain_peers(&self) -> Vec<NodeIndex> {
         let cur_time = time::Instant::now();
         let mut aborting = Vec::new();
         let peer_info = self.peer_info.read();
@@ -322,87 +300,84 @@ impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
                 aborting.push(*peer);
             }
         }
-        for peer in aborting {
-            net_sync.report_peer(peer, Severity::Timeout);
-        }
+        aborting
     }
 
-    /// produce blocks
-    /// some super fake logic: if the node has a specific key,
-    /// then it produces and broadcasts the block
-    pub fn prod_block<Header: BlockHeader>(&self, net_sync: &mut NetSyncIo) {
-        let special_secret = test_utils::special_secret();
-        if special_secret == self.config.secret {
-            let block = self.chain.write().prod_block();
-            let block_announce = message::BlockAnnounce::Block(block.clone());
-            let message: Message<_, Header> =
-                Message::new(MessageBody::BlockAnnounce(block_announce));
-            let peer_info = self.peer_info.read();
-            for peer in peer_info.keys() {
-                self.send_message(net_sync, *peer, &message);
-            }
-            self.chain.write().import_blocks(vec![block]);
-        }
-    }
+//    /// produce blocks
+//    /// some super fake logic: if the node has a specific key,
+//    /// then it produces and broadcasts the block
+//    pub fn prod_block(&self) {
+//        let special_secret = test_utils::special_secret();
+//        if special_secret == self.config.secret {
+//            let block = self.chain.write().prod_block();
+//            let block_announce = message::BlockAnnounce::Block(block.clone());
+//            let message: Message<_, Header> =
+//                Message::new(MessageBody::BlockAnnounce(block_announce));
+//            let peer_info = self.peer_info.read();
+//            for peer in peer_info.keys() {
+//                self.send_message(*peer, &message);
+//            }
+//            self.on_incoming_block(block);
+//        }
+//    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use client::test_utils::*;
-    use primitives::hash::hash;
-    use primitives::types::{SignedTransaction, TransactionBody};
-    use test_utils::*;
-    use primitives::signature::DEFAULT_SIGNATURE;
-    use parking_lot::Mutex;
-
-    impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
-        fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
-            match Decode::decode(data) {
-                Some(m) => m,
-                _ => panic!("cannot decode message: {:?}", data),
-            }
-        }
-    }
-
-    #[test]
-    fn test_serialization() {
-        let tx = SignedTransaction::empty();
-        let message: Message<MockBlock, MockBlockHeader> =
-            Message::new(MessageBody::Transaction(Box::new(tx)));
-        let config = ProtocolConfig::default();
-        let mock_client = Arc::new(RwLock::new(MockClient::default()));
-        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-        let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
-        assert_eq!(message, decoded);
-    }
-
-    #[test]
-    fn test_on_transaction_message() {
-        let config = ProtocolConfig::default();
-        let mock_client = Arc::new(RwLock::new(MockClient::default()));
-        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-        let tx = SignedTransaction::empty();
-        protocol.on_transaction_message(tx);
-    }
-
-    #[test]
-    fn test_protocol_and_client() {
-        let client = Arc::new(RwLock::new(generate_test_client()));
-        let handler = MockHandler { client: client.clone() };
-        let config = ProtocolConfig::new_with_default_id(special_secret());
-        let protocol = Protocol::new(config, handler, client.clone());
-        let network_service = Arc::new(Mutex::new(default_network_service()));
-        let mut net_sync = NetSyncIo::new(network_service, protocol.config.protocol_id);
-        protocol.on_transaction_message(SignedTransaction::new(
-            DEFAULT_SIGNATURE,
-            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
-        ));
-        assert_eq!(client.read().num_transactions(), 1);
-        assert_eq!(client.read().num_blocks_in_queue(), 0);
-        protocol.prod_block::<MockBlockHeader>(&mut net_sync);
-        assert_eq!(client.read().num_transactions(), 0);
-        assert_eq!(client.read().num_blocks_in_queue(), 0);
-        assert_eq!(client.read().best_index(), 1);
-    }
-}
+//#[cfg(test)]
+//mod tests {
+//    use super::*;
+//    use client::test_utils::*;
+//    use primitives::hash::hash;
+//    use primitives::types::{SignedTransaction, TransactionBody};
+//    use test_utils::*;
+//    use primitives::signature::DEFAULT_SIGNATURE;
+//    use parking_lot::Mutex;
+//
+//    impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
+//        fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
+//            match Decode::decode(data) {
+//                Some(m) => m,
+//                _ => panic!("cannot decode message: {:?}", data),
+//            }
+//        }
+//    }
+//
+//    #[test]
+//    fn test_serialization() {
+//        let tx = SignedTransaction::empty();
+//        let message: Message<MockBlock, MockBlockHeader> =
+//            Message::new(MessageBody::Transaction(Box::new(tx)));
+//        let config = ProtocolConfig::default();
+//        let mock_client = Arc::new(RwLock::new(MockClient::default()));
+//        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
+//        let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
+//        assert_eq!(message, decoded);
+//    }
+//
+//    #[test]
+//    fn test_on_transaction_message() {
+//        let config = ProtocolConfig::default();
+//        let mock_client = Arc::new(RwLock::new(MockClient::default()));
+//        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
+//        let tx = SignedTransaction::empty();
+//        protocol.on_transaction_message(tx);
+//    }
+//
+//    #[test]
+//    fn test_protocol_and_client() {
+//        let client = Arc::new(RwLock::new(generate_test_client()));
+//        let handler = MockHandler { client: client.clone() };
+//        let config = ProtocolConfig::new_with_default_id(special_secret());
+//        let protocol = Protocol::new(config, handler, client.clone());
+//        let network_service = Arc::new(Mutex::new(default_network_service()));
+//        protocol.on_transaction_message(SignedTransaction::new(
+//            DEFAULT_SIGNATURE,
+//            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
+//        ));
+//        assert_eq!(client.read().num_transactions(), 1);
+//        assert_eq!(client.read().num_blocks_in_queue(), 0);
+//        protocol.prod_block::<MockBlockHeader>(&mut net_sync);
+//        assert_eq!(client.read().num_transactions(), 0);
+//        assert_eq!(client.read().num_blocks_in_queue(), 0);
+//        assert_eq!(client.read().best_index(), 1);
+//    }
+//}

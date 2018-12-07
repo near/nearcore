@@ -1,7 +1,0 @@
-[package]
-name = "devnet"
-version = "0.1.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
-
-[dependencies]
-service = { path = "../../node/service", features = ["test-utils"] }

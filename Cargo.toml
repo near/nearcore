@@ -25,10 +25,8 @@ members = [
     "node/cli",
     "node/rpc",
     "node/runtime",
-    "node/service",
     "node/network",
     "test-utils/node",
-    "test-utils/devnet",
     "test-utils/keygen"
 ]
 exclude = [
@@ -41,4 +39,3 @@ keystore = { path = "./test-utils/keygen" }
 node-rpc = { path = "./node/rpc" }
 primitives = { path = "./core/primitives" }
 serde_json = "1.0.0"
-service = { path = "./node/service", features = ["test-utils"] }

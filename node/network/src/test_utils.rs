@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use client::{chain::Chain, Client};
 use error::Error;
 use futures::{future, Future};
 use futures::stream::Stream;
@@ -9,9 +8,8 @@ use message::{Message, MessageBody};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Header};
 use primitives::types;
-use protocol::{CURRENT_VERSION, ProtocolConfig, ProtocolHandler};
+use protocol::{CURRENT_VERSION, ProtocolConfig};
 use rand::Rng;
-use service::Service;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -80,48 +78,48 @@ pub fn init_logger(debug: bool) {
     builder.try_init().unwrap_or(());
 }
 
-#[derive(Default, Clone, Copy)]
-pub struct MockProtocolHandler {}
+//#[derive(Default, Clone, Copy)]
+//pub struct MockProtocolHandler {}
+//
+//impl ProtocolHandler for MockProtocolHandler {
+//    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
+//        println!("{:?}", t);
+//        Ok(())
+//    }
+//
+//    fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
+//        println!("{:?}", receipt);
+//        Ok(())
+//    }
+//}
 
-impl ProtocolHandler for MockProtocolHandler {
-    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
-        println!("{:?}", t);
-        Ok(())
-    }
-
-    fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
-        println!("{:?}", receipt);
-        Ok(())
-    }
-}
-
-pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
-    let base_address = "/ip4/127.0.0.1/tcp/".to_string();
-    let base_port = rand::thread_rng().gen_range(30000, 60000);
-    let mut addresses = Vec::new();
-    for i in 0..num_services {
-        let port = base_port + i;
-        addresses.push(base_address.clone() + &port.to_string());
-    }
-    // spin up a root service that does not have bootnodes and
-    // have other services have this service as their boot node
-    // may want to abstract this out to enable different configurations
-    let secret = create_secret();
-    let root_config = test_config_with_secret(&addresses[0], vec![], secret);
-    let handler = MockProtocolHandler::default();
-    let mock_client = Arc::new(RwLock::new(MockClient::default()));
-    let root_service =
-        Service::new(ProtocolConfig::default(), root_config, handler, mock_client.clone()).unwrap();
-    let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
-    let mut services = vec![root_service];
-    for i in 1..num_services {
-        let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
-        let service =
-            Service::new(ProtocolConfig::default(), config, handler, mock_client.clone()).unwrap();
-        services.push(service);
-    }
-    services
-}
+//pub fn create_test_services(num_services: u32) -> Vec<Service<MockBlock, MockProtocolHandler>> {
+//    let base_address = "/ip4/127.0.0.1/tcp/".to_string();
+//    let base_port = rand::thread_rng().gen_range(30000, 60000);
+//    let mut addresses = Vec::new();
+//    for i in 0..num_services {
+//        let port = base_port + i;
+//        addresses.push(base_address.clone() + &port.to_string());
+//    }
+//    // spin up a root service that does not have bootnodes and
+//    // have other services have this service as their boot node
+//    // may want to abstract this out to enable different configurations
+//    let secret = create_secret();
+//    let root_config = test_config_with_secret(&addresses[0], vec![], secret);
+//    let handler = MockProtocolHandler::default();
+//    let mock_client = Arc::new(RwLock::new(MockClient::default()));
+//    let root_service =
+//        Service::new(ProtocolConfig::default(), root_config, handler, mock_client.clone()).unwrap();
+//    let boot_node = addresses[0].clone() + "/p2p/" + &raw_key_to_peer_id_str(secret);
+//    let mut services = vec![root_service];
+//    for i in 1..num_services {
+//        let config = test_config(&addresses[i as usize], vec![boot_node.clone()]);
+//        let service =
+//            Service::new(ProtocolConfig::default(), config, handler, mock_client.clone()).unwrap();
+//        services.push(service);
+//    }
+//    services
+//}
 
 pub fn default_network_service() -> NetworkService {
     let net_config = NetworkConfiguration::default();
@@ -174,44 +172,44 @@ impl Block for MockBlock {
     }
 }
 
-#[derive(Default)]
-pub struct MockClient {
-    pub block: MockBlock,
-}
-
-pub struct MockHandler {
-    pub client: Arc<RwLock<Client>>,
-}
-
-impl ProtocolHandler for MockHandler {
-    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
-        self.client.write().handle_signed_transaction(t)
-    }
-    
-    fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
-        self.client.write().handle_receipt_transaction(receipt)
-    }
-}
-
-impl Chain<MockBlock> for MockClient {
-    fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
-        Some(self.block.clone())
-    }
-    fn get_header(&self, id: &types::BlockId) -> Option<MockBlockHeader> {
-        Some(self.block.header().clone())
-    }
-    fn best_hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
-    fn best_index(&self) -> u64 {
-        0
-    }
-    fn genesis_hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
-    fn import_blocks(&self, blocks: Vec<MockBlock>) {}
-
-    fn prod_block(&self) -> MockBlock {
-        MockBlock {}
-    }
-}
+//#[derive(Default)]
+//pub struct MockClient {
+//    pub block: MockBlock,
+//}
+//
+//pub struct MockHandler {
+//    pub client: Arc<RwLock<Client>>,
+//}
+//
+//impl ProtocolHandler for MockHandler {
+//    fn handle_transaction(&self, t: types::SignedTransaction) -> GenericResult {
+//        self.client.write().handle_signed_transaction(t)
+//    }
+//
+//    fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
+//        self.client.write().handle_receipt_transaction(receipt)
+//    }
+//}
+//
+//impl Chain<MockBlock> for MockClient {
+//    fn get_block(&self, id: &types::BlockId) -> Option<MockBlock> {
+//        Some(self.block.clone())
+//    }
+//    fn get_header(&self, id: &types::BlockId) -> Option<MockBlockHeader> {
+//        Some(self.block.header().clone())
+//    }
+//    fn best_hash(&self) -> CryptoHash {
+//        CryptoHash::default()
+//    }
+//    fn best_index(&self) -> u64 {
+//        0
+//    }
+//    fn genesis_hash(&self) -> CryptoHash {
+//        CryptoHash::default()
+//    }
+//    fn import_blocks(&self, blocks: Vec<MockBlock>) {}
+//
+//    fn prod_block(&self) -> MockBlock {
+//        MockBlock {}
+//    }
+//}
