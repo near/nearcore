@@ -204,15 +204,6 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             }
         }
     }
-
-    #[allow(unused)]
-    fn promise_and(
-        &mut self,
-        promise_id1: PromiseId,
-        promise_id2: PromiseId,
-    ) -> ExtResult<PromiseId> {
-        unimplemented!();
-    }
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {

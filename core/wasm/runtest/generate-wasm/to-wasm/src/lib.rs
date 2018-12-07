@@ -93,6 +93,13 @@ fn return_int(res: i32) {
     }
 }
 
+fn serialize(buf: &[u8]) -> Vec<u8> {
+    let mut vec = vec![0u8; buf.len() + 4];
+    LittleEndian::write_u32(&mut vec[..4], buf.len() as u32);
+    vec[4..].clone_from_slice(buf);
+    return vec
+}
+
 #[no_mangle]
 fn key_to_str(key: u32) -> [u8; 19] {
     let mut str_key = [0u8; 19];
@@ -158,6 +165,34 @@ pub fn sum_with_multiple_results() {
             sum += LittleEndian::read_i32(&result_read(index));
         }
         return_int(sum)
+    }
+}
+
+#[no_mangle]
+pub fn create_promises_and_join() {
+    unsafe {
+        let promise1 = promise_create(
+            serialize(b"test1").as_ptr(),
+            serialize(b"run1").as_ptr(),
+            serialize(b"args1").as_ptr(),
+            0,
+            0,
+        );
+        let promise2 = promise_create(
+            serialize(b"test2").as_ptr(),
+            serialize(b"run2").as_ptr(),
+            serialize(b"args2").as_ptr(),
+            0,
+            0,
+        );
+        let promise_joined = promise_and(promise1, promise2);
+        let callback = promise_then(
+            promise_joined,
+            serialize(b"run_test").as_ptr(),
+            serialize(b"").as_ptr(),
+            0,
+        );
+        return_promise(callback);
     }
 }
 

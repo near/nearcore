@@ -4,7 +4,8 @@ use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
 use types::{RuntimeError as Error, ReturnData};
 
-use primitives::types::{AccountAlias, PromiseId};
+use primitives::types::{AccountAlias, PromiseId, ReceiptId};
+use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
 
@@ -217,13 +218,36 @@ impl<'a> Runtime<'a> {
         let promise_index1: u32 = args.nth_checked(0)?;
         let promise_index2: u32 = args.nth_checked(1)?;
 
-        let promise_id1 = self.promise_index_to_id(promise_index1)?;
-        let promise_id2 = self.promise_index_to_id(promise_index2)?;
+        let promise_ids = [
+            self.promise_index_to_id(promise_index1)?,
+            self.promise_index_to_id(promise_index2)?,
+        ];
 
-        let promise_id = self.ext
-            .promise_and(promise_id1, promise_id2)
-            .map_err(|_| Error::PromiseError)?;
+        let mut receipt_ids = vec![];
+        let mut unique_receipt_ids = HashSet::new();
+        {
+            let mut add_receipt_id = |receipt_id: ReceiptId| -> Result<()> {
+                if !unique_receipt_ids.insert(receipt_id.clone()) {
+                    return Err(Error::PromiseError);
+                }
+                receipt_ids.push(receipt_id);
+                Ok(())
+            };
 
+            for promise_id in promise_ids.iter() {
+                match promise_id {
+                    PromiseId::Receipt(receipt_id) => add_receipt_id(receipt_id.clone())?,
+                    PromiseId::Callback(_) => return Err(Error::PromiseError),
+                    PromiseId::Joiner(v) => {
+                        for receipt_id in v {
+                            add_receipt_id(receipt_id.clone())?
+                        }
+                    },
+                };
+            }
+        }
+
+        let promise_id = PromiseId::Joiner(receipt_ids);
         let promise_index = self.promise_ids.len();
         self.promise_ids.push(promise_id);
 
