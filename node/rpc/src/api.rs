@@ -6,7 +6,7 @@ use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
-    ScheduleFunctionCallRequest, SendMoneyRequest,
+    ScheduleFunctionCallRequest, SendMoneyRequest, StakeRequest,
     ViewAccountRequest, ViewAccountResponse,
 };
 
@@ -17,6 +17,13 @@ build_rpc_trait! {
         fn rpc_send_money(
             &self,
             SendMoneyRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
+
+        /// Receive new transaction.
+        #[rpc(name = "stake")]
+        fn rpc_stake(
+            &self,
+            StakeRequest
         ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Deploy smart contract.
@@ -99,7 +106,22 @@ impl TransactionApi for RpcImpl {
             receiver: r.receiver_account_id,
             amount: r.amount,
             method_name: vec![],
-            args: Vec::new(),
+            args: vec![],
+        };
+        Ok(PreparedTransactionBodyResponse { body })
+    }
+
+    fn rpc_stake(
+        &self,
+        r: StakeRequest,
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        let body = TransactionBody {
+            nonce: r.nonce,
+            sender: r.staker_account_id,
+            receiver: r.staker_account_id,
+            amount: r.amount,
+            method_name: vec![],
+            args: vec![],
         };
         Ok(PreparedTransactionBodyResponse { body })
     }

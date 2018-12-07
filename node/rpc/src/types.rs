@@ -12,6 +12,14 @@ pub struct SendMoneyRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct StakeRequest {
+    pub nonce: u64,
+    #[serde(with = "bs58_format")]
+    pub staker_account_id: AccountId,
+    pub amount: u64,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct DeployContractRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]

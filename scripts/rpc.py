@@ -160,7 +160,15 @@ class NearRPC(object):
         return self._handle_prepared_transaction_body_response(response)
 
     def stake(self, sender, amount):
-        self.send_money(sender, sender, amount)
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'staker_account_id': sender,
+            'amount': amount,
+        }
+        self._update_nonce(sender)
+        response = self._call_rpc('stake', params)
+        return self._handle_prepared_transaction_body_response(response)
 
     def schedule_function_call(
         self,
