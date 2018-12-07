@@ -1,16 +1,16 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult, Error, ErrorCode};
 use node_runtime::StateDbViewer;
-use primitives::types::{SignedTransaction, TransactionBody, ViewCall, StructSignature,};
-use primitives::hash::CryptoHash;
-use primitives::signature::{PublicKey, SecretKey, get_keypair, sign};
+use primitives::types::{SignedTransaction, TransactionBody, ViewCall};
 use primitives::utils::concat;
+use primitives::traits::Signer;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
     ScheduleFunctionCallRequest, SendMoneyRequest,
     ViewAccountRequest, ViewAccountResponse,
 };
+use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -58,33 +58,27 @@ build_rpc_trait! {
     }
 }
 
-pub struct RpcImpl {
+pub struct RpcImpl<S: Signer> {
     state_db_viewer: StateDbViewer,
     submit_txn_sender: Sender<SignedTransaction>,
-    // TODO: This is a temporary solution. We should be using a real signer to sign it.
-    // Instead we temporarily sign the transactions here.
-    keypair: (PublicKey, SecretKey),
+    signer: Arc<S>,
 }
 
-impl RpcImpl {
+impl<S: Signer> RpcImpl<S> {
     pub fn new(
         state_db_viewer: StateDbViewer,
         submit_txn_sender: Sender<SignedTransaction>,
+        signer: Arc<S>
     ) -> Self {
-        RpcImpl {
+        Self {
             state_db_viewer,
             submit_txn_sender,
-            keypair: get_keypair(),
+            signer,
         }
-    }
-
-    // TOOD: Remove once we have a proper signer.
-    fn sign_hash(&self, hash: &CryptoHash) -> StructSignature {
-        sign(hash.as_ref(), &self.keypair.1)
     }
 }
 
-impl TransactionApi for RpcImpl {
+impl<S: Signer> TransactionApi for RpcImpl<S> {
     fn rpc_deploy_contract(
         &self,
         r: DeployContractRequest,
@@ -97,7 +91,7 @@ impl TransactionApi for RpcImpl {
             method_name: "deploy".into(),
             args: r.wasm_byte_array,
         };
-        let transaction = SignedTransaction::new(body.clone(), |h| self.sign_hash(h));
+        let transaction = SignedTransaction::new(body.clone(), |h| self.signer.sign(h));
         self.submit_txn_sender.clone().try_send(transaction).map_err(
             |e| {
                 error!("Error deploying contract {:?}", e);
@@ -118,7 +112,7 @@ impl TransactionApi for RpcImpl {
             method_name: vec![],
             args: Vec::new(),
         };
-        let transaction = SignedTransaction::new(body.clone(), |h| self.sign_hash(h));
+        let transaction = SignedTransaction::new(body.clone(), |h| self.signer.sign(h));
         self.submit_txn_sender.clone().try_send(transaction).map_err(
             |e| {
                 error!("Error sending money {:?}", e);
@@ -139,7 +133,7 @@ impl TransactionApi for RpcImpl {
             method_name: r.method_name.into_bytes(),
             args: concat(r.args),
         };
-        let transaction = SignedTransaction::new(body.clone(), |h| self.sign_hash(h));
+        let transaction = SignedTransaction::new(body.clone(), |h| self.signer.sign(h));
         self.submit_txn_sender.clone().try_send(transaction).map_err(
             |e| {
                 error!("Error scheduling function call {:?}", e);
@@ -185,7 +179,7 @@ impl TransactionApi for RpcImpl {
     }
 }
 
-pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
+pub fn get_handler<S: Signer>(rpc_impl: RpcImpl<S>) -> IoHandler {
     let mut io = IoHandler::new();
     io.extend_with(rpc_impl.to_delegate());
     io
@@ -201,13 +195,16 @@ mod tests {
     use self::jsonrpc_test::Rpc;
     use super::*;
     use node_runtime::test_utils::get_test_state_db_viewer;
+    use primitives::signer::InMemorySigner;
+    use std::sync::Arc;
 
     #[test]
     #[ignore]
     fn test_call() {
         let db_state_viewer= get_test_state_db_viewer();
         let (submit_txn_sender, _) = channel(1024);
-        let rpc_impl = RpcImpl::new(db_state_viewer, submit_txn_sender);
+        let signer = Arc::new(InMemorySigner::default());
+        let rpc_impl = RpcImpl::new(db_state_viewer, submit_txn_sender, signer);
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = SendMoneyRequest {

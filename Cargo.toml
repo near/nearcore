@@ -27,7 +27,8 @@ members = [
     "node/runtime",
     "node/network",
     "test-utils/node",
-    "test-utils/keygen"
+    "test-utils/keygen",
+    "test-utils/devnet",
 ]
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",

@@ -65,7 +65,7 @@ pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq
 
 /// Trait to abstract the way signing happens.
 /// Can be used to not keep private key in the given binary via cross-process communication.
-pub trait Signer: Sync + Send {
+pub trait Signer: Sync + Send + 'static {
     fn public_key(&self) -> signature::PublicKey;
     fn sign(&self, hash: &CryptoHash) -> types::BLSSignature;
 }

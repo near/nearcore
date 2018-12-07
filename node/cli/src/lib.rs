@@ -57,13 +57,16 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         0, CryptoHash::default(), genesis_root, vec![], vec![]
     );
     let beacon_chain = Arc::new(BlockChain::new(genesis, storage.clone()));
+    let signer = Arc::new(InMemorySigner::default());
 
     // Create RPC Server.
     let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     // TODO: TxFlow should be listening on these transactions.
     let (transactions_tx, _transactions_rx) = channel(1024);
     let (receipts_tx, _receipts_rx) = channel(1024);
-    let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx.clone());
+    let rpc_impl = RpcImpl::new(state_db_viewer,
+                                transactions_tx.clone(),
+                                signer.clone());
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let server = node_rpc::server::get_server(rpc_handler);
     tokio::spawn(future::lazy(|| {
@@ -72,7 +75,6 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     }));
 
     // Create a task that consumes the consensuses and produces the beacon chain blocks.
-    let signer = Arc::new(InMemorySigner::default());
     let (
         _beacon_block_consensus_body_tx,
         beacon_block_consensus_body_rx,

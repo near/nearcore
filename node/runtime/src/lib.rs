@@ -796,7 +796,7 @@ mod tests {
             method_name: b"run_test".to_vec(),
             args: concat((2..4).into_iter().map(|x| encode_int(x).to_vec()).collect()),
         };
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let transaction = SignedTransaction::new(tx_body, |_| DEFAULT_SIGNATURE);
         let apply_state = ApplyState { 
             root, parent_block_hash: CryptoHash::default(), block_index: 0
         };
