@@ -34,7 +34,7 @@ pub mod test_utils;
 pub struct Client {
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
-    runtime: Rc<RefCell<Runtime>>,
+    runtime: Arc<RwLock<Runtime>>,
     authority: Authority,
     beacon_chain: BlockChain<BeaconBlock>,
     // transaction pool (put here temporarily)
@@ -71,7 +71,7 @@ impl Client {
             signer,
             state_db,
             beacon_chain,
-            runtime: Rc::new(RefCell::new(runtime)),
+            runtime: Arc::new(RwLock::new(runtime)),
             authority,
             tx_pool: RwLock::new(TransactionPool::new()),
             import_queue: RwLock::new(ImportQueue::new()),
@@ -122,7 +122,7 @@ impl Client {
                 parent_block_hash: parent_hash,
             };
             let (filtered_transactions, filtered_receipts, mut apply_result) =
-                self.runtime.borrow_mut().apply(&apply_state, body.transactions, &mut body.receipts);
+                self.runtime.write().apply(&apply_state, body.transactions, &mut body.receipts);
             if apply_result.root != header.body.merkle_root_state
                 || filtered_transactions.len() != num_transactions
                 || filtered_receipts.len() != num_receipts

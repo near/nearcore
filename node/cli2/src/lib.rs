@@ -70,6 +70,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     // TODO: TxFlow should be listening on these transactions.
     let (submit_txn_tx, _submit_txn_rx) = channel(1024);
+    let (submit_receipt_tx, _submit_receipt_rx) = channel(1024);
     let rpc_impl = RpcImpl::new(state_db_viewer, submit_txn_tx.clone());
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let server = node_rpc::server::get_server(rpc_handler);
@@ -104,7 +105,7 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     tokio::spawn(block_importer_task);
 
     // Create network task.
-    let network_handler = ChannelNetworkHandler::new(submit_txn_tx.clone());
+    let network_handler = ChannelNetworkHandler::new(submit_txn_tx.clone(), submit_receipt_tx.clone());
     let client = Arc::new(RwLock::new(Client::new(&chain_spec, storage, signer)));
     let network = NetworkService::new(
         ProtocolConfig::default(),

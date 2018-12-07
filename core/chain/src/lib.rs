@@ -245,7 +245,7 @@ mod tests {
         );
         let bc = BlockChain::new(genesis.clone(), storage.clone());
         let block1 = BeaconBlock::new(
-            1, genesis.hash(), MerkleHash::default(), vec![], vec![]
+            1, genesis.header_hash(), MerkleHash::default(), vec![], vec![]
         );
         assert_eq!(bc.insert_block(block1.clone()), false);
         assert_eq!(bc.best_block().header_hash(), block1.header_hash());

@@ -6,7 +6,7 @@ use node_runtime::{ApplyState, Runtime};
 use primitives::traits::{Block, Header};
 use primitives::traits::Signer;
 use primitives::types::ConsensusBlockBody;
-use primitives::types::SignedTransaction;
+use primitives::types::{SignedTransaction, ReceiptTransaction};
 use std::sync::Arc;
 use storage::StateDb;
 use parking_lot::RwLock;
@@ -59,13 +59,17 @@ impl BeaconBlockProducer {
     }
 }
 
-pub type BeaconChainConsensusBlockBody = ConsensusBlockBody<Vec<SignedTransaction>>;
+pub type BeaconChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
+pub type BeaconChainConsensusBlockBody = ConsensusBlockBody<BeaconChainPayload>;
 
-impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProducer {
+impl ConsensusHandler<BeaconBlock, BeaconChainPayload> for BeaconBlockProducer {
     fn produce_block(&self, body: BeaconChainConsensusBlockBody) -> BeaconBlock {
         // TODO: verify signature
         let transactions = body.messages.iter()
-            .flat_map(|message| message.clone().body.payload)
+            .flat_map(|message| message.body.payload.0.clone())
+            .collect();
+        let mut receipts = body.messages.iter()
+            .flat_map(|message| message.body.payload.1.clone())
             .collect();
 
         // TODO: compute actual merkle root and state, as well as signature, and
@@ -76,14 +80,15 @@ impl ConsensusHandler<BeaconBlock, Vec<SignedTransaction>> for BeaconBlockProduc
             parent_block_hash: last_block.header_hash(),
             block_index: last_block.header().index() + 1,
         };
-        let (filtered_transactions, mut apply_result) =
-            self.runtime.write().apply(&apply_state, transactions);
+        let (filtered_transactions, filtered_receipts, mut apply_result) =
+            self.runtime.write().apply(&apply_state, transactions, &mut receipts);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,
             last_block.header_hash(),
             apply_result.root,
             filtered_transactions,
+            filtered_receipts,
         );
         block.sign(&self.signer);
         self.beacon_chain.insert_block(block.clone());

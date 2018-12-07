@@ -352,9 +352,6 @@ mod tests {
     use client::test_utils::*;
     use primitives::hash::hash;
     use primitives::types::{SignedTransaction, TransactionBody};
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use primitives::types;
     use test_utils::*;
     use primitives::signature::DEFAULT_SIGNATURE;
     use parking_lot::Mutex;

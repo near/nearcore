@@ -1,6 +1,6 @@
 //! BeaconBlockImporter consumes blocks that we received from other peers and adds them to the
 //! chain.
-use beacon::types::BeaconBlock;
+use beacon::types::{BeaconBlock, BeaconBlockBody};
 use chain::BlockChain;
 use node_runtime::{ApplyState, Runtime};
 use primitives::traits::{Block, Header};
@@ -87,8 +87,9 @@ impl BeaconBlockImporter {
             let hash = next_b.header_hash();
             if self.beacon_chain.is_known(&hash) { continue; }
 
-            let (header, transactions) = next_b.deconstruct();
-            let num_transactions = transactions.len();
+            let (header, mut body) = next_b.deconstruct();
+            let num_transactions = body.transactions.len();
+            let num_receipts = body.receipts.len();
             // we can unwrap because parent is guaranteed to exist
             let prev_header = self.beacon_chain
                 .get_header(&BlockId::Hash(parent_hash))
@@ -98,16 +99,19 @@ impl BeaconBlockImporter {
                 block_index: prev_header.body.index,
                 parent_block_hash: parent_hash,
             };
-            let (filtered_transactions, mut apply_result) =
-                self.runtime.write().apply(&apply_state, transactions);
+            let (filtered_transactions, filtered_receipts, mut apply_result) =
+                self.runtime.write().apply(&apply_state, body.transactions, &mut body.receipts);
             assert_eq!(apply_result.root, header.body.merkle_root_state,
                        "Merkle roots are not equal after applying the transactions.");
             // TODO: This should be handled.
             assert_eq!(filtered_transactions.len(), num_transactions,
                        "Imported block has transactions that were filtered out.");
+            assert_eq!(filtered_receipts.len(), num_receipts,
+            "Imported block has receipts that were filtered out.");
             self.state_db.commit(&mut apply_result.transaction).ok();
             // TODO: figure out where to store apply_result.authority_change_set.
-            let block = Block::new(header, filtered_transactions);
+            let block_body = BeaconBlockBody::new(filtered_transactions, filtered_receipts);
+            let block = Block::new(header, block_body);
             self.beacon_chain.insert_block(block);
 
             // Only keep those blocks in `pending_blocks` that are still pending.

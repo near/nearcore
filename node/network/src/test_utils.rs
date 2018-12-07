@@ -189,7 +189,7 @@ impl ProtocolHandler for MockHandler {
     }
     
     fn handle_receipt(&self, receipt: types::ReceiptTransaction) -> GenericResult {
-        self.client.handle_receipt_transaction(receipt)
+        self.client.write().handle_receipt_transaction(receipt)
     }
 }
 
