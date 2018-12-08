@@ -37,7 +37,6 @@ use wasm::types::ReturnData;
 use chain::BlockChain;
 use beacon::types::BeaconBlock;
 
-pub mod chain_spec;
 pub mod test_utils;
 
 const RUNTIME_DATA: &[u8] = b"runtime";

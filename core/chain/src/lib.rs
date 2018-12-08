@@ -1,5 +1,9 @@
 extern crate parking_lot;
 extern crate primitives;
+#[macro_use]
+extern crate serde_derive;
+#[cfg_attr(test, macro_use)]
+extern crate serde_json;
 extern crate storage;
 
 use std::collections::HashMap;
@@ -15,6 +19,8 @@ use storage::Storage;
 
 const BLOCKCHAIN_GENESIS_BLOCK: &[u8] = b"genesis";
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
+
+pub mod chain_spec;
 
 /// General BlockChain container.
 pub struct BlockChain<B: Block> {

@@ -1,5 +1,5 @@
 use StateDbViewer;
-use chain_spec::ChainSpec;
+use chain::chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
 use std::sync::Arc;
 use storage::test_utils::create_memory_db;

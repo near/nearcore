@@ -6,18 +6,17 @@ extern crate futures;
 extern crate network;
 extern crate node_rpc;
 extern crate node_runtime;
+extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-#[cfg_attr(test, macro_use)]
-extern crate serde_json;
 extern crate storage;
 extern crate tokio;
-extern crate parking_lot;
+extern crate serde_derive;
+extern crate serde_json;
+
 
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use chain::BlockChain;
+use chain::{BlockChain, chain_spec};
 use clap::{App, Arg};
 use futures::future;
 use futures::sync::mpsc::channel;
@@ -31,8 +30,6 @@ use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
 use parking_lot::{RwLock, Mutex};
-
-pub mod chain_spec;
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
