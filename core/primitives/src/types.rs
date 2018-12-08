@@ -81,36 +81,67 @@ pub struct ViewCallResult {
     pub result: Vec<u8>,
 }
 
-/// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct TransactionBody {
+pub struct StakeTransaction {
+    pub nonce: u64,
+    pub staker: AccountId,
+    pub amount: u64,
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct SendMoneyTransaction {
     pub nonce: u64,
     pub sender: AccountId,
     pub receiver: AccountId,
     pub amount: u64,
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct DeployContractTransaction {
+    pub nonce: u64,
+    pub owner: AccountId,
+    pub contract_id: AccountId,
+    pub wasm_byte_array: Vec<u8>,
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct FunctionCallTransaction {
+    pub nonce: u64,
+    pub originator: AccountId,
+    pub contract_id: AccountId,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
 }
 
+/// TODO: Call non-view function in the contracts.
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub enum TransactionBody {
+    Stake(StakeTransaction),
+    SendMoney(SendMoneyTransaction),
+    DeployContract(DeployContractTransaction),
+    FunctionCall(FunctionCallTransaction),
+}
+
 impl TransactionBody {
-    pub fn new(
-        nonce: u64,
-        sender: AccountId,
-        receiver: AccountId,
-        amount: u64,
-        method_name: String,
-        args: Vec<u8>,
-    ) -> Self {
-        TransactionBody { 
-            nonce,
-            sender,
-            receiver,
-            amount,
-            method_name: method_name.into(),
-            args,
+    pub fn get_nonce(&self) -> u64 {
+        match self {
+            TransactionBody::Stake(t) => t.nonce,
+            TransactionBody::SendMoney(t) => t.nonce,
+            TransactionBody::DeployContract(t) => t.nonce,
+            TransactionBody::FunctionCall(t) => t.nonce,
+        }
+    }
+
+    pub fn get_sender(&self) -> AccountId {
+        match self {
+            TransactionBody::Stake(t) => t.staker,
+            TransactionBody::SendMoney(t) => t.sender,
+            TransactionBody::DeployContract(t) => t.owner,
+            TransactionBody::FunctionCall(t) => t.originator,
         }
     }
 }
+
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
@@ -133,14 +164,12 @@ impl SignedTransaction {
 
     // this is for tests
     pub fn empty() -> SignedTransaction {
-        let body = TransactionBody {
+        let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
             sender: AccountId::default(),
             receiver: AccountId::default(),
             amount: 0,
-            method_name: vec![],
-            args: vec![],
-        };
+        });
         SignedTransaction { sender_sig: DEFAULT_SIGNATURE, hash: hash_struct(&body), body }
     }
 }

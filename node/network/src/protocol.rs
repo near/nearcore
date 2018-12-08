@@ -293,8 +293,7 @@ impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
         for (peer, time_stamp) in peer_info
             .iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
-            .chain(handshaking_peers.iter())
-        {
+            .chain(handshaking_peers.iter()) {
             if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
                 trace!(target: "sync", "Timeout {}", *peer);
                 aborting.push(*peer);

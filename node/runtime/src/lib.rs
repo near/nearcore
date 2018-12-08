@@ -36,6 +36,8 @@ use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 use wasm::types::ReturnData;
 use chain::BlockChain;
 use beacon::types::BeaconBlock;
+use primitives::types::StakeTransaction;
+use primitives::types::SendMoneyTransaction;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -230,23 +232,24 @@ impl Runtime {
     fn send_money(
         &self,
         state_update: &mut StateDbUpdate,
-        transaction: &SignedTransaction,
+        transaction: &SendMoneyTransaction,
+        hash: CryptoHash,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let staked = runtime_data.at_stake(transaction.body.sender);
-        if sender.amount - staked >= transaction.body.amount {
-            sender.amount -= transaction.body.amount;
-            sender.nonce = transaction.body.nonce;
-            set(state_update, &account_id_to_bytes(transaction.body.sender), sender);
+        let staked = runtime_data.at_stake(transaction.sender);
+        if sender.amount - staked >= transaction.amount {
+            sender.amount -= transaction.amount;
+            sender.nonce = transaction.nonce;
+            set(state_update, &account_id_to_bytes(transaction.sender), sender);
             let receipt = ReceiptTransaction::new(
-                transaction.body.sender,
-                transaction.body.receiver,
-                transaction.hash.into(),
+                transaction.sender,
+                transaction.receiver,
+                hash.into(),
                 ReceiptBody::NewCall(AsyncCall::new(
                     b"deposit".to_vec(),
                     vec![],
-                    transaction.body.amount,
+                    transaction.amount,
                     1,
                 ))
             );
@@ -255,8 +258,8 @@ impl Runtime {
             Err(
                 format!(
                     "Account {} tries to send {}, but has staked {} and only has {}",
-                    transaction.body.sender,
-                    transaction.body.amount,
+                    transaction.sender,
+                    transaction.amount,
                     staked,
                     sender.amount
                 )
@@ -267,13 +270,13 @@ impl Runtime {
     fn staking(
         &self,
         state_update: &mut StateDbUpdate,
-        body: &TransactionBody,
+        body: &StakeTransaction,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
         authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> Result<Vec<ReceiptTransaction>, String>{
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
-            runtime_data.put_stake(body.sender, body.amount);
+            runtime_data.put_stake(body.staker, body.amount);
             authority_proposals.push(AuthorityProposal {
                 public_key: sender.public_keys[0],
                 amount: body.amount,
@@ -283,37 +286,13 @@ impl Runtime {
         } else if sender.amount < body.amount {
             let err_msg = format!(
                 "Account {} tries to stake {}, but only has {}",
-                body.sender,
+                body.staker,
                 body.amount,
                 sender.amount
             );
             Err(err_msg)
         } else {
-            Err(format!("Account {} already staked", body.sender))
-        }
-    }
-
-    fn handle_special_async_call(
-        &self,
-        state_update: &mut StateDbUpdate,
-        transaction: &SignedTransaction,
-        account: &mut Account,
-        runtime_data: &mut RuntimeData,
-        authority_proposals: &mut Vec<AuthorityProposal>
-    ) -> Result<Vec<ReceiptTransaction>, String> {
-        if transaction.body.method_name == b"send_money".to_vec() {
-            self.send_money(state_update, transaction, account, runtime_data)
-        } else if transaction.body.method_name == b"staking".to_vec() {
-            self.staking(
-                state_update,
-                &transaction.body,
-                account,
-                runtime_data,
-                authority_proposals
-            )
-        } else {
-            // not a special call
-            Err(String::new())
+            Err(format!("Account {} already staked", body.staker))
         }
     }
 
@@ -327,51 +306,90 @@ impl Runtime {
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender: Option<Account> =
-            get(state_update, &account_id_to_bytes(transaction.body.sender));
+            get(state_update, &account_id_to_bytes(transaction.body.get_sender()));
         match (runtime_data, sender) {
             (Some(mut runtime_data), Some(mut sender)) => {
-                if transaction.body.nonce <= sender.nonce {
-                    return Err(format!("Transaction nonce {} is invalid", transaction.body.nonce));
+                if transaction.body.get_nonce() <= sender.nonce {
+                    return Err(format!(
+                        "Transaction nonce {} is invalid",
+                        transaction.body.get_nonce()
+                    ));
                 }
-                let special_call_res = self.handle_special_async_call(
-                    state_update,
-                    transaction,
-                    &mut sender,
-                    &mut runtime_data,
-                    authority_proposals
-                );
-                match special_call_res {
-                    Ok(res) => return Ok(res),
-                    Err(s) => {
-                        if !s.is_empty() {
-                            return Err(s);
-                        }
-                    }
+                match transaction.body {
+                    TransactionBody::SendMoney(ref t) => {
+                        self.send_money(
+                            state_update,
+                            &t,
+                            transaction.hash,
+                            &mut sender,
+                            &mut runtime_data,
+                        )
+                    },
+                    TransactionBody::Stake(ref t) => {
+                        self.staking(
+                            state_update,
+                            &t,
+                            &mut sender,
+                            &mut runtime_data,
+                            authority_proposals,
+                        )
+                    },
+                    TransactionBody::FunctionCall(ref t) => {
+                        self.call_function(
+                            state_update,
+                            &mut sender,
+                            transaction.body.get_sender(),
+                            transaction.hash,
+                            &t.method_name,
+                            &t.args,
+                        )
+                    },
+                    TransactionBody::DeployContract(ref t) => {
+                        self.call_function(
+                            state_update,
+                            &mut sender,
+                            transaction.body.get_sender(),
+                            transaction.hash,
+                            &b"deploy".to_vec(),
+                            &t.wasm_byte_array,
+                        )
+                    },
                 }
-                let mut runtime_ext = RuntimeExt::new(
-                    state_update,
-                    transaction.body.sender,
-                    transaction.hash.into()
-                );
-                // the result of this execution is not used for now
-                // TODO: Use rate limiter for MANA
-                executor::execute(
-                    &sender.code,
-                    &transaction.body.method_name,
-                    &transaction.body.args,
-                    &[],
-                    &mut runtime_ext,
-                    &wasm::types::Config::default(),
-                    DEFAULT_MANA_LIMIT,
-                ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-                self.callbacks.extend(runtime_ext.callbacks);
-                let receipts: Vec<ReceiptTransaction> = 
-                    runtime_ext.receipts.drain().map(|(_, v)| v).collect();
-                Ok(receipts)
             }
             (None, _) => Err("runtime data does not exist".to_string()),
-            _ => Err(format!("sender {} does not exist", transaction.body.sender))
+            _ => Err(format!("sender {} does not exist", transaction.body.get_sender()))
         }
+    }
+
+    fn call_function(
+        &mut self,
+        state_update: &mut StateDbUpdate,
+        sender: &mut Account,
+        sender_account_id: AccountId,
+        hash: CryptoHash,
+        method_name: &[u8],
+        args: &[u8],
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let mut runtime_ext = RuntimeExt::new(
+            state_update,
+            sender_account_id,
+            hash.into()
+        );
+        // the result of this execution is not used for now
+        // TODO: Use rate limiter for MANA
+        executor::execute(
+            &sender.code,
+            &method_name,
+            args,
+            &[],
+            &mut runtime_ext,
+            &wasm::types::Config::default(),
+            DEFAULT_MANA_LIMIT,
+        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+        self.callbacks.extend(runtime_ext.callbacks);
+        let receipts: Vec<ReceiptTransaction> =
+            runtime_ext.receipts.drain().map(|(_, v)| v).collect();
+        Ok(receipts)
     }
 
     fn deposit(
@@ -676,7 +694,10 @@ mod tests {
     use std::sync::Arc;
 
     use primitives::hash::hash;
-    use primitives::types::TransactionBody;
+    use primitives::types::{
+        DeployContractTransaction, FunctionCallTransaction,
+        TransactionBody,
+    };
     use primitives::signature::DEFAULT_SIGNATURE;
 
     use storage::test_utils::create_state_db;
@@ -688,7 +709,7 @@ mod tests {
 
     impl Default for Runtime {
         fn default() -> Runtime {
-            Runtime { 
+            Runtime {
                 state_db: Arc::new(create_state_db()),
                 callbacks: HashMap::new()
             }
@@ -764,16 +785,15 @@ mod tests {
     fn test_simple_smart_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
-        let tx_body = TransactionBody {
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
-            sender: hash(b"alice"),
-            receiver: hash(b"bob"),
-            amount: 0,
             method_name: b"run_test".to_vec(),
             args: vec![],
-        };
+            contract_id: hash(b"bob"),
+            originator: hash(b"alice")
+        });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState { 
+        let apply_state = ApplyState {
             root, parent_block_hash: CryptoHash::default(), block_index: 0
         };
         let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
@@ -788,14 +808,13 @@ mod tests {
     fn test_simple_smart_contract_with_args() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
-        let tx_body = TransactionBody {
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction{
             nonce: 1,
-            sender: hash(b"alice"),
-            receiver: hash(b"bob"),
-            amount: 0,
+            originator: hash(b"alice"),
+            contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
             args: concat((2..4).into_iter().map(|x| encode_int(x).to_vec()).collect()),
-        };
+        });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState { 
             root, parent_block_hash: CryptoHash::default(), block_index: 0
@@ -817,14 +836,12 @@ mod tests {
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
-        let tx_body = TransactionBody {
+        let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
             nonce: 1,
-            sender: hash(b"alice"),
-            receiver: hash(b"xyz"),
-            amount: 0,
-            method_name: b"deploy".to_vec(),
-            args: wasm_binary.clone(),
-        };
+            owner: hash(b"alice"),
+            contract_id: hash(b"xyz"),
+            wasm_byte_array: wasm_binary.clone(),
+        });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
@@ -846,14 +863,12 @@ mod tests {
         let test_binary = b"test_binary";
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
-        let tx_body = TransactionBody {
+        let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
             nonce: 1,
-            sender: hash(b"bob"),
-            receiver: hash(b"bob"),
-            amount: 0,
-            method_name: b"deploy".to_vec(),
-            args: test_binary.to_vec(),
-        };
+            owner: hash(b"bob"),
+            contract_id: hash(b"bob"),
+            wasm_byte_array: test_binary.to_vec(),
+        });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
@@ -876,14 +891,12 @@ mod tests {
     fn test_send_money() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
-        let tx_body = TransactionBody {
+        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
             receiver: hash(b"bob"),
             amount: 10,
-            method_name: b"send_money".to_vec(),
-            args: vec![],
-        };
+        });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };

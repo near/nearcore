@@ -12,10 +12,18 @@ pub struct SendMoneyRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct StakeRequest {
+    pub nonce: u64,
+    #[serde(with = "bs58_format")]
+    pub staker_account_id: AccountId,
+    pub amount: u64,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct DeployContractRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]
-    pub sender_account_id: AccountId,
+    pub owner_account_id: AccountId,
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
@@ -25,10 +33,9 @@ pub struct DeployContractRequest {
 pub struct ScheduleFunctionCallRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]
-    pub sender_account_id: AccountId,
+    pub originator_account_id: AccountId,
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
-    pub amount: u64,
     pub method_name: String,
     pub args: Vec<Vec<u8>>,
 }
