@@ -139,7 +139,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
+            'owner_account_id': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
         }
@@ -354,8 +354,7 @@ stake                    {}
             args.sender,
             args.contract_name,
             args.function_name,
-            args.amount,
-            args.args
+            args.args,
         )
 
     def call_view_function(self):
