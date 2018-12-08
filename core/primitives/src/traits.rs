@@ -39,8 +39,7 @@ where
 pub trait Header:
     Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
 {
-    // TODO: add methods
-    /// Returns hash of the full block.
+    /// Returns hash of the block body.
     fn hash(&self) -> CryptoHash;
 
     /// Returns block index.
@@ -50,17 +49,16 @@ pub trait Header:
     fn parent_hash(&self) -> CryptoHash;
 }
 
-/// Trait that abstracts ``block", ideally could be used for both beacon-chain blocks
-/// and shard-chain blocks
+/// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
+/// and shard-chain blocks.
 pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
     type Header: Header;
-    type Body;
 
-    fn header(&self) -> &Self::Header;
-    fn body(&self) -> &Self::Body;
-    fn deconstruct(self) -> (Self::Header, Self::Body);
-    fn new(header: Self::Header, body: Self::Body) -> Self;
-    fn header_hash(&self) -> CryptoHash;
+    /// Returns signed header for given block.
+    fn header(&self) -> Self::Header;
+
+    /// Returns hash of the block body.
+    fn hash(&self) -> CryptoHash;
 }
 
 /// Trait to abstract the way signing happens.

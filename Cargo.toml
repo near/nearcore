@@ -18,6 +18,7 @@ members = [
     "core/txflow",
     "core/chain",
     "core/beacon",
+    "core/shard",
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",

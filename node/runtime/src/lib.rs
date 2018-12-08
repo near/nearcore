@@ -9,6 +9,7 @@ extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate shard;
 extern crate storage;
 extern crate wasm;
 
@@ -18,26 +19,27 @@ use std::sync::Arc;
 use kvdb::DBValue;
 use serde::{de::DeserializeOwned, Serialize};
 
+use beacon::types::{AuthorityProposal, BeaconBlockChain};
 use beacon::types::AuthorityProposal;
+use beacon::types::BeaconBlock;
+use chain::BlockChain;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::PublicKey;
-use primitives::traits::{Decode, Encode, Block};
+use primitives::traits::{Block, Decode, Encode};
 use primitives::types::{
-    AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
-    ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
-    ViewCall, ViewCallResult, PromiseId, CallbackId, ReceiptId,
+    AccountAlias, AccountId, AsyncCall, Callback, CallbackId, CallbackInfo,
+    CallbackResult, MerkleHash, PromiseId, ReadablePublicKey, ReceiptBody, ReceiptId,
+    ReceiptTransaction, SendMoneyTransaction, SignedTransaction, StakeTransaction, TransactionBody,
+    ViewCall, ViewCallResult
 };
 use primitives::utils::{
-    concat, index_to_bytes, account_to_shard_id
+    account_to_shard_id, concat, index_to_bytes
 };
+use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::ext::{External, Result as ExtResult, Error as ExtError};
+use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 use wasm::types::ReturnData;
-use chain::BlockChain;
-use beacon::types::BeaconBlock;
-use primitives::types::StakeTransaction;
-use primitives::types::SendMoneyTransaction;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -751,20 +753,20 @@ impl Runtime {
 }
 
 pub struct StateDbViewer {
-    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+    shard_chain: Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
 }
 
 impl StateDbViewer {
-    pub fn new(beacon_chain: Arc<BlockChain<BeaconBlock>>, state_db: Arc<StateDb>) -> Self {
+    pub fn new(shard_chain: Arc<ShardBlockChain>, state_db: Arc<StateDb>) -> Self {
         StateDbViewer {
-            beacon_chain,
+            shard_chain,
             state_db,
         }
     }
 
     pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
-        let root = self.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = self.shard_chain.best_block().header().body.merkle_root_state;
         self.view_at(view_call, root)
     }
 
@@ -821,22 +823,22 @@ impl StateDbViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::fs;
     use std::sync::Arc;
 
+    use byteorder::{ByteOrder, LittleEndian};
+
     use primitives::hash::hash;
+    use primitives::signature::DEFAULT_SIGNATURE;
     use primitives::types::{
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody,
     };
-    use primitives::signature::DEFAULT_SIGNATURE;
-
     use storage::test_utils::create_state_db;
-
-    use test_utils::get_test_state_db_viewer;
     use test_utils::get_runtime_and_state_db_viewer;
-    use std::fs;
-    use byteorder::{ByteOrder, LittleEndian};
+    use test_utils::get_test_state_db_viewer;
+
+    use super::*;
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -915,13 +917,13 @@ mod tests {
     #[test]
     fn test_simple_smart_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().header.body.merkle_root_state;
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
+            originator: hash(b"alice")
+            contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
             args: vec![],
-            contract_id: hash(b"bob"),
-            originator: hash(b"alice")
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
@@ -964,7 +966,7 @@ mod tests {
     // especially in the context of sharding
     fn test_upload_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().header().body.merkle_root_state;
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
@@ -993,7 +995,7 @@ mod tests {
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().header.body.merkle_root_state;
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
             nonce: 1,
             owner: hash(b"bob"),
@@ -1021,7 +1023,7 @@ mod tests {
     #[test]
     fn test_send_money() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().header.body.merkle_root_state;
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),

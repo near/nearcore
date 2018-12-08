@@ -5,6 +5,7 @@ use std::sync::Arc;
 use storage::test_utils::create_memory_db;
 use Runtime;
 use storage::StateDb;
+use shard::ShardBlock;
 use beacon::types::BeaconBlock;
 use primitives::hash::CryptoHash;
 use chain::BlockChain;
@@ -35,13 +36,11 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
         &chain_spec.initial_authorities
     );
 
-    let genesis = BeaconBlock::new(
-        0, CryptoHash::default(), genesis_root, vec![], vec![]
-    );
-    let beacon_chain = Arc::new(BlockChain::new(genesis, storage));
+    let shard_genesis = ShardBlock::genesis(genesis_root);
+    let shard_chain = Arc::new(BlockChain::new(shard_genesis, storage));
 
     let state_db_viewer = StateDbViewer {
-        beacon_chain: beacon_chain.clone(),
+        shard_chain: shard_chain.clone(),
         state_db: state_db.clone(),
     };
     (runtime, state_db_viewer)

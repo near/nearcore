@@ -19,6 +19,8 @@ pub type AccountId = CryptoHash;
 pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
+/// Mask which authorities participated in multi sign.
+pub type AuthorityMask = Vec<bool>;
 /// Part of the BLS signature.
 pub type BLSSignature = Signature;
 

@@ -2,6 +2,7 @@ use chain::BlockChain;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::BlockId;
+use primitives::traits::Block;
 use rand::{Rng, SeedableRng, StdRng};
 use std::collections::HashMap;
 use types::{AuthorityProposal, BeaconBlock, BeaconBlockHeader};
@@ -101,7 +102,7 @@ impl Authority {
             .accepted_proposals
             .insert(1, authority.authority_config.initial_authorities.clone());
 
-        let last_index = blockchain.best_block().header.body.index;
+        let last_index = blockchain.best_block().header().body.index;
         for index in 1..last_index {
             // TODO: handle if block is not found.
             if let Some(header) = blockchain.get_header(&BlockId::Number(index)) {

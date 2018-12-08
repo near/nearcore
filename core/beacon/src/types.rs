@@ -1,7 +1,7 @@
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
 use primitives::traits::{Block, Header, Signer};
-use primitives::types::{BLSSignature, MerkleHash, SignedTransaction, ReceiptTransaction};
+use primitives::types::{AuthorityMask, BLSSignature};
 use std::sync::Arc;
 use std::hash::{Hash, Hasher};
 
@@ -19,157 +19,83 @@ pub struct BeaconBlockHeaderBody {
     pub parent_hash: CryptoHash,
     /// Block index.
     pub index: u64,
-    pub merkle_root_tx: MerkleHash,
-    pub merkle_root_state: MerkleHash,
     /// Authority proposals.
     pub authority_proposal: Vec<AuthorityProposal>,
+    /// Hash of the shard block.
+    pub shard_block_hash: CryptoHash,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
     pub body: BeaconBlockHeaderBody,
+    pub block_hash: CryptoHash,
     pub signature: BLSSignature,
-    pub authority_mask: Vec<bool>,
+    pub authority_mask: AuthorityMask,
 }
 
-impl BeaconBlockHeader {
-    pub fn new(
-        index: u64,
-        parent_hash: CryptoHash,
-        merkle_root_tx: MerkleHash,
-        merkle_root_state: MerkleHash,
-        signature: BLSSignature,
-        authority_mask: Vec<bool>,
-        authority_proposal: Vec<AuthorityProposal>,
-    ) -> Self {
-        BeaconBlockHeader {
-            body: BeaconBlockHeaderBody {
-                index,
-                parent_hash,
-                merkle_root_tx,
-                merkle_root_state,
-                authority_proposal,
-            },
-            signature,
-            authority_mask,
-        }
-    }
-    pub fn empty(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash) -> Self {
-        BeaconBlockHeader {
-            body: BeaconBlockHeaderBody {
-                index,
-                parent_hash,
-                merkle_root_tx: MerkleHash::default(),
-                merkle_root_state,
-                authority_proposal: vec![],
-            },
-            authority_mask: vec![],
-            signature: DEFAULT_SIGNATURE,
-        }
-    }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlockBody {
+    pub header: BeaconBlockHeaderBody,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlock {
+    pub body: BeaconBlockBody,
+    pub signature: BLSSignature,
+    pub authority_mask: AuthorityMask,
 }
 
 impl Header for BeaconBlockHeader {
     fn hash(&self) -> CryptoHash {
-        // TODO: must be hash of the block.
-        // TODO: Must not be recomputed.
-        hash_struct(&self.body)
+        self.block_hash
     }
-
     fn index(&self) -> u64 {
         self.body.index
     }
-
     fn parent_hash(&self) -> CryptoHash {
         self.body.parent_hash
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct BeaconBlockBody {
-    pub transactions: Vec<SignedTransaction>,
-    pub receipts: Vec<ReceiptTransaction>,
-}
-
-impl BeaconBlockBody {
-    pub fn new(transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptTransaction>) -> Self {
-        BeaconBlockBody {
-            transactions,
-            receipts,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.transactions.len() + self.receipts.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BeaconBlock {
-    pub header: BeaconBlockHeader,
-    pub body: BeaconBlockBody
-    // TODO: weight
-}
-
 impl BeaconBlock {
-    pub fn new(
-        index: u64,
-        parent_hash: CryptoHash,
-        merkle_root_state: MerkleHash,
-        transactions: Vec<SignedTransaction>,
-        receipts: Vec<ReceiptTransaction>,
-    ) -> Self {
+    pub fn new(index: u64, parent_hash: CryptoHash, authority_proposal: Vec<AuthorityProposal>, shard_block_hash: CryptoHash) -> BeaconBlock {
         BeaconBlock {
-            header: BeaconBlockHeader::empty(index, parent_hash, merkle_root_state),
-            body: BeaconBlockBody::new(transactions, receipts),
+            body: BeaconBlockBody {
+                header: BeaconBlockHeaderBody {
+                    index,
+                    parent_hash,
+                    authority_proposal,
+                    shard_block_hash
+                }
+            },
+            signature: DEFAULT_SIGNATURE,
+            authority_mask: vec![],
         }
     }
 
-    pub fn sign(&mut self, signer: &Arc<Signer>) {
-        self.header.signature = signer.sign(&self.header_hash());
+    pub fn genesis(shard_block_hash: CryptoHash) -> BeaconBlock {
+        BeaconBlock::new(0, CryptoHash::default(), vec![], shard_block_hash)
+    }
+
+    pub fn sign(&self, signer: &Signer) -> BLSSignature {
+        signer.sign(&self.hash())
     }
 }
 
 impl Block for BeaconBlock {
     type Header = BeaconBlockHeader;
-    type Body = BeaconBlockBody;
 
-    fn header(&self) -> &Self::Header {
-        &self.header
+    fn header(&self) -> Self::Header {
+        BeaconBlockHeader {
+            body: self.body.header.clone(),
+            block_hash: self.hash(),
+            signature: self.signature,
+            authority_mask: self.authority_mask.clone(),
+        }
     }
-
-    fn body(&self) -> &Self::Body {
-        &self.body
-    }
-
-    fn deconstruct(self) -> (Self::Header, Self::Body) {
-        (self.header, self.body)
-    }
-
-    fn new(header: Self::Header, body: Self::Body) -> Self {
-        BeaconBlock { header, body }
-    }
-
-    fn header_hash(&self) -> CryptoHash {
-        self.header.hash()
+    fn hash(&self) -> CryptoHash {
+        hash_struct(&self.body)
     }
 }
 
-impl Hash for BeaconBlock {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.header.hash().hash(state);
-    }
-}
-
-impl PartialEq for BeaconBlock {
-    fn eq(&self, other: &BeaconBlock) -> bool {
-        self.header.hash() == other.header.hash()
-    }
-}
-
-impl Eq for BeaconBlock {}
+pub type BeaconBlockChain = chain::BlockChain<BeaconBlock>;
