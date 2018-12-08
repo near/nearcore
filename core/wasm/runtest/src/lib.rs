@@ -7,11 +7,16 @@ use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 extern crate byteorder;
 
 extern crate primitives;
-use primitives::types::{AccountAlias, PromiseId};
+use primitives::types::{AccountAlias, PromiseId, ReceiptId};
 
 #[derive(Default)]
 struct MyExt {
     storage: HashMap<Vec<u8>, Vec<u8>>,
+    num_receipts: u32,
+}
+
+fn generate_promise_id(index: u32) -> ReceiptId {
+    [index as u8; 32].to_vec()
 }
 
 impl External for MyExt {
@@ -43,27 +48,30 @@ impl External for MyExt {
         _mana: u32,
         _amount: u64,
     ) -> ExtResult<PromiseId> {
-        Err(ExtError::NotImplemented)
+        self.num_receipts += 1;
+        Ok(PromiseId::Receipt(generate_promise_id(self.num_receipts - 1)))
     }
 
     fn promise_then(
         &mut self,
-        _promise_id: PromiseId,
+        promise_id: PromiseId,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
         _mana: u32,
     ) -> ExtResult<PromiseId> {
-        Err(ExtError::NotImplemented)
+        match promise_id {
+            PromiseId::Receipt(_) => {
+                assert!(false);
+                Err(ExtError::WrongPromise)
+            },
+            PromiseId::Joiner(v) => {
+                assert_eq!(v[0], generate_promise_id(0));
+                assert_eq!(v[1], generate_promise_id(1));
+                Ok(PromiseId::Callback(b"call_it_please".to_vec()))
+            },
+            _ => Err(ExtError::WrongPromise),
+        }
     }
-
-    fn promise_and(
-        &mut self,
-        _promise_id1: PromiseId,
-        _promise_id2: PromiseId,
-    ) -> ExtResult<PromiseId> {
-        Err(ExtError::NotImplemented)
-    }
-
 }
 
 #[cfg(test)]
@@ -75,7 +83,13 @@ mod tests {
     
     use super::*;
 
-    fn run(method_name: &[u8], input_data: &[u8], result_data: &[Option<Vec<u8>>]) -> Result<ReturnData, Error> {
+    fn run(
+        method_name: &[u8],
+        input_data: &[u8],
+        result_data: &[Option<Vec<u8>>],
+        mana_limit: u32,
+    ) -> Result<ReturnData, Error> {
+        
         let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
 
         let mut ext = MyExt::default();
@@ -88,6 +102,7 @@ mod tests {
             &result_data,
             &mut ext,
             &config,
+            mana_limit,
         ).map(|outcome| outcome.return_data)
     }
 
@@ -105,6 +120,7 @@ mod tests {
             b"run_test",
             &input_data,
             &[],
+            0,
         ).expect("ok");
         
         match return_data {
@@ -122,6 +138,7 @@ mod tests {
             b"sum_with_input",
             &input_data,
             &[],
+            0,
         ).expect("ok");
         
         match return_data {
@@ -143,11 +160,45 @@ mod tests {
             b"sum_with_multiple_results",
             &input_data,
             &result_data,
+            0,
         ).expect("ok");
         
         match return_data {
             ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_int(12)),
             _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_promises() {
+        let input_data = [0u8; 0];
+
+        let return_data = run(
+            b"create_promises_and_join",
+            &input_data,
+            &[],
+            4,
+        ).expect("ok");
+        match return_data {
+            ReturnData::Promise(promise_id) => assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec())),
+            _ => assert!(false, "Expected returned promise"),
+        };
+    }
+
+    #[test]
+    fn test_promises_no_mana() {
+        let input_data = [0u8; 0];
+
+        let return_data = run(
+            b"create_promises_and_join",
+            &input_data,
+            &[],
+            3,
+        );
+
+        match return_data {
+            Err(_) => assert!(true, "That's legit"),
+            _ => assert!(false, "Expected to fail with mana limit"),
         };
     }
 }

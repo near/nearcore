@@ -40,10 +40,10 @@ use primitives::types::StakeTransaction;
 use primitives::types::SendMoneyTransaction;
 
 pub mod chain_spec;
-#[cfg(feature = "test-utils")]
 pub mod test_utils;
 
 const RUNTIME_DATA: &[u8] = b"runtime";
+const DEFAULT_MANA_LIMIT: u32 = 20;
 
 /// Runtime data that is stored in the state.
 /// TODO: Look into how to store this not in a single element of the StateDb.
@@ -205,15 +205,6 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
                 Err(ExtError::WrongPromise)
             }
         }
-    }
-
-    #[allow(unused)]
-    fn promise_and(
-        &mut self,
-        promise_id1: PromiseId,
-        promise_id2: PromiseId,
-    ) -> ExtResult<PromiseId> {
-        unimplemented!();
     }
 }
 
@@ -385,13 +376,15 @@ impl Runtime {
             hash.into()
         );
         // the result of this execution is not used for now
+        // TODO: Use rate limiter for MANA
         executor::execute(
             &sender.code,
             &method_name,
             args,
             &[],
             &mut runtime_ext,
-            &wasm::types::Config::default()
+            &wasm::types::Config::default(),
+            DEFAULT_MANA_LIMIT,
         ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
         self.callbacks.extend(runtime_ext.callbacks);
         let receipts: Vec<ReceiptTransaction> =
@@ -445,6 +438,7 @@ impl Runtime {
                             &[],
                             &mut runtime_ext,
                             &wasm::types::Config::default(),
+                            async_call.mana,
                         ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                         let mut gen_receipt = |callback_id: &CallbackId, return_data, result_index| {
                             let callback_res = match return_data {
@@ -506,6 +500,7 @@ impl Runtime {
                                         &[],
                                         &mut runtime_ext,
                                         &wasm::types::Config::default(),
+                                        callback.mana,
                                     ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                                     needs_removal = true;
                                     runtime_ext.receipts.drain().map(|(_, v)| v).collect()
@@ -657,6 +652,7 @@ impl StateDbViewer {
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
+                        DEFAULT_MANA_LIMIT,
                     );
                     match wasm_res {
                         Ok(res) => {
@@ -709,6 +705,7 @@ mod tests {
     use test_utils::get_test_state_db_viewer;
     use test_utils::get_runtime_and_state_db_viewer;
     use std::fs;
+    use byteorder::{ByteOrder, LittleEndian};
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -717,6 +714,12 @@ mod tests {
                 callbacks: HashMap::new()
             }
         }
+    }
+
+    fn encode_int(val: i32) -> [u8; 4] {
+        let mut tmp = [0u8; 4];
+        LittleEndian::write_i32(&mut tmp, val);
+        tmp
     }
 
     #[test]
@@ -762,7 +765,24 @@ mod tests {
     }
 
     #[test]
-    fn test_smart_contract() {
+    fn test_view_call() {
+        let viewer = get_test_state_db_viewer();
+        let view_call = ViewCall::func_call(hash(b"alice"), "run_test".into(), vec![]);
+        let view_call_result = viewer.view(&view_call);
+        assert_eq!(view_call_result.result, encode_int(20).to_vec());
+    }
+
+    #[test]
+    fn test_view_call_with_args() {
+        let viewer = get_test_state_db_viewer();
+        let args = (1..3).into_iter().map(|x| encode_int(x).to_vec()).collect();
+        let view_call = ViewCall::func_call(hash(b"alice"), "sum_with_input".into(), args);
+        let view_call_result = viewer.view(&view_call);
+        assert_eq!(view_call_result.result, encode_int(3).to_vec());
+    }
+
+    #[test]
+    fn test_simple_smart_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -774,6 +794,29 @@ mod tests {
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
+            root, parent_block_hash: CryptoHash::default(), block_index: 0
+        };
+        let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
+            &apply_state, vec![transaction], &mut vec![]
+        );
+        assert_eq!(filtered_tx.len(), 1);
+        assert_eq!(filtered_receipts.len(), 0);
+        assert_ne!(root, apply_result.root);
+    }
+
+    #[test]
+    fn test_simple_smart_contract_with_args() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction{
+            nonce: 1,
+            originator: hash(b"alice"),
+            contract_id: hash(b"bob"),
+            method_name: b"run_test".to_vec(),
+            args: concat((2..4).into_iter().map(|x| encode_int(x).to_vec()).collect()),
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState { 
             root, parent_block_hash: CryptoHash::default(), block_index: 0
         };
         let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
@@ -892,5 +935,84 @@ mod tests {
                 result: vec![],
             }
         );
+    }
+
+    #[test]
+    fn test_async_call_with_no_callback() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let receipt = ReceiptTransaction::new(
+            hash(b"alice"),
+            hash(b"bob"),
+            hash(&[1, 2, 3]).into(),
+            ReceiptBody::NewCall(AsyncCall::new(
+                b"run_test".to_vec(),
+                vec![],
+                0,
+                0,
+            ))
+        );
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (_, filtered_receipts, apply_result) = runtime.apply(
+            &apply_state, vec![], &mut vec![receipt]
+        );
+        assert_eq!(filtered_receipts.len(), 0);
+        assert_ne!(root, apply_result.root);
+    }
+
+    #[test]
+    fn test_async_call_with_callback() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let args = concat((7..9).into_iter().map(|x| encode_int(x).to_vec()).collect());
+        let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
+        callback.results.resize(1, None);
+        let callback_id = [0; 32].to_vec();
+        let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, 0);
+        async_call.callback = Some(CallbackInfo::new(callback_id.clone(), 0, 0));
+        let receipt = ReceiptTransaction::new(
+            hash(b"alice"),
+            hash(b"bob"),
+            hash(&[1, 2, 3]).into(),
+            ReceiptBody::NewCall(async_call),
+        );
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
+        let receipts = runtime.apply_receipt(&mut state_update, &receipt).unwrap();
+        assert_eq!(receipts.len(), 1);
+        let new_receipt = &receipts[0];
+        assert_eq!(new_receipt.sender, hash(b"bob"));
+        assert_eq!(new_receipt.receiver, hash(b"alice"));
+        let callback_res = CallbackResult::new(callback_id.clone(), Some(encode_int(20).to_vec()), 0);
+        assert_eq!(new_receipt.body, ReceiptBody::Callback(callback_res));
+    }
+
+    #[test]
+    fn test_callback() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let args = concat((7..9).into_iter().map(|x| encode_int(x).to_vec()).collect());
+        let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
+        callback.results.resize(1, None);
+        let callback_id = [0; 32].to_vec();
+        runtime.callbacks.insert(callback_id.clone(), callback);
+        let receipt = ReceiptTransaction::new(
+            hash(b"alice"),
+            hash(b"bob"),
+            hash(&[1, 2, 3]).into(),
+            ReceiptBody::Callback(CallbackResult::new(
+                callback_id.clone(),
+                None,
+                0
+            ))
+        );
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (_, filtered_receipts, apply_result) = runtime.apply(
+            &apply_state, vec![], &mut vec![receipt]
+        );
+        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(runtime.callbacks.len(), 0);
+        assert_eq!(root, apply_result.root);
     }
 }

@@ -1,7 +1,13 @@
-extern crate service;
+extern crate node_cli;
 
-use service::test_utils::run_test_service;
+use std::path::Path;
 
 fn main() {
-    run_test_service();
+    let base_path = Path::new(".");
+    let chain_spec_path = None;
+    node_cli::start_service(
+        base_path,
+        chain_spec_path,
+        &node_cli::test_utils::create_passthrough_beacon_block_consensus_task,
+    );
 }

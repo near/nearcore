@@ -1,76 +1,153 @@
 extern crate beacon;
+extern crate beacon_chain_handler;
+extern crate chain;
 extern crate clap;
-extern crate client;
+extern crate env_logger;
+extern crate futures;
+#[macro_use]
+extern crate log;
 extern crate network;
+extern crate node_rpc;
 extern crate node_runtime;
+extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[cfg_attr(test, macro_use)]
 extern crate serde_json;
-extern crate service;
 extern crate storage;
-#[macro_use]
-extern crate log;
+extern crate tokio;
 
-use beacon::types::BeaconBlockHeader;
-use chain_spec::{deserialize_chain_spec, get_default_chain_spec};
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
+use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
+use chain::BlockChain;
 use clap::{App, Arg};
-use client::Client;
-use network::protocol::ProtocolConfig;
-use network::service::{
-    generate_service_task, NetworkConfiguration, Service as NetworkService
-};
+use env_logger::Builder;
+use futures::future;
+use futures::Future;
+use futures::sync::mpsc::channel;
+use futures::sync::mpsc::Receiver;
+use futures::sync::mpsc::Sender;
+use network::protocol::{Protocol, ProtocolConfig};
+use network::service::{create_network_task, NetworkConfiguration, new_network_service};
+use node_rpc::api::RpcImpl;
+use node_runtime::{Runtime, StateDbViewer};
+use parking_lot::{Mutex, RwLock};
+use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::traits::{GenericResult, Signer};
-use network::network_handler::NetworkHandler;
-use service::run_service;
-use std::fs::File;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use primitives::types::SignedTransaction;
+use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use storage::{StateDb, Storage};
 
 pub mod chain_spec;
+pub mod test_utils;
 
-fn get_storage_path(base_path: &Path) -> PathBuf {
-    let mut path = base_path.to_owned();
-    path.push("storage/db");
-    path
+
+fn get_storage(base_path: &Path) -> Arc<Storage> {
+    let mut storage_path = base_path.to_owned();
+    storage_path.push("storage/db");
+    Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 
-fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) -> GenericResult {
-    let chain_spec = match chain_spec_path {
-        Some(path) => {
-            let mut file = File::open(path).expect("could not open chain spec file");
+pub fn start_service(
+    base_path: &Path,
+    chain_spec_path: Option<&Path>,
+    consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<BeaconChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
+) {
+    let mut builder = Builder::new();
+    builder.filter(Some("runtime"), log::LevelFilter::Debug);
+    builder.filter(None, log::LevelFilter::Info);
+    builder.init();
 
-            let mut contents = String::new();
-            file.read_to_string(&mut contents).expect("could not read from chain spec file");
+    // Create shared-state objects.
+    let storage = get_storage(base_path);
+    let chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
 
-            deserialize_chain_spec(&contents)
-        }
-        None => get_default_chain_spec(),
-    }.unwrap();
-
-    let signer = Arc::new(InMemorySigner::new());
-    info!("Public key: {}", signer.public_key());
-    let storage_path = get_storage_path(base_path);
-    let storage = Arc::new(storage::open_database(&storage_path.to_string_lossy()));
-    let client = Arc::new(Client::new(&chain_spec, storage, signer));
-    let network_handler = NetworkHandler { client: client.clone() };
-    let network = NetworkService::new(
-        ProtocolConfig::default(),
-        NetworkConfiguration::default(),
-        network_handler,
-        client.clone(),
-    ).unwrap();
-    let network_task = generate_service_task::<_, _, BeaconBlockHeader>(
-        network.network.clone(),
-        network.protocol.clone(),
+    let state_db = Arc::new(StateDb::new(storage.clone()));
+    let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
+    let genesis_root = runtime.write().apply_genesis_state(
+        &chain_spec.accounts,
+        &chain_spec.genesis_wasm,
+        &chain_spec.initial_authorities,
     );
-    let produce_blocks_interval = Duration::from_secs(2);
-    run_service(&client, network_task, produce_blocks_interval)
+
+    let genesis = BeaconBlock::new(
+        0, CryptoHash::default(), genesis_root, vec![], vec![]
+    );
+    let beacon_chain = Arc::new(BlockChain::new(genesis, storage.clone()));
+
+    // Create RPC Server.
+    let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
+    // TODO: TxFlow should be listening on these transactions.
+    let (transactions_tx, transactions_rx) = channel(1024);
+    let (receipts_tx, _receipts_rx) = channel(1024);
+    let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx.clone());
+    let rpc_handler = node_rpc::api::get_handler(rpc_impl);
+    let server = node_rpc::server::get_server(rpc_handler);
+
+    // Create a task that consumes the consensuses and produces the beacon chain blocks.
+    let signer = Arc::new(InMemorySigner::default());
+    let (
+        beacon_block_consensus_body_tx,
+        beacon_block_consensus_body_rx,
+    ) = channel(1024);
+    let block_producer_task = beacon_chain_handler::producer::create_beacon_block_producer_task(
+        beacon_chain.clone(),
+        runtime.clone(),
+        signer.clone(),
+        state_db.clone(),
+        beacon_block_consensus_body_rx,
+    );
+
+    // Create task that can import beacon chain blocks from other peers.
+    let (beacon_block_tx, beacon_block_rx) = channel(1024);
+    let block_importer_task = beacon_chain_handler::importer::create_beacon_block_importer_task(
+        beacon_chain.clone(),
+        runtime.clone(),
+        state_db.clone(),
+        beacon_block_rx
+    );
+
+    // Create protocol and the network_task.
+    // Note, that network and RPC are using the same channels to send transactions and receipts for
+    // processing.
+    let (net_messages_tx, net_messages_rx) = channel(1024);
+    let protocol_config = ProtocolConfig::default();
+    let protocol = Protocol::<_, BeaconBlockHeader>::new(
+        protocol_config,
+        beacon_chain.clone(),
+        beacon_block_tx.clone(),
+        transactions_tx.clone(),
+        receipts_tx.clone(),
+        net_messages_tx.clone()
+    );
+    let network_service = Arc::new(Mutex::new(new_network_service(
+        &protocol_config,
+        NetworkConfiguration::default(),
+    )));
+    let (network_task, messages_handler_task) = create_network_task(
+        network_service,
+        protocol,
+        net_messages_rx,
+    );
+    let consensus_task = consensus_task_fn(
+        transactions_rx,
+        &beacon_block_consensus_body_tx,
+    );
+    tokio::run(future::lazy(|| {
+        tokio::spawn(future::lazy(|| {
+            server.wait();
+            Ok(())
+        }));
+        tokio::spawn(block_producer_task);
+        tokio::spawn(block_importer_task);
+        tokio::spawn(messages_handler_task);
+        tokio::spawn(network_task);
+        tokio::spawn(consensus_task);
+        Ok(())
+    }));
 }
 
 pub fn run() {
@@ -96,5 +173,9 @@ pub fn run() {
 
     let chain_spec_path = matches.value_of("chain_spec_file").map(|x| Path::new(x));
 
-    start_service(base_path, chain_spec_path).unwrap();
+    start_service(
+        base_path,
+        chain_spec_path,
+        &test_utils::create_passthrough_beacon_block_consensus_task,
+    );
 }
