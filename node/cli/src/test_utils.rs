@@ -7,11 +7,12 @@ use std::collections::HashSet;
 use tokio;
 
 
-pub fn create_task(transactions_rx: Receiver<SignedTransaction>,
-                   consensus_tx: &Sender<BeaconChainConsensusBlockBody>
+pub fn create_passthrough_beacon_block_consensus_task(
+    transactions_rx: Receiver<SignedTransaction>,
+    consensus_tx: &Sender<BeaconChainConsensusBlockBody>,
 ) -> Box<Future<Item=(), Error=()> + Send> {
     Box::new(transactions_rx.fold(consensus_tx.clone(), |consensus_tx, t| {
-        let message: SignedMessageData<BeaconChainPayload> =  SignedMessageData {
+        let message: SignedMessageData<BeaconChainPayload> = SignedMessageData {
             owner_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
             hash: 0,  // Compute real hash
             body: MessageDataBody {
@@ -20,7 +21,7 @@ pub fn create_task(transactions_rx: Receiver<SignedTransaction>,
                 epoch: 0,
                 payload: (vec![t], vec![]),
                 endorsements: vec![],
-            }
+            },
         };
         let c = BeaconChainConsensusBlockBody {
             messages: vec![message],

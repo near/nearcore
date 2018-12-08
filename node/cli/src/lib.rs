@@ -173,5 +173,9 @@ pub fn run() {
 
     let chain_spec_path = matches.value_of("chain_spec_file").map(|x| Path::new(x));
 
-    start_service(base_path, chain_spec_path, &test_utils::create_task);
+    start_service(
+        base_path,
+        chain_spec_path,
+        &test_utils::create_passthrough_beacon_block_consensus_task,
+    );
 }

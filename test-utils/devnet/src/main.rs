@@ -8,6 +8,6 @@ fn main() {
     node_cli::start_service(
         base_path,
         chain_spec_path,
-        &node_cli::test_utils::create_task,
+        &node_cli::test_utils::create_passthrough_beacon_block_consensus_task,
     );
 }
