@@ -98,7 +98,7 @@ impl TransactionApi for RpcImpl {
             sender: r.sender_account_id,
             receiver: r.receiver_account_id,
             amount: r.amount,
-            method_name: vec![],
+            method_name: b"send_money".to_vec(),
             args: Vec::new(),
         };
         Ok(PreparedTransactionBodyResponse { body })

@@ -92,6 +92,7 @@ impl ConsensusHandler<BeaconBlock, BeaconChainPayload> for BeaconBlockProducer {
         );
         block.sign(&self.signer);
         self.beacon_chain.insert_block(block.clone());
+        info!(target: "block_producer", "Block body: {:?}", block.body);
         block
     }
 }
