@@ -1,0 +1,17 @@
+[package]
+name = "devnet"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+futures = "0.1.25"
+parking_lot = "0.6"
+tokio = "0.1.11"
+
+beacon = { path = "../../core/beacon" }
+beacon-chain-handler = { path = "../../node/beacon-chain-handler" }
+chain = { path = "../../core/chain" }
+node-rpc = { path = "../../node/rpc" }
+node-runtime = { path = "../../node/runtime" }
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
