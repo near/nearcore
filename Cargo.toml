@@ -37,6 +37,7 @@ exclude = [
 [dev-dependencies]
 lazy_static = "1.2.0"
 keystore = { path = "./test-utils/keygen" }
+devnet = { path = "./test-utils/devnet" }
 node-rpc = { path = "./node/rpc" }
 primitives = { path = "./core/primitives" }
 serde_json = "1.0.0"

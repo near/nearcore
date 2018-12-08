@@ -92,7 +92,7 @@ impl TransactionApi for RpcImpl {
             nonce: r.nonce,
             owner: r.owner_account_id,
             contract_id: r.contract_account_id,
-            wasm_byte_array: r.wasm_byte_array
+            wasm_byte_array: r.wasm_byte_array,
         });
         Ok(PreparedTransactionBodyResponse { body })
     }
@@ -137,7 +137,11 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
-        let call = ViewCall { account: r.account_id, method_name: String::new(), args: Vec::new() };
+        let call = ViewCall {
+            account: r.account_id,
+            method_name: String::new(),
+            args: Vec::new(),
+        };
         let result = self.state_db_viewer.view(&call);
         let response = ViewAccountResponse {
             account_id: result.account,
@@ -151,8 +155,11 @@ impl TransactionApi for RpcImpl {
         &self,
         r: CallViewFunctionRequest,
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
-        let call =
-            ViewCall { account: r.contract_account_id, method_name: r.method_name, args: r.args };
+        let call = ViewCall {
+            account: r.contract_account_id,
+            method_name: r.method_name,
+            args: r.args,
+        };
         let result = self.state_db_viewer.view(&call);
         let response = CallViewFunctionResponse {
             account_id: result.account,
