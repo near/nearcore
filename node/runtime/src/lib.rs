@@ -12,14 +12,14 @@ extern crate serde_derive;
 extern crate storage;
 extern crate wasm;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use kvdb::DBValue;
 use serde::{de::DeserializeOwned, Serialize};
 
 use beacon::types::AuthorityProposal;
-use primitives::hash::CryptoHash;
+use primitives::hash::{CryptoHash, hash};
 use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode, Block};
 use primitives::types::{
@@ -77,8 +77,14 @@ impl Account {
     }
 }
 
-pub fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
+fn account_id_to_bytes(account_key: AccountId) -> Vec<u8> {
     account_key.as_ref().to_vec()
+}
+
+fn create_nonce_with_nonce(base: &[u8], salt: u64) -> Vec<u8> {
+    let mut nonce: Vec<u8> = base.to_owned();
+    nonce.append(&mut index_to_bytes(salt));
+    hash(&nonce).into()
 }
 
 pub struct ApplyState {
@@ -129,8 +135,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     }
 
     fn create_nonce(&mut self) -> Vec<u8> {
-        let mut nonce: Vec<u8> = self.transaction_hash.clone();
-        nonce.append(&mut index_to_bytes(self.nonce));
+        let nonce = create_nonce_with_nonce(&self.transaction_hash, self.nonce);
         self.nonce += 1;
         nonce
     }
@@ -200,8 +205,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             };
             match receipt.body {
                 ReceiptBody::NewCall(ref mut async_call) => {
-                    let shard_id = account_to_shard_id(self.account_id);
-                    let callback_info = CallbackInfo::new(callback_id.clone(), index, shard_id);
+                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id);
                     match async_call.callback {
                         Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
                         None => {
@@ -330,10 +334,9 @@ impl Runtime {
             &mut runtime_ext,
             &wasm::types::Config::default(),
             DEFAULT_MANA_LIMIT
-        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+        ).map_err(|e| format!("wasm execution failed with error: {:?}", e))?;
+        let receipts = runtime_ext.get_receipts();
         self.callbacks.extend(runtime_ext.callbacks);
-        let receipts: Vec<ReceiptTransaction> =
-            runtime_ext.receipts.drain().map(|(_, v)| v).collect();
         Ok(receipts)
     }
 
@@ -422,6 +425,73 @@ impl Runtime {
         Ok(vec![])
     }
 
+    fn return_data_to_receipts(
+        runtime_ext: &mut RuntimeExt,
+        return_data: ReturnData,
+        callback_info: &Option<CallbackInfo>,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let callback_info = match callback_info {
+            Some(info) => info,
+            _ => {
+                let receipts = runtime_ext.get_receipts();
+                return Ok(receipts);
+            }
+        };
+        let callback_res = match return_data {
+            ReturnData::Value(v) => {
+                let res = CallbackResult::new(
+                    callback_info.clone(),
+                    Some(v),
+                );
+                Some(res)
+            }
+            ReturnData::None => {
+                let res = CallbackResult::new(
+                    callback_info.clone(),
+                    Some(vec![]),
+                );
+                Some(res)
+            }
+            ReturnData::Promise(PromiseId::Callback(id)) => {
+                let callback = runtime_ext.callbacks.get_mut(&id).expect("callback must exist");
+                if callback.callback.is_some() {
+                    unreachable!("callback already has callback");
+                } else {
+                    callback.callback = Some(callback_info.clone());
+                }
+                None
+            }
+            ReturnData::Promise(PromiseId::Receipt(id)) => {
+                let receipt = runtime_ext.receipts.get_mut(&id).expect("receipt must exist");
+                match receipt.body {
+                    ReceiptBody::NewCall(ref mut call) => {
+                        if call.callback.is_some() {
+                            return Err("receipt already has callback".to_string());
+                        } else {
+                            call.callback = Some(callback_info.clone());
+                        }
+                    }
+                    _ => unreachable!("receipt body is not new call")
+                }
+                None
+            }
+            _ => return Err("return data is a non-callback promise".to_string())
+        };
+        let mut receipts = runtime_ext.get_receipts();
+        if let Some(callback_res) = callback_res {
+            let new_receipt = ReceiptTransaction::new(
+                receiver_id,
+                sender_id,
+                runtime_ext.create_nonce(),
+                ReceiptBody::Callback(callback_res),
+            );
+            receipts.push(new_receipt);
+        }
+        Ok(receipts)
+    }
+
     fn apply_async_call(
         &mut self,
         state_update: &mut StateDbUpdate,
@@ -436,7 +506,7 @@ impl Runtime {
             sender_id,
             nonce,
         );
-        let wasm_result = executor::execute(
+        let wasm_res = executor::execute(
             &receiver.code,
             &async_call.method_name,
             &async_call.args,
@@ -445,56 +515,13 @@ impl Runtime {
             &wasm::types::Config::default(),
             async_call.mana,
         ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-        let mut gen_receipt = |callback_id: &CallbackId, return_data, result_index| {
-            let callback_res = match return_data {
-                ReturnData::Value(v) => {
-                    CallbackResult::new(callback_id.clone(), Some(v), result_index)
-                }
-                ReturnData::None => {
-                    CallbackResult::new(callback_id.clone(), None, result_index)
-                }
-                ReturnData::Promise(PromiseId::Callback(id)) => {
-                    for receipt in runtime_ext.receipts.values_mut() {
-                        if let ReceiptBody::NewCall(ref mut call) = receipt.body {
-                            if let Some(ref mut callback) = call.callback {
-                                callback.id = id.clone();
-                                // there should be only one receipt with such id
-                                break;
-                            }
-                        }
-                    }
-                    CallbackResult::new(callback_id.clone(), None, result_index)
-                }
-                _ => return Err("return data is a non-callback promise".to_string())
-            };
-            let mut receipts = runtime_ext.get_receipts();
-            let new_receipt = ReceiptTransaction::new(
-                receiver_id,
-                sender_id,
-                runtime_ext.create_nonce(),
-                ReceiptBody::Callback(callback_res),
-            );
-            receipts.push(new_receipt);
-            Ok(receipts)
-        };
-        match &async_call.callback {
-            Some(callback_info) => {
-                let result_index = callback_info.result_index;
-                gen_receipt(
-                    &callback_info.id,
-                    wasm_result.return_data,
-                    result_index
-                )
-            } 
-            None => {
-                match wasm_result.return_data {
-                    ReturnData::Promise(_) => {
-                        Err("No callback but return value is a promise".to_string())
-                    }
-                    _ => Ok(vec![])
-                }
-            }
-        }
+        Self::return_data_to_receipts(
+            &mut runtime_ext,
+            wasm_res.return_data,                    
+            &async_call.callback,
+            sender_id,
+            receiver_id,
+        )
     }
 
     fn apply_callback(
@@ -502,6 +529,7 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         callback_res: &CallbackResult,
         sender_id: AccountId,
+        receiver_id: AccountId,
         nonce: Vec<u8>,
         receiver: &Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
@@ -511,13 +539,13 @@ impl Runtime {
             nonce,
         );
         let mut needs_removal = false;
-        let receipts = match self.callbacks.get_mut(&callback_res.id) {
+        let receipts = match self.callbacks.get_mut(&callback_res.info.id) {
             Some(callback) => {
-                let expected_num_results = callback.results.len();
-                callback.results[callback_res.result_index] = callback_res.result.clone();
+                callback.results[callback_res.info.result_index] = callback_res.result.clone();
+                callback.result_counter += 1;
                 // if we have gathered all results, execute the callback
-                if callback_res.result_index == expected_num_results - 1 {
-                    executor::execute(
+                if callback.result_counter == callback.results.len() {
+                    let wasm_res = executor::execute(
                         &receiver.code,
                         &callback.method_name,
                         &callback.args,
@@ -527,18 +555,24 @@ impl Runtime {
                         callback.mana,
                     ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
                     needs_removal = true;
-                    runtime_ext.get_receipts()
+                    Self::return_data_to_receipts(
+                        &mut runtime_ext,
+                        wasm_res.return_data,
+                        &callback.callback,
+                        sender_id,
+                        receiver_id,
+                    )?
                 } else {
                     // otherwise no receipt is generated
                     vec![]
                 }
             },
             _ => {
-                return Err(format!("callback id: {:?} not found", callback_res.id));
+                return Err(format!("callback id: {:?} not found", callback_res.info.id));
             }
         };
         if needs_removal {
-            self.callbacks.remove(&callback_res.id);
+            self.callbacks.remove(&callback_res.info.id);
         }
         Ok(receipts)
     }
@@ -547,39 +581,77 @@ impl Runtime {
         &mut self,
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+        new_receipts: &mut Vec<ReceiptTransaction>,
+    ) -> Result<(), String> {
         let receiver_id = account_id_to_bytes(receipt.receiver);
         let receiver: Option<Account> = get(state_update, &receiver_id);
-        match receiver {
+        let mut amount = 0;
+        let mut callback_info = None;
+        let result = match receiver {
             Some(mut receiver) => {
                 match &receipt.body {
                     ReceiptBody::NewCall(async_call) => {
                         if async_call.method_name == b"deposit".to_vec() {
-                            return self.deposit(state_update, receipt, &mut receiver);
+                            self.deposit(state_update, receipt, &mut receiver)
+                        } else {
+                            amount = async_call.amount;
+                            callback_info = async_call.callback.clone();
+                            self.apply_async_call(
+                                state_update,
+                                &async_call,
+                                receipt.sender,
+                                receipt.receiver,
+                                receipt.nonce.clone(),
+                                &receiver,
+                            )
                         }
-                        self.apply_async_call(
+                    },
+                    ReceiptBody::Callback(callback_res) => {
+                        callback_info = Some(callback_res.info.clone());
+                        self.apply_callback(
                             state_update,
-                            &async_call,
+                            &callback_res,
                             receipt.sender,
                             receipt.receiver,
                             receipt.nonce.clone(),
                             &receiver,
                         )
-                    },
-                    ReceiptBody::Callback(callback_res) => {
-                        self.apply_callback(
-                            state_update,
-                            &callback_res,
-                            receipt.sender,
-                            receipt.nonce.clone(),
-                            &receiver,
-                        )
                     }
                     // TODO: handle refund
-                    ReceiptBody::Refund => unimplemented!()
+                    ReceiptBody::Refund(_) => unimplemented!()
                 }
             }
             _ => Err(format!("receiver {} does not exist", receipt.receiver))
+        };
+        match result {
+            Ok(mut receipts) => {
+                new_receipts.append(&mut receipts);
+                Ok(())
+            }
+            Err(s) => {
+                if amount > 0 {
+                    let new_receipt = ReceiptTransaction::new(
+                        receipt.receiver,
+                        receipt.sender,
+                        create_nonce_with_nonce(&receipt.nonce, 0),
+                        ReceiptBody::Refund(amount)
+                    );
+                    new_receipts.push(new_receipt);
+                }
+                if let Some(callback_info) = callback_info {
+                    let new_receipt = ReceiptTransaction::new(
+                        receipt.receiver,
+                        callback_info.receiver,
+                        create_nonce_with_nonce(&receipt.nonce, 1),
+                        ReceiptBody::Callback(CallbackResult::new(
+                            callback_info,
+                            None,
+                        ))
+                    );
+                    new_receipts.push(new_receipt);
+                }
+                Err(s)
+            }
         }
     }
 
@@ -587,7 +659,7 @@ impl Runtime {
         &mut self,
         apply_state: &ApplyState,
         transactions: Vec<SignedTransaction>,
-        receipts: &mut Vec<ReceiptTransaction>,
+        mut receipts: Vec<ReceiptTransaction>,
     ) -> (Vec<SignedTransaction>, Vec<ReceiptTransaction>, ApplyResult) {
         let mut filtered_transactions = vec![];
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
@@ -607,19 +679,21 @@ impl Runtime {
         }
         // receipts to be recorded in the block
         let mut filtered_receipts = vec![];
-        while let Some(receipt) = receipts.pop() {
+        let mut receipts: VecDeque<_> = receipts.into();
+        while let Some(receipt) = receipts.pop_front() {
             // execute same shard receipts
             if account_to_shard_id(receipt.sender) == account_to_shard_id(receipt.receiver) {
-                match self.apply_receipt(&mut state_update, &receipt) {
-                    Ok(mut new_receipts) => {
+                let mut new_receipts = vec![];
+                match self.apply_receipt(&mut state_update, &receipt, &mut new_receipts) {
+                    Ok(_) => {
                         state_update.commit();
-                        receipts.append(&mut new_receipts);
                     }
                     Err(s) => {
                         debug!(target: "runtime", "{}", s);
                         state_update.rollback();
                     }
                 }
+                receipts.append(&mut new_receipts.into());
             } else {
                 filtered_receipts.push(receipt);
             }
@@ -852,7 +926,7 @@ mod tests {
             root, parent_block_hash: CryptoHash::default(), block_index: 0
         };
         let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
+            &apply_state, vec![transaction], vec![]
         );
         assert_eq!(filtered_tx.len(), 1);
         assert_eq!(filtered_receipts.len(), 0);
@@ -875,7 +949,7 @@ mod tests {
             root, parent_block_hash: CryptoHash::default(), block_index: 0
         };
         let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
+            &apply_state, vec![transaction], vec![]
         );
         assert_eq!(filtered_tx.len(), 1);
         assert_eq!(filtered_receipts.len(), 0);
@@ -901,7 +975,7 @@ mod tests {
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
+            &apply_state, vec![transaction], vec![]
         );
         assert_eq!(filtered_tx.len(), 1);
         assert_eq!(filtered_receipts.len(), 0);
@@ -928,7 +1002,7 @@ mod tests {
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
+            &apply_state, vec![transaction], vec![]
         );
         assert_eq!(filtered_tx.len(), 1);
         assert_eq!(filtered_receipts.len(), 0);
@@ -956,7 +1030,7 @@ mod tests {
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], &mut vec![]
+            &apply_state, vec![transaction], vec![]
         );
         assert_eq!(filtered_tx.len(), 1);
         assert_eq!(filtered_receipts.len(), 0);
@@ -1010,7 +1084,7 @@ mod tests {
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (_, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![], &mut vec![receipt]
+            &apply_state, vec![], vec![receipt]
         );
         assert_eq!(filtered_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
@@ -1025,7 +1099,8 @@ mod tests {
         callback.results.resize(1, None);
         let callback_id = [0; 32].to_vec();
         let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, 0);
-        async_call.callback = Some(CallbackInfo::new(callback_id.clone(), 0, 0));
+        let callback_info = CallbackInfo::new(callback_id.clone(), 0, hash(b"alice"));
+        async_call.callback = Some(callback_info.clone());
         let receipt = ReceiptTransaction::new(
             hash(b"alice"),
             hash(b"bob"),
@@ -1033,12 +1108,13 @@ mod tests {
             ReceiptBody::NewCall(async_call),
         );
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
-        let receipts = runtime.apply_receipt(&mut state_update, &receipt).unwrap();
-        assert_eq!(receipts.len(), 1);
-        let new_receipt = &receipts[0];
+        let mut new_receipts = vec![];
+        runtime.apply_receipt(&mut state_update, &receipt, &mut new_receipts).unwrap();
+        assert_eq!(new_receipts.len(), 1);
+        let new_receipt = &new_receipts[0];
         assert_eq!(new_receipt.sender, hash(b"bob"));
         assert_eq!(new_receipt.receiver, hash(b"alice"));
-        let callback_res = CallbackResult::new(callback_id.clone(), Some(encode_int(20).to_vec()), 0);
+        let callback_res = CallbackResult::new(callback_info.clone(), Some(encode_int(20).to_vec()));
         assert_eq!(new_receipt.body, ReceiptBody::Callback(callback_res));
     }
 
@@ -1056,15 +1132,14 @@ mod tests {
             hash(b"bob"),
             hash(&[1, 2, 3]).into(),
             ReceiptBody::Callback(CallbackResult::new(
-                callback_id.clone(),
+                CallbackInfo::new(callback_id.clone(), 0, hash(b"alice")),
                 None,
-                0
             ))
         );
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (_, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![], &mut vec![receipt]
+            &apply_state, vec![], vec![receipt]
         );
         assert_eq!(filtered_receipts.len(), 0);
         assert_eq!(runtime.callbacks.len(), 0);

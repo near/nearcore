@@ -10,7 +10,7 @@ pub enum MessageBody<B, H> {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
     Transaction(Box<SignedTransaction>),
-    Receipt(ReceiptTransaction),
+    Receipt(Box<ReceiptTransaction>),
     Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),

@@ -87,7 +87,7 @@ impl BeaconBlockImporter {
             let hash = next_b.header_hash();
             if self.beacon_chain.is_known(&hash) { continue; }
 
-            let (header, mut body) = next_b.deconstruct();
+            let (header, body) = next_b.deconstruct();
             let num_transactions = body.transactions.len();
             let num_receipts = body.receipts.len();
             // we can unwrap because parent is guaranteed to exist
@@ -100,7 +100,7 @@ impl BeaconBlockImporter {
                 parent_block_hash: parent_hash,
             };
             let (filtered_transactions, filtered_receipts, mut apply_result) =
-                self.runtime.write().apply(&apply_state, body.transactions, &mut body.receipts);
+                self.runtime.write().apply(&apply_state, body.transactions, body.receipts);
             assert_eq!(apply_result.root, header.body.merkle_root_state,
                        "Merkle roots are not equal after applying the transactions.");
             // TODO: This should be handled.
