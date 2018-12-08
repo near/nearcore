@@ -11,6 +11,7 @@ use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use beacon::types::BeaconBlock;
 use node_runtime::test_utils::generate_test_chain_spec;
+use super::pass_through_consensus;
 
 pub fn start_service() {
     // Create shared-state objects.
@@ -36,7 +37,7 @@ pub fn start_service() {
 
     // Create RPC Server.
     // TODO: TxFlow should be listening on these transactions.
-    let (transactions_tx, _transactions_rx) = channel(1024);
+    let (transactions_tx, transactions_rx) = channel(1024);
     let rpc_impl = RpcImpl::new(state_db_viewer,
                                 transactions_tx.clone(),
                                 signer.clone());
@@ -49,7 +50,7 @@ pub fn start_service() {
 
     // Create a task that consumes the consensuses and produces the beacon chain blocks.
     let (
-        _beacon_block_consensus_body_tx,
+        beacon_block_consensus_body_tx,
         beacon_block_consensus_body_rx,
     ) = channel(1024);
     let block_producer_task = beacon_chain_handler::producer::create_beacon_block_producer_task(
@@ -60,4 +61,8 @@ pub fn start_service() {
         beacon_block_consensus_body_rx,
     );
     tokio::spawn(block_producer_task);
+
+    // Create pass-through consensus.
+    tokio::run(
+        pass_through_consensus::create_task(transactions_rx, beacon_block_consensus_body_tx));
 }
