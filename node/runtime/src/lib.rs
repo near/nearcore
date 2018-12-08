@@ -617,8 +617,10 @@ impl Runtime {
                             &receiver,
                         )
                     }
-                    // TODO: handle refund
-                    ReceiptBody::Refund(_) => unimplemented!()
+                    ReceiptBody::Refund(amount) => {
+                        receiver.amount += amount;
+                        Ok(vec![])
+                    }
                 }
             }
             _ => Err(format!("receiver {} does not exist", receipt.receiver))
