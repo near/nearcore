@@ -3,6 +3,8 @@ name = "beacon-chain-handler"
 version = "0.1.0"
 
 [dependencies]
+log = "0.4"
+
 beacon = { path = "../../core/beacon" }
 chain = { path = "../../core/chain" }
 primitives = { path = "../../core/primitives" }

@@ -2,10 +2,14 @@ extern crate beacon;
 extern crate beacon_chain_handler;
 extern crate chain;
 extern crate clap;
+extern crate env_logger;
 extern crate futures;
+#[macro_use]
+extern crate log;
 extern crate network;
 extern crate node_rpc;
 extern crate node_runtime;
+extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 #[macro_use]
@@ -14,25 +18,32 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate storage;
 extern crate tokio;
-extern crate parking_lot;
 
 use beacon::types::{BeaconBlock, BeaconBlockHeader};
+use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
 use chain::BlockChain;
 use clap::{App, Arg};
+use env_logger::Builder;
 use futures::future;
+use futures::Future;
 use futures::sync::mpsc::channel;
+use futures::sync::mpsc::Receiver;
+use futures::sync::mpsc::Sender;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, StateDbViewer};
+use parking_lot::{Mutex, RwLock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
+use primitives::types::SignedTransaction;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
-use parking_lot::{RwLock, Mutex};
 
 pub mod chain_spec;
+pub mod test_utils;
+
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
@@ -40,7 +51,16 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 
-fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
+pub fn start_service(
+    base_path: &Path,
+    chain_spec_path: Option<&Path>,
+    consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<BeaconChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
+) {
+    let mut builder = Builder::new();
+    builder.filter(Some("runtime"), log::LevelFilter::Debug);
+    builder.filter(None, log::LevelFilter::Info);
+    builder.init();
+
     // Create shared-state objects.
     let storage = get_storage(base_path);
     let chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
@@ -61,20 +81,16 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
     // Create RPC Server.
     let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     // TODO: TxFlow should be listening on these transactions.
-    let (transactions_tx, _transactions_rx) = channel(1024);
+    let (transactions_tx, transactions_rx) = channel(1024);
     let (receipts_tx, _receipts_rx) = channel(1024);
     let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx.clone());
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let server = node_rpc::server::get_server(rpc_handler);
-    tokio::spawn(future::lazy(|| {
-        server.wait();
-        Ok(())
-    }));
 
     // Create a task that consumes the consensuses and produces the beacon chain blocks.
     let signer = Arc::new(InMemorySigner::default());
     let (
-        _beacon_block_consensus_body_tx,
+        beacon_block_consensus_body_tx,
         beacon_block_consensus_body_rx,
     ) = channel(1024);
     let block_producer_task = beacon_chain_handler::producer::create_beacon_block_producer_task(
@@ -84,7 +100,6 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         state_db.clone(),
         beacon_block_consensus_body_rx,
     );
-    tokio::spawn(block_producer_task);
 
     // Create task that can import beacon chain blocks from other peers.
     let (beacon_block_tx, beacon_block_rx) = channel(1024);
@@ -94,7 +109,6 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         state_db.clone(),
         beacon_block_rx
     );
-    tokio::spawn(block_importer_task);
 
     // Create protocol and the network_task.
     // Note, that network and RPC are using the same channels to send transactions and receipts for
@@ -113,10 +127,27 @@ fn start_service(base_path: &Path, chain_spec_path: Option<&Path>) {
         &protocol_config,
         NetworkConfiguration::default(),
     )));
-    let (network_task, messages_handler_task)
-        = create_network_task(network_service, protocol, net_messages_rx);
-    tokio::spawn(messages_handler_task);
-    tokio::run(network_task);
+    let (network_task, messages_handler_task) = create_network_task(
+        network_service,
+        protocol,
+        net_messages_rx,
+    );
+    let consensus_task = consensus_task_fn(
+        transactions_rx,
+        &beacon_block_consensus_body_tx,
+    );
+    tokio::run(future::lazy(|| {
+        tokio::spawn(future::lazy(|| {
+            server.wait();
+            Ok(())
+        }));
+        tokio::spawn(block_producer_task);
+        tokio::spawn(block_importer_task);
+        tokio::spawn(messages_handler_task);
+        tokio::spawn(network_task);
+        tokio::spawn(consensus_task);
+        Ok(())
+    }));
 }
 
 pub fn run() {
@@ -142,5 +173,9 @@ pub fn run() {
 
     let chain_spec_path = matches.value_of("chain_spec_file").map(|x| Path::new(x));
 
-    start_service(base_path, chain_spec_path);
+    start_service(
+        base_path,
+        chain_spec_path,
+        &test_utils::create_passthrough_beacon_block_consensus_task,
+    );
 }
