@@ -43,6 +43,11 @@ mod ext;
 const RUNTIME_DATA: &[u8] = b"runtime";
 const DEFAULT_MANA_LIMIT: u32 = 20;
 
+// const does not allow function call, so have to resort to this
+fn system_account() -> AccountId {
+    hash(b"system")
+}
+
 /// Runtime data that is stored in the state.
 /// TODO: Look into how to store this not in a single element of the StateDb.
 #[derive(Default, Serialize, Deserialize)]
@@ -461,14 +466,15 @@ impl Runtime {
         let receiver: Option<Account> = get(state_update, &receiver_id);
         let mut amount = 0;
         let mut callback_info = None;
+        let mut receiver_exists = true;
         let result = match receiver {
             Some(mut receiver) => {
                 match &receipt.body {
                     ReceiptBody::NewCall(async_call) => {
+                        amount = async_call.amount;
                         if async_call.method_name == b"deposit".to_vec() {
                             self.deposit(state_update, receipt, &mut receiver)
                         } else {
-                            amount = async_call.amount;
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
                                 state_update,
@@ -493,27 +499,21 @@ impl Runtime {
                     }
                     ReceiptBody::Refund(amount) => {
                         receiver.amount += amount;
+                        set(
+                            state_update,
+                            &receiver_id,
+                            &receiver,
+                        );
                         Ok(vec![])
                     }
                 }
             }
             _ => {
-                let err = Err(format!("receiver {} does not exist", receipt.receiver));
-                if let ReceiptBody::NewCall(async_call) = &receipt.body {
-                    if async_call.method_name == b"deposit".to_vec() {
-                        let new_account = Account::new(vec![], async_call.amount, vec![]);
-                        set(
-                            state_update,
-                            receipt.receiver.as_ref(),
-                            &new_account
-                        );
-                        Ok(vec![])
-                    } else {
-                        err
-                    }
-                } else {
-                    err
+                receiver_exists = false;
+                if let ReceiptBody::NewCall(call) = &receipt.body {
+                    amount = call.amount;
                 }
+                Err(format!("receiver {} does not exist", receipt.receiver))
             }
         };
         match result {
@@ -523,8 +523,13 @@ impl Runtime {
             }
             Err(s) => {
                 if amount > 0 {
+                    let receiver = if receiver_exists {
+                        receipt.receiver
+                    } else {
+                        system_account()
+                    };
                     let new_receipt = ReceiptTransaction::new(
-                        receipt.receiver,
+                        receiver,
                         receipt.sender,
                         create_nonce_with_nonce(&receipt.nonce, 0),
                         ReceiptBody::Refund(amount)
@@ -905,7 +910,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_money_to_create_account() {
+    fn test_send_money_refund() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
@@ -933,7 +938,7 @@ mod tests {
             ViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
-                amount: 90,
+                amount: 100,
                 stake: 50,
                 result: vec![],
             }
@@ -947,7 +952,7 @@ mod tests {
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"eve"),
-                amount: 10,
+                amount: 0,
                 stake: 0,
                 result: vec![],
             }
