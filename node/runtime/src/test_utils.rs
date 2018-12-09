@@ -1,4 +1,4 @@
-use StateDbViewer;
+use state_viewer::StateDbViewer;
 use chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use storage::StateDb;
 use beacon::types::BeaconBlock;
 use primitives::hash::CryptoHash;
 use chain::BlockChain;
+use byteorder::{ByteOrder, LittleEndian};
 
 pub fn generate_test_chain_spec() -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
@@ -40,14 +41,20 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
     );
     let beacon_chain = Arc::new(BlockChain::new(genesis, storage));
 
-    let state_db_viewer = StateDbViewer {
-        beacon_chain: beacon_chain.clone(),
-        state_db: state_db.clone(),
-    };
+    let state_db_viewer = StateDbViewer::new(
+        beacon_chain.clone(),
+        state_db.clone(),
+    );
     (runtime, state_db_viewer)
 }
 
 pub fn get_test_state_db_viewer() -> StateDbViewer {
     let (_, state_db_viewer) = get_runtime_and_state_db_viewer();
     state_db_viewer
+}
+
+pub fn encode_int(val: i32) -> [u8; 4] {
+    let mut tmp = [0u8; 4];
+    LittleEndian::write_i32(&mut tmp, val);
+    tmp
 }
