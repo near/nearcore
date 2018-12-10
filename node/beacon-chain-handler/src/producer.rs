@@ -7,8 +7,8 @@ use futures::sync::mpsc::Receiver;
 use parking_lot::RwLock;
 
 use beacon::types::{BeaconBlock, BeaconBlockChain};
+use chain::{Block, Header};
 use node_runtime::{ApplyState, Runtime};
-use primitives::traits::{Block, Header};
 use primitives::traits::Signer;
 use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
 use primitives::types::ConsensusBlockBody;
@@ -104,8 +104,10 @@ impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BeaconBlockProducer {
             apply_result.authority_proposals,
             shard_block.hash()
         );
-        shard_block.signature = shard_block.sign(&self.signer);
-        block.signature = block.sign(&self.signer);
+        let signature = shard_block.sign(self.signer.clone());
+        shard_block.add_signature(signature);
+        let signature = block.sign(self.signer.clone());
+        block.add_signature(signature);
         self.shard_chain.insert_block(shard_block.clone());
         self.beacon_chain.insert_block(block.clone());
         info!(target: "block_producer", "Block body: {:?}", block.body);

@@ -11,6 +11,3 @@ parking_lot = "0.6"
 
 primitives = { path = "../primitives" }
 storage = { path = "../storage" }
-
-[dev-dependencies]
-beacon = { path = "../beacon" }

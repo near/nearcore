@@ -1,17 +1,14 @@
+extern crate chain;
+extern crate parking_lot;
+extern crate primitives;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
-extern crate parking_lot;
-
-extern crate chain;
-extern crate primitives;
 extern crate storage;
 
-use std::sync::Arc;
-use primitives::hash::{hash_struct, CryptoHash};
-use primitives::types::{AuthorityMask, MerkleHash, BLSSignature, SignedTransaction, ReceiptTransaction};
-use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::traits::{Block, Header, Signer};
+use chain::{Block, Header};
+use primitives::hash::{CryptoHash, hash_struct};
+use primitives::types::{AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ReceiptTransaction, SignedTransaction};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeaderBody {
@@ -25,7 +22,7 @@ pub struct ShardBlockHeader {
     pub body: ShardBlockHeaderBody,
     pub block_hash: CryptoHash,
     pub authority_mask: AuthorityMask,
-    pub signature: BLSSignature,
+    pub signature: MultiSignature,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -39,7 +36,7 @@ pub struct ShardBlockBody {
 pub struct ShardBlock {
     pub body: ShardBlockBody,
     pub authority_mask: AuthorityMask,
-    pub signature: BLSSignature,
+    pub signature: MultiSignature,
 }
 
 impl Header for ShardBlockHeader {
@@ -66,17 +63,13 @@ impl ShardBlock {
                 transactions,
                 receipts,
             },
-            signature: DEFAULT_SIGNATURE,
+            signature: vec![],
             authority_mask: vec![],
         }
     }
 
     pub fn genesis(merkle_root_state: MerkleHash) -> ShardBlock {
         ShardBlock::new(0, CryptoHash::default(), merkle_root_state, vec![], vec![])
-    }
-
-    pub fn sign(&self, signer: &Arc<Signer>) -> BLSSignature {
-        signer.sign(&self.hash())
     }
 }
 
@@ -87,8 +80,8 @@ impl Block for ShardBlock {
         ShardBlockHeader {
             body: self.body.header.clone(),
             block_hash: self.hash(),
+            signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
-            signature: self.signature
         }
 
     }
@@ -96,6 +89,10 @@ impl Block for ShardBlock {
     fn hash(&self) -> CryptoHash {
         // TODO: cache?
         hash_struct(&self.body)
+    }
+
+    fn add_signature(&mut self, signature: PartialSignature) {
+        self.signature.push(signature);
     }
 }
 

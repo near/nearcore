@@ -968,7 +968,7 @@ mod tests {
     // especially in the context of sharding
     fn test_upload_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.shard_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let wasm_binary = fs::read("../../core/wasm/runtest/res/wasm_with_mem.wasm")
             .expect("Unable to read file");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction{

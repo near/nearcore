@@ -30,16 +30,16 @@ use futures::Future;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+use parking_lot::{Mutex, RwLock};
 
 use beacon::types::{BeaconBlock, BeaconBlockChain, BeaconBlockHeader};
 use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
+use chain::Block;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, StateDbViewer};
-use parking_lot::{Mutex, RwLock};
 use primitives::signer::InMemorySigner;
-use primitives::traits::Block;
 use primitives::types::SignedTransaction;
 use shard::{ShardBlock, ShardBlockChain};
 use storage::{StateDb, Storage};

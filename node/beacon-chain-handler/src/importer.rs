@@ -9,9 +9,9 @@ use futures::sync::mpsc::Receiver;
 use parking_lot::RwLock;
 
 use beacon::types::{BeaconBlock, BeaconBlockChain};
+use chain::Block;
 use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
-use primitives::traits::Block;
 use primitives::types::BlockId;
 use shard::{ShardBlock, ShardBlockChain};
 use storage::StateDb;

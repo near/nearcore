@@ -1,25 +1,28 @@
 #![allow(unused)]
 
-use error::Error;
-use futures::{future, Future};
-use futures::stream::Stream;
-use libp2p::{Multiaddr, secio};
-use message::{Message, MessageBody};
-use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use primitives::hash::CryptoHash;
-use primitives::traits::{Block, GenericResult, Header};
-use primitives::types;
-use protocol::{CURRENT_VERSION, ProtocolConfig};
-use rand::Rng;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
+
+use futures::{future, Future};
+use futures::stream::Stream;
+use libp2p::{Multiaddr, secio};
 use parking_lot::RwLock;
+use rand::Rng;
 use substrate_network_libp2p::{
     NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol,
     Secret, Service as NetworkService, start_service,
 };
 use tokio::timer::Interval;
+
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
+use chain::{Block, Header};
+use error::Error;
+use message::{Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::GenericResult;
+use primitives::types;
+use protocol::{CURRENT_VERSION, ProtocolConfig};
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")

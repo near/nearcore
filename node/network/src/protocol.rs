@@ -1,16 +1,18 @@
-use message::{self, Message, MessageBody};
-use parking_lot::RwLock;
-use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Header as BlockHeader};
-use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
 use std::collections::HashMap;
-use chain::BlockChain;
 use std::sync::Arc;
 use std::time;
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
-use test_utils;
+
+use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
-use futures::{stream, Future, Sink};
+use parking_lot::RwLock;
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
+
+use chain::{Block, Header as BlockHeader, BlockChain};
+use message::{self, Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::Decode;
+use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
+use test_utils;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;

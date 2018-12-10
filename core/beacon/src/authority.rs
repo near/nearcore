@@ -1,10 +1,11 @@
-use chain::BlockChain;
+use std::collections::HashMap;
+
+use rand::{Rng, SeedableRng, StdRng};
+
+use chain::{Block, BlockChain};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::BlockId;
-use primitives::traits::Block;
-use rand::{Rng, SeedableRng, StdRng};
-use std::collections::HashMap;
 use types::{AuthorityProposal, BeaconBlock, BeaconBlockHeader};
 
 /// Configure the authority rotation.
@@ -238,13 +239,14 @@ impl Authority {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::sync::Arc;
 
+    use chain::{Block, Header};
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
-    use primitives::traits::{Block, Header};
-    use std::sync::Arc;
     use storage::test_utils::MemoryStorage;
+
+    use super::*;
 
     fn get_test_config(
         num_authorities: u32,

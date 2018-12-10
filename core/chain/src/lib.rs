@@ -1,20 +1,56 @@
 extern crate parking_lot;
 extern crate primitives;
+extern crate serde;
 extern crate storage;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use serde::{de::DeserializeOwned, Serialize};
 
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Encode, Header};
-use primitives::types::BlockId;
+use primitives::traits::{Decode, Encode, Signer};
+use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
 use storage::Storage;
 
 const BLOCKCHAIN_GENESIS_BLOCK: &[u8] = b"genesis";
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
+
+/// Trait that abstracts ``Header"
+pub trait Header: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
+{
+    /// Returns hash of the block body.
+    fn hash(&self) -> CryptoHash;
+
+    /// Returns block index.
+    fn index(&self) -> u64;
+
+    /// Returns hash of parent block.
+    fn parent_hash(&self) -> CryptoHash;
+}
+
+/// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
+/// and shard-chain blocks.
+pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
+    type Header: Header;
+
+    /// Returns signed header for given block.
+    fn header(&self) -> Self::Header;
+
+    /// Returns hash of the block body.
+    fn hash(&self) -> CryptoHash;
+
+    /// Signs this block with given signer and returns part of multi signature.
+    fn sign(&self, signer: Arc<Signer>) -> PartialSignature {
+        signer.sign(&self.hash())
+    }
+
+    /// Add signature to multi sign.
+    fn add_signature(&mut self, signature: PartialSignature);
+}
 
 /// General BlockChain container.
 pub struct BlockChain<B: Block> {
@@ -210,52 +246,5 @@ impl<B: Block> BlockChain<B> {
             }
             BlockId::Hash(hash) => self.get_block_header_by_hash(hash),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate beacon;
-
-    use std::sync::Arc;
-
-    use primitives::traits::Header;
-    use storage::test_utils::create_memory_db;
-    use tests::beacon::types::BeaconBlock;
-
-    use super::*;
-
-    #[test]
-    fn test_genesis() {
-        let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(
-            0, CryptoHash::default(), vec![], CryptoHash::default()
-        );
-        let bc = BlockChain::new(genesis.clone(), storage);
-        assert_eq!(bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(), genesis);
-        assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
-    }
-
-    #[test]
-    fn test_restart_chain() {
-        let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(
-            0, CryptoHash::default(), vec![], CryptoHash::default()
-        );
-        let bc = BlockChain::new(genesis.clone(), storage.clone());
-        let block1 = BeaconBlock::new(
-            1, genesis.hash(), vec![], CryptoHash::default()
-        );
-        assert_eq!(bc.insert_block(block1.clone()), false);
-        let best_block = bc.best_block();
-        let best_block_header = best_block.header();
-        assert_eq!(best_block.hash(), block1.hash());
-        assert_eq!(best_block_header.hash(), block1.hash());
-        assert_eq!(best_block_header.index(), 1);
-        // Create new BlockChain that reads from the same storage.
-        let other_bc = BlockChain::new(genesis.clone(), storage.clone());
-        assert_eq!(other_bc.best_block().hash(), block1.hash());
-        assert_eq!(other_bc.best_block().header().index(), 1);
-        assert_eq!(other_bc.get_block(&BlockId::Hash(block1.hash())).unwrap(), block1);
     }
 }
