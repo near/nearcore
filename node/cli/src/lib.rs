@@ -32,7 +32,7 @@ use futures::sync::mpsc::Sender;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
-use node_runtime::{Runtime, StateDbViewer};
+use node_runtime::{Runtime, state_viewer::StateDbViewer};
 use parking_lot::{Mutex, RwLock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;

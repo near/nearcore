@@ -1,0 +1,134 @@
+use std::collections::HashMap;
+use kvdb::DBValue;
+
+use primitives::types::{
+    ReceiptId, CallbackId, ReceiptTransaction, Callback, AccountId,
+    AccountAlias, PromiseId, ReceiptBody, AsyncCall, CallbackInfo
+};
+use storage::StateDbUpdate;
+use wasm::ext::{External, Result as ExtResult, Error as ExtError};
+use super::{account_id_to_bytes, create_nonce_with_nonce};
+
+pub struct RuntimeExt<'a, 'b: 'a> {
+    state_db_update: &'a mut StateDbUpdate<'b>,
+    storage_prefix: Vec<u8>,
+    pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
+    pub callbacks: HashMap<CallbackId, Callback>,
+    account_id: AccountId,
+    nonce: u64,
+    transaction_hash: Vec<u8>,
+}
+
+impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
+    pub fn new(
+        state_db_update: &'a mut StateDbUpdate<'b>,
+        account_id: AccountId,
+        transaction_hash: Vec<u8>
+    ) -> Self {
+        let mut prefix = account_id_to_bytes(account_id);
+        prefix.append(&mut b",".to_vec());
+        RuntimeExt { 
+            state_db_update,
+            storage_prefix: prefix,
+            receipts: HashMap::new(),
+            callbacks: HashMap::new(),
+            account_id,
+            nonce: 0,
+            transaction_hash,
+        }
+    }
+
+    pub fn create_storage_key(&self, key: &[u8]) -> Vec<u8> {
+        let mut storage_key = self.storage_prefix.clone();
+        storage_key.extend_from_slice(key);
+        storage_key
+    }
+
+    pub fn create_nonce(&mut self) -> Vec<u8> {
+        let nonce = create_nonce_with_nonce(&self.transaction_hash, self.nonce);
+        self.nonce += 1;
+        nonce
+    }
+
+    pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
+        self.receipts.drain().map(|(_, v)| v).collect()
+    }
+}
+
+impl<'a, 'b> External for RuntimeExt<'a, 'b> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
+        let storage_key = self.create_storage_key(key);
+        self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
+        Ok(())
+    }
+
+    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+        let storage_key = self.create_storage_key(key);
+        let value = self.state_db_update.get(&storage_key);
+        Ok(value.map(|buf| buf.to_vec()))
+    }
+
+    fn promise_create(
+        &mut self,
+        account_alias: AccountAlias,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        mana: u32,
+        amount: u64,
+    ) -> ExtResult<PromiseId> {
+        let nonce = self.create_nonce();
+        let receipt = ReceiptTransaction::new(
+            self.account_id,
+            (&account_alias).into(),
+            nonce.clone(),
+            ReceiptBody::NewCall(AsyncCall::new(
+                method_name,
+                arguments,
+                amount,
+                mana,
+            )),
+        );
+        let promise_id = PromiseId::Receipt(nonce.clone());
+        self.receipts.insert(nonce, receipt);
+        Ok(promise_id)
+    }
+
+    fn promise_then(
+        &mut self,
+        promise_id: PromiseId,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        mana: u32,
+    ) -> ExtResult<PromiseId> {
+        let callback_id = self.create_nonce();
+        let receipt_ids = match promise_id {
+            PromiseId::Receipt(r) => vec![r],
+            PromiseId::Joiner(rs) => rs,
+            PromiseId::Callback(_) => return Err(ExtError::WrongPromise)
+        };
+        let mut callback = Callback::new(method_name, arguments, mana);
+        callback.results.resize(receipt_ids.len(), None);
+        for (index, receipt_id) in receipt_ids.iter().enumerate() {
+            let receipt = match self.receipts.get_mut(receipt_id) {
+                Some(r) => r,
+                _ => return Err(ExtError::PromiseIdNotFound)
+            };
+            match receipt.body {
+                ReceiptBody::NewCall(ref mut async_call) => {
+                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id);
+                    match async_call.callback {
+                        Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
+                        None => {
+                            async_call.callback = Some(callback_info);
+                        }
+                    }
+                }
+                _ => {
+                    return Err(ExtError::WrongPromise);
+                }
+            }
+        }
+        self.callbacks.insert(callback_id.clone(), callback);
+        Ok(PromiseId::Callback(callback_id))
+    }
+}
