@@ -24,7 +24,7 @@ use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
-    PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction
+    PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
 };
 use primitives::utils::{
     index_to_bytes, account_to_shard_id
@@ -189,6 +189,50 @@ impl Runtime {
         }
     }
 
+    fn create_account(
+        &self,
+        state_update: &mut StateDbUpdate,
+        body: &CreateAccountTransaction,
+        hash: CryptoHash,
+        sender: &mut Account,
+        runtime_data: &mut RuntimeData,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let staked = runtime_data.at_stake(body.sender);
+        if sender.amount >= staked + body.amount {
+            sender.amount -= body.amount;
+            set(
+                state_update,
+                &account_id_to_bytes(body.sender),
+                &sender
+            );
+            let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
+            // this is somewhat hacky. Ideally we want to send to the system
+            // account
+            let receipt = ReceiptTransaction::new(
+                body.sender,
+                body.receiver,
+                new_nonce,
+                ReceiptBody::NewCall(AsyncCall::new(
+                    b"create_account".to_vec(),
+                    body.public_key.clone(),
+                    body.amount,
+                    0
+                ))
+            );
+            Ok(vec![receipt])
+        } else {
+            Err(
+                format!(
+                    "Account {} tries to create new account with {}, but has staked {} and only has {}",
+                    body.sender,
+                    body.amount,
+                    staked,
+                    sender.amount
+                )
+            )
+        }
+    }
+
     fn call_function(
         &mut self,
         state_update: &mut StateDbUpdate,
@@ -277,6 +321,15 @@ impl Runtime {
                             &t.wasm_byte_array,
                         )
                     },
+                    TransactionBody::CreateAccount(ref t) => {
+                        self.create_account(
+                            state_update,
+                            t,
+                            transaction.hash,
+                            &mut sender,
+                            &mut runtime_data
+                        )
+                    }
                 }
             }
             (None, _) => Err("runtime data does not exist".to_string()),
@@ -287,21 +340,45 @@ impl Runtime {
     fn deposit(
         &self,
         state_update: &mut StateDbUpdate,
-        receipt: &ReceiptTransaction,
+        amount: u64,
+        receiver_id: AccountId,
         receiver: &mut Account
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        match receipt.body {
-            ReceiptBody::NewCall(ref async_call) => {
-                receiver.amount += async_call.amount;
-            }
-            _ => return Err("Deposit does not come from an async call".to_string())
-        }
+        receiver.amount += amount;
         set(
             state_update,
-            &account_id_to_bytes(receipt.receiver),
+            &account_id_to_bytes(receiver_id),
             receiver
         );
         Ok(vec![])
+    }
+
+    fn system_create_account(
+        &self,
+        state_update: &mut StateDbUpdate,
+        call: &AsyncCall,
+        account_id: AccountId,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        let account_id_bytes = account_id_to_bytes(account_id);
+        match get::<Account>(state_update, &account_id_bytes) {
+            Some(_) => {
+                Err(format!("account {} already exists", account_id))
+            }
+            _ => {
+                let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
+                let new_account = Account::new(
+                    vec![public_key],
+                    call.amount,
+                    vec![]
+                );
+                set(
+                    state_update,
+                    &account_id_bytes,
+                    &new_account
+                );
+                Ok(vec![])
+            }
+        }
     }
 
     fn return_data_to_receipts(
@@ -473,7 +550,15 @@ impl Runtime {
                     ReceiptBody::NewCall(async_call) => {
                         amount = async_call.amount;
                         if async_call.method_name == b"deposit".to_vec() {
-                            self.deposit(state_update, receipt, &mut receiver)
+                            self.deposit(
+                                state_update,
+                                async_call.amount,
+                                receipt.receiver,
+                                &mut receiver
+                            )
+                        } else if async_call.method_name == b"create_account".to_vec() {
+                            // account already exists, an erro
+                            Err(format!("account {} alread exists", receipt.receiver))
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
@@ -510,10 +595,21 @@ impl Runtime {
             }
             _ => {
                 receiver_exists = false;
+                let err = Err(format!("receiver {} does not exist", receipt.receiver));
                 if let ReceiptBody::NewCall(call) = &receipt.body {
                     amount = call.amount;
+                    if call.method_name == b"create_account".to_vec() {
+                        self.system_create_account(
+                            state_update,
+                            &call,
+                            receipt.receiver,
+                        )
+                    } else {
+                        err
+                    }
+                } else {
+                    err
                 }
-                Err(format!("receiver {} does not exist", receipt.receiver))
             }
         };
         match result {
@@ -655,7 +751,7 @@ mod tests {
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody, ViewCall, ViewCallResult
     };
-    use primitives::signature::DEFAULT_SIGNATURE;
+    use primitives::signature::{DEFAULT_SIGNATURE, get_keypair};
     use primitives::utils::concat;
     use storage::test_utils::create_state_db;
     use test_utils::{
@@ -952,6 +1048,110 @@ mod tests {
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"eve"),
+                amount: 0,
+                stake: 0,
+                result: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn test_create_account() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let (pub_key, _) = get_keypair();
+        let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: 1,
+            sender: hash(b"alice"),
+            receiver: hash(b"eve"),
+            amount: 10,
+            public_key: pub_key.encode().unwrap()
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
+            &apply_state, vec![transaction], vec![]
+        );
+        assert_eq!(filtered_tx.len(), 1);
+        assert_eq!(filtered_receipts.len(), 0);
+        assert_ne!(root, apply_result.root);
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let result1 = viewer.view_at(
+            &ViewCall::balance(hash(b"alice")),
+            apply_result.root,
+        );
+        assert_eq!(
+            result1,
+            ViewCallResult {
+                nonce: 1,
+                account: hash(b"alice"),
+                amount: 90,
+                stake: 50,
+                result: vec![],
+            }
+        );
+        let result2 = viewer.view_at(
+            &ViewCall::balance(hash(b"eve")),
+            apply_result.root,
+        );
+        assert_eq!(
+            result2,
+            ViewCallResult {
+                nonce: 0,
+                account: hash(b"eve"),
+                amount: 10,
+                stake: 0,
+                result: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn test_create_account_failure() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let (pub_key, _) = get_keypair();
+        let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: 1,
+            sender: hash(b"alice"),
+            receiver: hash(b"bob"),
+            amount: 10,
+            public_key: pub_key.encode().unwrap()
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
+            &apply_state, vec![transaction], vec![]
+        );
+        assert_eq!(filtered_tx.len(), 1);
+        assert_eq!(filtered_receipts.len(), 0);
+        assert_ne!(root, apply_result.root);
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let result1 = viewer.view_at(
+            &ViewCall::balance(hash(b"alice")),
+            apply_result.root,
+        );
+        assert_eq!(
+            result1,
+            ViewCallResult {
+                nonce: 1,
+                account: hash(b"alice"),
+                amount: 100,
+                stake: 50,
+                result: vec![],
+            }
+        );
+        let result2 = viewer.view_at(
+            &ViewCall::balance(hash(b"bob")),
+            apply_result.root,
+        );
+        assert_eq!(
+            result2,
+            ViewCallResult {
+                nonce: 0,
+                account: hash(b"bob"),
                 amount: 0,
                 stake: 0,
                 result: vec![],

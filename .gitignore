@@ -21,3 +21,6 @@ Cargo.lock
 
 # Python env
 .env
+
+# tmp files
+tmp/

@@ -113,6 +113,16 @@ pub struct FunctionCallTransaction {
     pub args: Vec<u8>,
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct CreateAccountTransaction {
+    pub nonce: u64,
+    pub sender: AccountId,
+    // receiver is the account id to be created
+    pub receiver: AccountId,
+    pub amount: u64,
+    pub public_key: Vec<u8>,
+}
+
 /// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum TransactionBody {
@@ -120,6 +130,7 @@ pub enum TransactionBody {
     SendMoney(SendMoneyTransaction),
     DeployContract(DeployContractTransaction),
     FunctionCall(FunctionCallTransaction),
+    CreateAccount(CreateAccountTransaction),
 }
 
 impl TransactionBody {
@@ -129,6 +140,7 @@ impl TransactionBody {
             TransactionBody::SendMoney(t) => t.nonce,
             TransactionBody::DeployContract(t) => t.nonce,
             TransactionBody::FunctionCall(t) => t.nonce,
+            TransactionBody::CreateAccount(t) => t.nonce,
         }
     }
 
@@ -138,6 +150,7 @@ impl TransactionBody {
             TransactionBody::SendMoney(t) => t.sender,
             TransactionBody::DeployContract(t) => t.owner,
             TransactionBody::FunctionCall(t) => t.originator,
+            TransactionBody::CreateAccount(t) => t.sender,
         }
     }
 }
