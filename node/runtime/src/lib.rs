@@ -428,7 +428,7 @@ impl Runtime {
                         &receiver.code,
                         &callback.method_name,
                         &callback.args,
-                        &[],
+                        &callback.results,
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
                         callback.mana,
