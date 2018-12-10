@@ -4,7 +4,7 @@ use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
 use types::{RuntimeError as Error, ReturnData};
 
-use primitives::types::{AccountAlias, PromiseId, ReceiptId};
+use primitives::types::{AccountAlias, PromiseId, ReceiptId, Mana, Gas};
 use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -14,10 +14,10 @@ pub struct Runtime<'a> {
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
-    pub mana_counter: u32,
-    mana_limit: u32,
-    pub gas_counter: u64,
-    gas_limit: u64,
+    pub mana_counter: Mana,
+    mana_limit: Mana,
+    pub gas_counter: Gas,
+    gas_limit: Gas,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
 }
@@ -28,8 +28,8 @@ impl<'a> Runtime<'a> {
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
-        mana_limit: u32,
-        gas_limit: u64,
+        mana_limit: Mana,
+        gas_limit: Gas,
     ) -> Runtime<'a> {
         Runtime {
             ext,
@@ -66,20 +66,20 @@ impl<'a> Runtime<'a> {
         AccountAlias::from_utf8(buf).map_err(|_| Error::BadUtf8)
     }
 
-    fn charge_gas(&mut self, amount: u64) -> bool {
+    fn charge_gas(&mut self, gas_amount: Gas) -> bool {
         let prev = self.gas_counter;
-        match prev.checked_add(amount) {
+        match prev.checked_add(gas_amount) {
             // gas charge overflow protection
             None => false,
             Some(val) if val > self.gas_limit => false,
             Some(_) => {
-                self.gas_counter = prev + amount;
+                self.gas_counter = prev + gas_amount;
                 true
             }
         }
     }
 
-    fn charge_mana(&mut self, mana: u32) -> bool {
+    fn charge_mana(&mut self, mana: Mana) -> bool {
         let prev = self.mana_counter;
         match prev.checked_add(mana) {
             // mana charge overflow protection
@@ -92,7 +92,7 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn charge_mana_or_fail(&mut self, mana: u32) -> Result<()> {
+    fn charge_mana_or_fail(&mut self, mana: Mana) -> Result<()> {
         if self.charge_mana(mana) {
             Ok(())
         } else {
@@ -151,8 +151,8 @@ impl<'a> Runtime<'a> {
     }
 
     fn gas(&mut self, args: &RuntimeArgs) -> Result<()> {
-        let amount: u32 = args.nth_checked(0)?;
-        if self.charge_gas(u64::from(amount)) {
+        let gas_amount: u32 = args.nth_checked(0)?;
+        if self.charge_gas(Gas::from(gas_amount)) {
             Ok(())
         } else {
             Err(Error::GasLimit)

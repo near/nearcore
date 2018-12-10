@@ -1,5 +1,5 @@
 use primitives::hash::bs58_format;
-use primitives::types::{AccountId, TransactionBody};
+use primitives::types::{AccountId, TransactionBody, Balance};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -8,7 +8,7 @@ pub struct SendMoneyRequest {
     pub sender_account_id: AccountId,
     #[serde(with = "bs58_format")]
     pub receiver_account_id: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -16,7 +16,7 @@ pub struct StakeRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]
     pub staker_account_id: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -50,7 +50,7 @@ pub struct ViewAccountRequest {
 pub struct ViewAccountResponse {
     #[serde(with = "bs58_format")]
     pub account_id: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
     pub nonce: u64,
 }
 
@@ -66,7 +66,7 @@ pub struct CallViewFunctionRequest {
 pub struct CallViewFunctionResponse {
     #[serde(with = "bs58_format")]
     pub account_id: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
     pub nonce: u64,
     pub result: Vec<u8>,
 }

@@ -6,11 +6,12 @@ use resolver::EnvModuleResolver;
 
 use runtime::Runtime;
 use types::{Config, ReturnData, Error};
+use primitives::types::{Mana, Gas};
 
 #[derive(Debug, Clone)]
 pub struct ExecutionOutcome {
-    pub gas_used: u64,
-    pub mana_used: u32,
+    pub gas_used: Gas,
+    pub mana_used: Mana,
     pub return_data: ReturnData,
 }
 
@@ -21,7 +22,7 @@ pub fn execute(
     result_data: &[Option<Vec<u8>>],
     ext: &mut External,
     config: &Config,
-    mana_limit: u32,
+    mana_limit: Mana,
 ) -> Result<ExecutionOutcome, Error> {
     let prepare::PreparedContract {
         instrumented_code,
@@ -60,7 +61,6 @@ pub fn execute(
 
     module_instance.invoke_export(method_name, &[], &mut runtime)?;
 
-    // TODO: Add MANA usage counter
     Ok(ExecutionOutcome {
         gas_used: runtime.gas_counter,
         mana_used: runtime.mana_counter,
