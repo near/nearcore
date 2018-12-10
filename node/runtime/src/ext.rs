@@ -56,6 +56,14 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
 }
 
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
+    fn balance(&self) -> ExtResult<Balance> {
+        unimplemented!();
+    }
+
+    fn received_amount(&self) -> ExtResult<Balance> {
+        unimplemented!();
+    }
+
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
