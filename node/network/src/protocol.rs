@@ -240,7 +240,7 @@ impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
                 self.on_transaction_message(*tx);
             },
             MessageBody::Receipt(receipt) => {
-                self.on_receipt_message(receipt);
+                self.on_receipt_message(*receipt);
             },
             MessageBody::Status(status) => {
                 self.on_status_message(peer, &status)?;

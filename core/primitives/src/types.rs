@@ -178,7 +178,7 @@ impl SignedTransaction {
 pub enum ReceiptBody {
     NewCall(AsyncCall),
     Callback(CallbackResult),
-    Refund,
+    Refund(u64),
 }
 
 #[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -202,11 +202,14 @@ impl AsyncCall {
     }
 }
 
+#[derive(Clone)]
 pub struct Callback {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub results: Vec<Option<Vec<u8>>>,
     pub mana: u32,
+    pub callback: Option<CallbackInfo>,
+    pub result_counter: usize,
 }
 
 impl Callback {
@@ -216,6 +219,8 @@ impl Callback {
             args,
             results: vec![],
             mana,
+            callback: None,
+            result_counter: 0,
         }
     }
 }
@@ -226,29 +231,27 @@ pub struct CallbackInfo {
     pub id: CallbackId,
     // index to write to
     pub result_index: usize,
-    // shard that it came from
-    pub shard_id: ShardId,
+    // receiver
+    pub receiver: AccountId,
 }
 
 impl CallbackInfo {
-    pub fn new(id: CallbackId, result_index: usize, shard_id: ShardId) -> Self {
-        CallbackInfo { id, result_index, shard_id }
+    pub fn new(id: CallbackId, result_index: usize, receiver: AccountId) -> Self {
+        CallbackInfo { id, result_index, receiver }
     }
 }
 
 #[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct CallbackResult {
     // callback id
-    pub id: CallbackId,
+    pub info: CallbackInfo,
     // callback result
     pub result: Option<Vec<u8>>,
-    // index to write to
-    pub result_index: usize,
 }
 
 impl CallbackResult {
-    pub fn new(id: CallbackId, result: Option<Vec<u8>>, result_index: usize) -> Self {
-        CallbackResult { id, result, result_index }
+    pub fn new(info: CallbackInfo, result: Option<Vec<u8>>) -> Self {
+        CallbackResult { info, result}
     }
 }
 

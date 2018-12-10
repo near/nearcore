@@ -16,7 +16,7 @@ use std::process::{Command, Output};
 use std::thread;
 use std::time::Duration;
 
-const KEY_STORE_PATH: &str = "/tmp/near_key";
+const KEY_STORE_PATH: &str = "./tmp/near_key";
 
 fn test_service_ready() -> bool {
     thread::spawn(|| { devnet::start_devnet() });

@@ -68,7 +68,7 @@ impl ConsensusHandler<BeaconBlock, BeaconChainPayload> for BeaconBlockProducer {
         let transactions = body.messages.iter()
             .flat_map(|message| message.body.payload.0.clone())
             .collect();
-        let mut receipts = body.messages.iter()
+        let receipts = body.messages.iter()
             .flat_map(|message| message.body.payload.1.clone())
             .collect();
 
@@ -81,7 +81,7 @@ impl ConsensusHandler<BeaconBlock, BeaconChainPayload> for BeaconBlockProducer {
             block_index: last_block.header().index() + 1,
         };
         let (filtered_transactions, filtered_receipts, mut apply_result) =
-            self.runtime.write().apply(&apply_state, transactions, &mut receipts);
+            self.runtime.write().apply(&apply_state, transactions, receipts);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut block = BeaconBlock::new(
             last_block.header().index() + 1,
