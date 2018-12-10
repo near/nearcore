@@ -55,6 +55,12 @@ extern "C" {
     ) -> u32;
 
     fn promise_and(promise_index1: u32, promise_index2: u32) -> u32;
+
+    fn balance() -> u64;
+    fn mana_left() -> u32;
+    fn gas_left() -> u64;
+    fn received_amount() -> u64;
+    fn assert(expr: bool);
 }
 
 fn storage_read(key: *const u8) -> Vec<u8> {
@@ -84,10 +90,19 @@ fn result_read(index: u32) -> Vec<u8> {
     }
 }
 
-fn return_int(res: i32) {
+fn return_i32(res: i32) {
     let mut buf = [0u8; 8];
     LittleEndian::write_u32(&mut buf[..4], 4);
     LittleEndian::write_i32(&mut buf[4..], res);
+    unsafe {
+        return_value(buf.as_ptr())
+    }
+}
+
+fn return_u64(res: u64) {
+    let mut buf = [0u8; 12];
+    LittleEndian::write_u32(&mut buf[..4], 8);
+    LittleEndian::write_u64(&mut buf[4..], res);
     unsafe {
         return_value(buf.as_ptr())
     }
@@ -128,7 +143,9 @@ pub fn put_int(key: u32, value: i32) {
 #[no_mangle]
 pub fn get_int(key: u32) -> i32 {
     let val = storage_read(key_to_str(key).as_ptr());
-    assert!(val.len() == 4);
+    unsafe {
+        assert(val.len() == 4);
+    }
     LittleEndian::read_i32(&val[..])
 }
 
@@ -137,17 +154,19 @@ pub fn run_test() {
     put_int(10, 20);
     put_int(50, 150);
     let res = get_int(10);
-    return_int(res)
+    return_i32(res)
 }
 
 #[no_mangle]
 pub fn sum_with_input() {
     let input = input_read();
-    assert!(input.len() == 8);
+    unsafe {
+        assert(input.len() == 8);
+    }
     let a = LittleEndian::read_i32(&input[..4]);
     let b = LittleEndian::read_i32(&input[4..]);
     let sum = a + b;
-    return_int(sum)
+    return_i32(sum)
 }
 
 #[no_mangle]
@@ -155,16 +174,16 @@ pub fn sum_with_multiple_results() {
     unsafe {
         let cnt = result_count();
         if cnt == 0 {
-            return return_int(-100);
+            return return_i32(-100);
         }
         let mut sum = 0;
         for index in 0..cnt {
             if !result_is_ok(index) {
-                return return_int(-100);
+                return return_i32(-100);
             }
             sum += LittleEndian::read_i32(&result_read(index));
         }
-        return_int(sum)
+        return_i32(sum)
     }
 }
 
@@ -195,6 +214,44 @@ pub fn create_promises_and_join() {
         return_promise(callback);
     }
 }
+
+#[no_mangle]
+pub fn get_prev_balance() {
+    unsafe {
+        let bal = balance();
+        let amount = received_amount();
+        return_u64(bal - amount);
+    }
+}
+
+#[no_mangle]
+pub fn get_gas_left() {
+    unsafe {
+        let my_gas = gas_left();
+        return_u64(my_gas);
+    }
+}
+
+#[no_mangle]
+pub fn get_mana_left() {
+    unsafe {
+        let my_mana = mana_left();
+        return_i32(my_mana as i32);
+    }
+}
+
+#[no_mangle]
+pub fn assert_sum() {
+    unsafe {
+        let input = input_read();
+        assert(input.len() == 12);
+        let a = LittleEndian::read_i32(&input[..4]);
+        let b = LittleEndian::read_i32(&input[4..8]);
+        let sum = LittleEndian::read_i32(&input[8..]);
+        assert(a + b == sum);
+    }
+}
+
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {

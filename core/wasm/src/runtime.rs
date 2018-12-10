@@ -312,7 +312,7 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    pub fn return_value(&mut self, args: &RuntimeArgs) -> Result<()> {
+    fn return_value(&mut self, args: &RuntimeArgs) -> Result<()> {
         let return_val_ptr: u32 = args.nth_checked(0)?;
         let return_val = self.read_buffer(return_val_ptr)?;
 
@@ -321,13 +321,48 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    pub fn return_promise(&mut self, args: &RuntimeArgs) -> Result<()> {
+    fn return_promise(&mut self, args: &RuntimeArgs) -> Result<()> {
         let promise_index: u32 = args.nth_checked(0)?;
         let promise_id = self.promise_index_to_id(promise_index)?;
 
         self.return_data = ReturnData::Promise(promise_id);
 
         Ok(())
+    }
+
+    fn balance(&self) -> Result<RuntimeValue> {
+        let balance = self.ext.balance().map_err(|_| Error::BalanceQueryError)?;
+
+        Ok(RuntimeValue::I64(balance as i64))
+    }
+
+    fn gas_left(&self) -> Result<RuntimeValue> {
+        let gas_left = self.gas_limit - self.gas_counter;
+        println!("GAS {}", gas_left);
+
+        Ok(RuntimeValue::I64(gas_left as i64))
+    }
+
+    fn mana_left(&self) -> Result<RuntimeValue> {
+        let mana_left = self.mana_limit - self.mana_counter;
+
+        Ok(RuntimeValue::I32(mana_left as i32))
+    }
+
+    fn received_amount(&self) -> Result<RuntimeValue> {
+        let amount = self.ext.received_amount().map_err(|_| Error::BalanceQueryError)?;
+
+        Ok(RuntimeValue::I64(amount as i64))
+    }
+
+    fn assert(&self, args: &RuntimeArgs) -> Result<()> {
+        let expression: bool = args.nth_checked(0)?;
+
+        if expression {
+            Ok(())
+        } else {
+            Err(Error::AssertFailed)
+        }
     }
 }
 
@@ -366,6 +401,11 @@ mod ext_impl {
                 RESULT_READ_INTO_FUNC => void!(self.result_read_into(&args)),
                 RETURN_VALUE_FUNC => void!(self.return_value(&args)),
                 RETURN_PROMISE_FUNC => void!(self.return_promise(&args)),
+                BALANCE_FUNC => some!(self.balance()),
+                MANA_LEFT_FUNC => some!(self.mana_left()),
+                GAS_LEFT_FUNC => some!(self.gas_left()),
+                RECEIVED_AMOUNT_FUNC => some!(self.received_amount()),
+                ASSERT_FUNC => void!(self.assert(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }

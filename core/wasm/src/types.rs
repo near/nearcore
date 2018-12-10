@@ -65,8 +65,8 @@ pub enum RuntimeError {
     InvalidGasState,
     /// Query of the balance resulted in an error
     BalanceQueryError,
-    /// Failed allocation
-    AllocationFailed,
+    /// WASM-side assert failed
+    AssertFailed,
     /// Mana limit exceeded
     ManaLimit,
     /// Gas limit reached
@@ -138,7 +138,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::InvalidResultIndex => write!(f, "Invalid result index given by the WASM to read results"),
             RuntimeError::ResultIsNotOk => write!(f, "WASM is trying to read data from a result that is an error"),
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
-            RuntimeError::AllocationFailed => write!(f, "Memory allocation failed (OOM)"),
+            RuntimeError::AssertFailed => write!(f, "WASM-side assert failed"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
             RuntimeError::ManaLimit => write!(f, "Mana limit exceeded"),
             RuntimeError::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
