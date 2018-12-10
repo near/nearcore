@@ -16,7 +16,6 @@ use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
 use storage::Storage;
 
-const BLOCKCHAIN_GENESIS_BLOCK: &[u8] = b"genesis";
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
 /// Trait that abstracts ``Header"
@@ -58,6 +57,8 @@ pub struct BlockChain<B: Block> {
     storage: Arc<Storage>,
     /// Genesis hash
     pub genesis_hash: CryptoHash,
+    /// Best block key of current blockchain.
+    best_block_key: Vec<u8>,
     /// Tip of the known chain.
     best_block: RwLock<B>,
     /// Headers indexed by hash
@@ -110,23 +111,19 @@ fn read_with_cache<T: Clone + Decode>(
 impl<B: Block> BlockChain<B> {
     pub fn new(genesis: B, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.hash();
+        let best_block_key = genesis_hash.as_ref().iter().chain(BLOCKCHAIN_BEST_BLOCK).cloned().collect();
         let bc = BlockChain {
             storage,
             genesis_hash,
+            best_block_key,
             best_block: RwLock::new(genesis.clone()),
             headers: RwLock::new(HashMap::new()),
             blocks: RwLock::new(HashMap::new()),
             index_to_hash: RwLock::new(HashMap::new()),
         };
 
-        // Check if blockchain is the same / exists.
-        assert!(match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_GENESIS_BLOCK) {
-            Ok(Some(old_genesis)) => CryptoHash::new(old_genesis.as_ref()) == genesis_hash,
-            _ => true,
-        }, "Storage contains different genesis block. Either specify different storage path or clear current staorge.");
-
         // Load best block hash from storage.
-        let best_block_hash = match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK) {
+        let best_block_hash = match bc.storage.get(storage::COL_EXTRA, &bc.best_block_key) {
             Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
                 // Insert genesis block into cache.
@@ -167,7 +164,7 @@ impl<B: Block> BlockChain<B> {
         let mut best_block = self.best_block.write();
         *best_block = block;
         let mut db_transaction = self.storage.transaction();
-        db_transaction.put(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK, block_hash.as_ref());
+        db_transaction.put(storage::COL_EXTRA, &self.best_block_key, block_hash.as_ref());
         self.storage.write(db_transaction).expect("Database write failed");
     }
 

@@ -20,6 +20,7 @@ extern crate shard;
 extern crate storage;
 extern crate tokio;
 
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -51,6 +52,7 @@ pub mod test_utils;
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
     storage_path.push("storage/db");
+    println!("Opening storage database at {:?}", fs::canonicalize(storage_path.clone()).expect("Failed to resolve path"));
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 

@@ -142,4 +142,19 @@ mod tests {
         assert_eq!(other_bc.best_block().header().index(), 1);
         assert_eq!(other_bc.get_block(&BlockId::Hash(block1.hash())).unwrap(), block1);
     }
+
+    #[test]
+    fn test_two_chains() {
+        let storage = Arc::new(create_memory_db());
+        let genesis1 = BeaconBlock::new(
+            0, CryptoHash::default(), vec![], CryptoHash::default()
+        );
+        let genesis2 = BeaconBlock::new(
+            0, CryptoHash::default(), vec![], genesis1.hash()
+        );
+        let bc1 = BlockChain::new(genesis1.clone(), storage.clone());
+        let bc2 = BlockChain::new(genesis2.clone(), storage.clone());
+        assert_eq!(bc1.best_block().hash(), genesis1.hash());
+        assert_eq!(bc2.best_block().hash(), genesis2.hash());
+    }
 }
