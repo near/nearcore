@@ -52,7 +52,10 @@ pub mod test_utils;
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
     storage_path.push("storage/db");
-    println!("Opening storage database at {:?}", fs::canonicalize(storage_path.clone()).expect("Failed to resolve path"));
+    match fs::canonicalize(storage_path.clone()) {
+        Ok(path) => info!("Opening storage database at {:?}", path),
+        _ => info!("Could not resolve {:?} path", storage_path),
+    };
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 

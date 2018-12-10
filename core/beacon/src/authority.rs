@@ -132,7 +132,8 @@ impl Authority {
                 let threshold = *self
                     .current_threshold
                     .get(&self.current_epoch)
-                    .expect("Missing threshold for current epoch") as i64;
+                    .expect("Missing threshold for current epoch")
+                    as i64;
                 *self.proposals.entry(header_authorities[i].to_string()).or_insert(0) -= threshold;
             }
         }
@@ -264,10 +265,10 @@ mod test {
     fn test_blockchain(num_blocks: u64) -> BlockChain<BeaconBlock> {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
-            BeaconBlock::new(0, CryptoHash::default(), vec![],CryptoHash::default());
+            BeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.hash(), vec![],CryptoHash::default());
+            let block = BeaconBlock::new(i, last_block.hash(), vec![], CryptoHash::default());
             bc.insert_block(block.clone());
             last_block = block;
         }

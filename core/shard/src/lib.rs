@@ -20,7 +20,6 @@ pub struct ShardBlockHeaderBody {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {
     pub body: ShardBlockHeaderBody,
-    pub block_hash: CryptoHash,
     pub authority_mask: AuthorityMask,
     pub signature: MultiSignature,
 }
@@ -41,7 +40,7 @@ pub struct ShardBlock {
 
 impl Header for ShardBlockHeader {
     fn hash(&self) -> CryptoHash {
-        self.block_hash
+        hash_struct(&self.body)
     }
     fn index(&self) -> u64 {
         self.body.index
@@ -79,7 +78,6 @@ impl Block for ShardBlock {
     fn header(&self) -> Self::Header {
         ShardBlockHeader {
             body: self.body.header.clone(),
-            block_hash: self.hash(),
             signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
         }
@@ -87,8 +85,7 @@ impl Block for ShardBlock {
     }
 
     fn hash(&self) -> CryptoHash {
-        // TODO: cache?
-        hash_struct(&self.body)
+        hash_struct(&self.body.header)
     }
 
     fn add_signature(&mut self, signature: PartialSignature) {

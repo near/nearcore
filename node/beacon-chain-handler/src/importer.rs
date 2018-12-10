@@ -23,7 +23,7 @@ pub fn create_beacon_block_importer_task(
     state_db: Arc<StateDb>,
     receiver: Receiver<BeaconBlock>
 ) -> impl Future<Item = (), Error = ()> {
-    let beacon_block_importer = RefCell::new(BeaconBlockImporter::new(
+    let beacon_block_importer = RefCell::new(BlockImporter::new(
         beacon_chain,
         shard_chain,
         runtime,
@@ -35,7 +35,7 @@ pub fn create_beacon_block_importer_task(
     }).and_then(|_| Ok(()))
 }
 
-pub struct BeaconBlockImporter {
+pub struct BlockImporter {
     beacon_chain: Arc<BeaconBlockChain>,
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
@@ -45,7 +45,7 @@ pub struct BeaconBlockImporter {
     pending_shard_blocks: HashMap<CryptoHash, ShardBlock>,
 }
 
-impl BeaconBlockImporter {
+impl BlockImporter {
     pub fn new(
         beacon_chain: Arc<BeaconBlockChain>,
         shard_chain: Arc<ShardBlockChain>,
@@ -94,15 +94,15 @@ impl BeaconBlockImporter {
         let (filtered_transactions, filtered_receipts, mut apply_result) =
             self.runtime.write().apply(&apply_state, shard_block.body.transactions.clone(), shard_block.body.receipts.clone());
         if apply_result.root != prev_shard_header.body.merkle_root_state {
-            println!("Merkle root {} is not equal to received {} after applying the transactions from {:?}", prev_shard_header.body.merkle_root_state, apply_result.root, block);
+            info!("Merkle root {} is not equal to received {} after applying the transactions from {:?}", prev_shard_header.body.merkle_root_state, apply_result.root, block);
             return;
         }
         if filtered_transactions.len() != num_transactions {
-            println!("Imported block has transactions that were filtered out while merkle roots match in {:?}", block);
+            info!("Imported block has transactions that were filtered out while merkle roots match in {:?}", block);
             return;
         }
         if filtered_receipts.len() != num_receipts {
-            println!("Imported block has receipts that were filtered out while merkle roots match in {:?}.", block);
+            info!("Imported block has receipts that were filtered out while merkle roots match in {:?}.", block);
             return;
         }
         self.state_db.commit(&mut apply_result.transaction).ok();

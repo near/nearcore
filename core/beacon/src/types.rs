@@ -1,5 +1,5 @@
 use chain::{Block, Header};
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
 
@@ -26,7 +26,6 @@ pub struct BeaconBlockHeaderBody {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
     pub body: BeaconBlockHeaderBody,
-    pub block_hash: CryptoHash,
     pub signature: MultiSignature,
     pub authority_mask: AuthorityMask,
 }
@@ -45,7 +44,7 @@ pub struct BeaconBlock {
 
 impl Header for BeaconBlockHeader {
     fn hash(&self) -> CryptoHash {
-        self.block_hash
+        hash_struct(&self.body)
     }
     fn index(&self) -> u64 {
         self.body.index
@@ -56,15 +55,20 @@ impl Header for BeaconBlockHeader {
 }
 
 impl BeaconBlock {
-    pub fn new(index: u64, parent_hash: CryptoHash, authority_proposal: Vec<AuthorityProposal>, shard_block_hash: CryptoHash) -> BeaconBlock {
+    pub fn new(
+        index: u64,
+        parent_hash: CryptoHash,
+        authority_proposal: Vec<AuthorityProposal>,
+        shard_block_hash: CryptoHash,
+    ) -> BeaconBlock {
         BeaconBlock {
             body: BeaconBlockBody {
                 header: BeaconBlockHeaderBody {
                     index,
                     parent_hash,
                     authority_proposal,
-                    shard_block_hash
-                }
+                    shard_block_hash,
+                },
             },
             signature: vec![],
             authority_mask: vec![],
@@ -82,14 +86,13 @@ impl Block for BeaconBlock {
     fn header(&self) -> Self::Header {
         BeaconBlockHeader {
             body: self.body.header.clone(),
-            block_hash: self.hash(),
             signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
         }
     }
 
     fn hash(&self) -> CryptoHash {
-        hash_struct(&self.body)
+        hash_struct(&self.body.header)
     }
 
     fn add_signature(&mut self, signature: PartialSignature) {
@@ -112,9 +115,7 @@ mod tests {
     #[test]
     fn test_genesis() {
         let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(
-            0, CryptoHash::default(), vec![], CryptoHash::default()
-        );
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage);
         assert_eq!(bc.get_block(&BlockId::Hash(genesis.hash())).unwrap(), genesis);
         assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
@@ -123,13 +124,9 @@ mod tests {
     #[test]
     fn test_restart_chain() {
         let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(
-            0, CryptoHash::default(), vec![], CryptoHash::default()
-        );
+        let genesis = BeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage.clone());
-        let block1 = BeaconBlock::new(
-            1, genesis.hash(), vec![], CryptoHash::default()
-        );
+        let block1 = BeaconBlock::new(1, genesis.hash(), vec![], CryptoHash::default());
         assert_eq!(bc.insert_block(block1.clone()), false);
         let best_block = bc.best_block();
         let best_block_header = best_block.header();
@@ -146,12 +143,8 @@ mod tests {
     #[test]
     fn test_two_chains() {
         let storage = Arc::new(create_memory_db());
-        let genesis1 = BeaconBlock::new(
-            0, CryptoHash::default(), vec![], CryptoHash::default()
-        );
-        let genesis2 = BeaconBlock::new(
-            0, CryptoHash::default(), vec![], genesis1.hash()
-        );
+        let genesis1 = BeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let genesis2 = BeaconBlock::new(0, CryptoHash::default(), vec![], genesis1.hash());
         let bc1 = BlockChain::new(genesis1.clone(), storage.clone());
         let bc2 = BlockChain::new(genesis2.clone(), storage.clone());
         assert_eq!(bc1.best_block().hash(), genesis1.hash());
