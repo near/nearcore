@@ -1,4 +1,4 @@
-use primitives::types::{AccountAlias, PromiseId};
+use primitives::types::{AccountAlias, PromiseId, Balance, Mana};
 
 pub mod ids {
     // Storate related
@@ -55,8 +55,8 @@ pub trait External {
         account_alias: AccountAlias,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: u32,
-        amount: u64,
+        mana: Mana,
+        amount: Balance,
     ) -> Result<PromiseId>;
 
     fn promise_then(
@@ -64,6 +64,6 @@ pub trait External {
         promise_id: PromiseId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: u32,
+        mana: Mana,
     ) -> Result<PromiseId>;
 }

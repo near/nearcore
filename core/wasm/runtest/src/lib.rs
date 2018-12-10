@@ -7,7 +7,7 @@ use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 extern crate byteorder;
 
 extern crate primitives;
-use primitives::types::{AccountAlias, PromiseId, ReceiptId};
+use primitives::types::{AccountAlias, PromiseId, ReceiptId, Mana, Balance};
 
 #[derive(Default)]
 struct MyExt {
@@ -45,8 +45,8 @@ impl External for MyExt {
         _account_alias: AccountAlias,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
-        _mana: u32,
-        _amount: u64,
+        _mana: Mana,
+        _amount: Balance,
     ) -> ExtResult<PromiseId> {
         self.num_receipts += 1;
         Ok(PromiseId::Receipt(generate_promise_id(self.num_receipts - 1)))
@@ -57,7 +57,7 @@ impl External for MyExt {
         promise_id: PromiseId,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
-        _mana: u32,
+        _mana: Mana,
     ) -> ExtResult<PromiseId> {
         match promise_id {
             PromiseId::Receipt(_) => {
@@ -87,7 +87,7 @@ mod tests {
         method_name: &[u8],
         input_data: &[u8],
         result_data: &[Option<Vec<u8>>],
-        mana_limit: u32,
+        mana_limit: Mana,
     ) -> Result<ReturnData, Error> {
         
         let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
