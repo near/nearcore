@@ -5,6 +5,7 @@ use futures::{future, Future};
 use futures::stream::Stream;
 use libp2p::{Multiaddr, secio};
 use message::{Message, MessageBody};
+use beacon::types::{BeaconBlock, BeaconBlockHeader};
 use primitives::hash::CryptoHash;
 use primitives::traits::{Block, GenericResult, Header};
 use primitives::types;
@@ -64,7 +65,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<MockBlock, MockBlockHeader> {
+pub fn fake_tx_message() -> Message<BeaconBlock, BeaconBlockHeader> {
     let tx = types::SignedTransaction::empty();
     Message::new(MessageBody::Transaction(Box::new(tx)))
 }
@@ -132,44 +133,6 @@ pub fn get_noop_network_task() -> impl Future<Item=(), Error=()> {
     Interval::new_interval(Duration::from_secs(1))
         .for_each(|_| Ok(()))
         .then(|_| Ok(()))
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MockBlockHeader {}
-#[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MockBlock {}
-
-impl Header for MockBlockHeader {
-    fn hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
-
-    fn index(&self) -> u64 {
-        0
-    }
-    fn parent_hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
-}
-
-impl Block for MockBlock {
-    type Header = MockBlockHeader;
-    type Body = ();
-    fn header(&self) -> &Self::Header {
-        &MockBlockHeader {}
-    }
-    fn body(&self) -> &Self::Body {
-        &()
-    }
-    fn deconstruct(self) -> (Self::Header, Self::Body) {
-        (MockBlockHeader {}, ())
-    }
-    fn new(_header: Self::Header, _body: Self::Body) -> Self {
-        MockBlock {}
-    }
-    fn header_hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
 }
 
 //#[derive(Default)]

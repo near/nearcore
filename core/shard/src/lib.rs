@@ -7,9 +7,10 @@ extern crate chain;
 extern crate primitives;
 extern crate storage;
 
+use std::sync::Arc;
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AuthorityMask, MerkleHash, BLSSignature, SignedTransaction, ReceiptTransaction};
-use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
+use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::traits::{Block, Header, Signer};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -74,7 +75,7 @@ impl ShardBlock {
         ShardBlock::new(0, CryptoHash::default(), merkle_root_state, vec![], vec![])
     }
 
-    pub fn sign(&self, signer: &Signer) -> BLSSignature {
+    pub fn sign(&self, signer: &Arc<Signer>) -> BLSSignature {
         signer.sign(&self.hash())
     }
 }

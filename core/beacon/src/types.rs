@@ -3,7 +3,6 @@ use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
 use primitives::traits::{Block, Header, Signer};
 use primitives::types::{AuthorityMask, BLSSignature};
 use std::sync::Arc;
-use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthorityProposal {
@@ -77,7 +76,7 @@ impl BeaconBlock {
         BeaconBlock::new(0, CryptoHash::default(), vec![], shard_block_hash)
     }
 
-    pub fn sign(&self, signer: &Signer) -> BLSSignature {
+    pub fn sign(&self, signer: &Arc<Signer>) -> BLSSignature {
         signer.sign(&self.hash())
     }
 }

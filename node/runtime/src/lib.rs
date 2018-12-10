@@ -25,13 +25,15 @@ use beacon::types::BeaconBlock;
 use chain::BlockChain;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::PublicKey;
-use primitives::traits::{Block, Decode, Encode};
+use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountAlias, AccountId, AsyncCall, Callback, CallbackId, CallbackInfo,
     CallbackResult, MerkleHash, PromiseId, ReadablePublicKey, ReceiptBody, ReceiptId,
     ReceiptTransaction, SendMoneyTransaction, SignedTransaction, StakeTransaction, TransactionBody,
     ViewCall, ViewCallResult
 };
+use primitives::types::SendMoneyTransaction;
+use primitives::types::StakeTransaction;
 use primitives::utils::{
     account_to_shard_id, concat, index_to_bytes
 };
@@ -766,7 +768,7 @@ impl StateDbViewer {
     }
 
     pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
-        let root = self.shard_chain.best_block().header().body.merkle_root_state;
+        let root = self.shard_chain.best_block().body.header.merkle_root_state;
         self.view_at(view_call, root)
     }
 
@@ -917,10 +919,10 @@ mod tests {
     #[test]
     fn test_simple_smart_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.shard_chain.best_block().header.body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
-            originator: hash(b"alice")
+            originator: hash(b"alice"),
             contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
             args: vec![],
@@ -940,7 +942,7 @@ mod tests {
     #[test]
     fn test_simple_smart_contract_with_args() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: hash(b"alice"),
@@ -995,7 +997,7 @@ mod tests {
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.shard_chain.best_block().header.body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
             nonce: 1,
             owner: hash(b"bob"),
@@ -1023,7 +1025,7 @@ mod tests {
     #[test]
     fn test_send_money() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.shard_chain.best_block().header.body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1073,7 +1075,7 @@ mod tests {
     #[test]
     fn test_async_call_with_no_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let receipt = ReceiptTransaction::new(
             hash(b"alice"),
             hash(b"bob"),
@@ -1097,7 +1099,7 @@ mod tests {
     #[test]
     fn test_async_call_with_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let args = concat((7..9).into_iter().map(|x| encode_int(x).to_vec()).collect());
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);
@@ -1125,7 +1127,7 @@ mod tests {
     #[test]
     fn test_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = viewer.shard_chain.best_block().body.header.merkle_root_state;
         let args = concat((7..9).into_iter().map(|x| encode_int(x).to_vec()).collect());
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);

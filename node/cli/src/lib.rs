@@ -16,12 +16,13 @@ extern crate serde;
 extern crate serde_derive;
 #[cfg_attr(test, macro_use)]
 extern crate serde_json;
+extern crate shard;
 extern crate storage;
 extern crate tokio;
 
-use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
-use chain::BlockChain;
+use std::path::Path;
+use std::sync::Arc;
+
 use clap::{App, Arg};
 use env_logger::Builder;
 use futures::future;
@@ -29,16 +30,18 @@ use futures::Future;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+
+use beacon::types::{BeaconBlock, BeaconBlockChain, BeaconBlockHeader};
+use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, StateDbViewer};
 use parking_lot::{Mutex, RwLock};
-use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
+use primitives::traits::Block;
 use primitives::types::SignedTransaction;
-use std::path::Path;
-use std::sync::Arc;
+use shard::{ShardBlock, ShardBlockChain};
 use storage::{StateDb, Storage};
 
 pub mod chain_spec;
@@ -73,13 +76,13 @@ pub fn start_service(
         &chain_spec.initial_authorities,
     );
 
-    let genesis = BeaconBlock::new(
-        0, CryptoHash::default(), genesis_root, vec![], vec![]
-    );
-    let beacon_chain = Arc::new(BlockChain::new(genesis, storage.clone()));
+    let shard_genesis = ShardBlock::genesis(genesis_root);
+    let genesis = BeaconBlock::genesis(shard_genesis.hash());
+    let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
+    let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
 
     // Create RPC Server.
-    let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
+    let state_db_viewer = StateDbViewer::new(shard_chain.clone(), state_db.clone());
     // TODO: TxFlow should be listening on these transactions.
     let (transactions_tx, transactions_rx) = channel(1024);
     let (receipts_tx, _receipts_rx) = channel(1024);
@@ -95,6 +98,7 @@ pub fn start_service(
     ) = channel(1024);
     let block_producer_task = beacon_chain_handler::producer::create_beacon_block_producer_task(
         beacon_chain.clone(),
+        shard_chain.clone(),
         runtime.clone(),
         signer.clone(),
         state_db.clone(),
@@ -105,6 +109,7 @@ pub fn start_service(
     let (beacon_block_tx, beacon_block_rx) = channel(1024);
     let block_importer_task = beacon_chain_handler::importer::create_beacon_block_importer_task(
         beacon_chain.clone(),
+        shard_chain.clone(),
         runtime.clone(),
         state_db.clone(),
         beacon_block_rx

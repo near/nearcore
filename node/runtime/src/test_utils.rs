@@ -6,8 +6,6 @@ use storage::test_utils::create_memory_db;
 use Runtime;
 use storage::StateDb;
 use shard::ShardBlock;
-use beacon::types::BeaconBlock;
-use primitives::hash::CryptoHash;
 use chain::BlockChain;
 
 pub fn generate_test_chain_spec() -> ChainSpec {

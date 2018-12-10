@@ -243,7 +243,6 @@ mod test {
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use primitives::traits::{Block, Header};
-    use primitives::types::MerkleHash;
     use std::sync::Arc;
     use storage::test_utils::MemoryStorage;
 
@@ -263,10 +262,10 @@ mod test {
     fn test_blockchain(num_blocks: u64) -> BlockChain<BeaconBlock> {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
-            BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]);
+            BeaconBlock::new(0, CryptoHash::default(), vec![],CryptoHash::default());
         let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.header_hash(), MerkleHash::default(), vec![], vec![]);
+            let block = BeaconBlock::new(i, last_block.hash(), vec![],CryptoHash::default());
             bc.insert_block(block.clone());
             last_block = block;
         }
@@ -298,10 +297,12 @@ mod test {
             vec![initial_authorities[2], initial_authorities[1]]
         );
         assert!(authority.get_authorities(5).is_err());
-        let mut header1 = BeaconBlockHeader::empty(1, bc.genesis_hash, MerkleHash::default());
+        let block1 = BeaconBlock::new(1, bc.genesis_hash, vec![], CryptoHash::default());
+        let mut header1 = block1.header();
         // Authority #1 didn't show up.
         header1.authority_mask = vec![true, false];
-        let mut header2 = BeaconBlockHeader::empty(2, header1.hash(), MerkleHash::default());
+        let block2 = BeaconBlock::new(2, header1.hash(), vec![], CryptoHash::default());
+        let mut header2 = block2.header();
         header2.authority_mask = vec![true, true];
         authority.process_block_header(&header1);
         authority.process_block_header(&header2);

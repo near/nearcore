@@ -1,4 +1,4 @@
-use beacon_chain_handler::producer::{BeaconChainPayload, BeaconChainConsensusBlockBody};
+use beacon_chain_handler::producer::{ShardChainPayload, BeaconChainConsensusBlockBody};
 use primitives::types::{SignedTransaction, SignedMessageData, MessageDataBody};
 use primitives::signature::DEFAULT_SIGNATURE;
 use futures::sync::mpsc::{Sender, Receiver};
@@ -12,7 +12,7 @@ pub fn create_passthrough_beacon_block_consensus_task(
     consensus_tx: &Sender<BeaconChainConsensusBlockBody>,
 ) -> Box<Future<Item=(), Error=()> + Send> {
     Box::new(transactions_rx.fold(consensus_tx.clone(), |consensus_tx, t| {
-        let message: SignedMessageData<BeaconChainPayload> = SignedMessageData {
+        let message: SignedMessageData<ShardChainPayload> = SignedMessageData {
             owner_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
             hash: 0,  // Compute real hash
             body: MessageDataBody {
