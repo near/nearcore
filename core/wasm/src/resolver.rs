@@ -76,6 +76,26 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32][..], None),
                 ids::RETURN_PROMISE_FUNC,
             ),
+            "balance" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I64)),
+                ids::BALANCE_FUNC,
+            ),
+            "mana_left" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I32)),
+                ids::MANA_LEFT_FUNC,
+            ),
+            "gas_left" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I64)),
+                ids::GAS_LEFT_FUNC,
+            ),
+            "received_amount" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I64)),
+                ids::RECEIVED_AMOUNT_FUNC,
+            ),
+            "assert" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::ASSERT_FUNC,
+            ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             }

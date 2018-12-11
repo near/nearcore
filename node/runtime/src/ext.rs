@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use kvdb::DBValue;
 
 use primitives::types::{
-    ReceiptId, CallbackId, ReceiptTransaction, Callback, AccountId,
-    AccountAlias, PromiseId, ReceiptBody, AsyncCall, CallbackInfo
+    ReceiptId, Balance, Mana, CallbackId, ReceiptTransaction, Callback,
+    AccountId, AccountAlias, PromiseId, ReceiptBody, AsyncCall, CallbackInfo
 };
 use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
@@ -56,6 +56,14 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
 }
 
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
+    fn balance(&self) -> ExtResult<Balance> {
+        unimplemented!();
+    }
+
+    fn received_amount(&self) -> ExtResult<Balance> {
+        unimplemented!();
+    }
+
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
@@ -73,8 +81,8 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
         account_alias: AccountAlias,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: u32,
-        amount: u64,
+        mana: Mana,
+        amount: Balance,
     ) -> ExtResult<PromiseId> {
         let nonce = self.create_nonce();
         let receipt = ReceiptTransaction::new(
@@ -98,7 +106,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
         promise_id: PromiseId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: u32,
+        mana: Mana,
     ) -> ExtResult<PromiseId> {
         let callback_id = self.create_nonce();
         let receipt_ids = match promise_id {

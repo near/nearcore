@@ -22,5 +22,5 @@ Cargo.lock
 # Python env
 .env
 
-# tmp files
+# Integration tests
 tmp/
