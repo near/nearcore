@@ -5,7 +5,7 @@ use std::sync::Arc;
 use storage::test_utils::create_memory_db;
 use Runtime;
 use storage::StateDb;
-use shard::ShardBlock;
+use shard::SignedShardBlock;
 use chain::BlockChain;
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -35,7 +35,7 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
         &chain_spec.initial_authorities
     );
 
-    let shard_genesis = ShardBlock::genesis(genesis_root);
+    let shard_genesis = SignedShardBlock::genesis(genesis_root);
     let shard_chain = Arc::new(BlockChain::new(shard_genesis, storage));
 
     let state_db_viewer = StateDbViewer::new(

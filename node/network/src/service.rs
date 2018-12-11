@@ -10,7 +10,7 @@ use substrate_network_libp2p::{
 pub use substrate_network_libp2p::NetworkConfiguration;
 use tokio::timer::Interval;
 
-use chain::{Block, Header as BlockHeader};
+use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
 use primitives::traits::Encode;
 use protocol::{self, Protocol, ProtocolConfig};
@@ -31,7 +31,7 @@ pub fn create_network_task<B, Header>(
 ) -> (Box<impl Future<Item=(), Error=()>>,
       Box<impl Future<Item=(), Error=()>>)
 where
-    B: Block,
+    B: SignedBlock,
     Header: BlockHeader,
 {
     let protocol = Arc::new(protocol_);

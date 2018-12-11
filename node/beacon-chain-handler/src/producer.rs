@@ -6,13 +6,13 @@ use futures::{Future, future, Stream};
 use futures::sync::mpsc::Receiver;
 use parking_lot::RwLock;
 
-use beacon::types::{BeaconBlock, BeaconBlockChain};
-use chain::{Block, Header};
+use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
+use chain::{SignedBlock, SignedHeader};
 use node_runtime::{ApplyState, Runtime};
 use primitives::traits::Signer;
 use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
 use primitives::types::ConsensusBlockBody;
-use shard::{ShardBlock, ShardBlockChain};
+use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
 
 pub fn create_block_producer_task(
@@ -36,7 +36,7 @@ pub fn create_block_producer_task(
     }).and_then(|_| Ok(()))
 }
 
-pub trait ConsensusHandler<B: Block, P>: Send + Sync {
+pub trait ConsensusHandler<B: SignedBlock, P>: Send + Sync {
     fn produce_block(&self, body: ConsensusBlockBody<P>);
 }
 
@@ -69,7 +69,7 @@ impl BlockProducer {
 pub type ShardChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
 
-impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BlockProducer {
+impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
     fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
         let transactions = body.messages.iter()
@@ -91,14 +91,14 @@ impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BlockProducer {
         let (filtered_transactions, filtered_receipts, mut apply_result) =
             self.runtime.write().apply(&apply_state, transactions, receipts);
         self.state_db.commit(&mut apply_result.transaction).ok();
-        let mut shard_block = ShardBlock::new(
+        let mut shard_block = SignedShardBlock::new(
             last_shard_block.body.index + 1,
             last_shard_block.block_hash(),
             apply_result.root,
             filtered_transactions,
             filtered_receipts
         );
-        let mut block = BeaconBlock::new(
+        let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
             apply_result.authority_proposals,

@@ -8,12 +8,12 @@ use futures::{Future, future, Stream};
 use futures::sync::mpsc::Receiver;
 use parking_lot::RwLock;
 
-use beacon::types::{BeaconBlock, BeaconBlockChain};
-use chain::Block;
+use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
+use chain::SignedBlock;
 use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
-use shard::{ShardBlock, ShardBlockChain};
+use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
 
 pub fn create_block_importer_task(
@@ -21,7 +21,7 @@ pub fn create_block_importer_task(
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
-    receiver: Receiver<BeaconBlock>
+    receiver: Receiver<SignedBeaconBlock>
 ) -> impl Future<Item = (), Error = ()> {
     let beacon_block_importer = RefCell::new(BlockImporter::new(
         beacon_chain,
@@ -41,8 +41,8 @@ pub struct BlockImporter {
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
     /// Stores blocks that cannot be added yet.
-    pending_beacon_blocks: HashMap<CryptoHash, BeaconBlock>,
-    pending_shard_blocks: HashMap<CryptoHash, ShardBlock>,
+    pending_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
+    pending_shard_blocks: HashMap<CryptoHash, SignedShardBlock>,
 }
 
 impl BlockImporter {
@@ -62,19 +62,19 @@ impl BlockImporter {
         }
     }
 
-    fn validate_signature(&self, _block: &BeaconBlock) -> bool {
+    fn validate_signature(&self, _block: &SignedBeaconBlock) -> bool {
         // TODO: validate multisig
         true
     }
 
-    pub fn import_shard_block(&mut self, shard_block: ShardBlock) {
+    pub fn import_shard_block(&mut self, shard_block: SignedShardBlock) {
         let hash = shard_block.block_hash();
         if !self.pending_shard_blocks.contains_key(&hash) {
             self.pending_shard_blocks.insert(hash, shard_block);
         }
     }
 
-    fn add_block(&self, beacon_block: BeaconBlock, shard_block: ShardBlock) {
+    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
         let num_transactions = shard_block.body.transactions.len();
@@ -111,7 +111,7 @@ impl BlockImporter {
         self.beacon_chain.insert_block(beacon_block);
     }
 
-    fn blocks_to_process(&self, pending_beacon_blocks: &HashMap<CryptoHash, BeaconBlock>) -> (Vec<BeaconBlock>, HashMap<CryptoHash, BeaconBlock>) {
+    fn blocks_to_process(&self, pending_beacon_blocks: &HashMap<CryptoHash, SignedBeaconBlock>) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
         let mut part_add = vec![];
         let mut part_pending = HashMap::default();
         // TODO: do this with drains and whatnot. For now, that doesn't work because self is both mutable and immutable.
@@ -127,7 +127,7 @@ impl BlockImporter {
         (part_add, part_pending)
     }
 
-    pub fn import_beacon_block(&mut self, beacon_block: BeaconBlock) {
+    pub fn import_beacon_block(&mut self, beacon_block: SignedBeaconBlock) {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
@@ -138,7 +138,7 @@ impl BlockImporter {
         }
         self.pending_beacon_blocks.insert(hash, beacon_block);
 
-        let mut blocks_to_add: Vec<BeaconBlock> = vec![];
+        let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
 
         // Loop until we run out of blocks to add.
         loop {

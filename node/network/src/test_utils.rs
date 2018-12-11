@@ -15,8 +15,8 @@ use substrate_network_libp2p::{
 };
 use tokio::timer::Interval;
 
-use beacon::types::{BeaconBlock, BeaconBlockHeader};
-use chain::{Block, Header};
+use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use chain::{SignedBlock, SignedHeader};
 use error::Error;
 use message::{Message, MessageBody};
 use primitives::hash::CryptoHash;
@@ -68,7 +68,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<BeaconBlock, BeaconBlockHeader> {
+pub fn fake_tx_message() -> Message<SignedBeaconBlock, SignedBeaconBlockHeader> {
     let tx = types::SignedTransaction::empty();
     Message::new(MessageBody::Transaction(Box::new(tx)))
 }

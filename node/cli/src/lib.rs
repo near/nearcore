@@ -33,16 +33,16 @@ use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use parking_lot::{Mutex, RwLock};
 
-use beacon::types::{BeaconBlock, BeaconBlockChain, BeaconBlockHeader};
+use beacon::types::{SignedBeaconBlock, BeaconBlockChain, SignedBeaconBlockHeader};
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
-use chain::Block;
+use chain::SignedBlock;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, state_viewer::StateDbViewer};
 use primitives::signer::InMemorySigner;
 use primitives::types::SignedTransaction;
-use shard::{ShardBlock, ShardBlockChain};
+use shard::{SignedShardBlock, ShardBlockChain};
 use storage::{StateDb, Storage};
 
 pub mod chain_spec;
@@ -81,8 +81,8 @@ pub fn start_service(
         &chain_spec.initial_authorities,
     );
 
-    let shard_genesis = ShardBlock::genesis(genesis_root);
-    let genesis = BeaconBlock::genesis(shard_genesis.block_hash());
+    let shard_genesis = SignedShardBlock::genesis(genesis_root);
+    let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
     let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
     let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
 
@@ -125,7 +125,7 @@ pub fn start_service(
     // processing.
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
-    let protocol = Protocol::<_, BeaconBlockHeader>::new(
+    let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
         protocol_config,
         beacon_chain.clone(),
         beacon_block_tx.clone(),

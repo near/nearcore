@@ -7,7 +7,7 @@ use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 
-use chain::{Block, Header as BlockHeader, BlockChain};
+use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
 use message::{self, Message, MessageBody};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
@@ -66,7 +66,7 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-pub struct Protocol<B: Block, Header: BlockHeader> {
+pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -85,7 +85,7 @@ pub struct Protocol<B: Block, Header: BlockHeader> {
     message_sender: Sender<(NodeIndex, Message<B, Header>)>,
 }
 
-impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
+impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     pub fn new(config: ProtocolConfig,
                chain: Arc<BlockChain<B>>,
                block_sender: Sender<B>,

@@ -19,7 +19,7 @@ use storage::Storage;
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
 /// Trait that abstracts ``Header"
-pub trait Header: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
+pub trait SignedHeader: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
 {
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -33,11 +33,11 @@ pub trait Header: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + E
 
 /// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
 /// and shard-chain blocks.
-pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
-    type Header: Header;
+pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
+    type SignedHeader: SignedHeader;
 
     /// Returns signed header for given block.
-    fn header(&self) -> Self::Header;
+    fn header(&self) -> Self::SignedHeader;
 
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -52,7 +52,7 @@ pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq
 }
 
 /// General BlockChain container.
-pub struct BlockChain<B: Block> {
+pub struct BlockChain<B: SignedBlock> {
     /// Storage backend.
     storage: Arc<Storage>,
     /// Genesis hash
@@ -62,7 +62,7 @@ pub struct BlockChain<B: Block> {
     /// Tip of the known chain.
     best_block: RwLock<B>,
     /// Headers indexed by hash
-    headers: RwLock<HashMap<Vec<u8>, B::Header>>,
+    headers: RwLock<HashMap<Vec<u8>, B::SignedHeader>>,
     /// Blocks indexed by hash
     blocks: RwLock<HashMap<Vec<u8>, B>>,
     /// Maps block index to hash.
@@ -108,7 +108,7 @@ fn read_with_cache<T: Clone + Decode>(
     }
 }
 
-impl<B: Block> BlockChain<B> {
+impl<B: SignedBlock> BlockChain<B> {
     pub fn new(genesis: B, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.block_hash();
         let mut best_block_key = [0; 36];
@@ -234,11 +234,11 @@ impl<B: Block> BlockChain<B> {
         }
     }
 
-    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::Header> {
+    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::SignedHeader> {
         read_with_cache(&self.storage, storage::COL_HEADERS, &self.headers, block_hash.as_ref())
     }
 
-    pub fn get_header(&self, id: &BlockId) -> Option<B::Header> {
+    pub fn get_header(&self, id: &BlockId) -> Option<B::SignedHeader> {
         match id {
             BlockId::Number(num) => {
                 self.get_block_header_by_hash(&self.get_block_hash_by_index(*num)?)
