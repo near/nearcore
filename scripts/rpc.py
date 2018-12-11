@@ -139,9 +139,9 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'owner_account_id': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
+            'public_key': list(bytearray(self._public_key)),
         }
         self._update_nonce(sender)
         response = self._call_rpc('deploy_contract', params)

@@ -25,7 +25,7 @@ use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
-    SwapKeyTransaction,
+    SwapKeyTransaction, DeployContractTransaction
 };
 use primitives::utils::{
     index_to_bytes, account_to_shard_id
@@ -257,6 +257,27 @@ impl Runtime {
         Ok(vec![])
     }
 
+    fn deploy(
+        &self,
+        state_update: &mut StateDbUpdate,
+        body: &DeployContractTransaction,
+        account: &mut Account,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        // TODO: check signature
+        let pub_key = Decode::decode(&body.public_key).ok_or("cannot decode public key")?;
+        if account.public_keys.contains(&pub_key) {
+            account.code = body.wasm_byte_array.clone();
+            set(
+                state_update,
+                &account_id_to_bytes(body.contract_id),
+                &account,
+            );
+            Ok(vec![])
+        } else {
+            Err(format!("account {} does not contain key {}", body.contract_id, pub_key))
+        }
+    }
+
     fn call_function(
         &mut self,
         state_update: &mut StateDbUpdate,
@@ -336,13 +357,10 @@ impl Runtime {
                         )
                     },
                     TransactionBody::DeployContract(ref t) => {
-                        self.call_function(
+                        self.deploy(
                             state_update,
+                            t,
                             &mut sender,
-                            transaction.body.get_sender(),
-                            transaction.hash,
-                            &b"deploy".to_vec(),
-                            &t.wasm_byte_array,
                         )
                     },
                     TransactionBody::CreateAccount(ref t) => {
@@ -878,18 +896,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     // we need to figure out how to deal with the case where account does not exist
     // especially in the context of sharding
     fn test_upload_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
-        let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
+        let (pub_key, _) = get_keypair();
+        // first create a new account with no contract
+        let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
-            owner: hash(b"alice"),
-            contract_id: hash(b"xyz"),
-            wasm_byte_array: wasm_binary.to_vec(),
+            sender: hash(b"alice"),
+            receiver: hash(b"eve"),
+            amount: 10,
+            public_key: pub_key.encode().unwrap(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
@@ -901,22 +920,47 @@ mod tests {
         assert_eq!(filtered_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        // deploy contract
+        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+        let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
+            nonce: 1,
+            contract_id: hash(b"eve"),
+            wasm_byte_array: wasm_binary.to_vec(),
+            public_key: pub_key.encode().unwrap(),
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState { 
+            root: apply_result.root,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0 
+        };
+        let (_, _, mut apply_result) = runtime.apply(
+            &apply_state, vec![transaction], vec![]
+        );
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
-        let new_account = get(&mut new_state_update, &account_id_to_bytes(hash(b"xyz"))).unwrap();
-        assert_eq!(Account::new(vec![], 0, wasm_binary.to_vec()), new_account);
+        let new_account: Account = get(
+            &mut new_state_update,
+            &account_id_to_bytes(hash(b"eve"))
+        ).unwrap();
+        assert_eq!(new_account.code, wasm_binary.to_vec());
     }
 
     #[test]
-    #[should_panic]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
+        let account: Account = get(
+            &mut state_update,
+            &account_id_to_bytes(hash(b"bob"))
+        ).unwrap();
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
             nonce: 1,
-            owner: hash(b"bob"),
             contract_id: hash(b"bob"),
             wasm_byte_array: test_binary.to_vec(),
+            public_key: account.public_keys[0].encode().unwrap(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state =
