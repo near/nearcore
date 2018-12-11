@@ -107,7 +107,7 @@ impl TransactionApi for RpcImpl {
         let body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: r.nonce,
             sender: r.sender,
-            receiver: r.receiver,
+            new_account_id: r.new_account_id,
             amount: r.amount,
             public_key: r.public_key
         });

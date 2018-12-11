@@ -34,7 +34,7 @@ pub struct CreateAccountRequest {
     #[serde(with = "bs58_format")]
     pub sender: AccountId,
     #[serde(with = "bs58_format")]
-    pub receiver: AccountId,
+    pub new_account_id: AccountId,
     pub amount: u64,
     pub public_key: Vec<u8>
 }

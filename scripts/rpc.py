@@ -195,7 +195,7 @@ class NearRPC(object):
     def create_account(
         self,
         sender,
-        receiver,
+        new_account_id,
         amount,
         pub_key
     ):
@@ -206,7 +206,7 @@ class NearRPC(object):
         params = {
             'nonce': nonce,
             'sender': _get_account_id(sender),
-            'receiver': _get_account_id(receiver),
+            'new_account_id': _get_account_id(new_account_id),
             'amount': amount,
             'public_key': list(bytearray(pub_key))
         }
@@ -388,20 +388,20 @@ swap_key                 {}
         """Create an account"""
         parser = self._get_command_parser(self.create_account.__doc__)
         self._add_transaction_args(parser)
-        parser.add_argument('receiver', type=str)
+        parser.add_argument('new_account_id', type=str)
         parser.add_argument('amount', type=int)
         parser.add_argument('public_key', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.create_account(
             args.sender,
-            args.receiver,
+            args.new_account_id,
             args.amount,
             args.public_key
         )
 
     def swap_key(self):
-        """Create an account"""
+        """Swap key for an account"""
         parser = self._get_command_parser(self.swap_key.__doc__)
         self._add_transaction_args(parser)
         parser.add_argument('cur_key', type=str)

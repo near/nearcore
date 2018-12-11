@@ -207,11 +207,9 @@ impl Runtime {
                 &sender
             );
             let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
-            // this is somewhat hacky. Ideally we want to send to the system
-            // account
             let receipt = ReceiptTransaction::new(
                 body.sender,
-                body.receiver,
+                body.new_account_id,
                 new_nonce,
                 ReceiptBody::NewCall(AsyncCall::new(
                     b"create_account".to_vec(),
@@ -915,7 +913,7 @@ mod tests {
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             sender: hash(b"alice"),
-            receiver: hash(b"eve"),
+            new_account_id: hash(b"eve"),
             amount: 10,
             public_key: pub_key.encode().unwrap(),
         });
@@ -1147,7 +1145,7 @@ mod tests {
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             sender: hash(b"alice"),
-            receiver: hash(b"eve"),
+            new_account_id: hash(b"eve"),
             amount: 10,
             public_key: pub_key.encode().unwrap()
         });
@@ -1199,7 +1197,7 @@ mod tests {
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             sender: hash(b"alice"),
-            receiver: hash(b"bob"),
+            new_account_id: hash(b"bob"),
             amount: 10,
             public_key: pub_key.encode().unwrap()
         });
@@ -1252,7 +1250,7 @@ mod tests {
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             sender: hash(b"alice"),
-            receiver: hash(b"eve"),
+            new_account_id: hash(b"eve"),
             amount: 10,
             public_key: pub_key1.encode().unwrap()
         });

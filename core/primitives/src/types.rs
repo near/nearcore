@@ -123,8 +123,7 @@ pub struct FunctionCallTransaction {
 pub struct CreateAccountTransaction {
     pub nonce: u64,
     pub sender: AccountId,
-    // receiver is the account id to be created
-    pub receiver: AccountId,
+    pub new_account_id: AccountId,
     pub amount: u64,
     pub public_key: Vec<u8>,
 }
