@@ -113,7 +113,7 @@ impl<B: Block> BlockChain<B> {
         let genesis_hash = genesis.block_hash();
         let mut best_block_key = [0; 36];
         best_block_key[..32].copy_from_slice(genesis_hash.as_ref());
-        best_block_key[33..36].copy_from_slice(BLOCKCHAIN_BEST_BLOCK);
+        best_block_key[32..].copy_from_slice(BLOCKCHAIN_BEST_BLOCK);
         let bc = BlockChain {
             storage,
             genesis_hash,

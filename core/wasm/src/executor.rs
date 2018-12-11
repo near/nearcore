@@ -5,14 +5,16 @@ use prepare;
 use resolver::EnvModuleResolver;
 
 use runtime::Runtime;
-use types::{Config, ReturnData, Error};
-use primitives::types::{Mana, Gas};
+use types::{RuntimeContext, Config, ReturnData, Error};
+use primitives::types::{Balance, Mana, Gas};
 
 #[derive(Debug, Clone)]
 pub struct ExecutionOutcome {
     pub gas_used: Gas,
     pub mana_used: Mana,
+    pub mana_left: Mana,
     pub return_data: ReturnData,
+    pub balance: Balance,
 }
 
 pub fn execute(
@@ -22,7 +24,7 @@ pub fn execute(
     result_data: &[Option<Vec<u8>>],
     ext: &mut External,
     config: &Config,
-    mana_limit: Mana,
+    context: &RuntimeContext,
 ) -> Result<ExecutionOutcome, Error> {
     let prepare::PreparedContract {
         instrumented_code,
@@ -44,7 +46,7 @@ pub fn execute(
         input_data,
         result_data,
         memory,
-        mana_limit,
+        context,
         config.gas_limit);
 
     let module_instance = module_instance
@@ -64,6 +66,8 @@ pub fn execute(
     Ok(ExecutionOutcome {
         gas_used: runtime.gas_counter,
         mana_used: runtime.mana_counter,
+        mana_left: context.mana - runtime.mana_counter,
         return_data: runtime.return_data,
+        balance: runtime.balance,
     })
 }

@@ -17,6 +17,10 @@ pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
     sodiumoxide::crypto::sign::ed25519::sign_detached(data, &secret_key.0)
 }
 
+pub fn verify(data: &[u8], signature: &Signature, public_key: &PublicKey) -> bool {
+    sodiumoxide::crypto::sign::ed25519::verify_detached(signature, data, &public_key.0)
+}
+
 pub fn get_keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::keypair_from_seed(seed);
     (PublicKey(public_key), SecretKey(secret_key))
@@ -27,11 +31,8 @@ pub fn get_keypair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-
-const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] = [
-    0u8;
-    sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES
-];
+const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
+    [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
 
 pub const DEFAULT_SIGNATURE: Signature = sodiumoxide::crypto::sign::ed25519::Signature(SIG);
 
@@ -126,17 +127,32 @@ pub mod bs58_secret_key_format {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(String::from(secret_key).as_str())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         Ok(SecretKey::from(&s))
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_signautre() {
+        let (public_key, private_key) = get_keypair();
+        let data = b"123";
+        let signature = sign(data, &private_key);
+        assert!(verify(data, &signature, &public_key));
+    }
+
 }
