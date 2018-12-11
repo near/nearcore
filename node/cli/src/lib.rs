@@ -40,6 +40,8 @@ use primitives::types::SignedTransaction;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
+use network::service::get_multiaddr;
+use std::net::Ipv4Addr;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -54,6 +56,7 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 pub fn start_service(
     base_path: &Path,
     chain_spec_path: Option<&Path>,
+    p2p_port: Option<u16>,
     consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<BeaconChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
 ) {
     let mut builder = Builder::new();
@@ -123,9 +126,16 @@ pub fn start_service(
         receipts_tx.clone(),
         net_messages_tx.clone()
     );
+
+    let mut network_config = NetworkConfiguration::new();
+    let p2p_port = p2p_port.unwrap_or(30333);
+    network_config.listen_addresses = vec![
+        get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)
+    ];
+
     let network_service = Arc::new(Mutex::new(new_network_service(
         &protocol_config,
-        NetworkConfiguration::default(),
+        network_config,
     )));
     let (network_task, messages_handler_task) = create_network_task(
         network_service,
@@ -157,25 +167,38 @@ pub fn run() {
                 .short("b")
                 .long("base-path")
                 .value_name("PATH")
-                .help("Sets a base path for persisted files")
+                .help("Sets a base path for persisted files.")
                 .takes_value(true),
         ).arg(
             Arg::with_name("chain_spec_file")
                 .short("c")
                 .long("chain-spec-file")
                 .value_name("CHAIN_SPEC_FILE")
-                .help("Sets a file location to read a custom chain spec")
+                .help("Sets a file location to read a custom chain spec.")
+                .takes_value(true),
+        ).arg(
+           Arg::with_name("p2p_port")
+                .short("p")
+                .long("p2p_port")
+                .value_name("P2P_PORT")
+                .help("Sets a p2p protocol TCP port.")
                 .takes_value(true),
         ).get_matches();
 
-    let base_path =
-        matches.value_of("base_path").map(|x| Path::new(x)).unwrap_or_else(|| Path::new("."));
+    let base_path = matches.value_of("base_path")
+        .map(|x| Path::new(x))
+        .unwrap_or_else(|| Path::new("."));
 
-    let chain_spec_path = matches.value_of("chain_spec_file").map(|x| Path::new(x));
+    let chain_spec_path = matches.value_of("chain_spec_file")
+        .map(|x| Path::new(x));
+
+    let p2p_port = matches.value_of("p2p_port")
+        .map(|x| { x.parse::<u16>().unwrap() });
 
     start_service(
         base_path,
         chain_spec_path,
+        p2p_port,
         &test_utils::create_passthrough_beacon_block_consensus_task,
     );
 }

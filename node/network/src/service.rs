@@ -1,16 +1,20 @@
-use futures::{stream, Future, Stream};
-use primitives::traits::{Block, Header as BlockHeader, Encode};
-use protocol::{self, Protocol, ProtocolConfig};
-use std::sync::Arc;
-use parking_lot::Mutex;
-use std::time::Duration;
-pub use substrate_network_libp2p::NetworkConfiguration;
-use message::Message;
-use substrate_network_libp2p::{
-    start_service, RegisteredProtocol, Service as NetworkService, ServiceEvent, Severity, NodeIndex
-};
-use tokio::timer::Interval;
+use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
+use message::Message;
+use parking_lot::Mutex;
+use primitives::traits::{Block, Encode, Header as BlockHeader};
+use protocol::{self, Protocol, ProtocolConfig};
+use std::iter;
+use std::net::Ipv4Addr;
+use std::sync::Arc;
+use std::time::Duration;
+use substrate_network_libp2p::{
+    NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
+    Service as NetworkService, ServiceEvent, Severity, start_service,
+};
+use substrate_network_libp2p::Multiaddr;
+pub use substrate_network_libp2p::NetworkConfiguration;
+use tokio::timer::Interval;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -111,6 +115,12 @@ where
         Ok(())
     }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e))),
      Box::new(messages_handler))
+}
+
+pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
+    iter::once(NetworkProtocol::Ip4(ip_addr))
+        .chain(iter::once(NetworkProtocol::Tcp(port)))
+        .collect()
 }
 
 //#[cfg(test)]
