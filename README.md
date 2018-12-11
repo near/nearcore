@@ -55,7 +55,13 @@ Coming soon.
 
 DevNet is a development tool that runs WebAssembly and State transition without running blockchain/consensus functionality.
 
-To build and run it:
+First, generate key pair (saves a key pair into `keystore` folder to use with `rpc.py`):
+
+```bash
+cargo run --package keystore -- keygen
+```
+
+Then build and run DevNet:
 
 ```bash
 cargo run --release --package=devnet
