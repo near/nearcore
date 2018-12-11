@@ -25,6 +25,7 @@ use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
+    SwapKeyTransaction,
 };
 use primitives::utils::{
     index_to_bytes, account_to_shard_id
@@ -233,6 +234,29 @@ impl Runtime {
         }
     }
 
+    fn swap_key(
+        &self,
+        state_update: &mut StateDbUpdate,
+        body: &SwapKeyTransaction,
+        account: &mut Account,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        // TODO: verify signature
+        let cur_key = Decode::decode(&body.cur_key).ok_or("cannot decode public key")?;
+        let new_key = Decode::decode(&body.new_key).ok_or("cannot decode public key")?;
+        let num_keys = account.public_keys.len();
+        account.public_keys.retain(|&x| x != cur_key);
+        if account.public_keys.len() == num_keys {
+            return Err(format!("account {} does not have public key {}", body.sender, cur_key));
+        }
+        account.public_keys.push(new_key);
+        set(
+            state_update,
+            &account_id_to_bytes(body.sender),
+            &account
+        );
+        Ok(vec![])
+    }
+
     fn call_function(
         &mut self,
         state_update: &mut StateDbUpdate,
@@ -328,6 +352,13 @@ impl Runtime {
                             transaction.hash,
                             &mut sender,
                             &mut runtime_data
+                        )
+                    },
+                    TransactionBody::SwapKey(ref t) => {
+                        self.swap_key(
+                            state_update,
+                            t,
+                            &mut sender,
                         )
                     }
                 }
@@ -1157,6 +1188,55 @@ mod tests {
                 result: vec![],
             }
         );
+    }
+
+    #[test]
+    fn test_swap_key() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let (pub_key1, _) = get_keypair();
+        let (pub_key2, _) = get_keypair();
+        let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: 1,
+            sender: hash(b"alice"),
+            receiver: hash(b"eve"),
+            amount: 10,
+            public_key: pub_key1.encode().unwrap()
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        
+        let apply_state =
+            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
+        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
+            &apply_state, vec![transaction], vec![]
+        );
+        assert_eq!(filtered_tx.len(), 1);
+        assert_eq!(filtered_receipts.len(), 0);
+        assert_ne!(root, apply_result.root);
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let tx_body = TransactionBody::SwapKey(SwapKeyTransaction {
+            nonce: 2,
+            sender: hash(b"eve"),
+            cur_key: pub_key1.encode().unwrap(),
+            new_key: pub_key2.encode().unwrap(),
+            signature: DEFAULT_SIGNATURE,
+        });
+        let transaction1 = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState {
+            root: apply_result.root,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+        };
+        let (_, _, mut apply_result) = runtime.apply(
+            &apply_state, vec![transaction1], vec![]
+        );
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let mut new_state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(hash(b"eve")),
+        ).unwrap();
+        assert_eq!(account.public_keys, vec![pub_key2]);
     }
 
     #[test]

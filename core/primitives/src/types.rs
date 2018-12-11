@@ -123,6 +123,15 @@ pub struct CreateAccountTransaction {
     pub public_key: Vec<u8>,
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct SwapKeyTransaction {
+    pub nonce: u64,
+    pub sender: AccountId,
+    pub cur_key: Vec<u8>,
+    pub new_key: Vec<u8>,
+    pub signature: Signature,
+}
+
 /// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum TransactionBody {
@@ -131,6 +140,7 @@ pub enum TransactionBody {
     DeployContract(DeployContractTransaction),
     FunctionCall(FunctionCallTransaction),
     CreateAccount(CreateAccountTransaction),
+    SwapKey(SwapKeyTransaction),
 }
 
 impl TransactionBody {
@@ -141,6 +151,7 @@ impl TransactionBody {
             TransactionBody::DeployContract(t) => t.nonce,
             TransactionBody::FunctionCall(t) => t.nonce,
             TransactionBody::CreateAccount(t) => t.nonce,
+            TransactionBody::SwapKey(t) => t.nonce,
         }
     }
 
@@ -151,6 +162,7 @@ impl TransactionBody {
             TransactionBody::DeployContract(t) => t.owner,
             TransactionBody::FunctionCall(t) => t.originator,
             TransactionBody::CreateAccount(t) => t.sender,
+            TransactionBody::SwapKey(t) => t.sender,
         }
     }
 }
