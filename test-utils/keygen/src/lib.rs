@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process;
 
 #[derive(Serialize, Deserialize)]
-struct KeyFile {
+pub struct KeyFile {
     #[serde(with = "bs58_pub_key_format")]
     pub public_key: PublicKey,
     #[serde(with = "bs58_secret_key_format")]
@@ -33,10 +33,10 @@ pub fn write_key_file(key_store_path: &Path) -> String {
     public_key.to_string()
 }
 
-pub fn get_secret_key(key_store_path: &Path, public_key: Option<&str>) -> SecretKey {
+pub fn get_key_file(key_store_path: &Path, public_key: Option<&str>) -> KeyFile {
     if !key_store_path.exists() {
         eprintln!("Key store path does not exist: {:?}", &key_store_path);
-        process::exit(1);
+        process::exit(3);
     }
 
     let mut key_files = fs::read_dir(key_store_path).unwrap();
@@ -48,12 +48,11 @@ pub fn get_secret_key(key_store_path: &Path, public_key: Option<&str>) -> Secret
         } else {
             eprintln!("Public key must be specified when there is more than one \
             file in the keystore");
-            process::exit(1);
+            process::exit(4);
         }
     } else {
         fs::read_to_string(key_file.unwrap().unwrap().path()).unwrap()
     };
 
-    let key_file: KeyFile = serde_json::from_str(&key_file_string).unwrap();
-    key_file.secret_key
+    serde_json::from_str(&key_file_string).unwrap()
 }
