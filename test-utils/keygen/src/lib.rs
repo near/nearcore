@@ -35,7 +35,7 @@ pub fn write_key_file(key_store_path: &Path) -> String {
 
 pub fn get_key_file(key_store_path: &Path, public_key: Option<&str>) -> KeyFile {
     if !key_store_path.exists() {
-        eprintln!("Key store path does not exist: {:?}", &key_store_path);
+        println!("Key store path does not exist: {:?}", &key_store_path);
         process::exit(3);
     }
 
@@ -46,7 +46,7 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<&str>) -> KeyFile 
             let key_file_path = key_store_path.join(Path::new(&p));
             fs::read_to_string(key_file_path).unwrap()
         } else {
-            eprintln!("Public key must be specified when there is more than one \
+            println!("Public key must be specified when there is more than one \
             file in the keystore");
             process::exit(4);
         }
