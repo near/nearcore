@@ -25,6 +25,12 @@ pub type AuthorityMask = Vec<bool>;
 pub type PartialSignature = Signature;
 /// Whole multi signature.
 pub type MultiSignature = Vec<Signature>;
+/// Monetary balance of an account or an amount for transfer.
+pub type Balance = u64;
+/// MANA points for async calls and callbacks.
+pub type Mana = u32;
+/// Gas type is used to count the compute and storage within smart contract execution.
+pub type Gas = u64;
 
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
@@ -80,8 +86,8 @@ impl ViewCall {
 pub struct ViewCallResult {
     pub account: AccountId,
     pub nonce: u64,
-    pub amount: u64,
-    pub stake: u64,
+    pub amount: Balance,
+    pub stake: Balance,
     pub result: Vec<u8>,
 }
 
@@ -89,7 +95,7 @@ pub struct ViewCallResult {
 pub struct StakeTransaction {
     pub nonce: u64,
     pub staker: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -97,7 +103,7 @@ pub struct SendMoneyTransaction {
     pub nonce: u64,
     pub sender: AccountId,
     pub receiver: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -187,15 +193,15 @@ pub enum ReceiptBody {
 
 #[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct AsyncCall {
-    pub amount: u64,
-    pub mana: u32,
+    pub amount: Balance,
+    pub mana: Mana,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub callback: Option<CallbackInfo>,
 }
 
 impl AsyncCall {
-    pub fn new(method_name: Vec<u8>, args: Vec<u8>, amount: u64, mana: u32) -> Self {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>, amount: Balance, mana: Mana) -> Self {
         AsyncCall {
             amount,
             mana,
@@ -211,13 +217,13 @@ pub struct Callback {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub results: Vec<Option<Vec<u8>>>,
-    pub mana: u32,
+    pub mana: Mana,
     pub callback: Option<CallbackInfo>,
     pub result_counter: usize,
 }
 
 impl Callback {
-    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: u32) -> Self {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: Mana) -> Self {
         Callback {
             method_name,
             args,
