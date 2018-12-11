@@ -133,9 +133,10 @@ pub struct CreateAccountTransaction {
 pub struct SwapKeyTransaction {
     pub nonce: u64,
     pub sender: AccountId,
+    // current key to the account.
+    // sender must sign the transaction with this key
     pub cur_key: Vec<u8>,
     pub new_key: Vec<u8>,
-    pub signature: Signature,
 }
 
 /// TODO: Call non-view function in the contracts.
@@ -355,7 +356,7 @@ pub enum MerkleStateNode {
 #[derive(Hash, Debug)]
 pub enum MerkleSignedTransactionNode {
     Hash(MerkleHash),
-    SignedTransaction(SignedTransaction),
+    SignedTransaction(Box<SignedTransaction>),
 }
 
 #[derive(Hash, Debug)]

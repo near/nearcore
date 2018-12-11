@@ -3,7 +3,7 @@ use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::types::{
     DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
-    CreateAccountTransaction, SignedTransaction, StakeTransaction,
+    CreateAccountTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
     TransactionBody, ViewCall,
 };
 use primitives::utils::concat;
@@ -11,7 +11,8 @@ use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
     ScheduleFunctionCallRequest, SendMoneyRequest, StakeRequest,
-    CreateAccountRequest, ViewAccountRequest, ViewAccountResponse,
+    CreateAccountRequest, ViewAccountRequest, SwapKeyRequest,
+    ViewAccountResponse,
 };
 
 build_rpc_trait! {
@@ -42,6 +43,13 @@ build_rpc_trait! {
         fn rpc_create_account(
             &self,
             CreateAccountRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
+
+        /// swap keys for account.
+        #[rpc(name = "swap_key")]
+        fn rpc_swap_key(
+            &self,
+            SwapKeyRequest
         ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Call method on smart contract.
@@ -115,6 +123,19 @@ impl TransactionApi for RpcImpl {
             contract_id: r.contract_account_id,
             wasm_byte_array: r.wasm_byte_array,
             public_key: r.public_key
+        });
+        Ok(PreparedTransactionBodyResponse { body })
+    }
+
+    fn rpc_swap_key(
+        &self,
+        r: SwapKeyRequest,
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        let body = TransactionBody::SwapKey(SwapKeyTransaction {
+            nonce: r.nonce,
+            sender: r.account,
+            cur_key: r.cur_key,
+            new_key: r.new_key,
         });
         Ok(PreparedTransactionBodyResponse { body })
     }

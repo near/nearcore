@@ -1248,7 +1248,6 @@ mod tests {
             public_key: pub_key1.encode().unwrap()
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        
         let apply_state =
             ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
         let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
@@ -1263,7 +1262,6 @@ mod tests {
             sender: hash(b"eve"),
             cur_key: pub_key1.encode().unwrap(),
             new_key: pub_key2.encode().unwrap(),
-            signature: DEFAULT_SIGNATURE,
         });
         let transaction1 = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {

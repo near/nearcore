@@ -137,3 +137,21 @@ fn test_create_account() {
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 }
+
+#[test]
+fn test_swap_key() {
+    if !*DEVNET_STARTED { panic!() }
+    let output = Command::new("./scripts/rpc.py")
+        .arg("swap_key")
+        .arg(&*PUBLIC_KEY)
+        .arg(&*PUBLIC_KEY)
+        .arg("-d")
+        .arg(KEY_STORE_PATH)
+        .arg("-k")
+        .arg(&*PUBLIC_KEY)
+        .output()
+        .expect("swap key command failed to process");
+    let result = check_result(&output);
+    let data: Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(data, Value::Null);
+}

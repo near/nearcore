@@ -40,6 +40,15 @@ pub struct CreateAccountRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct SwapKeyRequest {
+    pub nonce: u64,
+    #[serde(with = "bs58_format")]
+    pub account: AccountId,
+    pub cur_key: Vec<u8>,
+    pub new_key: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ScheduleFunctionCallRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]

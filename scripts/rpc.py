@@ -214,6 +214,23 @@ class NearRPC(object):
         response = self._call_rpc('create_account', params)
         return self._handle_prepared_transaction_body_response(response)
 
+    def swap_key(
+        self,
+        account,
+        cur_key,
+        new_key
+    ):
+        nonce = self._get_nonce(account)
+        params = {
+            'nonce': nonce,
+            'account': _get_account_id(account),
+            'cur_key': list(bytearray(cur_key)),
+            'new_key': list(bytearray(new_key))
+        }
+        self._update_nonce(account)
+        response = self._call_rpc('swap_key', params)
+        return self._handle_prepared_transaction_body_response(response)
+
     def view_account(self, account_alias):
         params = {
             'account_id': _get_account_id(account_alias),
@@ -245,6 +262,7 @@ schedule_function_call   {}
 view_account             {}
 stake                    {}
 create_account           {}
+swap_key                 {}
             """.format(
                 self.call_view_function.__doc__,
                 self.deploy.__doc__,
@@ -253,6 +271,7 @@ create_account           {}
                 self.view_account.__doc__,
                 self.stake.__doc__,
                 self.create_account.__doc__,
+                self.swap_key.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -379,6 +398,20 @@ create_account           {}
             args.receiver,
             args.amount,
             args.public_key
+        )
+
+    def swap_key(self):
+        """Create an account"""
+        parser = self._get_command_parser(self.swap_key.__doc__)
+        self._add_transaction_args(parser)
+        parser.add_argument('cur_key', type=str)
+        parser.add_argument('new_key', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.swap_key(
+            args.sender,
+            args.cur_key,
+            args.new_key
         )
 
     def schedule_function_call(self):
