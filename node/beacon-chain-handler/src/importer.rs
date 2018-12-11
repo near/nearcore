@@ -1,126 +1,163 @@
 //! BeaconBlockImporter consumes blocks that we received from other peers and adds them to the
 //! chain.
-use beacon::types::{BeaconBlock, BeaconBlockBody};
-use chain::BlockChain;
-use node_runtime::{ApplyState, Runtime};
-use primitives::traits::{Block, Header};
-use primitives::types::BlockId;
-use std::sync::Arc;
 use std::cell::RefCell;
-use storage::StateDb;
-use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use futures::{Future, future, Stream};
 use futures::sync::mpsc::Receiver;
-use futures::{Future, Stream, future};
-use std::collections::HashSet;
+use parking_lot::RwLock;
 
+use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
+use chain::SignedBlock;
+use node_runtime::{ApplyState, Runtime};
+use primitives::hash::CryptoHash;
+use primitives::types::BlockId;
+use shard::{SignedShardBlock, ShardBlockChain};
+use storage::StateDb;
 
-pub fn create_beacon_block_importer_task(
-    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+pub fn create_block_importer_task(
+    beacon_chain: Arc<BeaconBlockChain>,
+    shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
-    receiver: Receiver<BeaconBlock>
+    receiver: Receiver<SignedBeaconBlock>
 ) -> impl Future<Item = (), Error = ()> {
-    let beacon_block_importer = RefCell::new(BeaconBlockImporter::new(
+    let beacon_block_importer = RefCell::new(BlockImporter::new(
         beacon_chain,
+        shard_chain,
         runtime,
         state_db,
     ));
     receiver.fold(beacon_block_importer, |beacon_block_importer, body| {
-        beacon_block_importer.borrow_mut().import_block(body);
+        beacon_block_importer.borrow_mut().import_beacon_block(body);
         future::ok(beacon_block_importer)
     }).and_then(|_| Ok(()))
 }
 
-pub struct BeaconBlockImporter {
-    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+pub struct BlockImporter {
+    beacon_chain: Arc<BeaconBlockChain>,
+    shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
     /// Stores blocks that cannot be added yet.
-    pending_blocks: HashSet<BeaconBlock>,
+    pending_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
+    pending_shard_blocks: HashMap<CryptoHash, SignedShardBlock>,
 }
 
-impl BeaconBlockImporter {
+impl BlockImporter {
     pub fn new(
-        beacon_chain: Arc<BlockChain<BeaconBlock>>,
+        beacon_chain: Arc<BeaconBlockChain>,
+        shard_chain: Arc<ShardBlockChain>,
         runtime: Arc<RwLock<Runtime>>,
         state_db: Arc<StateDb>,
     ) -> Self {
         Self {
             beacon_chain,
+            shard_chain,
             runtime,
             state_db,
-            pending_blocks: HashSet::new(),
+            pending_beacon_blocks: HashMap::new(),
+            pending_shard_blocks: HashMap::new(),
         }
     }
 
-    fn validate_signature(&self, _block: &BeaconBlock) -> bool {
+    fn validate_signature(&self, _block: &SignedBeaconBlock) -> bool {
         // TODO: validate multisig
         true
     }
 
-    pub fn import_block(&mut self, block: BeaconBlock) {
-        // Check if this block was either already added, or it is already pending, or it has
-        // invalid signature.
-        let hash = &block.header_hash();
-        if self.beacon_chain.is_known(hash)
-            || self.pending_blocks.contains(&block)
-            || !self.validate_signature(&block) {
-            return
+    pub fn import_shard_block(&mut self, shard_block: SignedShardBlock) {
+        let hash = shard_block.block_hash();
+        if !self.pending_shard_blocks.contains_key(&hash) {
+            self.pending_shard_blocks.insert(hash, shard_block);
         }
-        let mut blocks_to_add;
-        let parent_hash = block.header().parent_hash();
-        if self.beacon_chain.is_known(&parent_hash) {
-            blocks_to_add = vec![];
-            blocks_to_add.push(block);
-        } else {
-            self.pending_blocks.insert(block);
+    }
+
+    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
+        let parent_hash = beacon_block.body.header.parent_hash;
+        let parent_shard_hash = shard_block.body.header.parent_hash;
+        let num_transactions = shard_block.body.transactions.len();
+        let num_receipts = shard_block.body.receipts.len();
+        // we can unwrap because parent is guaranteed to exist
+        let prev_header = self.beacon_chain
+            .get_header(&BlockId::Hash(parent_hash))
+            .expect("Parent is known but header not found.");
+        let prev_shard_header = self.shard_chain
+            .get_header(&BlockId::Hash(parent_shard_hash))
+            .expect("At this moment shard chain should be present together with beacon chain");
+        let apply_state = ApplyState {
+            root: prev_shard_header.body.merkle_root_state,
+            block_index: prev_header.body.index,
+            parent_block_hash: parent_hash,
+        };
+        let (filtered_transactions, filtered_receipts, mut apply_result) =
+            self.runtime.write().apply(&apply_state, shard_block.body.transactions.clone(), shard_block.body.receipts.clone());
+        if apply_result.root != prev_shard_header.body.merkle_root_state {
+            info!("Merkle root {} is not equal to received {} after applying the transactions from {:?}", prev_shard_header.body.merkle_root_state, apply_result.root, beacon_block);
             return;
         }
+        if filtered_transactions.len() != num_transactions {
+            info!("Imported block has transactions that were filtered out while merkle roots match in {:?}", beacon_block);
+            return;
+        }
+        if filtered_receipts.len() != num_receipts {
+            info!("Imported block has receipts that were filtered out while merkle roots match in {:?}.", beacon_block);
+            return;
+        }
+        self.state_db.commit(&mut apply_result.transaction).ok();
+        // TODO: figure out where to store apply_result.authority_change_set.
+        self.shard_chain.insert_block(shard_block);
+        self.beacon_chain.insert_block(beacon_block);
+    }
+
+    fn blocks_to_process(&self, pending_beacon_blocks: &HashMap<CryptoHash, SignedBeaconBlock>) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
+        let mut part_add = vec![];
+        let mut part_pending = HashMap::default();
+        // TODO: do this with drains and whatnot. For now, that doesn't work because self is both mutable and immutable.
+        for (hash, other) in pending_beacon_blocks.iter() {
+            if self.beacon_chain.is_known(&other.body.header.parent_hash) && (
+                self.shard_chain.is_known(&other.body.header.shard_block_hash) ||
+                    self.pending_shard_blocks.contains_key(&other.body.header.shard_block_hash)) {
+                part_add.push(other.clone());
+            } else {
+                part_pending.insert(hash.clone(), other.clone());
+            }
+        }
+        (part_add, part_pending)
+    }
+
+    pub fn import_beacon_block(&mut self, beacon_block: SignedBeaconBlock) {
+        // Check if this block was either already added, or it is already pending, or it has
+        // invalid signature.
+        let hash = beacon_block.block_hash();
+        if self.beacon_chain.is_known(&hash)
+            || self.pending_beacon_blocks.contains_key(&hash)
+            || !self.validate_signature(&beacon_block) {
+            return
+        }
+        self.pending_beacon_blocks.insert(hash, beacon_block);
+
+        let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
 
         // Loop until we run out of blocks to add.
         loop {
+            // Only keep those blocks in `pending_blocks` that are still pending.
+            // Otherwise put it in `blocks_to_add`.
+            let (part_add, part_pending) = self.blocks_to_process(&self.pending_beacon_blocks);
+            blocks_to_add.extend(part_add);
+            self.pending_beacon_blocks = part_pending;
+
             // Get the next block to add, unless there are no more blocks left.
-            let next_b = match blocks_to_add.pop() {
+            let next_beacon_block = match blocks_to_add.pop() {
                 Some(b) => b,
                 None => break,
             };
-            let hash = next_b.header_hash();
+            let hash = next_beacon_block.block_hash();
             if self.beacon_chain.is_known(&hash) { continue; }
 
-            let (header, body) = next_b.deconstruct();
-            let num_transactions = body.transactions.len();
-            let num_receipts = body.receipts.len();
-            // we can unwrap because parent is guaranteed to exist
-            let prev_header = self.beacon_chain
-                .get_header(&BlockId::Hash(parent_hash))
-                .expect("Parent is known but header not found.");
-            let apply_state = ApplyState {
-                root: prev_header.body.merkle_root_state,
-                block_index: prev_header.body.index,
-                parent_block_hash: parent_hash,
-            };
-            let (filtered_transactions, filtered_receipts, mut apply_result) =
-                self.runtime.write().apply(&apply_state, body.transactions, body.receipts);
-            assert_eq!(apply_result.root, header.body.merkle_root_state,
-                       "Merkle roots are not equal after applying the transactions.");
-            // TODO: This should be handled.
-            assert_eq!(filtered_transactions.len(), num_transactions,
-                       "Imported block has transactions that were filtered out.");
-            assert_eq!(filtered_receipts.len(), num_receipts,
-            "Imported block has receipts that were filtered out.");
-            self.state_db.commit(&mut apply_result.transaction).ok();
-            // TODO: figure out where to store apply_result.authority_change_set.
-            let block_body = BeaconBlockBody::new(filtered_transactions, filtered_receipts);
-            let block = Block::new(header, block_body);
-            self.beacon_chain.insert_block(block);
-
-            // Only keep those blocks in `pending_blocks` that are still pending.
-            // Otherwise put it in `blocks_to_add`.
-            let (mut part_add, part_pending): (HashSet<BeaconBlock>, HashSet<BeaconBlock>) =
-                self.pending_blocks.drain().partition(|other|
-                    other.header().parent_hash() == hash );
-            self.pending_blocks = part_pending;
-            blocks_to_add.extend(part_add.drain());
+            let next_shard_block = self.pending_shard_blocks.remove(&next_beacon_block.body.header.shard_block_hash).expect("Expected to have shard block present when processing beacon block");
+            self.add_block(next_beacon_block, next_shard_block);
         }
     }
 }

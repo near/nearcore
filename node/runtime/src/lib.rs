@@ -9,6 +9,7 @@ extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate shard;
 extern crate storage;
 extern crate wasm;
 
@@ -18,6 +19,7 @@ use std::sync::Arc;
 use serde::{de::DeserializeOwned, Serialize};
 
 use beacon::types::AuthorityProposal;
+use ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
 use primitives::traits::{Decode, Encode};
@@ -28,13 +30,11 @@ use primitives::types::{
     SwapKeyTransaction, DeployContractTransaction, Balance
 };
 use primitives::utils::{
-    index_to_bytes, account_to_shard_id
+    account_to_shard_id, index_to_bytes
 };
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
-
-use ext::RuntimeExt;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -821,8 +821,8 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
+
     use primitives::hash::hash;
     use primitives::types::{
         DeployContractTransaction, FunctionCallTransaction,
@@ -832,8 +832,19 @@ mod tests {
     use primitives::utils::concat;
     use storage::test_utils::create_state_db;
     use test_utils::{
-        get_test_state_db_viewer, get_runtime_and_state_db_viewer, encode_int
+        encode_int, get_runtime_and_state_db_viewer, get_test_state_db_viewer
     };
+
+    use super::*;
+
+    impl Default for Runtime {
+        fn default() -> Runtime {
+            Runtime {
+                state_db: Arc::new(create_state_db()),
+                callbacks: HashMap::new()
+            }
+        }
+    }
 
     #[test]
     fn test_genesis_state() {
@@ -883,10 +894,10 @@ mod tests {
         let root = viewer.get_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
+            originator: hash(b"alice"),
+            contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
             args: vec![],
-            contract_id: hash(b"bob"),
-            originator: hash(b"alice")
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {

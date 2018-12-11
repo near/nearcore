@@ -1,24 +1,28 @@
 #![allow(unused)]
 
-use error::Error;
-use futures::{future, Future};
-use futures::stream::Stream;
-use libp2p::{Multiaddr, secio};
-use message::{Message, MessageBody};
-use primitives::hash::CryptoHash;
-use primitives::traits::{Block, GenericResult, Header};
-use primitives::types;
-use protocol::{CURRENT_VERSION, ProtocolConfig};
-use rand::Rng;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
+
+use futures::{future, Future};
+use futures::stream::Stream;
+use libp2p::{Multiaddr, secio};
 use parking_lot::RwLock;
+use rand::Rng;
 use substrate_network_libp2p::{
     NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol,
     Secret, Service as NetworkService, start_service,
 };
 use tokio::timer::Interval;
+
+use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use chain::{SignedBlock, SignedHeader};
+use error::Error;
+use message::{Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::GenericResult;
+use primitives::types;
+use protocol::{CURRENT_VERSION, ProtocolConfig};
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -64,7 +68,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<MockBlock, MockBlockHeader> {
+pub fn fake_tx_message() -> Message<SignedBeaconBlock, SignedBeaconBlockHeader> {
     let tx = types::SignedTransaction::empty();
     Message::new(MessageBody::Transaction(Box::new(tx)))
 }
@@ -132,44 +136,6 @@ pub fn get_noop_network_task() -> impl Future<Item=(), Error=()> {
     Interval::new_interval(Duration::from_secs(1))
         .for_each(|_| Ok(()))
         .then(|_| Ok(()))
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MockBlockHeader {}
-#[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MockBlock {}
-
-impl Header for MockBlockHeader {
-    fn hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
-
-    fn index(&self) -> u64 {
-        0
-    }
-    fn parent_hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
-}
-
-impl Block for MockBlock {
-    type Header = MockBlockHeader;
-    type Body = ();
-    fn header(&self) -> &Self::Header {
-        &MockBlockHeader {}
-    }
-    fn body(&self) -> &Self::Body {
-        &()
-    }
-    fn deconstruct(self) -> (Self::Header, Self::Body) {
-        (MockBlockHeader {}, ())
-    }
-    fn new(_header: Self::Header, _body: Self::Body) -> Self {
-        MockBlock {}
-    }
-    fn header_hash(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
 }
 
 //#[derive(Default)]

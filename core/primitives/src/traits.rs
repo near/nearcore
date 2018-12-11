@@ -1,12 +1,14 @@
-use bincode;
-use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use bincode;
+use serde::{de::DeserializeOwned, Serialize};
+
+use hash::CryptoHash;
+
 use super::signature;
 use super::types;
-use hash::CryptoHash;
 
 // encode a type to byte array
 pub trait Encode {
@@ -36,39 +38,11 @@ where
     }
 }
 
-/// Trait that abstracts ``Header"
-pub trait Header:
-    Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
-{
-    // TODO: add methods
-    /// Returns hash of the full block.
-    fn hash(&self) -> CryptoHash;
-
-    /// Returns block index.
-    fn index(&self) -> u64;
-
-    /// Returns hash of parent block.
-    fn parent_hash(&self) -> CryptoHash;
-}
-
-/// Trait that abstracts ``block", ideally could be used for both beacon-chain blocks
-/// and shard-chain blocks
-pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
-    type Header: Header;
-    type Body;
-
-    fn header(&self) -> &Self::Header;
-    fn body(&self) -> &Self::Body;
-    fn deconstruct(self) -> (Self::Header, Self::Body);
-    fn new(header: Self::Header, body: Self::Body) -> Self;
-    fn header_hash(&self) -> CryptoHash;
-}
-
 /// Trait to abstract the way signing happens.
 /// Can be used to not keep private key in the given binary via cross-process communication.
 pub trait Signer: Sync + Send {
     fn public_key(&self) -> signature::PublicKey;
-    fn sign(&self, hash: &CryptoHash) -> types::BLSSignature;
+    fn sign(&self, hash: &CryptoHash) -> types::PartialSignature;
 }
 
 pub trait WitnessSelector {

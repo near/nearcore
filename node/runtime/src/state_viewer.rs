@@ -1,33 +1,33 @@
 use std::sync::Arc;
-use primitives::traits::Block;
-use primitives::types::{ViewCall, ViewCallResult, MerkleHash};
+
+use primitives::types::{MerkleHash, ViewCall, ViewCallResult};
 use primitives::utils::concat;
-use chain::BlockChain;
-use beacon::types::BeaconBlock;
+use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
-use super::{RuntimeData, RuntimeExt, Account, get, account_id_to_bytes, RUNTIME_DATA};
+
+use super::{Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, RuntimeExt};
 
 pub struct StateDbViewer {
-    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+    shard_chain: Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
 }
 
 impl StateDbViewer {
-    pub fn new(beacon_chain: Arc<BlockChain<BeaconBlock>>, state_db: Arc<StateDb>) -> Self {
+    pub fn new(shard_chain: Arc<ShardBlockChain>, state_db: Arc<StateDb>) -> Self {
         StateDbViewer {
-            beacon_chain,
+            shard_chain,
             state_db,
         }
     }
 
     pub fn get_root(&self) -> MerkleHash {
-        self.beacon_chain.best_block().header().body.merkle_root_state
+        self.shard_chain.best_block().body.header.merkle_root_state
     }
 
     pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
-        let root = self.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = self.get_root();
         self.view_at(view_call, root)
     }
 
@@ -91,9 +91,10 @@ impl StateDbViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use test_utils::{get_test_state_db_viewer, encode_int};
     use primitives::hash::hash;
+    use test_utils::{encode_int, get_test_state_db_viewer};
+
+    use super::*;
 
     #[test]
     fn test_view_call() {

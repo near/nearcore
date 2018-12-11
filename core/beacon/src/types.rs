@@ -1,9 +1,7 @@
+use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::{PublicKey, DEFAULT_SIGNATURE};
-use primitives::traits::{Block, Header, Signer};
-use primitives::types::{BLSSignature, MerkleHash, SignedTransaction, ReceiptTransaction};
-use std::sync::Arc;
-use std::hash::{Hash, Hasher};
+use primitives::signature::PublicKey;
+use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthorityProposal {
@@ -14,162 +12,152 @@ pub struct AuthorityProposal {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct BeaconBlockHeaderBody {
+pub struct BeaconBlockHeader {
     /// Parent hash.
     pub parent_hash: CryptoHash,
     /// Block index.
     pub index: u64,
-    pub merkle_root_tx: MerkleHash,
-    pub merkle_root_state: MerkleHash,
     /// Authority proposals.
     pub authority_proposal: Vec<AuthorityProposal>,
+    /// Hash of the shard block.
+    pub shard_block_hash: CryptoHash,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct BeaconBlockHeader {
-    pub body: BeaconBlockHeaderBody,
-    pub signature: BLSSignature,
-    pub authority_mask: Vec<bool>,
+pub struct SignedBeaconBlockHeader {
+    pub body: BeaconBlockHeader,
+    pub hash: CryptoHash,
+    pub signature: MultiSignature,
+    pub authority_mask: AuthorityMask,
 }
 
-impl BeaconBlockHeader {
-    pub fn new(
-        index: u64,
-        parent_hash: CryptoHash,
-        merkle_root_tx: MerkleHash,
-        merkle_root_state: MerkleHash,
-        signature: BLSSignature,
-        authority_mask: Vec<bool>,
-        authority_proposal: Vec<AuthorityProposal>,
-    ) -> Self {
-        BeaconBlockHeader {
-            body: BeaconBlockHeaderBody {
-                index,
-                parent_hash,
-                merkle_root_tx,
-                merkle_root_state,
-                authority_proposal,
-            },
-            signature,
-            authority_mask,
-        }
-    }
-    pub fn empty(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash) -> Self {
-        BeaconBlockHeader {
-            body: BeaconBlockHeaderBody {
-                index,
-                parent_hash,
-                merkle_root_tx: MerkleHash::default(),
-                merkle_root_state,
-                authority_proposal: vec![],
-            },
-            authority_mask: vec![],
-            signature: DEFAULT_SIGNATURE,
-        }
-    }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct BeaconBlock {
+    pub header: BeaconBlockHeader,
 }
 
-impl Header for BeaconBlockHeader {
-    fn hash(&self) -> CryptoHash {
-        // TODO: must be hash of the block.
-        // TODO: Must not be recomputed.
-        hash_struct(&self.body)
-    }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct SignedBeaconBlock {
+    pub body: BeaconBlock,
+    pub hash: CryptoHash,
+    pub signature: MultiSignature,
+    pub authority_mask: AuthorityMask,
+}
 
+impl SignedHeader for SignedBeaconBlockHeader {
+    #[inline]
+    fn block_hash(&self) -> CryptoHash {
+        self.hash
+    }
+    #[inline]
     fn index(&self) -> u64 {
         self.body.index
     }
-
+    #[inline]
     fn parent_hash(&self) -> CryptoHash {
         self.body.parent_hash
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct BeaconBlockBody {
-    pub transactions: Vec<SignedTransaction>,
-    pub receipts: Vec<ReceiptTransaction>,
-}
-
-impl BeaconBlockBody {
-    pub fn new(transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptTransaction>) -> Self {
-        BeaconBlockBody {
-            transactions,
-            receipts,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.transactions.len() + self.receipts.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BeaconBlock {
-    pub header: BeaconBlockHeader,
-    pub body: BeaconBlockBody
-    // TODO: weight
-}
-
-impl BeaconBlock {
+impl SignedBeaconBlock {
     pub fn new(
         index: u64,
         parent_hash: CryptoHash,
-        merkle_root_state: MerkleHash,
-        transactions: Vec<SignedTransaction>,
-        receipts: Vec<ReceiptTransaction>,
-    ) -> Self {
-        BeaconBlock {
-            header: BeaconBlockHeader::empty(index, parent_hash, merkle_root_state),
-            body: BeaconBlockBody::new(transactions, receipts),
+        authority_proposal: Vec<AuthorityProposal>,
+        shard_block_hash: CryptoHash,
+    ) -> SignedBeaconBlock {
+        let header = BeaconBlockHeader {
+            index,
+            parent_hash,
+            authority_proposal,
+            shard_block_hash,
+        };
+        let hash = hash_struct(&header);
+        SignedBeaconBlock {
+            body: BeaconBlock {
+                header
+            },
+            hash,
+            signature: vec![],
+            authority_mask: vec![],
         }
     }
 
-    pub fn sign(&mut self, signer: &Arc<Signer>) {
-        self.header.signature = signer.sign(&self.header_hash());
+    pub fn genesis(shard_block_hash: CryptoHash) -> SignedBeaconBlock {
+        SignedBeaconBlock::new(0, CryptoHash::default(), vec![], shard_block_hash)
     }
 }
 
-impl Block for BeaconBlock {
-    type Header = BeaconBlockHeader;
-    type Body = BeaconBlockBody;
+impl SignedBlock for SignedBeaconBlock {
+    type SignedHeader = SignedBeaconBlockHeader;
 
-    fn header(&self) -> &Self::Header {
-        &self.header
+    fn header(&self) -> Self::SignedHeader {
+        SignedBeaconBlockHeader {
+            body: self.body.header.clone(),
+            hash: self.hash,
+            signature: self.signature.clone(),
+            authority_mask: self.authority_mask.clone(),
+        }
     }
 
-    fn body(&self) -> &Self::Body {
-        &self.body
+    #[inline]
+    fn block_hash(&self) -> CryptoHash {
+        self.hash
     }
 
-    fn deconstruct(self) -> (Self::Header, Self::Body) {
-        (self.header, self.body)
-    }
-
-    fn new(header: Self::Header, body: Self::Body) -> Self {
-        BeaconBlock { header, body }
-    }
-
-    fn header_hash(&self) -> CryptoHash {
-        self.header.hash()
+    fn add_signature(&mut self, signature: PartialSignature) {
+        self.signature.push(signature);
     }
 }
 
-impl Hash for BeaconBlock {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.header.hash().hash(state);
+pub type BeaconBlockChain = chain::BlockChain<SignedBeaconBlock>;
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use chain::BlockChain;
+    use primitives::types::BlockId;
+    use storage::test_utils::create_memory_db;
+
+    use super::*;
+
+    #[test]
+    fn test_genesis() {
+        let storage = Arc::new(create_memory_db());
+        let genesis = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let bc = BlockChain::new(genesis.clone(), storage);
+        assert_eq!(bc.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
+        assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
+    }
+
+    #[test]
+    fn test_restart_chain() {
+        let storage = Arc::new(create_memory_db());
+        let genesis = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let bc = BlockChain::new(genesis.clone(), storage.clone());
+        let block1 = SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
+        assert_eq!(bc.insert_block(block1.clone()), false);
+        let best_block = bc.best_block();
+        let best_block_header = best_block.header();
+        assert_eq!(best_block.block_hash(), block1.block_hash());
+        assert_eq!(best_block_header.block_hash(), block1.block_hash());
+        assert_eq!(best_block_header.index(), 1);
+        // Create new BlockChain that reads from the same storage.
+        let other_bc = BlockChain::new(genesis.clone(), storage.clone());
+        assert_eq!(other_bc.best_block().block_hash(), block1.block_hash());
+        assert_eq!(other_bc.best_block().header().index(), 1);
+        assert_eq!(other_bc.get_block(&BlockId::Hash(block1.block_hash())).unwrap(), block1);
+    }
+
+    #[test]
+    fn test_two_chains() {
+        let storage = Arc::new(create_memory_db());
+        let genesis1 = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let genesis2 = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], genesis1.block_hash());
+        let bc1 = BlockChain::new(genesis1.clone(), storage.clone());
+        let bc2 = BlockChain::new(genesis2.clone(), storage.clone());
+        assert_eq!(bc1.best_block().block_hash(), genesis1.block_hash());
+        assert_eq!(bc2.best_block().block_hash(), genesis2.block_hash());
     }
 }
-
-impl PartialEq for BeaconBlock {
-    fn eq(&self, other: &BeaconBlock) -> bool {
-        self.header.hash() == other.header.hash()
-    }
-}
-
-impl Eq for BeaconBlock {}

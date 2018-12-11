@@ -25,7 +25,7 @@ impl traits::Signer for InMemorySigner {
     fn public_key(&self) -> signature::PublicKey {
         self.public_key
     }
-    fn sign(&self, hash: &hash::CryptoHash) -> types::BLSSignature {
+    fn sign(&self, hash: &hash::CryptoHash) -> types::PartialSignature {
         signature::sign(hash.as_ref(), &self.secret_key)
     }
 }

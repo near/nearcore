@@ -1,10 +1,12 @@
-use chain::BlockChain;
+use std::collections::HashMap;
+
+use rand::{Rng, SeedableRng, StdRng};
+
+use chain::{SignedBlock, BlockChain};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::BlockId;
-use rand::{Rng, SeedableRng, StdRng};
-use std::collections::HashMap;
-use types::{AuthorityProposal, BeaconBlock, BeaconBlockHeader};
+use types::{AuthorityProposal, SignedBeaconBlock, SignedBeaconBlockHeader};
 
 /// Configure the authority rotation.
 pub struct AuthorityConfig {
@@ -69,7 +71,7 @@ impl Authority {
 
     /// Builds authority for given valid blockchain.
     /// Starting from best block, figure out current authorities.
-    pub fn new(authority_config: AuthorityConfig, blockchain: &BlockChain<BeaconBlock>) -> Self {
+    pub fn new(authority_config: AuthorityConfig, blockchain: &BlockChain<SignedBeaconBlock>) -> Self {
         let mut authority = Authority {
             authority_config,
             current: HashMap::default(),
@@ -101,7 +103,7 @@ impl Authority {
             .accepted_proposals
             .insert(1, authority.authority_config.initial_authorities.clone());
 
-        let last_index = blockchain.best_block().header.body.index;
+        let last_index = blockchain.best_block().header().body.index;
         for index in 1..last_index {
             // TODO: handle if block is not found.
             if let Some(header) = blockchain.get_header(&BlockId::Number(index)) {
@@ -112,7 +114,7 @@ impl Authority {
         authority
     }
 
-    pub fn process_block_header(&mut self, header: &BeaconBlockHeader) {
+    pub fn process_block_header(&mut self, header: &SignedBeaconBlockHeader) {
         // Always skip genesis block.
         if header.body.index == 0 {
             return;
@@ -130,7 +132,8 @@ impl Authority {
                 let threshold = *self
                     .current_threshold
                     .get(&self.current_epoch)
-                    .expect("Missing threshold for current epoch") as i64;
+                    .expect("Missing threshold for current epoch")
+                    as i64;
                 *self.proposals.entry(header_authorities[i].to_string()).or_insert(0) -= threshold;
             }
         }
@@ -237,14 +240,14 @@ impl Authority {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::sync::Arc;
 
+    use chain::{SignedBlock, SignedHeader};
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
-    use primitives::traits::{Block, Header};
-    use primitives::types::MerkleHash;
-    use std::sync::Arc;
     use storage::test_utils::MemoryStorage;
+
+    use super::*;
 
     fn get_test_config(
         num_authorities: u32,
@@ -259,13 +262,13 @@ mod test {
         AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BlockChain<BeaconBlock> {
+    fn test_blockchain(num_blocks: u64) -> BlockChain<SignedBeaconBlock> {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
-            BeaconBlock::new(0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]);
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.header_hash(), MerkleHash::default(), vec![], vec![]);
+            let block = SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
             bc.insert_block(block.clone());
             last_block = block;
         }
@@ -297,10 +300,12 @@ mod test {
             vec![initial_authorities[2], initial_authorities[1]]
         );
         assert!(authority.get_authorities(5).is_err());
-        let mut header1 = BeaconBlockHeader::empty(1, bc.genesis_hash, MerkleHash::default());
+        let block1 = SignedBeaconBlock::new(1, bc.genesis_hash, vec![], CryptoHash::default());
+        let mut header1 = block1.header();
         // Authority #1 didn't show up.
         header1.authority_mask = vec![true, false];
-        let mut header2 = BeaconBlockHeader::empty(2, header1.hash(), MerkleHash::default());
+        let block2 = SignedBeaconBlock::new(2, header1.block_hash(), vec![], CryptoHash::default());
+        let mut header2 = block2.header();
         header2.authority_mask = vec![true, true];
         authority.process_block_header(&header1);
         authority.process_block_header(&header2);

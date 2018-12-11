@@ -11,6 +11,7 @@ tokio = "0.1.11"
 
 beacon = { path = "../../core/beacon" }
 beacon-chain-handler = { path = "../beacon-chain-handler" }
+shard = { path = "../../core/shard" }
 chain = { path = "../../core/chain" }
 network = { path = "../network", features = ["test-utils"] }
 node-runtime = { path = "../runtime" }
