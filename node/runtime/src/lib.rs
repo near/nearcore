@@ -240,7 +240,6 @@ impl Runtime {
         data: &[u8],
         account: &mut Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        // TODO: verify signature
         let cur_key = Decode::decode(&body.cur_key).ok_or("cannot decode public key")?;
         if !verify(data, signature, &cur_key) {
             return Err("Invalid signature. Cannot swap key".to_string());
@@ -290,30 +289,37 @@ impl Runtime {
         method_name: &[u8],
         args: &[u8],
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let mut runtime_ext = RuntimeExt::new(
+        let receipts = {
+            let mut runtime_ext = RuntimeExt::new(
+                state_update,
+                sender_account_id,
+                hash.into()
+            );
+            let wasm_res = executor::execute(
+                &sender.code,
+                &method_name,
+                args,
+                &[],
+                &mut runtime_ext,
+                &wasm::types::Config::default(),
+                &RuntimeContext::new(
+                    sender.amount,
+                    0,
+                    sender_account_id,
+                    sender_account_id,
+                    DEFAULT_MANA_LIMIT,
+                ),
+            ).map_err(|e| format!("wasm execution failed with error: {:?}", e))?;
+            sender.amount = wasm_res.balance;
+            let receipts = runtime_ext.get_receipts();
+            self.callbacks.extend(runtime_ext.callbacks);
+            receipts
+        };
+        set(
             state_update,
-            sender_account_id,
-            hash.into()
-        );
-        // the result of this execution is not used for now
-        executor::execute(
-            &sender.code,
-            &method_name,
-            args,
-            &[],
-            &mut runtime_ext,
-            &wasm::types::Config::default(),
-            &RuntimeContext::new(
-                sender.amount,
-                0,
-                sender_account_id,
-                sender_account_id,
-                DEFAULT_MANA_LIMIT,
-            ),
-        ).map_err(|e| format!("wasm execution failed with error: {:?}", e))?;
-        // TODO(#171): Update account balance.
-        let receipts = runtime_ext.get_receipts();
-        self.callbacks.extend(runtime_ext.callbacks);
+            &account_id_to_bytes(sender_account_id),
+            &sender
+        );        
         Ok(receipts)
     }
 
@@ -518,36 +524,47 @@ impl Runtime {
         sender_id: AccountId,
         receiver_id: AccountId,
         nonce: Vec<u8>,
-        receiver: &Account,
+        receiver: &mut Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let mut runtime_ext = RuntimeExt::new(
-            state_update,
-            sender_id,
-            nonce,
-        );
-        let wasm_res = executor::execute(
-            &receiver.code,
-            &async_call.method_name,
-            &async_call.args,
-            &[],
-            &mut runtime_ext,
-            &wasm::types::Config::default(),
-            &RuntimeContext::new(
-                receiver.amount,
-                async_call.amount,
+        let result = {
+            let mut runtime_ext = RuntimeExt::new(
+                state_update,
+                sender_id,
+                nonce,
+            );
+            let wasm_res = executor::execute(
+                &receiver.code,
+                &async_call.method_name,
+                &async_call.args,
+                &[],
+                &mut runtime_ext,
+                &wasm::types::Config::default(),
+                &RuntimeContext::new(
+                    receiver.amount,
+                    async_call.amount,
+                    sender_id,
+                    receiver_id,
+                    async_call.mana,
+                ),
+            ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+            let result = Self::return_data_to_receipts(
+                &mut runtime_ext,
+                wasm_res.return_data,                    
+                &async_call.callback,
                 sender_id,
                 receiver_id,
-                async_call.mana,
-            ),
-        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-        // TODO(#171): Update account balance.
-        Self::return_data_to_receipts(
-            &mut runtime_ext,
-            wasm_res.return_data,                    
-            &async_call.callback,
-            sender_id,
-            receiver_id,
-        )
+            );
+            if let Ok(_) = result {
+                receiver.amount = wasm_res.balance;
+            }
+            result
+        };
+        set(
+            state_update,
+            &account_id_to_bytes(receiver_id),
+            receiver,
+        );
+        result
     }
 
     fn apply_callback(
@@ -557,55 +574,67 @@ impl Runtime {
         sender_id: AccountId,
         receiver_id: AccountId,
         nonce: Vec<u8>,
-        receiver: &Account,
+        receiver: &mut Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let mut runtime_ext = RuntimeExt::new(
-            state_update,
-            sender_id,
-            nonce,
-        );
         let mut needs_removal = false;
-        let receipts = match self.callbacks.get_mut(&callback_res.info.id) {
-            Some(callback) => {
-                callback.results[callback_res.info.result_index] = callback_res.result.clone();
-                callback.result_counter += 1;
-                // if we have gathered all results, execute the callback
-                if callback.result_counter == callback.results.len() {
-                    let wasm_res = executor::execute(
-                        &receiver.code,
-                        &callback.method_name,
-                        &callback.args,
-                        &callback.results,
-                        &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                        &RuntimeContext::new(
-                            receiver.amount,
-                            0,
+        let receipts = {
+            let mut runtime_ext = RuntimeExt::new(
+                state_update,
+                sender_id,
+                nonce,
+            );
+        
+            match self.callbacks.get_mut(&callback_res.info.id) {
+                Some(callback) => {
+                    callback.results[callback_res.info.result_index] = callback_res.result.clone();
+                    callback.result_counter += 1;
+                    // if we have gathered all results, execute the callback
+                    if callback.result_counter == callback.results.len() {
+                        let wasm_res = executor::execute(
+                            &receiver.code,
+                            &callback.method_name,
+                            &callback.args,
+                            &callback.results,
+                            &mut runtime_ext,
+                            &wasm::types::Config::default(),
+                            &RuntimeContext::new(
+                                receiver.amount,
+                                0,
+                                sender_id,
+                                receiver_id,
+                                callback.mana,
+                            ),
+                        ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                        needs_removal = true;
+                        let balance = wasm_res.balance;
+                        Self::return_data_to_receipts(
+                            &mut runtime_ext,
+                            wasm_res.return_data,
+                            &callback.callback,
                             sender_id,
                             receiver_id,
-                            callback.mana,
-                        ),
-                    ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
-                    // TODO(#171): Update account balance.
-                    needs_removal = true;
-                    Self::return_data_to_receipts(
-                        &mut runtime_ext,
-                        wasm_res.return_data,
-                        &callback.callback,
-                        sender_id,
-                        receiver_id,
-                    )?
-                } else {
-                    // otherwise no receipt is generated
-                    vec![]
+                        ).and_then(|receipts| {
+                            receiver.amount = balance;
+                            Ok(receipts)
+                        })?
+                    } else {
+                        // otherwise no receipt is generated
+                        vec![]
+                    }
+                },
+                _ => {
+                    return Err(format!("callback id: {:?} not found", callback_res.info.id));
                 }
-            },
-            _ => {
-                return Err(format!("callback id: {:?} not found", callback_res.info.id));
             }
         };
+        
         if needs_removal {
             self.callbacks.remove(&callback_res.info.id);
+            set(
+                state_update,
+                &account_id_to_bytes(receiver_id),
+                receiver
+            );
         }
         Ok(receipts)
     }
@@ -644,7 +673,7 @@ impl Runtime {
                                 receipt.sender,
                                 receipt.receiver,
                                 receipt.nonce.clone(),
-                                &receiver,
+                                &mut receiver,
                             )
                         }
                     },
@@ -656,7 +685,7 @@ impl Runtime {
                             receipt.sender,
                             receipt.receiver,
                             receipt.nonce.clone(),
-                            &receiver,
+                            &mut receiver,
                         )
                     }
                     ReceiptBody::Refund(amount) => {
