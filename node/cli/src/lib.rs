@@ -24,14 +24,13 @@ use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
 use chain::BlockChain;
 use clap::{App, Arg};
 use env_logger::Builder;
-use futures::future;
-use futures::Future;
-use futures::sync::mpsc::channel;
-use futures::sync::mpsc::Receiver;
-use futures::sync::mpsc::Sender;
+use futures::{future, Future};
+use futures::sync::mpsc::{channel, Receiver, Sender};
 use network::protocol::{Protocol, ProtocolConfig};
-use network::service::{create_network_task, NetworkConfiguration, new_network_service};
-use network::service::get_multiaddr;
+use network::service::{
+    create_network_task, get_multiaddr, NetworkConfiguration,
+    new_network_service,
+};
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, state_viewer::StateDbViewer};
 use parking_lot::{Mutex, RwLock};
@@ -51,6 +50,59 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
     storage_path.push("storage/db");
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
+}
+
+fn get_rpc_server_task(
+    transactions_tx: Sender<SignedTransaction>,
+    rpc_port: Option<u16>,
+    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+    state_db: Arc<StateDb>,
+) -> impl Future<Item=(), Error=()> {
+    let state_db_viewer = StateDbViewer::new(beacon_chain, state_db);
+    let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx);
+    let rpc_handler = node_rpc::api::get_handler(rpc_impl);
+    let rpc_port = rpc_port.unwrap_or(3030);
+    let rpc_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
+    let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
+    future::lazy(|| {
+        server.wait();
+        Ok(())
+    })
+}
+
+fn get_network_tasks(
+    p2p_port: Option<u16>,
+    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+    beacon_block_tx: Sender<BeaconBlock>,
+    transactions_tx: Sender<SignedTransaction>,
+) -> (impl Future<Item=(), Error=()>, impl Future<Item=(), Error=()>) {
+    let (receipts_tx, _receipts_rx) = channel(1024);
+    let (net_messages_tx, net_messages_rx) = channel(1024);
+    let protocol_config = ProtocolConfig::default();
+    let protocol = Protocol::<_, BeaconBlockHeader>::new(
+        protocol_config,
+        beacon_chain,
+        beacon_block_tx,
+        transactions_tx,
+        receipts_tx,
+        net_messages_tx
+    );
+
+    let mut network_config = NetworkConfiguration::new();
+    let p2p_port = p2p_port.unwrap_or(30333);
+    network_config.listen_addresses = vec![
+        get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)
+    ];
+
+    let network_service = Arc::new(Mutex::new(new_network_service(
+        &protocol_config,
+        network_config,
+    )));
+    create_network_task(
+        network_service,
+        protocol,
+        net_messages_rx,
+    )
 }
 
 pub fn start_service(
@@ -82,16 +134,14 @@ pub fn start_service(
     );
     let beacon_chain = Arc::new(BlockChain::new(genesis, storage.clone()));
 
-    // Create RPC Server.
-    let state_db_viewer = StateDbViewer::new(beacon_chain.clone(), state_db.clone());
     // TODO: TxFlow should be listening on these transactions.
     let (transactions_tx, transactions_rx) = channel(1024);
-    let (receipts_tx, _receipts_rx) = channel(1024);
-    let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx.clone());
-    let rpc_handler = node_rpc::api::get_handler(rpc_impl);
-    let rpc_port = rpc_port.unwrap_or(3030);
-    let rpc_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
-    let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
+    let rpc_server_task = get_rpc_server_task(
+        transactions_tx.clone(),
+        rpc_port,
+        beacon_chain.clone(),
+        state_db.clone(),
+    );
 
     // Create a task that consumes the consensuses and produces the beacon chain blocks.
     let signer = Arc::new(InMemorySigner::default());
@@ -116,44 +166,20 @@ pub fn start_service(
         beacon_block_rx
     );
 
-    // Create protocol and the network_task.
     // Note, that network and RPC are using the same channels to send transactions and receipts for
     // processing.
-    let (net_messages_tx, net_messages_rx) = channel(1024);
-    let protocol_config = ProtocolConfig::default();
-    let protocol = Protocol::<_, BeaconBlockHeader>::new(
-        protocol_config,
+    let (messages_handler_task, network_task) = get_network_tasks(
+        p2p_port,
         beacon_chain.clone(),
         beacon_block_tx.clone(),
         transactions_tx.clone(),
-        receipts_tx.clone(),
-        net_messages_tx.clone()
-    );
-
-    let mut network_config = NetworkConfiguration::new();
-    let p2p_port = p2p_port.unwrap_or(30333);
-    network_config.listen_addresses = vec![
-        get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)
-    ];
-
-    let network_service = Arc::new(Mutex::new(new_network_service(
-        &protocol_config,
-        network_config,
-    )));
-    let (network_task, messages_handler_task) = create_network_task(
-        network_service,
-        protocol,
-        net_messages_rx,
     );
     let consensus_task = consensus_task_fn(
         transactions_rx,
         &beacon_block_consensus_body_tx,
     );
     tokio::run(future::lazy(|| {
-        tokio::spawn(future::lazy(|| {
-            server.wait();
-            Ok(())
-        }));
+        tokio::spawn(rpc_server_task);
         tokio::spawn(block_producer_task);
         tokio::spawn(block_importer_task);
         tokio::spawn(messages_handler_task);
