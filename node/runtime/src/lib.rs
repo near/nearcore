@@ -19,7 +19,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use beacon::types::AuthorityProposal;
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::PublicKey;
+use primitives::signature::{PublicKey, Signature, verify};
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
@@ -238,10 +238,15 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         body: &SwapKeyTransaction,
+        signature: &Signature,
+        data: &[u8],
         account: &mut Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         // TODO: verify signature
         let cur_key = Decode::decode(&body.cur_key).ok_or("cannot decode public key")?;
+        if !verify(data, signature, &cur_key) {
+            return Err("Invalid signature. Cannot swap key".to_string());
+        }
         let new_key = Decode::decode(&body.new_key).ok_or("cannot decode public key")?;
         let num_keys = account.public_keys.len();
         account.public_keys.retain(|&x| x != cur_key);
@@ -373,9 +378,13 @@ impl Runtime {
                         )
                     },
                     TransactionBody::SwapKey(ref t) => {
+                        // this is super redundant. need to change when we add signature checks
+                        let data = transaction.body.encode().ok_or("cannot encode body")?;
                         self.swap_key(
                             state_update,
                             t,
+                            &transaction.sender_sig,
+                            &data,
                             &mut sender,
                         )
                     }
@@ -800,7 +809,7 @@ mod tests {
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody, ViewCall, ViewCallResult
     };
-    use primitives::signature::{DEFAULT_SIGNATURE, get_keypair};
+    use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
     use primitives::utils::concat;
     use storage::test_utils::create_state_db;
     use test_utils::{
@@ -1238,7 +1247,7 @@ mod tests {
     fn test_swap_key() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key1, _) = get_keypair();
+        let (pub_key1, secret_key1) = get_keypair();
         let (pub_key2, _) = get_keypair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
@@ -1263,7 +1272,9 @@ mod tests {
             cur_key: pub_key1.encode().unwrap(),
             new_key: pub_key2.encode().unwrap(),
         });
-        let transaction1 = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let data = tx_body.encode().unwrap();
+        let signature = sign(&data, &secret_key1);
+        let transaction1 = SignedTransaction::new(signature, tx_body);
         let apply_state = ApplyState {
             root: apply_result.root,
             parent_block_hash: CryptoHash::default(),
