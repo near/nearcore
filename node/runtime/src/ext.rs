@@ -3,7 +3,7 @@ use kvdb::DBValue;
 
 use primitives::types::{
     ReceiptId, Balance, Mana, CallbackId, ReceiptTransaction, Callback,
-    AccountId, AccountAlias, PromiseId, ReceiptBody, AsyncCall, CallbackInfo
+    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo
 };
 use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
@@ -56,14 +56,6 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
 }
 
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
-    fn balance(&self) -> ExtResult<Balance> {
-        unimplemented!();
-    }
-
-    fn received_amount(&self) -> ExtResult<Balance> {
-        unimplemented!();
-    }
-
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
@@ -78,7 +70,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
 
     fn promise_create(
         &mut self,
-        account_alias: AccountAlias,
+        account_id: AccountId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         mana: Mana,
@@ -87,7 +79,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
         let nonce = self.create_nonce();
         let receipt = ReceiptTransaction::new(
             self.account_id,
-            (&account_alias).into(),
+            account_id,
             nonce.clone(),
             ReceiptBody::NewCall(AsyncCall::new(
                 method_name,

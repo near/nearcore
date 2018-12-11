@@ -25,14 +25,14 @@ use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
-    SwapKeyTransaction, DeployContractTransaction
+    SwapKeyTransaction, DeployContractTransaction, Balance
 };
 use primitives::utils::{
     index_to_bytes, account_to_shard_id
 };
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::types::ReturnData;
+use wasm::types::{RuntimeContext, ReturnData};
 
 use ext::RuntimeExt;
 
@@ -76,7 +76,7 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn new(public_keys: Vec<PublicKey>, amount: u64, code: Vec<u8>) -> Self {
+    pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code: Vec<u8>) -> Self {
         Account { public_keys, nonce: 0, amount, code }
     }
 }
@@ -303,8 +303,15 @@ impl Runtime {
             &[],
             &mut runtime_ext,
             &wasm::types::Config::default(),
-            DEFAULT_MANA_LIMIT
+            &RuntimeContext::new(
+                sender.amount,
+                0,
+                sender_account_id,
+                sender_account_id,
+                DEFAULT_MANA_LIMIT,
+            ),
         ).map_err(|e| format!("wasm execution failed with error: {:?}", e))?;
+        // TODO(#171): Update account balance.
         let receipts = runtime_ext.get_receipts();
         self.callbacks.extend(runtime_ext.callbacks);
         Ok(receipts)
@@ -525,8 +532,15 @@ impl Runtime {
             &[],
             &mut runtime_ext,
             &wasm::types::Config::default(),
-            async_call.mana,
+            &RuntimeContext::new(
+                receiver.amount,
+                async_call.amount,
+                sender_id,
+                receiver_id,
+                async_call.mana,
+            ),
         ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+        // TODO(#171): Update account balance.
         Self::return_data_to_receipts(
             &mut runtime_ext,
             wasm_res.return_data,                    
@@ -564,8 +578,15 @@ impl Runtime {
                         &callback.results,
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
-                        callback.mana,
+                        &RuntimeContext::new(
+                            receiver.amount,
+                            0,
+                            sender_id,
+                            receiver_id,
+                            callback.mana,
+                        ),
                     ).map_err(|e| format!("wasm exeuction failed with error: {:?}", e))?;
+                    // TODO(#171): Update account balance.
                     needs_removal = true;
                     Self::return_data_to_receipts(
                         &mut runtime_ext,

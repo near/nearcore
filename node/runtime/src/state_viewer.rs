@@ -6,7 +6,7 @@ use chain::BlockChain;
 use beacon::types::BeaconBlock;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::types::ReturnData;
+use wasm::types::{RuntimeContext, ReturnData};
 use super::{RuntimeData, RuntimeExt, Account, get, account_id_to_bytes, RUNTIME_DATA};
 
 pub struct StateDbViewer {
@@ -34,6 +34,7 @@ impl StateDbViewer {
     pub fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).expect("Runtime data is missing");
+        // TODO(#172): Distinguish sender and receiver accounts.
         match get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
             Some(account) => {
                 let mut result = vec![];
@@ -46,7 +47,13 @@ impl StateDbViewer {
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
-                        0,
+                        &RuntimeContext::new(
+                            account.amount,
+                            0,
+                            view_call.account,
+                            view_call.account,
+                            0,
+                        ),
                     );
                     match wasm_res {
                         Ok(res) => {
