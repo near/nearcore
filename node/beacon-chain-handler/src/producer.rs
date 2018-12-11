@@ -15,15 +15,15 @@ use primitives::types::ConsensusBlockBody;
 use shard::{ShardBlock, ShardBlockChain};
 use storage::StateDb;
 
-pub fn create_beacon_block_producer_task(
+pub fn create_block_producer_task(
     beacon_chain: Arc<BeaconBlockChain>,
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
-    receiver: Receiver<BeaconChainConsensusBlockBody>
+    receiver: Receiver<ChainConsensusBlockBody>
 ) -> impl Future<Item = (), Error = ()> {
-    let beacon_block_producer = BeaconBlockProducer::new(
+    let beacon_block_producer = BlockProducer::new(
         beacon_chain,
         shard_chain,
         runtime,
@@ -40,7 +40,7 @@ pub trait ConsensusHandler<B: Block, P>: Send + Sync {
     fn produce_block(&self, body: ConsensusBlockBody<P>) -> B;
 }
 
-pub struct BeaconBlockProducer {
+pub struct BlockProducer {
     beacon_chain: Arc<BeaconBlockChain>,
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
@@ -48,7 +48,7 @@ pub struct BeaconBlockProducer {
     state_db: Arc<StateDb>,
 }
 
-impl BeaconBlockProducer {
+impl BlockProducer {
     pub fn new(
         beacon_chain: Arc<BeaconBlockChain>,
         shard_chain: Arc<ShardBlockChain>,
@@ -67,10 +67,10 @@ impl BeaconBlockProducer {
 }
 
 pub type ShardChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
-pub type BeaconChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
+pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
 
-impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BeaconBlockProducer {
-    fn produce_block(&self, body: BeaconChainConsensusBlockBody) -> BeaconBlock {
+impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BlockProducer {
+    fn produce_block(&self, body: ChainConsensusBlockBody) -> BeaconBlock {
         // TODO: verify signature
         let transactions = body.messages.iter()
             .flat_map(|message| message.body.payload.0.clone())
@@ -85,7 +85,7 @@ impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BeaconBlockProducer {
         let last_shard_block = self.shard_chain.get_header(&BlockId::Hash(last_block.body.header.shard_block_hash)).expect("At the moment we should have shard blocks accompany beacon blocks");
         let apply_state = ApplyState {
             root: last_shard_block.body.merkle_root_state,
-            parent_block_hash: last_block.hash(),
+            parent_block_hash: last_block.block_hash(),
             block_index: last_block.body.header.index + 1,
         };
         let (filtered_transactions, filtered_receipts, mut apply_result) =
@@ -93,16 +93,16 @@ impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BeaconBlockProducer {
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut shard_block = ShardBlock::new(
             last_shard_block.body.index + 1,
-            last_shard_block.hash(),
+            last_shard_block.block_hash(),
             apply_result.root,
             filtered_transactions,
             filtered_receipts
         );
         let mut block = BeaconBlock::new(
             last_block.body.header.index + 1,
-            last_block.hash(),
+            last_block.block_hash(),
             apply_result.authority_proposals,
-            shard_block.hash()
+            shard_block.block_hash()
         );
         let signature = shard_block.sign(self.signer.clone());
         shard_block.add_signature(signature);

@@ -193,7 +193,7 @@ impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
             }
             let header = self.chain.get_header(&id).unwrap();
             let block_index = header.index();
-            let block_hash = header.hash();
+            let block_hash = header.block_hash();
             let reach_end = match request.to {
                 Some(BlockId::Number(n)) => block_index == n,
                 Some(BlockId::Hash(h)) => block_hash == h,

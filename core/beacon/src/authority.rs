@@ -268,7 +268,7 @@ mod test {
             BeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
-            let block = BeaconBlock::new(i, last_block.hash(), vec![], CryptoHash::default());
+            let block = BeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
             bc.insert_block(block.clone());
             last_block = block;
         }
@@ -304,7 +304,7 @@ mod test {
         let mut header1 = block1.header();
         // Authority #1 didn't show up.
         header1.authority_mask = vec![true, false];
-        let block2 = BeaconBlock::new(2, header1.hash(), vec![], CryptoHash::default());
+        let block2 = BeaconBlock::new(2, header1.block_hash(), vec![], CryptoHash::default());
         let mut header2 = block2.header();
         header2.authority_mask = vec![true, true];
         authority.process_block_header(&header1);

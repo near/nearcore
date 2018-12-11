@@ -22,7 +22,7 @@ const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 pub trait Header: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
 {
     /// Returns hash of the block body.
-    fn hash(&self) -> CryptoHash;
+    fn block_hash(&self) -> CryptoHash;
 
     /// Returns block index.
     fn index(&self) -> u64;
@@ -40,11 +40,11 @@ pub trait Block: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq
     fn header(&self) -> Self::Header;
 
     /// Returns hash of the block body.
-    fn hash(&self) -> CryptoHash;
+    fn block_hash(&self) -> CryptoHash;
 
     /// Signs this block with given signer and returns part of multi signature.
     fn sign(&self, signer: Arc<Signer>) -> PartialSignature {
-        signer.sign(&self.hash())
+        signer.sign(&self.block_hash())
     }
 
     /// Add signature to multi sign.
@@ -110,7 +110,7 @@ fn read_with_cache<T: Clone + Decode>(
 
 impl<B: Block> BlockChain<B> {
     pub fn new(genesis: B, storage: Arc<Storage>) -> Self {
-        let genesis_hash = genesis.hash();
+        let genesis_hash = genesis.block_hash();
         let best_block_key = genesis_hash.as_ref().iter().chain(BLOCKCHAIN_BEST_BLOCK).cloned().collect();
         let bc = BlockChain {
             storage,
@@ -160,7 +160,7 @@ impl<B: Block> BlockChain<B> {
     }
 
     fn update_best_block(&self, block: B) {
-        let block_hash = block.hash();
+        let block_hash = block.block_hash();
         let mut best_block = self.best_block.write();
         *best_block = block;
         let mut db_transaction = self.storage.transaction();
@@ -171,7 +171,7 @@ impl<B: Block> BlockChain<B> {
     /// Inserts a verified block.
     /// Returns true if block is disconnected.
     pub fn insert_block(&self, block: B) -> bool {
-        let block_hash = block.hash();
+        let block_hash = block.block_hash();
         if self.is_known(&block_hash) {
             // TODO: known header but not known block.
             return false;

@@ -1,4 +1,4 @@
-use beacon_chain_handler::producer::{ShardChainPayload, BeaconChainConsensusBlockBody};
+use beacon_chain_handler::producer::{ShardChainPayload, ChainConsensusBlockBody};
 use primitives::types::{SignedTransaction, SignedMessageData, MessageDataBody};
 use primitives::signature::DEFAULT_SIGNATURE;
 use futures::sync::mpsc::{Sender, Receiver};
@@ -9,7 +9,7 @@ use tokio;
 
 pub fn create_passthrough_beacon_block_consensus_task(
     transactions_rx: Receiver<SignedTransaction>,
-    consensus_tx: &Sender<BeaconChainConsensusBlockBody>,
+    consensus_tx: &Sender<ChainConsensusBlockBody>,
 ) -> Box<Future<Item=(), Error=()> + Send> {
     Box::new(transactions_rx.fold(consensus_tx.clone(), |consensus_tx, t| {
         let message: SignedMessageData<ShardChainPayload> = SignedMessageData {
@@ -23,7 +23,7 @@ pub fn create_passthrough_beacon_block_consensus_task(
                 endorsements: vec![],
             },
         };
-        let c = BeaconChainConsensusBlockBody {
+        let c = ChainConsensusBlockBody {
             messages: vec![message],
         };
         tokio::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {

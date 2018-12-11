@@ -20,6 +20,7 @@ pub struct ShardBlockHeaderBody {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {
     pub body: ShardBlockHeaderBody,
+    pub hash: CryptoHash,
     pub authority_mask: AuthorityMask,
     pub signature: MultiSignature,
 }
@@ -34,13 +35,14 @@ pub struct ShardBlockBody {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlock {
     pub body: ShardBlockBody,
+    pub hash: CryptoHash,
     pub authority_mask: AuthorityMask,
     pub signature: MultiSignature,
 }
 
 impl Header for ShardBlockHeader {
-    fn hash(&self) -> CryptoHash {
-        hash_struct(&self.body)
+    fn block_hash(&self) -> CryptoHash {
+        self.hash
     }
     fn index(&self) -> u64 {
         self.body.index
@@ -52,16 +54,19 @@ impl Header for ShardBlockHeader {
 
 impl ShardBlock {
     pub fn new(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash, transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptTransaction>) -> Self {
+        let header = ShardBlockHeaderBody {
+            index,
+            parent_hash,
+            merkle_root_state,
+        };
+        let hash = hash_struct(&header);
         ShardBlock {
             body: ShardBlockBody {
-                header: ShardBlockHeaderBody {
-                    index,
-                    parent_hash,
-                    merkle_root_state,
-                },
+                header,
                 transactions,
                 receipts,
             },
+            hash,
             signature: vec![],
             authority_mask: vec![],
         }
@@ -78,14 +83,15 @@ impl Block for ShardBlock {
     fn header(&self) -> Self::Header {
         ShardBlockHeader {
             body: self.body.header.clone(),
+            hash: self.hash,
             signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
         }
 
     }
 
-    fn hash(&self) -> CryptoHash {
-        hash_struct(&self.body.header)
+    fn block_hash(&self) -> CryptoHash {
+        self.hash
     }
 
     fn add_signature(&mut self, signature: PartialSignature) {

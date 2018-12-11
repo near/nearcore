@@ -34,7 +34,7 @@ use futures::sync::mpsc::Sender;
 use parking_lot::{Mutex, RwLock};
 
 use beacon::types::{BeaconBlock, BeaconBlockChain, BeaconBlockHeader};
-use beacon_chain_handler::producer::BeaconChainConsensusBlockBody;
+use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use chain::Block;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
@@ -62,7 +62,7 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 pub fn start_service(
     base_path: &Path,
     chain_spec_path: Option<&Path>,
-    consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<BeaconChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
+    consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<ChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
 ) {
     let mut builder = Builder::new();
     builder.filter(Some("runtime"), log::LevelFilter::Debug);
@@ -82,7 +82,7 @@ pub fn start_service(
     );
 
     let shard_genesis = ShardBlock::genesis(genesis_root);
-    let genesis = BeaconBlock::genesis(shard_genesis.hash());
+    let genesis = BeaconBlock::genesis(shard_genesis.block_hash());
     let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
     let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
 
@@ -101,7 +101,7 @@ pub fn start_service(
         beacon_block_consensus_body_tx,
         beacon_block_consensus_body_rx,
     ) = channel(1024);
-    let block_producer_task = beacon_chain_handler::producer::create_beacon_block_producer_task(
+    let block_producer_task = beacon_chain_handler::producer::create_block_producer_task(
         beacon_chain.clone(),
         shard_chain.clone(),
         runtime.clone(),
@@ -112,7 +112,7 @@ pub fn start_service(
 
     // Create task that can import beacon chain blocks from other peers.
     let (beacon_block_tx, beacon_block_rx) = channel(1024);
-    let block_importer_task = beacon_chain_handler::importer::create_beacon_block_importer_task(
+    let block_importer_task = beacon_chain_handler::importer::create_block_importer_task(
         beacon_chain.clone(),
         shard_chain.clone(),
         runtime.clone(),

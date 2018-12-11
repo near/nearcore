@@ -648,7 +648,6 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::sync::Arc;
 
     use primitives::hash::hash;
