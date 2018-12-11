@@ -10,11 +10,16 @@ use super::Message;
 /// * kickout message(s) that kickout epoch X (again, more than one if there is a fork);
 /// * messages of epoch X (it is perfectly normal to have multiple of them).
 #[derive(Debug)]
-#[derive(Default)]
 pub struct Group<'a, P: 'a + Payload> {
     /// Messages aggregated by owner uid.
     pub messages_by_owner: HashMap<UID, HashSet<&'a Message<'a, P>>>,
     pub v: HashSet<&'a Message<'a, P>>,
+}
+
+impl<'a, P: 'a + Payload> Default for Group<'a, P> {
+    fn default() -> Self{
+        Group::new()
+    }
 }
 
 // TODO: Create alternative of Group called SingleOwnerGroup with {owner_uid: u64, messages: HashSet<...>}
@@ -64,9 +69,14 @@ impl<'a, P: 'a + Payload> Clone for Group<'a, P> {
 
 /// Mapping of groups to epochs.
 #[derive(Debug)]
-#[derive(Default)]
 pub struct GroupsPerEpoch<'a, P: 'a + Payload> {
     pub messages_by_epoch: HashMap<u64, Group<'a, P>>,
+}
+
+impl<'a, P: 'a + Payload> Default for GroupsPerEpoch<'a, P> {
+    fn default() -> Self{
+        GroupsPerEpoch::new()
+    }
 }
 
 impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
