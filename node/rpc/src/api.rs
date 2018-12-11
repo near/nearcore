@@ -14,6 +14,7 @@ use types::{
     CreateAccountRequest, ViewAccountRequest, SwapKeyRequest,
     ViewAccountResponse,
 };
+use primitives::traits::Encode;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -109,7 +110,7 @@ impl TransactionApi for RpcImpl {
             sender: r.sender,
             new_account_id: r.new_account_id,
             amount: r.amount,
-            public_key: r.public_key
+            public_key: r.public_key.encode().unwrap()
         });
         Ok(PreparedTransactionBodyResponse { body })
     }
@@ -122,7 +123,7 @@ impl TransactionApi for RpcImpl {
             nonce: r.nonce,
             contract_id: r.contract_account_id,
             wasm_byte_array: r.wasm_byte_array,
-            public_key: r.public_key
+            public_key: r.public_key.encode().unwrap()
         });
         Ok(PreparedTransactionBodyResponse { body })
     }
@@ -134,8 +135,8 @@ impl TransactionApi for RpcImpl {
         let body = TransactionBody::SwapKey(SwapKeyTransaction {
             nonce: r.nonce,
             sender: r.account,
-            cur_key: r.cur_key,
-            new_key: r.new_key,
+            cur_key: r.current_key.encode().unwrap(),
+            new_key: r.new_key.encode().unwrap(),
         });
         Ok(PreparedTransactionBodyResponse { body })
     }

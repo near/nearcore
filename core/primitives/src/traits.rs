@@ -1,3 +1,4 @@
+use bincode;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
