@@ -2,9 +2,9 @@ use ext::External;
 
 use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
-use types::{RuntimeError as Error, ReturnData};
+use types::{RuntimeError as Error, ReturnData, RuntimeContext};
 
-use primitives::types::{AccountAlias, PromiseId, ReceiptId, Mana, Gas};
+use primitives::types::{AccountAlias, AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
 use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -15,7 +15,8 @@ pub struct Runtime<'a> {
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
     pub mana_counter: Mana,
-    mana_limit: Mana,
+    context: &'a RuntimeContext,
+    pub balance: Balance,
     pub gas_counter: Gas,
     gas_limit: Gas,
     promise_ids: Vec<PromiseId>,
@@ -28,7 +29,7 @@ impl<'a> Runtime<'a> {
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
-        mana_limit: Mana,
+        context: &'a RuntimeContext,
         gas_limit: Gas,
     ) -> Runtime<'a> {
         Runtime {
@@ -37,7 +38,8 @@ impl<'a> Runtime<'a> {
             result_data,
             memory,
             mana_counter: 0,
-            mana_limit,
+            context,
+            balance: context.initial_balance + context.received_amount,
             gas_counter: 0,
             gas_limit,
             promise_ids: Vec::new(),
@@ -45,16 +47,21 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn read_buffer_with_size(&self, offset: u32, len: usize) -> Result<Vec<u8>> {
+        let buf = self
+            .memory
+            .get(offset, len)
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(buf)
+    }
+
+
     fn read_buffer(&self, offset: u32) -> Result<Vec<u8>> {
         let len: u32 = self
             .memory
             .get_u32(offset)
             .map_err(|_| Error::MemoryAccessViolation)?;
-        let buf = self
-            .memory
-            .get(offset + 4, len as usize)
-            .map_err(|_| Error::MemoryAccessViolation)?;
-        Ok(buf)
+        self.read_buffer_with_size(offset + 4, len as usize)
     }
 
     fn promise_index_to_id(&self, promise_index: u32) -> Result<PromiseId> {
@@ -84,7 +91,7 @@ impl<'a> Runtime<'a> {
         match prev.checked_add(mana) {
             // mana charge overflow protection
             None => false,
-            Some(val) if val > self.mana_limit => false,
+            Some(val) if val > self.context.mana => false,
             Some(_) => {
                 self.mana_counter = prev + mana;
                 true
@@ -160,13 +167,14 @@ impl<'a> Runtime<'a> {
     }
 
     fn promise_create(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
-        let accound_id_ptr: u32 = args.nth_checked(0)?;
+        let account_id_ptr: u32 = args.nth_checked(0)?;
         let method_name_ptr: u32 = args.nth_checked(1)?;
         let arguments_ptr: u32 = args.nth_checked(2)?;
         let mana: u32 = args.nth_checked(3)?;
         let amount: u64 = args.nth_checked(4)?;
 
-        let accound_alias = self.read_and_parse_account_alias(accound_id_ptr)?;
+        let account_id_buf = self.read_buffer_with_size(account_id_ptr, 32)?;
+        let account_id: AccountId = AccountId::from(account_id_buf);
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
 
@@ -174,8 +182,13 @@ impl<'a> Runtime<'a> {
         self.charge_mana_or_fail(mana)?;
         self.charge_mana_or_fail(1)?;
 
+        if amount > self.balance {
+            return Err(Error::BalanceExceeded);
+        }
+        self.balance -= amount;
+
         let promise_id = self.ext
-            .promise_create(accound_alias, method_name, arguments, mana, amount)
+            .promise_create(account_id, method_name, arguments, mana, amount)
             .map_err(|_| Error::PromiseError)?;
 
         let promise_index = self.promise_ids.len() as u32;
@@ -330,29 +343,24 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn balance(&self) -> Result<RuntimeValue> {
-        let balance = self.ext.balance().map_err(|_| Error::BalanceQueryError)?;
-
-        Ok(RuntimeValue::I64(balance as i64))
+    fn get_balance(&self) -> Result<RuntimeValue> {
+        Ok(RuntimeValue::I64(self.balance as i64))
     }
 
     fn gas_left(&self) -> Result<RuntimeValue> {
         let gas_left = self.gas_limit - self.gas_counter;
-        println!("GAS {}", gas_left);
 
         Ok(RuntimeValue::I64(gas_left as i64))
     }
 
     fn mana_left(&self) -> Result<RuntimeValue> {
-        let mana_left = self.mana_limit - self.mana_counter;
+        let mana_left = self.context.mana - self.mana_counter;
 
         Ok(RuntimeValue::I32(mana_left as i32))
     }
 
     fn received_amount(&self) -> Result<RuntimeValue> {
-        let amount = self.ext.received_amount().map_err(|_| Error::BalanceQueryError)?;
-
-        Ok(RuntimeValue::I64(amount as i64))
+        Ok(RuntimeValue::I64(self.context.received_amount as i64))
     }
 
     fn assert(&self, args: &RuntimeArgs) -> Result<()> {
@@ -363,6 +371,37 @@ impl<'a> Runtime<'a> {
         } else {
             Err(Error::AssertFailed)
         }
+    }
+
+    fn sender_id(&self, args: &RuntimeArgs) -> Result<()> {
+        let val_ptr: u32 = args.nth_checked(0)?;
+
+        self.memory
+            .set(val_ptr, self.context.sender_id.as_ref())
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(())
+    }
+
+    fn account_id(&self, args: &RuntimeArgs) -> Result<()> {
+        let val_ptr: u32 = args.nth_checked(0)?;
+
+        self.memory
+            .set(val_ptr, self.context.account_id.as_ref())
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(())
+    }
+
+    fn account_alias_to_id(&self, args: &RuntimeArgs) -> Result<()> {
+        let account_alias_ptr: u32 = args.nth_checked(0)?;
+        let val_ptr: u32 = args.nth_checked(1)?;
+
+        let account_alias = self.read_and_parse_account_alias(account_alias_ptr)?;
+        let account_id = AccountId::from(&account_alias);
+
+        self.memory
+            .set(val_ptr, account_id.as_ref())
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(())
     }
 }
 
@@ -401,11 +440,14 @@ mod ext_impl {
                 RESULT_READ_INTO_FUNC => void!(self.result_read_into(&args)),
                 RETURN_VALUE_FUNC => void!(self.return_value(&args)),
                 RETURN_PROMISE_FUNC => void!(self.return_promise(&args)),
-                BALANCE_FUNC => some!(self.balance()),
+                BALANCE_FUNC => some!(self.get_balance()),
                 MANA_LEFT_FUNC => some!(self.mana_left()),
                 GAS_LEFT_FUNC => some!(self.gas_left()),
                 RECEIVED_AMOUNT_FUNC => some!(self.received_amount()),
                 ASSERT_FUNC => void!(self.assert(&args)),
+                SENDER_ID_FUNC => void!(self.sender_id(&args)),
+                ACCOUNT_ID_FUNC => void!(self.account_id(&args)),
+                ACCOUNT_ALIAS_TO_ID_FUNC => void!(self.account_alias_to_id(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }

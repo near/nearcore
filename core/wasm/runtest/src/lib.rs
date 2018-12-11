@@ -7,14 +7,12 @@ use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 extern crate byteorder;
 
 extern crate primitives;
-use primitives::types::{AccountAlias, PromiseId, ReceiptId, Mana, Balance};
+use primitives::types::{AccountId, PromiseId, ReceiptId, Mana, Balance};
 
 #[derive(Default)]
 struct MyExt {
     storage: HashMap<Vec<u8>, Vec<u8>>,
     num_receipts: u32,
-    pub acc_balance: Balance,
-    pub amount: Balance,
 }
 
 fn generate_promise_id(index: u32) -> ReceiptId {
@@ -22,14 +20,6 @@ fn generate_promise_id(index: u32) -> ReceiptId {
 }
 
 impl External for MyExt {
-    fn balance(&self) -> ExtResult<Balance> {
-        Ok(self.acc_balance)
-    }
-
-    fn received_amount(&self) -> ExtResult<Balance> {
-        Ok(self.amount)
-    }
-
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
         self.storage.insert(Vec::from(key), Vec::from(value));
@@ -52,12 +42,17 @@ impl External for MyExt {
 
     fn promise_create(
         &mut self,
-        _account_alias: AccountAlias,
+        account_id: AccountId,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
         _mana: Mana,
         _amount: Balance,
     ) -> ExtResult<PromiseId> {
+        match self.num_receipts {
+            0 => assert_eq!(&account_id, &AccountId::from(&"test1".to_string())),
+            1 => assert_eq!(&account_id, &AccountId::from(&"test2".to_string())),
+            _ => (),
+        };
         self.num_receipts += 1;
         Ok(PromiseId::Receipt(generate_promise_id(self.num_receipts - 1)))
     }
@@ -88,25 +83,20 @@ impl External for MyExt {
 mod tests {
     use byteorder::{ByteOrder, LittleEndian};
     use std::fs;
-    use wasm::executor;
-    use wasm::types::{Error, Config, ReturnData};
+    use wasm::executor::{self, ExecutionOutcome};
+    use wasm::types::{Error, Config, RuntimeContext, ReturnData};
     
     use super::*;
 
-    fn run_with_balance(
+    fn run(
         method_name: &[u8],
         input_data: &[u8],
         result_data: &[Option<Vec<u8>>],
-        mana_limit: Mana,
-        balance: Balance,
-        received_amount: Balance,
-    ) -> Result<ReturnData, Error> {
-        
+        context: &RuntimeContext,
+    ) -> Result<ExecutionOutcome, Error> {
         let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
 
         let mut ext = MyExt::default();
-        ext.acc_balance = balance;
-        ext.amount = received_amount;
         let config = Config::default();
 
         executor::execute(
@@ -116,35 +106,8 @@ mod tests {
             &result_data,
             &mut ext,
             &config,
-            mana_limit,
-        ).map(|outcome| outcome.return_data)
-    }
-
-    fn run_with_mana(
-        method_name: &[u8],
-        input_data: &[u8],
-        result_data: &[Option<Vec<u8>>],
-        mana_limit: Mana
-    )-> Result<ReturnData, Error> {
-        run_with_balance(
-            method_name,
-            input_data,
-            result_data,
-            mana_limit,
-            0,
-            0)
-    }
-
-    fn run(
-        method_name: &[u8],
-        input_data: &[u8],
-        result_data: &[Option<Vec<u8>>],
-    )-> Result<ReturnData, Error> {
-        run_with_mana(
-            method_name,
-            input_data,
-            result_data,
-            0)
+            &context,
+        )
     }
 
     fn encode_i32(val: i32) -> [u8; 4] {
@@ -159,6 +122,20 @@ mod tests {
         tmp
     }
 
+    fn runtime_context(
+        balance: Balance,
+        amount: Balance,
+        mana: Mana,
+    ) -> RuntimeContext {
+        RuntimeContext::new(
+            balance,
+            amount,
+            AccountId::from(&"alice".to_string()),
+            AccountId::from(&"bob".to_string()),
+            mana
+        )
+    }
+
     #[test]
     fn test_storage()  {
         let input_data = [0u8; 0];
@@ -167,7 +144,9 @@ mod tests {
             b"run_test",
             &input_data,
             &[],
-        ).expect("ok");
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
         
         match return_data {
             ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(20)),
@@ -184,7 +163,9 @@ mod tests {
             b"sum_with_input",
             &input_data,
             &[],
-        ).expect("ok");
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
         
         match return_data {
             ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(40)),
@@ -205,7 +186,9 @@ mod tests {
             b"sum_with_multiple_results",
             &input_data,
             &result_data,
-        ).expect("ok");
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
         
         match return_data {
             ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(12)),
@@ -217,14 +200,16 @@ mod tests {
     fn test_promises() {
         let input_data = [0u8; 0];
 
-        let return_data = run_with_mana(
+        let outcome = run(
             b"create_promises_and_join",
             &input_data,
             &[],
-            4,
+            &runtime_context(0, 0, 4),
         ).expect("ok");
 
-        match return_data {
+        assert_eq!(outcome.mana_used, 4); 
+
+        match outcome.return_data {
             ReturnData::Promise(promise_id) => assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec())),
             _ => assert!(false, "Expected returned promise"),
         };
@@ -234,14 +219,14 @@ mod tests {
     fn test_promises_no_mana() {
         let input_data = [0u8; 0];
 
-        let return_data = run_with_mana(
+        let outcome = run(
             b"create_promises_and_join",
             &input_data,
             &[],
-            3,
+            &runtime_context(0, 0, 3),
         );
 
-        match return_data {
+        match outcome {
             Err(_) => assert!(true, "That's legit"),
             _ => assert!(false, "Expected to fail with mana limit"),
         };
@@ -255,6 +240,7 @@ mod tests {
             b"assert_sum",
             &input_data,
             &[],
+            &runtime_context(0, 0, 0),
         ).expect("ok");
     }
 
@@ -262,13 +248,14 @@ mod tests {
     fn test_assert_sum_fail() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0, 45u8, 0, 0, 0];
 
-        let return_data = run(
+        let outcome = run(
             b"assert_sum",
             &input_data,
             &[],
+            &runtime_context(0, 0, 0),
         );
 
-        match return_data {
+        match outcome {
             Err(_) => assert!(true, "That's legit"),
             _ => assert!(false, "Expected to fail with assert failure"),
         };
@@ -278,14 +265,16 @@ mod tests {
     fn test_get_mana()  {
         let input_data = [0u8; 0];
 
-        let return_data = run_with_mana(
+        let outcome = run(
             b"get_mana_left",
             &input_data,
             &[],
-            10,
+            &runtime_context(0, 0, 10),
         ).expect("ok");
 
-        match return_data {
+        assert_eq!(outcome.mana_left, 10);
+
+        match outcome.return_data {
             ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(10)),
             _ => assert!(false, "Expected returned value"),
         };
@@ -299,7 +288,9 @@ mod tests {
             b"get_gas_left",
             &input_data,
             &[],
-        ).expect("ok");
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
 
         let approximate_expected_gas = Config::default().gas_limit;
 
@@ -318,16 +309,16 @@ mod tests {
     fn test_get_balance_and_amount()  {
         let input_data = [0u8; 0];
 
-        let return_data = run_with_balance(
+        let outcome = run(
             b"get_prev_balance",
             &input_data,
             &[],
-            0,
-            100,
-            10,
+            &runtime_context(90, 10, 0),
         ).expect("ok");
 
-        match return_data {
+        assert_eq!(outcome.balance, 100);
+
+        match outcome.return_data {
             ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_u64(90)),
             _ => assert!(false, "Expected returned value"),
         };

@@ -39,8 +39,16 @@ extern "C" {
     fn return_value(value: *const u8);
     fn return_promise(promise_index: u32);
 
+    // Alias is standard length prefix buffer, but ID is always 32 bytes.
+    fn account_alias_to_id(account_alias: *const u8, account_id: *mut u8);
+    // Sender's account id. Writes 32 bytes.
+    fn sender_id(account_id: *mut u8);
+    // Current account id. Writes 32 bytes.
+    fn account_id(account_id: *mut u8);
+
+    // AccountID is just 32 bytes without the prefix length.
     fn promise_create(
-        account_alias: *const u8,
+        account_id: *const u8,
         method_name: *const u8,
         arguments: *const u8,
         mana: u32,
@@ -113,6 +121,16 @@ fn serialize(buf: &[u8]) -> Vec<u8> {
     LittleEndian::write_u32(&mut vec[..4], buf.len() as u32);
     vec[4..].clone_from_slice(buf);
     return vec
+}
+
+fn to_account_id(buf: &[u8]) -> Vec<u8> {
+    let mut vec = vec![0u8; 32];
+    unsafe {
+        account_alias_to_id(
+            serialize(buf).as_ptr(),
+            vec.as_mut_ptr());
+    }
+    vec
 }
 
 #[no_mangle]
@@ -191,14 +209,14 @@ pub fn sum_with_multiple_results() {
 pub fn create_promises_and_join() {
     unsafe {
         let promise1 = promise_create(
-            serialize(b"test1").as_ptr(),
+            to_account_id(b"test1").as_ptr(),
             serialize(b"run1").as_ptr(),
             serialize(b"args1").as_ptr(),
             0,
             0,
         );
         let promise2 = promise_create(
-            serialize(b"test2").as_ptr(),
+            to_account_id(b"test2").as_ptr(),
             serialize(b"run2").as_ptr(),
             serialize(b"args2").as_ptr(),
             0,

@@ -1,4 +1,4 @@
-use primitives::types::PromiseId;
+use primitives::types::{PromiseId, AccountId, Balance, Mana};
 use wasmi::{Error as WasmiError, Trap, TrapKind};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,6 +65,8 @@ pub enum RuntimeError {
     InvalidGasState,
     /// Query of the balance resulted in an error
     BalanceQueryError,
+    /// Transfer exceeded the available balance of the account
+    BalanceExceeded,
     /// WASM-side assert failed
     AssertFailed,
     /// Mana limit exceeded
@@ -132,6 +134,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::MemoryAccessViolation => write!(f, "Memory access violation"),
             RuntimeError::InvalidGasState => write!(f, "Invalid gas state"),
             RuntimeError::BalanceQueryError => write!(f, "Balance query resulted in an error"),
+            RuntimeError::BalanceExceeded => write!(f, "Transfer exceeded the available balance of the account"),
             RuntimeError::InvalidReturn => write!(f, "Invalid return value"),
             RuntimeError::PromiseError => write!(f, "Error in the external promise method"),
             RuntimeError::InvalidPromiseIndex => write!(f, "Invalid promise index given by WASM"),
@@ -242,6 +245,40 @@ impl Default for Config {
             max_stack_height: 64 * 1024,
             max_memory_pages: 16,
             gas_limit: 128 * 1024,
+        }
+    }
+}
+
+/// Context for the WASM contract execution.
+#[derive(Default, Clone, Debug)]
+pub struct RuntimeContext {
+    /// Initial balance is the balance of the account before the
+    /// received_amount is added.
+    pub initial_balance: Balance,
+    /// The amount sent by the Sender.
+    pub received_amount: Balance,
+    /// Sender's Account ID.
+    pub sender_id: AccountId,
+    /// Current Account ID.
+    pub account_id: AccountId,
+    /// Available mana for the execution by this contract.
+    pub mana: Mana,
+}
+
+impl RuntimeContext {
+    pub fn new(
+        initial_balance: Balance,
+        received_amount: Balance,
+        sender_id: AccountId,
+        account_id: AccountId,
+        mana: Mana,
+    ) -> RuntimeContext {
+        RuntimeContext {
+            initial_balance,
+            received_amount,
+            sender_id,
+            account_id,
+            mana,
         }
     }
 }
