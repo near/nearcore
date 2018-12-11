@@ -31,17 +31,17 @@ use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
+use network::service::get_multiaddr;
 use node_rpc::api::RpcImpl;
 use node_runtime::{Runtime, state_viewer::StateDbViewer};
 use parking_lot::{Mutex, RwLock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::SignedTransaction;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
-use network::service::get_multiaddr;
-use std::net::Ipv4Addr;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -57,6 +57,7 @@ pub fn start_service(
     base_path: &Path,
     chain_spec_path: Option<&Path>,
     p2p_port: Option<u16>,
+    rpc_port: Option<u16>,
     consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<BeaconChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
 ) {
     let mut builder = Builder::new();
@@ -88,7 +89,9 @@ pub fn start_service(
     let (receipts_tx, _receipts_rx) = channel(1024);
     let rpc_impl = RpcImpl::new(state_db_viewer, transactions_tx.clone());
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
-    let server = node_rpc::server::get_server(rpc_handler);
+    let rpc_port = rpc_port.unwrap_or(3030);
+    let rpc_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
+    let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
 
     // Create a task that consumes the consensuses and produces the beacon chain blocks.
     let signer = Arc::new(InMemorySigner::default());
@@ -181,7 +184,14 @@ pub fn run() {
                 .short("p")
                 .long("p2p_port")
                 .value_name("P2P_PORT")
-                .help("Sets a p2p protocol TCP port.")
+                .help("Sets the p2p protocol TCP port.")
+                .takes_value(true),
+        ).arg(
+           Arg::with_name("rpc_port")
+                .short("r")
+                .long("rpc_port")
+                .value_name("RPC_PORT")
+                .help("Sets the rpc protocol TCP port.")
                 .takes_value(true),
         ).get_matches();
 
@@ -195,10 +205,14 @@ pub fn run() {
     let p2p_port = matches.value_of("p2p_port")
         .map(|x| { x.parse::<u16>().unwrap() });
 
+    let rpc_port = matches.value_of("rpc_port")
+        .map(|x| { x.parse::<u16>().unwrap() });
+
     start_service(
         base_path,
         chain_spec_path,
         p2p_port,
+        rpc_port,
         &test_utils::create_passthrough_beacon_block_consensus_task,
     );
 }
