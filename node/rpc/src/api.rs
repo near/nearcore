@@ -1,6 +1,6 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
-use node_runtime::StateDbViewer;
+use node_runtime::state_viewer::StateDbViewer;
 use primitives::types::{
     DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
     SignedTransaction, StakeTransaction, TransactionBody, ViewCall,

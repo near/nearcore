@@ -39,7 +39,7 @@ use chain::Block;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{create_network_task, NetworkConfiguration, new_network_service};
 use node_rpc::api::RpcImpl;
-use node_runtime::{Runtime, StateDbViewer};
+use node_runtime::{Runtime, state_viewer::StateDbViewer};
 use primitives::signer::InMemorySigner;
 use primitives::types::SignedTransaction;
 use shard::{ShardBlock, ShardBlockChain};
