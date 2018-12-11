@@ -126,7 +126,6 @@ fn test_create_account() {
         .arg("create_account")
         .arg("eve")
         .arg("10")
-        .arg("")
         .arg("-d")
         .arg(KEY_STORE_PATH)
         .arg("-k")
