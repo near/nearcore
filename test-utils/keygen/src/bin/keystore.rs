@@ -33,7 +33,7 @@ fn sign_transaction(matches: &ArgMatches) {
         hash,
         body,
     };
-    println!("{}", serde_json::to_string(&transaction).unwrap());
+    print!("{}", serde_json::to_string(&transaction).unwrap());
 }
 
 fn generate_key(matches: &ArgMatches) {
@@ -45,7 +45,7 @@ fn get_public_key(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
     let public_key = None;
     let key_file = get_key_file(&key_store_path, public_key);
-    println!("{}", key_file.public_key);
+    print!("{}", key_file.public_key);
 }
 
 fn main() {

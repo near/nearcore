@@ -1,5 +1,6 @@
 use primitives::hash::bs58_format;
-use primitives::types::{AccountId, TransactionBody, Balance};
+use primitives::signature::{bs58_pub_key_format, PublicKey};
+use primitives::types::{AccountId, Balance, TransactionBody};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -25,7 +26,8 @@ pub struct DeployContractRequest {
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
-    pub public_key: Vec<u8>,
+    #[serde(with = "bs58_pub_key_format")]
+    pub public_key: PublicKey,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -36,7 +38,8 @@ pub struct CreateAccountRequest {
     #[serde(with = "bs58_format")]
     pub new_account_id: AccountId,
     pub amount: u64,
-    pub public_key: Vec<u8>
+    #[serde(with = "bs58_pub_key_format")]
+    pub public_key: PublicKey
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,8 +47,10 @@ pub struct SwapKeyRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]
     pub account: AccountId,
-    pub cur_key: Vec<u8>,
-    pub new_key: Vec<u8>,
+    #[serde(with = "bs58_pub_key_format")]
+    pub current_key: PublicKey,
+    #[serde(with = "bs58_pub_key_format")]
+    pub new_key: PublicKey,
 }
 
 #[derive(Serialize, Deserialize)]

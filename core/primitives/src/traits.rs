@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use bincode;
 use serde::{de::DeserializeOwned, Serialize};
 
 use hash::CryptoHash;

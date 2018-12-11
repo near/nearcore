@@ -155,7 +155,7 @@ class NearRPC(object):
             'nonce': nonce,
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
-            'public_key': list(bytearray(self._get_public_key())),
+            'public_key': self._get_public_key(),
         }
         self._update_nonce(sender)
         response = self._call_rpc('deploy_contract', params)
@@ -222,7 +222,7 @@ class NearRPC(object):
             'sender': _get_account_id(sender),
             'new_account_id': _get_account_id(account_alias),
             'amount': amount,
-            'public_key': list(bytearray(account_public_key))
+            'public_key': account_public_key,
         }
         self._update_nonce(sender)
         response = self._call_rpc('create_account', params)
@@ -231,15 +231,15 @@ class NearRPC(object):
     def swap_key(
         self,
         account,
-        cur_key,
+        current_key,
         new_key,
     ):
         nonce = self._get_nonce(account)
         params = {
             'nonce': nonce,
             'account': _get_account_id(account),
-            'cur_key': list(bytearray(cur_key)),
-            'new_key': list(bytearray(new_key))
+            'current_key': current_key,
+            'new_key': new_key,
         }
         self._update_nonce(account)
         response = self._call_rpc('swap_key', params)
@@ -418,13 +418,13 @@ swap_key                 {}
         """Swap key for an account"""
         parser = self._get_command_parser(self.swap_key.__doc__)
         self._add_transaction_args(parser)
-        parser.add_argument('cur_key', type=str)
+        parser.add_argument('current_key', type=str)
         parser.add_argument('new_key', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.swap_key(
             args.sender,
-            args.cur_key,
+            args.current_key,
             args.new_key,
         )
 
