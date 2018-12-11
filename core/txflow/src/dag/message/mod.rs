@@ -45,7 +45,7 @@ pub struct Message<'a, P: 'a + Payload> {
 
     // The following are the approved messages, grouped by different criteria.
     /// Epoch -> messages that have that epoch.
-    approved_epochs: GroupsPerEpoch<'a, P>,
+    pub approved_epochs: GroupsPerEpoch<'a, P>,
     /// Epoch -> a/all representatives of that epoch (supports forks).
     approved_representatives: GroupsPerEpoch<'a, P>,
     /// Epoch -> a/all kickouts of that epoch (supports forks).
@@ -195,6 +195,10 @@ impl<'a, P: Payload> Message<'a, P> {
         }
         self.approved_complete_epochs.union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
         self.approved_complete_epochs.union_update(&self.approved_promises.superapproved_messages(witness_selector));
+    }
+
+    pub fn approve(&self, message: &Message<'a, P>) -> bool{
+        self.approved_epochs.contains_message(message)
     }
 
     /// Determines the previous epoch of the current owner. Otherwise returns the starting_epoch.
