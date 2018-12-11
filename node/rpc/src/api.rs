@@ -3,14 +3,15 @@ use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::types::{
     DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
-    SignedTransaction, StakeTransaction, TransactionBody, ViewCall,
+    CreateAccountTransaction, SignedTransaction, StakeTransaction,
+    TransactionBody, ViewCall,
 };
 use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
     ScheduleFunctionCallRequest, SendMoneyRequest, StakeRequest,
-    ViewAccountRequest, ViewAccountResponse,
+    CreateAccountRequest, ViewAccountRequest, ViewAccountResponse,
 };
 
 build_rpc_trait! {
@@ -34,6 +35,13 @@ build_rpc_trait! {
         fn rpc_deploy_contract(
             &self,
             DeployContractRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
+
+        /// Create account.
+        #[rpc(name = "create_account")]
+        fn rpc_create_account(
+            &self,
+            CreateAccountRequest
         ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Call method on smart contract.
@@ -84,6 +92,20 @@ impl RpcImpl {
 }
 
 impl TransactionApi for RpcImpl {
+    fn rpc_create_account(
+        &self,
+        r: CreateAccountRequest
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        let body = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: r.nonce,
+            sender: r.sender,
+            receiver: r.receiver,
+            amount: r.amount,
+            public_key: r.public_key
+        });
+        Ok(PreparedTransactionBodyResponse { body })
+    }
+    
     fn rpc_deploy_contract(
         &self,
         r: DeployContractRequest,
