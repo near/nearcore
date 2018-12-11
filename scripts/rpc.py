@@ -3,41 +3,27 @@
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 
 try:
-    import requests
+    # py2
+    from urllib2 import urlopen, Request, HTTPError, URLError
 except ImportError:
-    import urllib
-    import urllib2
-    import json as json_lib
+    # py3
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError, URLError
 
 
-    def _post(url, json):
-        """This is alternative to requests.post"""
-        handler = urllib2.HTTPHandler()
-        opener = urllib2.build_opener(handler)
-        request = urllib2.Request(url, data=json_lib.dumps(json))
-        request.add_header('Content-Type', 'application/json')
-        try:
-            connection = opener.open(request)
-        except urllib2.HTTPError as e:
-            connection = e
-        if connection.code == 200:
-            data = connection.read()
-            return json_lib.loads(data)
-        else:
-            return {'error': connection}
-else:
-    import requests
+def _post(url, data):
+    request = Request(url, data=json.dumps(data).encode('utf-8'))
+    request.add_header('Content-Type', 'application/json')
+    connection = urlopen(request)
+    if connection.code == 200:
+        raw = connection.read()
+        return json.loads(raw)
 
-
-    def _post(url, json):
-        response = requests.post(url, json=json).json()
-        if 'error' in response:
-            raise Exception(response)
-        return response
 
 alphabet = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -72,7 +58,7 @@ def b58encode(v):
 
 def _get_account_id(account_alias):
     digest = hashlib.sha256(account_alias.encode('utf-8')).digest()
-    return b58encode(digest)
+    return b58encode(digest).decode('utf-8')
 
 
 class NearRPC(object):
@@ -109,7 +95,14 @@ class NearRPC(object):
             'method': method_name,
             'params': [params],
         }
-        return _post(self._server_url, data)['result']
+        try:
+            return _post(self._server_url, data)['result']
+        except URLError:
+            error = "Connection to {} refused. " \
+                    "To start RPC server at http://127.0.0.1:3030, run:\n" \
+                    "cargo run -p devnet"
+            print(error.format(self._server_url))
+            exit(1)
 
     def _sign_transaction_body(self, body):
         if self._keystore_binary is not None:
@@ -128,7 +121,8 @@ class NearRPC(object):
         if self._public_key is not None:
             args += ['--public-key', self._public_key]
 
-        output = subprocess.check_output(args)
+        null = open(os.devnull, 'w')
+        output = subprocess.check_output(args, stderr=null)
         return json.loads(output)
 
     def _handle_prepared_transaction_body_response(self, response):
@@ -142,8 +136,22 @@ class NearRPC(object):
             else:
                 args = 'cargo run -p keystore --'.split()
 
-            args += ['get_public_key']
-            self._public_key = subprocess.check_output(args)
+            args += ['get_public_key', '--keystore-path', self._keystore_path]
+
+            null = open(os.devnull, 'w')
+            process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
+            stdout = process.communicate()[0].decode('utf-8')
+            if process.returncode != 0:
+                sys.stdout.write(stdout)
+
+                if process.returncode == 3:
+                    _help = "To create, run:\ncargo run -p keystore " \
+                           "-- keygen -p {keystore_path}"
+                    print(_help.format(keystore_path=self._keystore_path))
+
+                exit(1)
+
+            self._public_key = stdout
         return self._public_key
 
     def deploy_contract(self, sender, contract_name, wasm_file):

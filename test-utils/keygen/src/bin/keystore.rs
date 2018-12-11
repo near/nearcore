@@ -89,7 +89,7 @@ fn main() {
     } else if let Some(sub) = matches.subcommand_matches("get_public_key") {
         get_public_key(sub);
     } else {
-        eprintln!("Incorrect usage. See usage with: keystore --help");
+        println!("Incorrect usage. See usage with: keystore --help");
         process::exit(1);
     }
 }
