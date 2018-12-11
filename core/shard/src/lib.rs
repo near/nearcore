@@ -41,6 +41,7 @@ pub struct ShardBlock {
 }
 
 impl Header for ShardBlockHeader {
+    #[inline]
     fn block_hash(&self) -> CryptoHash {
         self.hash
     }
@@ -80,6 +81,11 @@ impl ShardBlock {
 impl Block for ShardBlock {
     type Header = ShardBlockHeader;
 
+    #[inline]
+    fn block_hash(&self) -> CryptoHash {
+        self.hash
+    }
+
     fn header(&self) -> Self::Header {
         ShardBlockHeader {
             body: self.body.header.clone(),
@@ -88,10 +94,6 @@ impl Block for ShardBlock {
             authority_mask: self.authority_mask.clone(),
         }
 
-    }
-
-    fn block_hash(&self) -> CryptoHash {
-        self.hash
     }
 
     fn add_signature(&mut self, signature: PartialSignature) {

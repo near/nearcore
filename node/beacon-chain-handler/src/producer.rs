@@ -37,7 +37,7 @@ pub fn create_block_producer_task(
 }
 
 pub trait ConsensusHandler<B: Block, P>: Send + Sync {
-    fn produce_block(&self, body: ConsensusBlockBody<P>) -> B;
+    fn produce_block(&self, body: ConsensusBlockBody<P>);
 }
 
 pub struct BlockProducer {
@@ -70,7 +70,7 @@ pub type ShardChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
 
 impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BlockProducer {
-    fn produce_block(&self, body: ChainConsensusBlockBody) -> BeaconBlock {
+    fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
         let transactions = body.messages.iter()
             .flat_map(|message| message.body.payload.0.clone())
@@ -111,6 +111,5 @@ impl ConsensusHandler<BeaconBlock, ShardChainPayload> for BlockProducer {
         self.shard_chain.insert_block(shard_block.clone());
         self.beacon_chain.insert_block(block.clone());
         info!(target: "block_producer", "Block body: {:?}", block.body);
-        block
     }
 }

@@ -57,8 +57,8 @@ pub struct BlockChain<B: Block> {
     storage: Arc<Storage>,
     /// Genesis hash
     pub genesis_hash: CryptoHash,
-    /// Best block key of current blockchain.
-    best_block_key: Vec<u8>,
+    /// Best block key of current blockchain. Key length is CryptoHash length + "best" bytes.
+    best_block_key: [u8; 36],
     /// Tip of the known chain.
     best_block: RwLock<B>,
     /// Headers indexed by hash
@@ -111,7 +111,9 @@ fn read_with_cache<T: Clone + Decode>(
 impl<B: Block> BlockChain<B> {
     pub fn new(genesis: B, storage: Arc<Storage>) -> Self {
         let genesis_hash = genesis.block_hash();
-        let best_block_key = genesis_hash.as_ref().iter().chain(BLOCKCHAIN_BEST_BLOCK).cloned().collect();
+        let mut best_block_key = [0; 36];
+        best_block_key[..32].copy_from_slice(genesis_hash.as_ref());
+        best_block_key[33..36].copy_from_slice(BLOCKCHAIN_BEST_BLOCK);
         let bc = BlockChain {
             storage,
             genesis_hash,

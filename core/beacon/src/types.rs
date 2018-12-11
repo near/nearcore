@@ -45,6 +45,7 @@ pub struct BeaconBlock {
 }
 
 impl Header for BeaconBlockHeader {
+    #[inline]
     fn block_hash(&self) -> CryptoHash {
         self.hash
     }
@@ -97,6 +98,7 @@ impl Block for BeaconBlock {
         }
     }
 
+    #[inline]
     fn block_hash(&self) -> CryptoHash {
         self.hash
     }
