@@ -87,6 +87,9 @@ $ ./scripts/rpc.py send_money -r bob -a 1
 
 # View state for Bob's account
 ./scripts/rpc.py view_account -a bob
+
+# Create an account
+./scripts/rpc.py create_account cindy 1
 ```
 
 ## Development

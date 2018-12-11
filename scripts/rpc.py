@@ -86,8 +86,11 @@ class NearRPC(object):
         self._server_url = server_url
         self._keystore_binary = keystore_binary
         self._keystore_path = keystore_path
-        self._public_key = public_key
         self._nonces = {}
+
+        # This may be None, use 'self._get_public_key' in order
+        # to check against the keystore
+        self._public_key = public_key
 
     def _get_nonce(self, sender):
         if sender not in self._nonces:
@@ -132,6 +135,17 @@ class NearRPC(object):
         signed_transaction = self._sign_transaction_body(response['body'])
         return self._call_rpc('submit_transaction', signed_transaction)
 
+    def _get_public_key(self):
+        if self._public_key is None:
+            if self._keystore_binary is not None:
+                args = [self._keystore_binary]
+            else:
+                args = 'cargo run -p keystore --'.split()
+
+            args += ['get_public_key']
+            self._public_key = subprocess.check_output(args)
+        return self._public_key
+
     def deploy_contract(self, sender, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
             wasm_byte_array = list(bytearray(f.read()))
@@ -141,7 +155,7 @@ class NearRPC(object):
             'nonce': nonce,
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
-            'public_key': list(bytearray(self._public_key)),
+            'public_key': list(bytearray(self._get_public_key())),
         }
         self._update_nonce(sender)
         response = self._call_rpc('deploy_contract', params)
@@ -195,20 +209,20 @@ class NearRPC(object):
     def create_account(
         self,
         sender,
-        new_account_id,
+        account_alias,
         amount,
-        pub_key
+        account_public_key,
     ):
-        if not pub_key:
-            pub_key = self._public_key
+        if not account_public_key:
+            account_public_key = self._get_public_key()
 
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
             'sender': _get_account_id(sender),
-            'new_account_id': _get_account_id(new_account_id),
+            'new_account_id': _get_account_id(account_alias),
             'amount': amount,
-            'public_key': list(bytearray(pub_key))
+            'public_key': list(bytearray(account_public_key))
         }
         self._update_nonce(sender)
         response = self._call_rpc('create_account', params)
@@ -218,7 +232,7 @@ class NearRPC(object):
         self,
         account,
         cur_key,
-        new_key
+        new_key,
     ):
         nonce = self._get_nonce(account)
         params = {
@@ -388,16 +402,16 @@ swap_key                 {}
         """Create an account"""
         parser = self._get_command_parser(self.create_account.__doc__)
         self._add_transaction_args(parser)
-        parser.add_argument('new_account_id', type=str)
+        parser.add_argument('account_alias', type=str)
         parser.add_argument('amount', type=int)
-        parser.add_argument('public_key', type=str)
+        parser.add_argument('--account_public-key', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.create_account(
             args.sender,
-            args.new_account_id,
+            args.account_alias,
             args.amount,
-            args.public_key
+            args.account_public_key,
         )
 
     def swap_key(self):
@@ -411,7 +425,7 @@ swap_key                 {}
         return client.swap_key(
             args.sender,
             args.cur_key,
-            args.new_key
+            args.new_key,
         )
 
     def schedule_function_call(self):
