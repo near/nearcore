@@ -105,9 +105,9 @@ pub struct SendMoneyTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
-    pub owner: AccountId,
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -119,6 +119,25 @@ pub struct FunctionCallTransaction {
     pub args: Vec<u8>,
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct CreateAccountTransaction {
+    pub nonce: u64,
+    pub sender: AccountId,
+    pub new_account_id: AccountId,
+    pub amount: u64,
+    pub public_key: Vec<u8>,
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct SwapKeyTransaction {
+    pub nonce: u64,
+    pub sender: AccountId,
+    // current key to the account.
+    // sender must sign the transaction with this key
+    pub cur_key: Vec<u8>,
+    pub new_key: Vec<u8>,
+}
+
 /// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum TransactionBody {
@@ -126,6 +145,8 @@ pub enum TransactionBody {
     SendMoney(SendMoneyTransaction),
     DeployContract(DeployContractTransaction),
     FunctionCall(FunctionCallTransaction),
+    CreateAccount(CreateAccountTransaction),
+    SwapKey(SwapKeyTransaction),
 }
 
 impl TransactionBody {
@@ -135,6 +156,8 @@ impl TransactionBody {
             TransactionBody::SendMoney(t) => t.nonce,
             TransactionBody::DeployContract(t) => t.nonce,
             TransactionBody::FunctionCall(t) => t.nonce,
+            TransactionBody::CreateAccount(t) => t.nonce,
+            TransactionBody::SwapKey(t) => t.nonce,
         }
     }
 
@@ -142,8 +165,10 @@ impl TransactionBody {
         match self {
             TransactionBody::Stake(t) => t.staker,
             TransactionBody::SendMoney(t) => t.sender,
-            TransactionBody::DeployContract(t) => t.owner,
+            TransactionBody::DeployContract(t) => t.contract_id,
             TransactionBody::FunctionCall(t) => t.originator,
+            TransactionBody::CreateAccount(t) => t.sender,
+            TransactionBody::SwapKey(t) => t.sender,
         }
     }
 }
@@ -330,7 +355,7 @@ pub enum MerkleStateNode {
 #[derive(Hash, Debug)]
 pub enum MerkleSignedTransactionNode {
     Hash(MerkleHash),
-    SignedTransaction(SignedTransaction),
+    SignedTransaction(Box<SignedTransaction>),
 }
 
 #[derive(Hash, Debug)]

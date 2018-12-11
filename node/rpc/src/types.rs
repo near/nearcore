@@ -23,10 +23,29 @@ pub struct StakeRequest {
 pub struct DeployContractRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]
-    pub owner_account_id: AccountId,
-    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
+    pub public_key: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateAccountRequest {
+    pub nonce: u64,
+    #[serde(with = "bs58_format")]
+    pub sender: AccountId,
+    #[serde(with = "bs58_format")]
+    pub new_account_id: AccountId,
+    pub amount: u64,
+    pub public_key: Vec<u8>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SwapKeyRequest {
+    pub nonce: u64,
+    #[serde(with = "bs58_format")]
+    pub account: AccountId,
+    pub cur_key: Vec<u8>,
+    pub new_key: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]

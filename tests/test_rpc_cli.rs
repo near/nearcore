@@ -118,3 +118,40 @@ fn test_call_view_function() {
     let result = check_result(&output);
     let _: CallViewFunctionResponse = serde_json::from_str(&result).unwrap();
 }
+
+#[test]
+fn test_create_account() {
+    if !*DEVNET_STARTED { panic!() }
+    let output = Command::new("./scripts/rpc.py")
+        .arg("create_account")
+        .arg("eve")
+        .arg("10")
+        .arg("")
+        .arg("-d")
+        .arg(KEY_STORE_PATH)
+        .arg("-k")
+        .arg(&*PUBLIC_KEY)
+        .output()
+        .expect("create_account command failed to process");
+    let result = check_result(&output);
+    let data: Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(data, Value::Null);
+}
+
+#[test]
+fn test_swap_key() {
+    if !*DEVNET_STARTED { panic!() }
+    let output = Command::new("./scripts/rpc.py")
+        .arg("swap_key")
+        .arg(&*PUBLIC_KEY)
+        .arg(&*PUBLIC_KEY)
+        .arg("-d")
+        .arg(KEY_STORE_PATH)
+        .arg("-k")
+        .arg(&*PUBLIC_KEY)
+        .output()
+        .expect("swap key command failed to process");
+    let result = check_result(&output);
+    let data: Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(data, Value::Null);
+}
