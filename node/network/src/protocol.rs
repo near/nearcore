@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 
 use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
-use message::{self, Message, MessageBody};
+use message::{self, Message};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
@@ -109,7 +109,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
         let status = message::Status::default();
-        let message: Message<_, Header> = Message::new(MessageBody::Status(status));
+        let message: Message<_, Header> = Message::Status(status);
         self.send_message(peer, message);
     }
 
@@ -161,7 +161,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                 max: None,
             };
             next_request_id += 1;
-            let message = Message::new(MessageBody::BlockRequest(request));
+            let message = Message::BlockRequest(request);
             self.send_message(peer, message);
         }
 
@@ -205,7 +205,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             id = BlockId::Number(block_index);
         }
         let response = message::BlockResponse { id: request.id, blocks };
-        let message = Message::new(MessageBody::BlockResponse(response));
+        let message = Message::BlockResponse(response);
         self.send_message(peer, message);
     }
 
@@ -237,18 +237,18 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         let message: Message<B, Header> = Decode::decode(data)
             .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
-        match message.body {
-            MessageBody::Transaction(tx) => {
+        match message {
+            Message::Transaction(tx) => {
                 self.on_transaction_message(*tx);
             },
-            MessageBody::Receipt(receipt) => {
+            Message::Receipt(receipt) => {
                 self.on_receipt_message(*receipt);
             },
-            MessageBody::Status(status) => {
+            Message::Status(status) => {
                 self.on_status_message(peer, &status)?;
             },
-            MessageBody::BlockRequest(request) => self.on_block_request(peer, request),
-            MessageBody::BlockResponse(response) => {
+            Message::BlockRequest(request) => self.on_block_request(peer, request),
+            Message::BlockResponse(response) => {
                 let request = {
                     let mut peers = self.peer_info.write();
                     let mut peer_info = peers.get_mut(&peer)
@@ -262,7 +262,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                 }
                 self.on_block_response(peer, response);
             },
-            MessageBody::BlockAnnounce(ann) => {
+            Message::BlockAnnounce(ann) => {
                 debug!(target: "sync", "receive block announcement: {:?}", ann);
                 // header is actually block for now
                 match ann {
