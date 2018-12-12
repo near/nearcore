@@ -12,7 +12,7 @@ pub fn spawn_pasthrough_consensus(
 ) {
     let task =
         transactions_rx
-            .fold(consensus_tx.clone(), |consensus_tx, t| {
+            .fold(consensus_tx, |consensus_tx, t| {
                 let message: SignedMessageData<BeaconChainPayload> = SignedMessageData {
                     owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     hash: 0,                      // Compute real hash
