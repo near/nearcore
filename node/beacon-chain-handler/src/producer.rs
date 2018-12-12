@@ -67,10 +67,10 @@ impl BlockProducer {
     }
 }
 
-pub type BeaconChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
-pub type ChainConsensusBlockBody = ConsensusBlockBody<BeaconChainPayload>;
+pub type ShardChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
+pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
 
-impl ConsensusHandler<SignedBeaconBlock, BeaconChainPayload> for BlockProducer {
+impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
     fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
         let transactions = body.messages.iter()

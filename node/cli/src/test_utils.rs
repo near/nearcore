@@ -1,4 +1,4 @@
-use beacon_chain_handler::producer::{ChainConsensusBlockBody, BeaconChainPayload};
+use beacon_chain_handler::producer::{ChainConsensusBlockBody, ShardChainPayload};
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
@@ -13,7 +13,7 @@ pub fn spawn_pasthrough_consensus(
     let task =
         transactions_rx
             .fold(consensus_tx, |consensus_tx, t| {
-                let message: SignedMessageData<BeaconChainPayload> = SignedMessageData {
+                let message: SignedMessageData<ShardChainPayload> = SignedMessageData {
                     owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     hash: 0,                      // Compute real hash
                     body: MessageDataBody {
