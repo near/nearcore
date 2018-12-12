@@ -18,7 +18,7 @@ use tokio::timer::Interval;
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::{SignedBlock, SignedHeader};
 use error::Error;
-use message::{Message, MessageBody};
+use message::Message;
 use primitives::hash::CryptoHash;
 use primitives::traits::GenericResult;
 use primitives::types;
@@ -68,9 +68,9 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<SignedBeaconBlock, SignedBeaconBlockHeader> {
+pub fn fake_tx_message() -> Message<SignedBeaconBlock, SignedBeaconBlockHeader, types::BeaconChainPayload> {
     let tx = types::SignedTransaction::empty();
-    Message::new(MessageBody::Transaction(Box::new(tx)))
+    Message::Transaction(Box::new(tx))
 }
 
 pub fn init_logger(debug: bool) {

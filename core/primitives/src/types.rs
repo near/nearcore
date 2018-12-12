@@ -4,6 +4,7 @@ use signature::DEFAULT_SIGNATURE;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::collections::HashSet;
+use ::traits::Payload;
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -378,18 +379,38 @@ pub type TxFlowHash = u64;
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
-#[derive(Hash, Debug, Clone)]
+#[derive(Hash, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Endorsement {
     pub epoch: u64,
     pub signature: MultiSignature,
 }
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct BeaconChainPayload {
     pub body: Vec<SignedTransaction>,
 }
 
-#[derive(Debug, Clone)]
+impl Payload for BeaconChainPayload {
+    fn verify(&self) -> Result<(), &'static str> {
+        Ok(())
+    }
+
+    fn union_update(&mut self, mut other: Self) {
+        self.body.extend(other.body.drain(..));
+    }
+
+    fn is_empty(&self) -> bool {
+        self.body.is_empty()
+    }
+
+    fn new() -> Self {
+        Self {
+            body: vec![]
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: UID,
@@ -414,7 +435,23 @@ impl<P: Hash> Hash for MessageDataBody<P> {
     }
 }
 
-#[derive(Debug, Clone)]
+impl<P: Hash> PartialEq for MessageDataBody<P> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut parents: Vec<_> = self.parents.clone().into_iter().collect();
+        parents.sort();
+
+        let mut other_parents: Vec<_> = other.parents.clone().into_iter().collect();
+        other_parents.sort();
+
+        self.owner_uid == other.owner_uid
+            && self.epoch  == other.epoch
+            && parents == other_parents
+    }
+}
+
+impl<P: Hash> Eq for MessageDataBody<P> {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedMessageData<P> {
     /// Signature of the hash.
     pub owner_sig: StructSignature,
@@ -443,20 +480,20 @@ impl<P> PartialEq for SignedMessageData<P> {
 
 impl<P> Eq for SignedMessageData<P> {}
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConsensusBlockHeader {
     pub body_hash: CryptoHash,
     pub prev_block_body_hash: CryptoHash,
 }
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConsensusBlockBody<P> {
     /// TxFlow messages that constitute that consensus block together with the endorsements.
     pub messages: Vec<SignedMessageData<P>>,
 }
 
 // 4.2 Gossip-specific structs.
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GossipBody<P> {
     /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
     Unsolicited(SignedMessageData<P>),
@@ -469,7 +506,7 @@ pub enum GossipBody<P> {
 }
 
 /// A single unit of communication between the TxFlow participants.
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Gossip<P> {
     pub sender_uid: UID,
     pub receiver_uid: UID,

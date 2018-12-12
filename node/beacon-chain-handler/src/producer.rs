@@ -15,14 +15,14 @@ use primitives::types::ConsensusBlockBody;
 use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
 
-pub fn create_block_producer_task(
+pub fn spawn_block_producer(
     beacon_chain: Arc<BeaconBlockChain>,
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
     receiver: Receiver<ChainConsensusBlockBody>
-) -> impl Future<Item = (), Error = ()> {
+) {
     let beacon_block_producer = BlockProducer::new(
         beacon_chain,
         shard_chain,
@@ -30,10 +30,11 @@ pub fn create_block_producer_task(
         signer,
         state_db,
     );
-    receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
+    let task = receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
         beacon_block_producer.produce_block(body);
         future::ok(beacon_block_producer)
-    }).and_then(|_| Ok(()))
+    }).and_then(|_| Ok(()));
+    tokio::spawn(task);
 }
 
 pub trait ConsensusHandler<B: SignedBlock, P>: Send + Sync {

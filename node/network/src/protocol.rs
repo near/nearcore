@@ -8,9 +8,9 @@ use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 
 use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
-use message::{self, Message, MessageBody};
+use message::{self, Message};
 use primitives::hash::CryptoHash;
-use primitives::traits::Decode;
+use primitives::traits::{Decode, Payload};
 use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
 use test_utils;
 
@@ -66,7 +66,7 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
+pub struct Protocol<B: SignedBlock, Header: BlockHeader, P> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -82,16 +82,16 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     /// Channel into which the protocol sends the received receipts.
     receipt_sender: Sender<ReceiptTransaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
-    message_sender: Sender<(NodeIndex, Message<B, Header>)>,
+    message_sender: Sender<(NodeIndex, Message<B, Header, P>)>,
 }
 
-impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
+impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
     pub fn new(config: ProtocolConfig,
                chain: Arc<BlockChain<B>>,
                block_sender: Sender<B>,
                transaction_sender: Sender<SignedTransaction>,
                receipt_sender: Sender<ReceiptTransaction>,
-               message_sender: Sender<(NodeIndex, Message<B, Header>)>,
+               message_sender: Sender<(NodeIndex, Message<B, Header, P>)>,
     ) -> Self {
         Self {
             config,
@@ -109,7 +109,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         // use this placeholder for now. Change this when block storage is ready
         let status = message::Status::default();
-        let message: Message<_, Header> = Message::new(MessageBody::Status(status));
+        let message = Message::Status(status);
         self.send_message(peer, message);
     }
 
@@ -161,7 +161,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                 max: None,
             };
             next_request_id += 1;
-            let message = Message::new(MessageBody::BlockRequest(request));
+            let message = Message::BlockRequest(request);
             self.send_message(peer, message);
         }
 
@@ -205,7 +205,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             id = BlockId::Number(block_index);
         }
         let response = message::BlockResponse { id: request.id, blocks };
-        let message = Message::new(MessageBody::BlockResponse(response));
+        let message = Message::BlockResponse(response);
         self.send_message(peer, message);
     }
 
@@ -234,21 +234,21 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     }
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
-        let message: Message<B, Header> = Decode::decode(data)
+        let message: Message<B, Header, P> = Decode::decode(data)
             .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
-        match message.body {
-            MessageBody::Transaction(tx) => {
+        match message {
+            Message::Transaction(tx) => {
                 self.on_transaction_message(*tx);
             },
-            MessageBody::Receipt(receipt) => {
+            Message::Receipt(receipt) => {
                 self.on_receipt_message(*receipt);
             },
-            MessageBody::Status(status) => {
+            Message::Status(status) => {
                 self.on_status_message(peer, &status)?;
             },
-            MessageBody::BlockRequest(request) => self.on_block_request(peer, request),
-            MessageBody::BlockResponse(response) => {
+            Message::BlockRequest(request) => self.on_block_request(peer, request),
+            Message::BlockResponse(response) => {
                 let request = {
                     let mut peers = self.peer_info.write();
                     let mut peer_info = peers.get_mut(&peer)
@@ -262,7 +262,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                 }
                 self.on_block_response(peer, response);
             },
-            MessageBody::BlockAnnounce(ann) => {
+            Message::BlockAnnounce(ann) => {
                 debug!(target: "sync", "receive block announcement: {:?}", ann);
                 // header is actually block for now
                 match ann {
@@ -272,11 +272,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                     _ => unimplemented!(),
                 }
             },
+            Message::Gossip(_) => {},
         }
         Ok(())
     }
 
-    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header>) {
+    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header, P>) {
         let copied_tx = self.message_sender.clone();
         tokio::spawn(
             copied_tx

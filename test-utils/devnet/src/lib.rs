@@ -8,6 +8,6 @@ pub fn start_devnet() {
     node_cli::start_service(
         base_path,
         chain_spec_path,
-        &node_cli::test_utils::create_passthrough_beacon_block_consensus_task,
+        node_cli::test_utils::spawn_pasthrough_consensus,
     );
 }
