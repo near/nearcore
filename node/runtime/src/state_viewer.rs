@@ -1,39 +1,40 @@
 use std::sync::Arc;
-use primitives::traits::Block;
-use primitives::types::{ViewCall, ViewCallResult, MerkleHash};
+
+use primitives::types::{MerkleHash, ViewCall, ViewCallResult};
 use primitives::utils::concat;
-use chain::BlockChain;
-use beacon::types::BeaconBlock;
+use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::types::ReturnData;
-use super::{RuntimeData, RuntimeExt, Account, get, account_id_to_bytes, RUNTIME_DATA};
+use wasm::types::{RuntimeContext, ReturnData};
+
+use super::{Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, RuntimeExt};
 
 pub struct StateDbViewer {
-    beacon_chain: Arc<BlockChain<BeaconBlock>>,
+    shard_chain: Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
 }
 
 impl StateDbViewer {
-    pub fn new(beacon_chain: Arc<BlockChain<BeaconBlock>>, state_db: Arc<StateDb>) -> Self {
+    pub fn new(shard_chain: Arc<ShardBlockChain>, state_db: Arc<StateDb>) -> Self {
         StateDbViewer {
-            beacon_chain,
+            shard_chain,
             state_db,
         }
     }
 
     pub fn get_root(&self) -> MerkleHash {
-        self.beacon_chain.best_block().header().body.merkle_root_state
+        self.shard_chain.best_block().body.header.merkle_root_state
     }
 
     pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
-        let root = self.beacon_chain.best_block().header().body.merkle_root_state;
+        let root = self.get_root();
         self.view_at(view_call, root)
     }
 
     pub fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> ViewCallResult {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).expect("Runtime data is missing");
+        // TODO(#172): Distinguish sender and receiver accounts.
         match get::<Account>(&mut state_update, &account_id_to_bytes(view_call.account)) {
             Some(account) => {
                 let mut result = vec![];
@@ -46,7 +47,13 @@ impl StateDbViewer {
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
-                        0,
+                        &RuntimeContext::new(
+                            account.amount,
+                            0,
+                            view_call.account,
+                            view_call.account,
+                            0,
+                        ),
                     );
                     match wasm_res {
                         Ok(res) => {
@@ -84,9 +91,10 @@ impl StateDbViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use test_utils::{get_test_state_db_viewer, encode_int};
     use primitives::hash::hash;
+    use test_utils::{encode_int, get_test_state_db_viewer};
+
+    use super::*;
 
     #[test]
     fn test_view_call() {

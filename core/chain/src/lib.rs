@@ -1,31 +1,68 @@
 extern crate parking_lot;
 extern crate primitives;
+extern crate serde;
 extern crate storage;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use serde::{de::DeserializeOwned, Serialize};
 
 use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Encode, Header};
-use primitives::types::BlockId;
+use primitives::traits::{Decode, Encode, Signer};
+use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
 use storage::Storage;
 
-const BLOCKCHAIN_GENESIS_BLOCK: &[u8] = b"genesis";
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
+/// Trait that abstracts ``Header"
+pub trait SignedHeader: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
+{
+    /// Returns hash of the block body.
+    fn block_hash(&self) -> CryptoHash;
+
+    /// Returns block index.
+    fn index(&self) -> u64;
+
+    /// Returns hash of parent block.
+    fn parent_hash(&self) -> CryptoHash;
+}
+
+/// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
+/// and shard-chain blocks.
+pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
+    type SignedHeader: SignedHeader;
+
+    /// Returns signed header for given block.
+    fn header(&self) -> Self::SignedHeader;
+
+    /// Returns hash of the block body.
+    fn block_hash(&self) -> CryptoHash;
+
+    /// Signs this block with given signer and returns part of multi signature.
+    fn sign(&self, signer: Arc<Signer>) -> PartialSignature {
+        signer.sign(&self.block_hash())
+    }
+
+    /// Add signature to multi sign.
+    fn add_signature(&mut self, signature: PartialSignature);
+}
+
 /// General BlockChain container.
-pub struct BlockChain<B: Block> {
+pub struct BlockChain<B: SignedBlock> {
     /// Storage backend.
     storage: Arc<Storage>,
     /// Genesis hash
     pub genesis_hash: CryptoHash,
+    /// Best block key of current blockchain. Key length is CryptoHash length + "best" bytes.
+    best_block_key: [u8; 36],
     /// Tip of the known chain.
     best_block: RwLock<B>,
     /// Headers indexed by hash
-    headers: RwLock<HashMap<Vec<u8>, B::Header>>,
+    headers: RwLock<HashMap<Vec<u8>, B::SignedHeader>>,
     /// Blocks indexed by hash
     blocks: RwLock<HashMap<Vec<u8>, B>>,
     /// Maps block index to hash.
@@ -71,26 +108,24 @@ fn read_with_cache<T: Clone + Decode>(
     }
 }
 
-impl<B: Block> BlockChain<B> {
+impl<B: SignedBlock> BlockChain<B> {
     pub fn new(genesis: B, storage: Arc<Storage>) -> Self {
-        let genesis_hash = genesis.header_hash();
+        let genesis_hash = genesis.block_hash();
+        let mut best_block_key = [0; 36];
+        best_block_key[..32].copy_from_slice(genesis_hash.as_ref());
+        best_block_key[32..].copy_from_slice(BLOCKCHAIN_BEST_BLOCK);
         let bc = BlockChain {
             storage,
             genesis_hash,
+            best_block_key,
             best_block: RwLock::new(genesis.clone()),
             headers: RwLock::new(HashMap::new()),
             blocks: RwLock::new(HashMap::new()),
             index_to_hash: RwLock::new(HashMap::new()),
         };
 
-        // Check if blockchain is the same / exists.
-        assert!(match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_GENESIS_BLOCK) {
-            Ok(Some(old_genesis)) => CryptoHash::new(old_genesis.as_ref()) == genesis_hash,
-            _ => true,
-        }, "Storage contains different genesis block. Either specify different storage path or clear current staorge.");
-
         // Load best block hash from storage.
-        let best_block_hash = match bc.storage.get(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK) {
+        let best_block_hash = match bc.storage.get(storage::COL_EXTRA, &bc.best_block_key) {
             Ok(Some(best_hash)) => CryptoHash::new(best_hash.as_ref()),
             _ => {
                 // Insert genesis block into cache.
@@ -127,18 +162,18 @@ impl<B: Block> BlockChain<B> {
     }
 
     fn update_best_block(&self, block: B) {
-        let block_hash = block.header_hash();
+        let block_hash = block.block_hash();
         let mut best_block = self.best_block.write();
         *best_block = block;
         let mut db_transaction = self.storage.transaction();
-        db_transaction.put(storage::COL_EXTRA, BLOCKCHAIN_BEST_BLOCK, block_hash.as_ref());
+        db_transaction.put(storage::COL_EXTRA, &self.best_block_key, block_hash.as_ref());
         self.storage.write(db_transaction).expect("Database write failed");
     }
 
     /// Inserts a verified block.
     /// Returns true if block is disconnected.
     pub fn insert_block(&self, block: B) -> bool {
-        let block_hash = block.header_hash();
+        let block_hash = block.block_hash();
         if self.is_known(&block_hash) {
             // TODO: known header but not known block.
             return false;
@@ -199,61 +234,16 @@ impl<B: Block> BlockChain<B> {
         }
     }
 
-    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::Header> {
+    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<B::SignedHeader> {
         read_with_cache(&self.storage, storage::COL_HEADERS, &self.headers, block_hash.as_ref())
     }
 
-    pub fn get_header(&self, id: &BlockId) -> Option<B::Header> {
+    pub fn get_header(&self, id: &BlockId) -> Option<B::SignedHeader> {
         match id {
             BlockId::Number(num) => {
                 self.get_block_header_by_hash(&self.get_block_hash_by_index(*num)?)
             }
             BlockId::Hash(hash) => self.get_block_header_by_hash(hash),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate beacon;
-
-    use std::sync::Arc;
-
-    use primitives::traits::Header;
-    use primitives::types::MerkleHash;
-    use storage::test_utils::create_memory_db;
-    use tests::beacon::types::BeaconBlock;
-
-    use super::*;
-
-    #[test]
-    fn test_genesis() {
-        let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(
-            0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]
-        );
-        let bc = BlockChain::new(genesis.clone(), storage);
-        assert_eq!(bc.get_block(&BlockId::Hash(genesis.header_hash())).unwrap(), genesis);
-        assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
-    }
-
-    #[test]
-    fn test_restart_chain() {
-        let storage = Arc::new(create_memory_db());
-        let genesis = BeaconBlock::new(
-            0, CryptoHash::default(), MerkleHash::default(), vec![], vec![]
-        );
-        let bc = BlockChain::new(genesis.clone(), storage.clone());
-        let block1 = BeaconBlock::new(
-            1, genesis.header_hash(), MerkleHash::default(), vec![], vec![]
-        );
-        assert_eq!(bc.insert_block(block1.clone()), false);
-        assert_eq!(bc.best_block().header_hash(), block1.header_hash());
-        assert_eq!(bc.best_block().header().index(), 1);
-        // Create new BlockChain that reads from the same storage.
-        let other_bc = BlockChain::new(genesis.clone(), storage.clone());
-        assert_eq!(other_bc.best_block().header_hash(), block1.header_hash());
-        assert_eq!(other_bc.best_block().header().index(), 1);
-        assert_eq!(other_bc.get_block(&BlockId::Hash(block1.header_hash())).unwrap(), block1);
     }
 }

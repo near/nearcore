@@ -1,20 +1,22 @@
-use futures::{Future, stream, Stream};
-use futures::sync::mpsc::Receiver;
-use message::Message;
-use parking_lot::Mutex;
-use primitives::traits::{Block, Encode, Header as BlockHeader};
-use protocol::{self, Protocol, ProtocolConfig};
 use std::iter;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
+
+use futures::{Future, stream, Stream};
+use futures::sync::mpsc::Receiver;
+use parking_lot::Mutex;
 use substrate_network_libp2p::{
-    NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
-    Service as NetworkService, ServiceEvent, Severity, start_service,
+    Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
+    Service as NetworkService, ServiceEvent, Severity, start_service
 };
-use substrate_network_libp2p::Multiaddr;
 pub use substrate_network_libp2p::NetworkConfiguration;
 use tokio::timer::Interval;
+
+use chain::{SignedBlock, SignedHeader as BlockHeader};
+use message::Message;
+use primitives::traits::Encode;
+use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -32,7 +34,7 @@ pub fn create_network_task<B, Header>(
 ) -> (Box<impl Future<Item=(), Error=()>>,
       Box<impl Future<Item=(), Error=()>>)
 where
-    B: Block,
+    B: SignedBlock,
     Header: BlockHeader,
 {
     let protocol = Arc::new(protocol_);

@@ -19,8 +19,12 @@ pub type AccountId = CryptoHash;
 pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
-/// Part of the BLS signature.
-pub type BLSSignature = Signature;
+/// Mask which authorities participated in multi sign.
+pub type AuthorityMask = Vec<bool>;
+/// Part of the signature.
+pub type PartialSignature = Signature;
+/// Whole multi signature.
+pub type MultiSignature = Vec<Signature>;
 /// Monetary balance of an account or an amount for transfer.
 pub type Balance = u64;
 /// MANA points for async calls and callbacks.
@@ -105,9 +109,9 @@ pub struct SendMoneyTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
-    pub owner: AccountId,
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -119,6 +123,25 @@ pub struct FunctionCallTransaction {
     pub args: Vec<u8>,
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct CreateAccountTransaction {
+    pub nonce: u64,
+    pub sender: AccountId,
+    pub new_account_id: AccountId,
+    pub amount: u64,
+    pub public_key: Vec<u8>,
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct SwapKeyTransaction {
+    pub nonce: u64,
+    pub sender: AccountId,
+    // current key to the account.
+    // sender must sign the transaction with this key
+    pub cur_key: Vec<u8>,
+    pub new_key: Vec<u8>,
+}
+
 /// TODO: Call non-view function in the contracts.
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum TransactionBody {
@@ -126,6 +149,8 @@ pub enum TransactionBody {
     SendMoney(SendMoneyTransaction),
     DeployContract(DeployContractTransaction),
     FunctionCall(FunctionCallTransaction),
+    CreateAccount(CreateAccountTransaction),
+    SwapKey(SwapKeyTransaction),
 }
 
 impl TransactionBody {
@@ -135,6 +160,8 @@ impl TransactionBody {
             TransactionBody::SendMoney(t) => t.nonce,
             TransactionBody::DeployContract(t) => t.nonce,
             TransactionBody::FunctionCall(t) => t.nonce,
+            TransactionBody::CreateAccount(t) => t.nonce,
+            TransactionBody::SwapKey(t) => t.nonce,
         }
     }
 
@@ -142,8 +169,10 @@ impl TransactionBody {
         match self {
             TransactionBody::Stake(t) => t.staker,
             TransactionBody::SendMoney(t) => t.sender,
-            TransactionBody::DeployContract(t) => t.owner,
+            TransactionBody::DeployContract(t) => t.contract_id,
             TransactionBody::FunctionCall(t) => t.originator,
+            TransactionBody::CreateAccount(t) => t.sender,
+            TransactionBody::SwapKey(t) => t.sender,
         }
     }
 }
@@ -310,7 +339,7 @@ pub struct EpochBlockHeader {
 
 #[derive(Hash, Debug)]
 pub struct SignedEpochBlockHeader {
-    pub bls_sig: BLSSignature,
+    pub bls_sig: MultiSignature,
     pub epoch_block_header: EpochBlockHeader,
 }
 
@@ -330,7 +359,7 @@ pub enum MerkleStateNode {
 #[derive(Hash, Debug)]
 pub enum MerkleSignedTransactionNode {
     Hash(MerkleHash),
-    SignedTransaction(SignedTransaction),
+    SignedTransaction(Box<SignedTransaction>),
 }
 
 #[derive(Hash, Debug)]
@@ -352,7 +381,7 @@ pub type TxFlowHash = u64;
 #[derive(Hash, Debug, Clone)]
 pub struct Endorsement {
     pub epoch: u64,
-    pub signature: BLSSignature,
+    pub signature: MultiSignature,
 }
 
 #[derive(Hash, Debug)]

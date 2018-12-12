@@ -16,6 +16,12 @@ pub struct Group<'a, P: 'a + Payload> {
     pub v: HashSet<&'a Message<'a, P>>,
 }
 
+impl<'a, P: 'a + Payload> Default for Group<'a, P> {
+    fn default() -> Self{
+        Group::new()
+    }
+}
+
 // TODO: Create alternative of Group called SingleOwnerGroup with {owner_uid: u64, messages: HashSet<...>}
 // that is more efficient to use for representative messages and kickout messages.
 impl<'a, P: 'a + Payload> Group<'a, P> {
@@ -67,6 +73,12 @@ pub struct GroupsPerEpoch<'a, P: 'a + Payload> {
     pub messages_by_epoch: HashMap<u64, Group<'a, P>>,
 }
 
+impl<'a, P: 'a + Payload> Default for GroupsPerEpoch<'a, P> {
+    fn default() -> Self{
+        GroupsPerEpoch::new()
+    }
+}
+
 impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
     pub fn new() -> Self {
         GroupsPerEpoch {
@@ -112,5 +124,15 @@ impl<'a, P: 'a + Payload> GroupsPerEpoch<'a, P> {
 
     pub fn contains_epoch(&self, epoch: u64) -> bool {
         self.messages_by_epoch.contains_key(&epoch)
+    }
+
+    pub fn contains_message(&self, message: &Message<'a, P>) -> bool {
+        if let Some(group) = self.messages_by_epoch.get(&message.computed_epoch) {
+            if let Some(messages) = group.filter_by_owner(message.data.body.owner_uid) {
+                return messages.contains(message);
+            }
+        };
+
+        false
     }
 }

@@ -3,41 +3,27 @@
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 
 try:
-    import requests
+    # py2
+    from urllib2 import urlopen, Request, HTTPError, URLError
 except ImportError:
-    import urllib
-    import urllib2
-    import json as json_lib
+    # py3
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError, URLError
 
 
-    def _post(url, json):
-        """This is alternative to requests.post"""
-        handler = urllib2.HTTPHandler()
-        opener = urllib2.build_opener(handler)
-        request = urllib2.Request(url, data=json_lib.dumps(json))
-        request.add_header('Content-Type', 'application/json')
-        try:
-            connection = opener.open(request)
-        except urllib2.HTTPError as e:
-            connection = e
-        if connection.code == 200:
-            data = connection.read()
-            return json_lib.loads(data)
-        else:
-            return {'error': connection}
-else:
-    import requests
+def _post(url, data):
+    request = Request(url, data=json.dumps(data).encode('utf-8'))
+    request.add_header('Content-Type', 'application/json')
+    connection = urlopen(request)
+    if connection.code == 200:
+        raw = connection.read()
+        return json.loads(raw)
 
-
-    def _post(url, json):
-        response = requests.post(url, json=json).json()
-        if 'error' in response:
-            raise Exception(response)
-        return response
 
 alphabet = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -72,7 +58,7 @@ def b58encode(v):
 
 def _get_account_id(account_alias):
     digest = hashlib.sha256(account_alias.encode('utf-8')).digest()
-    return b58encode(digest)
+    return b58encode(digest).decode('utf-8')
 
 
 class NearRPC(object):
@@ -86,8 +72,11 @@ class NearRPC(object):
         self._server_url = server_url
         self._keystore_binary = keystore_binary
         self._keystore_path = keystore_path
-        self._public_key = public_key
         self._nonces = {}
+
+        # This may be None, use 'self._get_public_key' in order
+        # to check against the keystore
+        self._public_key = public_key
 
     def _get_nonce(self, sender):
         if sender not in self._nonces:
@@ -106,7 +95,14 @@ class NearRPC(object):
             'method': method_name,
             'params': [params],
         }
-        return _post(self._server_url, data)['result']
+        try:
+            return _post(self._server_url, data)['result']
+        except URLError:
+            error = "Connection to {} refused. " \
+                    "To start RPC server at http://127.0.0.1:3030, run:\n" \
+                    "cargo run -p devnet"
+            print(error.format(self._server_url))
+            exit(1)
 
     def _sign_transaction_body(self, body):
         if self._keystore_binary is not None:
@@ -125,12 +121,38 @@ class NearRPC(object):
         if self._public_key is not None:
             args += ['--public-key', self._public_key]
 
-        output = subprocess.check_output(args)
+        null = open(os.devnull, 'w')
+        output = subprocess.check_output(args, stderr=null)
         return json.loads(output)
 
     def _handle_prepared_transaction_body_response(self, response):
         signed_transaction = self._sign_transaction_body(response['body'])
         return self._call_rpc('submit_transaction', signed_transaction)
+
+    def _get_public_key(self):
+        if self._public_key is None:
+            if self._keystore_binary is not None:
+                args = [self._keystore_binary]
+            else:
+                args = 'cargo run -p keystore --'.split()
+
+            args += ['get_public_key', '--keystore-path', self._keystore_path]
+
+            null = open(os.devnull, 'w')
+            process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
+            stdout = process.communicate()[0].decode('utf-8')
+            if process.returncode != 0:
+                sys.stdout.write(stdout)
+
+                if process.returncode == 3:
+                    _help = "To create, run:\ncargo run -p keystore " \
+                           "-- keygen -p {keystore_path}"
+                    print(_help.format(keystore_path=self._keystore_path))
+
+                exit(1)
+
+            self._public_key = stdout
+        return self._public_key
 
     def deploy_contract(self, sender, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
@@ -139,9 +161,9 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'owner_account_id': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
+            'public_key': self._get_public_key(),
         }
         self._update_nonce(sender)
         response = self._call_rpc('deploy_contract', params)
@@ -192,6 +214,45 @@ class NearRPC(object):
         response = self._call_rpc('schedule_function_call', params)
         return self._handle_prepared_transaction_body_response(response)
 
+    def create_account(
+        self,
+        sender,
+        account_alias,
+        amount,
+        account_public_key,
+    ):
+        if not account_public_key:
+            account_public_key = self._get_public_key()
+
+        nonce = self._get_nonce(sender)
+        params = {
+            'nonce': nonce,
+            'sender': _get_account_id(sender),
+            'new_account_id': _get_account_id(account_alias),
+            'amount': amount,
+            'public_key': account_public_key,
+        }
+        self._update_nonce(sender)
+        response = self._call_rpc('create_account', params)
+        return self._handle_prepared_transaction_body_response(response)
+
+    def swap_key(
+        self,
+        account,
+        current_key,
+        new_key,
+    ):
+        nonce = self._get_nonce(account)
+        params = {
+            'nonce': nonce,
+            'account': _get_account_id(account),
+            'current_key': current_key,
+            'new_key': new_key,
+        }
+        self._update_nonce(account)
+        response = self._call_rpc('swap_key', params)
+        return self._handle_prepared_transaction_body_response(response)
+
     def view_account(self, account_alias):
         params = {
             'account_id': _get_account_id(account_alias),
@@ -222,6 +283,8 @@ send_money               {}
 schedule_function_call   {}
 view_account             {}
 stake                    {}
+create_account           {}
+swap_key                 {}
             """.format(
                 self.call_view_function.__doc__,
                 self.deploy.__doc__,
@@ -229,6 +292,8 @@ stake                    {}
                 self.schedule_function_call.__doc__,
                 self.view_account.__doc__,
                 self.stake.__doc__,
+                self.create_account.__doc__,
+                self.swap_key.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -339,6 +404,36 @@ stake                    {}
             args.sender,
             args.contract_name,
             args.wasm_file_location,
+        )
+
+    def create_account(self):
+        """Create an account"""
+        parser = self._get_command_parser(self.create_account.__doc__)
+        self._add_transaction_args(parser)
+        parser.add_argument('account_alias', type=str)
+        parser.add_argument('amount', type=int)
+        parser.add_argument('--account_public-key', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.create_account(
+            args.sender,
+            args.account_alias,
+            args.amount,
+            args.account_public_key,
+        )
+
+    def swap_key(self):
+        """Swap key for an account"""
+        parser = self._get_command_parser(self.swap_key.__doc__)
+        self._add_transaction_args(parser)
+        parser.add_argument('current_key', type=str)
+        parser.add_argument('new_key', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.swap_key(
+            args.sender,
+            args.current_key,
+            args.new_key,
         )
 
     def schedule_function_call(self):

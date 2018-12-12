@@ -6,7 +6,7 @@ use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::*;
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use self::message::Message;
 pub use self::reporter::{MisbehaviorReporter, DAGMisbehaviorReporter, NoopMisbehaviorReporter, ViolationType};
@@ -25,6 +25,9 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + Misbehavior
     messages: HashSet<&'a Message<'a, P>>,
     /// Stores all current roots.
     roots: HashSet<&'a Message<'a, P>>,
+    /// Store last message from each participant in the DAG.
+    /// In case of a fork only one is stored arbitrarely.
+    recent_message: HashMap<UID, &'a Message<'a, P>>,
 
     witness_selector: &'a W,
     starting_epoch: u64,
@@ -39,6 +42,7 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
             arena: Arena::new(),
             messages: HashSet::new(),
             roots: HashSet::new(),
+            recent_message: HashMap::new(),
             witness_selector,
             starting_epoch,
             misbehavior: Box::new(RefCell::new(M::new())),
@@ -82,17 +86,46 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
-    /// Verify that this message does not violate the protocol.
+    /// Check if a message form a fork with at least one message from the point of view of the DAG.
+    /// Notice in case there is a multi-fork at least first fork is reported.
+    /// IMPORTANT: The way is currently implemented don't log all forks. 
+    /// If Alice create a fork (A0, A1) this fork is detected properly but the last message stored 
+    /// is A1, and if a new message A2 approve A1 but not A0, then fork between A2 and A0 is 
+    /// not detected. In cases of fork it might be ok detecting one fork, cause even if more 
+    /// forks from the same participant happens, he will be slashed anyway. It is not a good idea 
+    /// store all pair of message forming a fork, cause there might be a quadratic number of forks 
+    /// (related to the number of messages). 
+    /// 
+    /// Example: (A0 -> A2 -> A4 -> ... and A1 -> A3 -> A5 -> ...)
+    fn detect_fork(&self, message: &Message<'a, P>) -> Option<(TxFlowHash, TxFlowHash)> {
+        match self.recent_message.get(&message.data.body.owner_uid) {
+            Some(head) => {
+                if !message.approve(head) {
+                    Some((head.computed_hash, message.computed_hash))
+                }
+                else{
+                    None
+                }
+            },
+            None => None
+        }
+    }
+
+    /// Verify correctness of this message regarding txflow protocol.
+    /// Report all misbehavior as soon as they are detected.
     fn verify_message(
         &mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
 
         // Check epoch
         if message.computed_epoch != message.data.body.epoch {
-            let mb = ViolationType::BadEpoch {
-                message: message.computed_hash,
-            };
-
+            let mb = ViolationType::BadEpoch(message.computed_hash);
             self.misbehavior.borrow_mut().report(mb);
+        }
+
+        // Check fork
+        if let Some(fork_data) = self.detect_fork(message) {
+            let mb = ViolationType::ForkAttempt(fork_data.0, fork_data.1);
+            self.misbehavior.borrow_mut().report(mb);   
         }
 
         Ok(())
@@ -133,9 +166,11 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
             self.roots.remove(p);
         }
 
+        let owner = message.data.body.owner_uid;
         let message_ptr = self.arena.alloc(message).as_ref() as *const Message<'a, P>;
         self.messages.insert(unsafe{&*message_ptr});
         self.roots.insert(unsafe{&*message_ptr});
+        self.recent_message.insert(owner, unsafe{&*message_ptr});
         Ok(())
     }
 
@@ -206,7 +241,6 @@ mod tests {
     #[test]
     fn incorrect_epoch_simple() {
         let selector = FakeWitnessSelector::new();
-        // let misbehavior = DAGMisbehaviorReporter::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
         let mut dag : DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
@@ -226,7 +260,7 @@ mod tests {
         assert_eq!(dag.misbehavior.borrow().violations.len(), 2);
 
         for violation in &dag.misbehavior.borrow().violations {
-            if let ViolationType::BadEpoch { message: _ } = violation {
+            if let ViolationType::BadEpoch(_) = violation {
                 // expected violation type
             } else {
                 assert!(false);
@@ -335,7 +369,7 @@ mod tests {
     fn movable() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
-        let mut dag: DAG<_,_> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
         let (a, b);
         // Add some messages.
         {
@@ -356,5 +390,25 @@ mod tests {
                 assert!(moved_dag.add_existing_message((*m).clone()).is_ok());
             }
         }
+    }
+
+    /// Unfinished test
+    #[test]
+    fn notice_simple_fork() {
+        let selector = FakeWitnessSelector::new();
+        let data_arena = Arena::new();
+        let mut all_messages = vec![];
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
+
+        let a;
+
+        simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0 => a;] => 3, 0;]);
+        simple_bare_messages!(data_arena, all_messages [[2, 0; => a;] => 3, 0;]);
+
+        for m in &all_messages {
+            assert!(dag.add_existing_message((*m).clone()).is_ok());
+        }
+
+        println!("Violations: {}", &dag.misbehavior.borrow().violations.len());
     }
 }

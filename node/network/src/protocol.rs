@@ -1,16 +1,18 @@
-use message::{self, Message, MessageBody};
-use parking_lot::RwLock;
-use primitives::hash::CryptoHash;
-use primitives::traits::{Block, Decode, Header as BlockHeader};
-use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
 use std::collections::HashMap;
-use chain::BlockChain;
 use std::sync::Arc;
 use std::time;
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
-use test_utils;
+
+use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
-use futures::{stream, Future, Sink};
+use parking_lot::RwLock;
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
+
+use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
+use message::{self, Message, MessageBody};
+use primitives::hash::CryptoHash;
+use primitives::traits::Decode;
+use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
+use test_utils;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -64,7 +66,7 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-pub struct Protocol<B: Block, Header: BlockHeader> {
+pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -83,7 +85,7 @@ pub struct Protocol<B: Block, Header: BlockHeader> {
     message_sender: Sender<(NodeIndex, Message<B, Header>)>,
 }
 
-impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
+impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     pub fn new(config: ProtocolConfig,
                chain: Arc<BlockChain<B>>,
                block_sender: Sender<B>,
@@ -191,7 +193,7 @@ impl<B: Block, Header: BlockHeader> Protocol<B, Header> {
             }
             let header = self.chain.get_header(&id).unwrap();
             let block_index = header.index();
-            let block_hash = header.hash();
+            let block_hash = header.block_hash();
             let reach_end = match request.to {
                 Some(BlockId::Number(n)) => block_index == n,
                 Some(BlockId::Hash(h)) => block_hash == h,

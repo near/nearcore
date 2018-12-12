@@ -3,15 +3,18 @@ use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::types::{
     DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
-    SignedTransaction, StakeTransaction, TransactionBody, ViewCall,
+    CreateAccountTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
+    TransactionBody, ViewCall,
 };
 use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     DeployContractRequest, PreparedTransactionBodyResponse,
     ScheduleFunctionCallRequest, SendMoneyRequest, StakeRequest,
-    ViewAccountRequest, ViewAccountResponse,
+    CreateAccountRequest, ViewAccountRequest, SwapKeyRequest,
+    ViewAccountResponse,
 };
+use primitives::traits::Encode;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -34,6 +37,20 @@ build_rpc_trait! {
         fn rpc_deploy_contract(
             &self,
             DeployContractRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
+
+        /// Create account.
+        #[rpc(name = "create_account")]
+        fn rpc_create_account(
+            &self,
+            CreateAccountRequest
+        ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
+
+        /// swap keys for account.
+        #[rpc(name = "swap_key")]
+        fn rpc_swap_key(
+            &self,
+            SwapKeyRequest
         ) -> JsonRpcResult<(PreparedTransactionBodyResponse)>;
 
         /// Call method on smart contract.
@@ -84,15 +101,42 @@ impl RpcImpl {
 }
 
 impl TransactionApi for RpcImpl {
+    fn rpc_create_account(
+        &self,
+        r: CreateAccountRequest
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        let body = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: r.nonce,
+            sender: r.sender,
+            new_account_id: r.new_account_id,
+            amount: r.amount,
+            public_key: r.public_key.encode().unwrap()
+        });
+        Ok(PreparedTransactionBodyResponse { body })
+    }
+    
     fn rpc_deploy_contract(
         &self,
         r: DeployContractRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: r.nonce,
-            owner: r.owner_account_id,
             contract_id: r.contract_account_id,
             wasm_byte_array: r.wasm_byte_array,
+            public_key: r.public_key.encode().unwrap()
+        });
+        Ok(PreparedTransactionBodyResponse { body })
+    }
+
+    fn rpc_swap_key(
+        &self,
+        r: SwapKeyRequest,
+    ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        let body = TransactionBody::SwapKey(SwapKeyTransaction {
+            nonce: r.nonce,
+            sender: r.account,
+            cur_key: r.current_key.encode().unwrap(),
+            new_key: r.new_key.encode().unwrap(),
         });
         Ok(PreparedTransactionBodyResponse { body })
     }
