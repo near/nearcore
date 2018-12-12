@@ -10,7 +10,7 @@ use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
 use chain::{SignedBlock, SignedHeader};
 use node_runtime::{ApplyState, Runtime};
 use primitives::traits::Signer;
-use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
+use primitives::types::{BlockId, Transaction};
 use primitives::types::ConsensusBlockBody;
 use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
@@ -67,37 +67,37 @@ impl BlockProducer {
     }
 }
 
-pub type ShardChainPayload = (Vec<SignedTransaction>, Vec<ReceiptTransaction>);
+pub type ShardChainPayload = Vec<Transaction>;
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
 
 impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
     fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
         let transactions = body.messages.iter()
-            .flat_map(|message| message.body.payload.0.clone())
-            .collect();
-        let receipts = body.messages.iter()
-            .flat_map(|message| message.body.payload.1.clone())
+            .flat_map(|message| message.body.payload.clone())
             .collect();
 
         // TODO: compute actual merkle root and state, as well as signature, and
         // use some reasonable fork-choice rule
         let last_block = self.beacon_chain.best_block();
-        let last_shard_block = self.shard_chain.get_header(&BlockId::Hash(last_block.body.header.shard_block_hash)).expect("At the moment we should have shard blocks accompany beacon blocks");
+        let last_shard_block = self.shard_chain
+            .get_header(&BlockId::Hash(last_block.body.header.shard_block_hash))
+            .expect("At the moment we should have shard blocks accompany beacon blocks");
+        let shard_id = last_shard_block.body.shard_id;
         let apply_state = ApplyState {
             root: last_shard_block.body.merkle_root_state,
             parent_block_hash: last_block.block_hash(),
             block_index: last_block.body.header.index + 1,
+            shard_id,
         };
-        let (filtered_transactions, filtered_receipts, mut apply_result) =
-            self.runtime.write().apply(&apply_state, transactions, receipts);
+        let mut apply_result = self.runtime.write().apply(&apply_state, transactions);
         self.state_db.commit(&mut apply_result.transaction).ok();
         let mut shard_block = SignedShardBlock::new(
+            shard_id,
             last_shard_block.body.index + 1,
             last_shard_block.block_hash(),
             apply_result.root,
-            filtered_transactions,
-            filtered_receipts
+            apply_result.filtered_transactions,
         );
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
@@ -112,5 +112,6 @@ impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
         self.shard_chain.insert_block(shard_block.clone());
         self.beacon_chain.insert_block(block.clone());
         info!(target: "block_producer", "Block body: {:?}", block.body);
+        //TODO: send new receipts in apply_result
     }
 }

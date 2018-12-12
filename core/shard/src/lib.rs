@@ -8,13 +8,17 @@ extern crate storage;
 
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
-use primitives::types::{AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ReceiptTransaction, SignedTransaction};
+use primitives::types::{
+    AuthorityMask, MerkleHash, MultiSignature, PartialSignature,
+    Transaction, ShardId
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
     pub index: u64,
     pub merkle_root_state: MerkleHash,
+    pub shard_id: ShardId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -28,8 +32,7 @@ pub struct SignedShardBlockHeader {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlock {
     pub header: ShardBlockHeader,
-    pub transactions: Vec<SignedTransaction>,
-    pub receipts: Vec<ReceiptTransaction>,
+    pub transactions: Vec<Transaction>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -56,8 +59,15 @@ impl SignedHeader for SignedShardBlockHeader {
 }
 
 impl SignedShardBlock {
-    pub fn new(index: u64, parent_hash: CryptoHash, merkle_root_state: MerkleHash, transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptTransaction>) -> Self {
+    pub fn new(
+        shard_id: ShardId,
+        index: u64,
+        parent_hash: CryptoHash,
+        merkle_root_state: MerkleHash,
+        transactions: Vec<Transaction>,
+    ) -> Self {
         let header = ShardBlockHeader {
+            shard_id,
             index,
             parent_hash,
             merkle_root_state,
@@ -67,7 +77,6 @@ impl SignedShardBlock {
             body: ShardBlock {
                 header,
                 transactions,
-                receipts,
             },
             hash,
             signature: vec![],
@@ -76,7 +85,7 @@ impl SignedShardBlock {
     }
 
     pub fn genesis(merkle_root_state: MerkleHash) -> SignedShardBlock {
-        SignedShardBlock::new(0, CryptoHash::default(), merkle_root_state, vec![], vec![])
+        SignedShardBlock::new(0, 0, CryptoHash::default(), merkle_root_state, vec![])
     }
 }
 
