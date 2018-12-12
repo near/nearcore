@@ -127,8 +127,13 @@ class NearRPC(object):
             args += ['--public-key', self._public_key]
 
         null = open(os.devnull, 'w')
-        output = subprocess.check_output(args, stderr=null)
-        return json.loads(output)
+        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
+        stdout = process.communicate()[0].decode('utf-8')
+        if process.returncode != 0:
+            sys.stdout.write(stdout)
+            exit(1)
+
+        return json.loads(stdout)
 
     def _handle_prepared_transaction_body_response(self, response):
         signed_transaction = self._sign_transaction_body(response['body'])
