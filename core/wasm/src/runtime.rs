@@ -395,12 +395,10 @@ impl<'a> Runtime<'a> {
         let line: u32 = args.nth_checked(2)?;
         let col: u32 = args.nth_checked(3)?;
 
-        debug!("msg_ptr: {:?} filename_ptr: {:?} line: {:?} col: {:?}", msg_ptr, filename_ptr, line, col);
+        let msg = self.read_string(msg_ptr)?;
+        let filename = self.read_string(filename_ptr)?;
 
-        let msg = self.read_buffer_with_size(msg_ptr, 32)?;
-        let filename = self.read_buffer_with_size(filename_ptr, 32)?;
-
-        debug!("msg: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+        debug!(target: "wasm", "abort with msg: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
 
         Err(Error::AssertFailed)
     }
