@@ -563,7 +563,7 @@ impl Runtime {
                 sender_id,
                 receiver_id,
             );
-            if let Ok(_) = result {
+            if result.is_ok() {
                 receiver.amount = wasm_res.balance;
             }
             result
