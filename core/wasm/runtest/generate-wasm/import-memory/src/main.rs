@@ -47,24 +47,25 @@ fn help() {
     println!("Usage: import_memory <source.wasm> <out.wasm>")
 }
 
+fn convert(input_file: &String, output_file: &String) {
+    let wasm_binary = fs::read(input_file).expect("Unable to read file");
+
+    // Load wasm binary and prepare it for instantiation.
+    let elements_module = parity_wasm::elements::deserialize_buffer(wasm_binary.as_ref())
+        .expect("deserialize failed");
+
+    let module_with_mem = externalize_mem(elements_module, None, 16);
+
+    parity_wasm::elements::serialize_to_file(output_file, module_with_mem)
+        .expect("Can't write the file")
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     match args.len() {
         3 => {
-            let input_file = &args[1];
-            let output_file = &args[2];
-
-            let wasm_binary = fs::read(input_file).expect("Unable to read file");
-
-            // Load wasm binary and prepare it for instantiation.
-            let elements_module = parity_wasm::elements::deserialize_buffer(wasm_binary.as_ref())
-                .expect("deserialize failed");
-
-            let module_with_mem = externalize_mem(elements_module, None, 16);
-
-            parity_wasm::elements::serialize_to_file(output_file, module_with_mem)
-                .expect("Can't write the file")
+            convert(&args[1], &args[2]);
         },
         _ => {
             help();
