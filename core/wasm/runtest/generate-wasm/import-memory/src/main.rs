@@ -47,7 +47,7 @@ fn help() {
     println!("Usage: import_memory <source.wasm> <out.wasm>")
 }
 
-fn convert(input_file: &String, output_file: &String) {
+fn convert(input_file: &str, output_file: &str) {
     let wasm_binary = fs::read(input_file).expect("Unable to read file");
 
     // Load wasm binary and prepare it for instantiation.
