@@ -44,9 +44,9 @@ impl<'a> ContractModule<'a> {
     }
 
     fn inject_gas_metering(&mut self) -> Result<(), Error> {
+        // TODO(#194): Re-enable .with_forbidden_floats() once AssemblyScript is fixed.
         let gas_rules = rules::Set::new(self.config.regular_op_cost, Default::default())
-            .with_grow_cost(self.config.grow_mem_cost)
-            .with_forbidden_floats();
+            .with_grow_cost(self.config.grow_mem_cost);
 
         let module = self
             .module
