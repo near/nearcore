@@ -5,7 +5,7 @@ use primitives::types::{MessageDataBody, UID};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[derive(Hash, Clone, Debug)]
+#[derive(Hash, Serialize, Deserialize, Clone, Debug)]
 pub struct FakePayload {}
 
 impl Payload for FakePayload {

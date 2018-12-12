@@ -7,6 +7,10 @@ extern crate tokio;
 extern crate futures;
 extern crate typed_arena;
 extern crate primitives;
+extern crate serde;
+#[cfg(test)]
+#[macro_use]
+extern crate serde_derive;
 #[macro_use]
 mod initializer_tools;
 #[cfg(test)]

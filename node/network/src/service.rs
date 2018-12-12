@@ -12,7 +12,7 @@ use tokio::timer::Interval;
 
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
-use primitives::traits::Encode;
+use primitives::traits::{Encode, Payload};
 use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -24,15 +24,16 @@ pub fn new_network_service(protocol_config: &ProtocolConfig, net_config: Network
         .expect("Error starting network service")
 }
 
-pub fn create_network_task<B, Header>(
+pub fn create_network_task<B, Header, P>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol_: Protocol<B, Header>,
-    message_receiver: Receiver<(NodeIndex, Message<B, Header>)>
+    protocol_: Protocol<B, Header, P>,
+    message_receiver: Receiver<(NodeIndex, Message<B, Header, P>)>
 ) -> (Box<impl Future<Item=(), Error=()>>,
       Box<impl Future<Item=(), Error=()>>)
 where
     B: SignedBlock,
     Header: BlockHeader,
+    P: Payload,
 {
     let protocol = Arc::new(protocol_);
     // Interval for performing maintenance on the protocol handler.

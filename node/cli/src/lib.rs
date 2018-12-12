@@ -41,7 +41,7 @@ use network::service::{create_network_task, new_network_service, NetworkConfigur
 use node_rpc::api::RpcImpl;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
-use primitives::types::SignedTransaction;
+use primitives::types::{SignedTransaction, BeaconChainPayload};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
 
@@ -134,7 +134,7 @@ Fn(
         // processing.
         let (net_messages_tx, net_messages_rx) = channel(1024);
         let protocol_config = ProtocolConfig::default();
-        let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
+        let protocol = Protocol::<_, SignedBeaconBlockHeader, BeaconChainPayload>::new(
             protocol_config,
             beacon_chain.clone(),
             beacon_block_tx.clone(),
