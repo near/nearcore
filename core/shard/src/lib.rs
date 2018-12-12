@@ -16,9 +16,9 @@ use primitives::types::{
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
+    pub shard_id: ShardId,
     pub index: u64,
     pub merkle_root_state: MerkleHash,
-    pub shard_id: ShardId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
