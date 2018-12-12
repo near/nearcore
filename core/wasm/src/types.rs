@@ -77,6 +77,8 @@ pub enum RuntimeError {
     Unknown,
     /// Passed string had invalid utf-8 encoding
     BadUtf8,
+    /// Passed string had invalid utf-16 encoding
+    BadUtf16,
     /// Log event error
     Log,
     /// Other error in native code
@@ -143,6 +145,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
             RuntimeError::AssertFailed => write!(f, "WASM-side assert failed"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
+            RuntimeError::BadUtf16 => write!(f, "String encoding is bad utf-16 sequence"),
             RuntimeError::ManaLimit => write!(f, "Mana limit exceeded"),
             RuntimeError::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
             RuntimeError::Log => write!(f, "Error occured while logging an event"),
