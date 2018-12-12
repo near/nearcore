@@ -283,12 +283,17 @@ impl Runtime {
     fn call_function(
         &mut self,
         state_update: &mut StateDbUpdate,
+        runtime_data: &RuntimeData,
         sender: &mut Account,
         sender_account_id: AccountId,
         hash: CryptoHash,
         method_name: &[u8],
         args: &[u8],
     ) -> Result<Vec<ReceiptTransaction>, String> {
+        let staked = runtime_data.at_stake(sender_account_id);
+        // sender.amount cannot be less than staked
+        // otherwise staking would have failed
+        assert!(sender.amount >= staked);
         let receipts = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -303,7 +308,7 @@ impl Runtime {
                 &mut runtime_ext,
                 &wasm::types::Config::default(),
                 &RuntimeContext::new(
-                    sender.amount,
+                    sender.amount - staked,
                     0,
                     sender_account_id,
                     sender_account_id,
@@ -365,6 +370,7 @@ impl Runtime {
                     TransactionBody::FunctionCall(ref t) => {
                         self.call_function(
                             state_update,
+                            &runtime_data,
                             &mut sender,
                             transaction.body.get_sender(),
                             transaction.hash,
@@ -520,12 +526,15 @@ impl Runtime {
     fn apply_async_call(
         &mut self,
         state_update: &mut StateDbUpdate,
+        runtime_data: &RuntimeData,
         async_call: &AsyncCall,
         sender_id: AccountId,
         receiver_id: AccountId,
         nonce: Vec<u8>,
         receiver: &mut Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
+        let staked = runtime_data.at_stake(receiver_id);
+        assert!(receiver.amount >= staked);
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -540,7 +549,7 @@ impl Runtime {
                 &mut runtime_ext,
                 &wasm::types::Config::default(),
                 &RuntimeContext::new(
-                    receiver.amount,
+                    receiver.amount - staked,
                     async_call.amount,
                     sender_id,
                     receiver_id,
@@ -647,6 +656,8 @@ impl Runtime {
     ) -> Result<(), String> {
         let receiver_id = account_id_to_bytes(receipt.receiver);
         let receiver: Option<Account> = get(state_update, &receiver_id);
+        let runtime_data: RuntimeData = 
+            get(state_update, RUNTIME_DATA).ok_or("runtime data does not exist")?;
         let mut amount = 0;
         let mut callback_info = None;
         let mut receiver_exists = true;
@@ -663,12 +674,13 @@ impl Runtime {
                                 &mut receiver
                             )
                         } else if async_call.method_name == b"create_account".to_vec() {
-                            // account already exists, an erro
-                            Err(format!("account {} alread exists", receipt.receiver))
+                            // account already exists, an error
+                            Err(format!("account {} already exists", receipt.receiver))
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
                                 state_update,
+                                &runtime_data,
                                 &async_call,
                                 receipt.sender,
                                 receipt.receiver,
