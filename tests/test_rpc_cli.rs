@@ -36,9 +36,36 @@ lazy_static! {
 
 fn check_result(output: &Output) -> Cow<str> {
     if !output.status.success() {
-        panic!("{}", String::from_utf8_lossy(&output.stderr));
+        panic!("{}", String::from_utf8_lossy(&output.stdout));
     }
     String::from_utf8_lossy(&output.stdout)
+}
+
+fn create_account(account_name: &str) -> Output {
+    Command::new("./scripts/rpc.py")
+        .arg("create_account")
+        .arg(account_name)
+        .arg("10")
+        .arg("-d")
+        .arg(KEY_STORE_PATH)
+        .arg("-k")
+        .arg(&*PUBLIC_KEY)
+        .output()
+        .expect("create_account command failed to process")
+}
+
+fn deploy_contract(contract_name: &str) -> Output {
+    create_account(contract_name);
+    Command::new("./scripts/rpc.py")
+        .arg("deploy")
+        .arg(contract_name)
+        .arg("core/wasm/runtest/res/wasm_with_mem.wasm")
+        .arg("-d")
+        .arg(KEY_STORE_PATH)
+        .arg("-k")
+        .arg(&*PUBLIC_KEY)
+        .output()
+        .expect("deploy command failed to process")
 }
 
 #[test]
@@ -71,16 +98,7 @@ fn test_view_account() {
 #[test]
 fn test_deploy() {
     if !*DEVNET_STARTED { panic!() }
-    let output = Command::new("./scripts/rpc.py")
-        .arg("deploy")
-        .arg("test_contract_name")
-        .arg("core/wasm/runtest/res/wasm_with_mem.wasm")
-        .arg("-d")
-        .arg(KEY_STORE_PATH)
-        .arg("-k")
-        .arg(&*PUBLIC_KEY)
-        .output()
-        .expect("deploy command failed to process");
+    let output = deploy_contract("test_contract_name");
     let result = check_result(&output);
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
@@ -89,10 +107,11 @@ fn test_deploy() {
 #[test]
 fn test_schedule_function_call() {
     if !*DEVNET_STARTED { panic!() }
-    test_deploy();
+    let contract_name = "test_contract_name";
+    deploy_contract(contract_name);
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
-        .arg("test_contract_name")
+        .arg(contract_name)
         .arg("run_test")
         .arg("-d")
         .arg(KEY_STORE_PATH)
@@ -108,10 +127,11 @@ fn test_schedule_function_call() {
 #[test]
 fn test_call_view_function() {
     if !*DEVNET_STARTED { panic!() }
-    test_deploy();
+    let contract_name = "test_contract_name";
+    deploy_contract(contract_name);
     let output = Command::new("./scripts/rpc.py")
         .arg("call_view_function")
-        .arg("test_contract_name")
+        .arg(contract_name)
         .arg("run_test")
         .output()
         .expect("call_view_function command failed to process");
@@ -122,19 +142,19 @@ fn test_call_view_function() {
 #[test]
 fn test_create_account() {
     if !*DEVNET_STARTED { panic!() }
-    let output = Command::new("./scripts/rpc.py")
-        .arg("create_account")
-        .arg("eve")
-        .arg("10")
-        .arg("-d")
-        .arg(KEY_STORE_PATH)
-        .arg("-k")
-        .arg(&*PUBLIC_KEY)
-        .output()
-        .expect("create_account command failed to process");
+    let output = create_account("eve");
     let result = check_result(&output);
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
+
+    let output = Command::new("./scripts/rpc.py")
+        .arg("view_account")
+        .arg("--account")
+        .arg("eve")
+        .output()
+        .expect("view_account command failed to process");
+    let result = check_result(&output);
+    let _: ViewAccountResponse = serde_json::from_str(&result).unwrap();
 }
 
 #[test]

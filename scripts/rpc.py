@@ -96,7 +96,12 @@ class NearRPC(object):
             'params': [params],
         }
         try:
-            return _post(self._server_url, data)['result']
+            response = _post(self._server_url, data)
+            if 'error' in response:
+                print(response['error'])
+                exit(1)
+
+            return response['result']
         except URLError:
             error = "Connection to {} refused. " \
                     "To start RPC server at http://127.0.0.1:3030, run:\n" \
