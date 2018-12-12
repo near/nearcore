@@ -23,6 +23,7 @@ pub mod ids {
     pub const GAS_FUNC: usize = 300;
     /// Contracts can assert properties. E.g. check the amount available mana.
     pub const ASSERT_FUNC: usize = 310;
+    pub const ABORT_FUNC: usize = 320;
 
     /// Creates a new promise that makes an async call to some other contract.
     pub const PROMISE_CREATE_FUNC: usize = 400;

@@ -11,6 +11,9 @@ extern crate wabt;
 
 extern crate primitives;
 
+#[macro_use]
+extern crate log;
+
 pub mod executor;
 pub mod ext;
 mod memory;
