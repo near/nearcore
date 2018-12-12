@@ -635,7 +635,7 @@ impl Runtime {
                             )
                         } else if async_call.method_name == b"create_account".to_vec() {
                             // account already exists, an erro
-                            Err(format!("account {} alread exists", receipt.receiver))
+                            Err(format!("account {} already exists", receipt.receiver))
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
