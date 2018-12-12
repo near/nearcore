@@ -16,23 +16,24 @@ use primitives::types::BlockId;
 use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
 
-pub fn create_block_importer_task(
+pub fn spawn_block_importer(
     beacon_chain: Arc<BeaconBlockChain>,
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
     receiver: Receiver<SignedBeaconBlock>
-) -> impl Future<Item = (), Error = ()> {
+) {
     let beacon_block_importer = RefCell::new(BlockImporter::new(
         beacon_chain,
         shard_chain,
         runtime,
         state_db,
     ));
-    receiver.fold(beacon_block_importer, |beacon_block_importer, body| {
+    let task = receiver.fold(beacon_block_importer, |beacon_block_importer, body| {
         beacon_block_importer.borrow_mut().import_beacon_block(body);
         future::ok(beacon_block_importer)
-    }).and_then(|_| Ok(()))
+    }).and_then(|_| Ok(()));
+    tokio::spawn(task);
 }
 
 pub struct BlockImporter {

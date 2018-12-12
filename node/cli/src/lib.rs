@@ -37,7 +37,7 @@ use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use chain::SignedBlock;
 use network::protocol::{Protocol, ProtocolConfig};
-use network::service::{create_network_task, new_network_service, NetworkConfiguration};
+use network::service::{spawn_network_tasks, new_network_service, NetworkConfiguration};
 use node_rpc::api::RpcImpl;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
@@ -61,14 +61,10 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 pub fn start_service<S>(
     base_path: &Path,
     chain_spec_path: Option<&Path>,
-    consensus_task_fn: S,
+    spawn_consensus_task_fn: S,
 )
 where S:
-Fn(
-        Receiver<SignedTransaction>,
-        Sender<ChainConsensusBlockBody>,
-    ) -> Box<Future<Item = (), Error = ()> + Send> + Send + Sync + 'static
-    {
+Fn(Receiver<SignedTransaction>, Sender<ChainConsensusBlockBody>) -> () + Send + Sync + 'static {
     let mut builder = Builder::new();
     builder.filter(Some("runtime"), log::LevelFilter::Debug);
     builder.filter(None, log::LevelFilter::Info);
@@ -108,7 +104,7 @@ Fn(
 
         // Create a task that consumes the consensuses and produces the beacon chain blocks.
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
-        let block_producer_task = beacon_chain_handler::producer::create_block_producer_task(
+        beacon_chain_handler::producer::spawn_block_producer(
             beacon_chain.clone(),
             shard_chain.clone(),
             runtime.clone(),
@@ -117,17 +113,15 @@ Fn(
             beacon_block_consensus_body_rx,
         );
 
-        tokio::spawn(block_producer_task);
         // Create task that can import beacon chain blocks from other peers.
         let (beacon_block_tx, beacon_block_rx) = channel(1024);
-        let block_importer_task = beacon_chain_handler::importer::create_block_importer_task(
+        beacon_chain_handler::importer::spawn_block_importer(
             beacon_chain.clone(),
             shard_chain.clone(),
             runtime.clone(),
             state_db.clone(),
             beacon_block_rx,
         );
-        tokio::spawn(block_importer_task);
 
         // Create protocol and the network_task.
         // Note, that network and RPC are using the same channels to send transactions and receipts for
@@ -146,14 +140,9 @@ Fn(
             &protocol_config,
             NetworkConfiguration::default(),
         )));
-        let (network_task, messages_handler_task) =
-            create_network_task(network_service, protocol, net_messages_rx);
-        tokio::spawn(messages_handler_task);
-        tokio::spawn(network_task);
+        spawn_network_tasks(network_service, protocol, net_messages_rx);
 
-        let consensus_task = consensus_task_fn(transactions_rx, beacon_block_consensus_body_tx);
-
-        tokio::spawn(consensus_task);
+        spawn_consensus_task_fn(transactions_rx, beacon_block_consensus_body_tx);
         Ok(())
     }));
 }
@@ -186,6 +175,6 @@ pub fn run() {
     start_service(
         base_path,
         chain_spec_path,
-        test_utils::create_passthrough_beacon_block_consensus_task,
+        test_utils::spawn_pasthrough_consensus,
     );
 }

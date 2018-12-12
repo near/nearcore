@@ -1,4 +1,4 @@
-use beacon_chain_handler::producer::{ChainConsensusBlockBody, ShardChainPayload};
+use beacon_chain_handler::producer::{ChainConsensusBlockBody, BeaconChainPayload};
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
@@ -6,14 +6,14 @@ use primitives::types::{MessageDataBody, SignedMessageData, SignedTransaction};
 use std::collections::HashSet;
 use tokio;
 
-pub fn create_passthrough_beacon_block_consensus_task(
+pub fn spawn_pasthrough_consensus(
     transactions_rx: Receiver<SignedTransaction>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
-) -> Box<Future<Item = (), Error = ()> + Send> {
-    Box::new(
+) {
+    let task =
         transactions_rx
             .fold(consensus_tx.clone(), |consensus_tx, t| {
-                let message: SignedMessageData<ShardChainPayload> = SignedMessageData {
+                let message: SignedMessageData<BeaconChainPayload> = SignedMessageData {
                     owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     hash: 0,                      // Compute real hash
                     body: MessageDataBody {
@@ -31,6 +31,6 @@ pub fn create_passthrough_beacon_block_consensus_task(
                 future::ok(consensus_tx)
             })
             .map(|_| ())
-            .map_err(|_| ()),
-    )
+            .map_err(|_| ());
+    tokio::spawn(task);
 }
