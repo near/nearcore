@@ -33,6 +33,7 @@ pub struct SignedShardBlockHeader {
 pub struct ShardBlock {
     pub header: ShardBlockHeader,
     pub transactions: Vec<Transaction>,
+    pub new_receipts: Vec<Transaction>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -65,6 +66,7 @@ impl SignedShardBlock {
         parent_hash: CryptoHash,
         merkle_root_state: MerkleHash,
         transactions: Vec<Transaction>,
+        new_receipts: Vec<Transaction>,
     ) -> Self {
         let header = ShardBlockHeader {
             shard_id,
@@ -77,6 +79,7 @@ impl SignedShardBlock {
             body: ShardBlock {
                 header,
                 transactions,
+                new_receipts,
             },
             hash,
             signature: vec![],
@@ -85,7 +88,9 @@ impl SignedShardBlock {
     }
 
     pub fn genesis(merkle_root_state: MerkleHash) -> SignedShardBlock {
-        SignedShardBlock::new(0, 0, CryptoHash::default(), merkle_root_state, vec![])
+        SignedShardBlock::new(
+            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![]
+        )
     }
 }
 

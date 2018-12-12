@@ -67,7 +67,7 @@ impl Runtime {
         let mut cur_apply_state = apply_state;
         let mut cur_transactions = transactions;
         loop {
-            let mut apply_result = self.apply(&cur_apply_state, cur_transactions);
+            let mut apply_result = self.apply(&cur_apply_state, vec![], cur_transactions);
             if apply_result.new_receipts.is_empty() {
                 return apply_result;
             }

@@ -104,6 +104,7 @@ pub struct ApplyResult {
     pub transaction: storage::TrieBackendTransaction,
     pub authority_proposals: Vec<AuthorityProposal>,
     pub filtered_transactions: Vec<Transaction>,
+    pub filtered_receipts: Vec<Transaction>,
     pub new_receipts: Vec<Transaction>,
 }
 
@@ -788,58 +789,132 @@ impl Runtime {
         }
     }
 
+    fn filter_transaction(
+        runtime: &mut Self,
+        state_update: &mut StateDbUpdate,
+        shard_id: ShardId,
+        transaction: &Transaction,
+        new_receipts: &mut Vec<Transaction>,
+        authority_proposals: &mut Vec<AuthorityProposal>,
+    ) -> bool {
+        match transaction {
+            Transaction::Transaction(ref tx) => {
+                match runtime.apply_signed_transaction(
+                    state_update,
+                    tx,
+                    authority_proposals
+                ) {
+                    Ok(mut receipts) => {
+                        new_receipts.append(&mut receipts);
+                        state_update.commit();
+                        true
+                    }
+                    Err(s) => {
+                        debug!(target: "runtime", "{}", s);
+                        state_update.rollback();
+                        false
+                    }
+                }
+            }
+            Transaction::Receipt(ref r) => {
+                if account_to_shard_id(r.receiver) == shard_id {
+                    let mut tmp_new_receipts = vec![];
+                    match runtime.apply_receipt(state_update, r, &mut tmp_new_receipts) {
+                        Ok(()) => {
+                            state_update.commit();
+                            new_receipts.append(&mut tmp_new_receipts);
+                            true
+                        }
+                        Err(s) => {
+                            debug!(target: "runtime", "{}", s);
+                            state_update.rollback();
+                            new_receipts.append(&mut tmp_new_receipts);
+                            false
+                        }
+                    }
+                } else {
+                    // wrong receipt
+                    debug!(target: "runtime", "receipt sent to the wrong shard");
+                    false
+                }
+            }
+        }
+    }
+
+    /// apply receipts from previous block and transactions and receipts from this block
     pub fn apply(
         &mut self,
         apply_state: &ApplyState,
+        mut prev_receipts: Vec<Transaction>,
         mut transactions: Vec<Transaction>,
     ) -> ApplyResult {
         let mut new_receipts = vec![];
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
         let shard_id = apply_state.shard_id;
+        //let filter_tx = |t: &Transaction| {
+        //    match t {
+        //        Transaction::Transaction(ref tx) => {
+        //            match self.apply_signed_transaction(
+        //                &mut state_update,
+        //                tx,
+        //                &mut authority_proposals
+        //            ) {
+        //                Ok(mut receipts) => {
+        //                    new_receipts.append(&mut receipts);
+        //                    state_update.commit();
+        //                    true
+        //                }
+        //                Err(s) => {
+        //                    debug!(target: "runtime", "{}", s);
+        //                    state_update.rollback();
+        //                    false
+        //                }
+        //            }
+        //        }
+        //        Transaction::Receipt(ref r) => {
+        //            if account_to_shard_id(r.receiver) == shard_id {
+        //                let mut tmp_new_receipts = vec![];
+        //                match self.apply_receipt(&mut state_update, r, &mut tmp_new_receipts) {
+        //                    Ok(()) => {
+        //                        state_update.commit();
+        //                        new_receipts.append(&mut tmp_new_receipts);
+        //                        true
+        //                    }
+        //                    Err(s) => {
+        //                        debug!(target: "runtime", "{}", s);
+        //                        state_update.rollback();
+        //                        new_receipts.append(&mut tmp_new_receipts);
+        //                        false
+        //                    }
+        //                }
+        //            } else {
+        //                // wrong receipt
+        //                debug!(target: "runtime", "receipt sent to the wrong shard");
+        //                false
+        //            }
+        //        }
+        //    }
+        //};
+        prev_receipts.retain(|t| {
+            Self::filter_transaction(
+                self,
+                &mut state_update,
+                shard_id,
+                t,
+                &mut new_receipts,
+                &mut authority_proposals
+            )
+        });
         transactions.retain(|t| {
-            match t {
-                Transaction::Transaction(ref tx) => {
-                    match self.apply_signed_transaction(
-                        &mut state_update,
-                        tx,
-                        &mut authority_proposals
-                    ) {
-                        Ok(mut receipts) => {
-                            new_receipts.append(&mut receipts);
-                            state_update.commit();
-                            true
-                        }
-                        Err(s) => {
-                            debug!(target: "runtime", "{}", s);
-                            state_update.rollback();
-                            false
-                        }
-                    }
-                }
-                Transaction::Receipt(ref r) => {
-                    if account_to_shard_id(r.receiver) == shard_id {
-                        let mut tmp_new_receipts = vec![];
-                        match self.apply_receipt(&mut state_update, r, &mut tmp_new_receipts) {
-                            Ok(()) => {
-                                state_update.commit();
-                                new_receipts.append(&mut tmp_new_receipts);
-                                true
-                            }
-                            Err(s) => {
-                                debug!(target: "runtime", "{}", s);
-                                state_update.rollback();
-                                new_receipts.append(&mut tmp_new_receipts);
-                                false
-                            }
-                        }
-                    } else {
-                        // wrong receipt
-                        debug!(target: "runtime", "receipt sent to the wrong shard");
-                        false
-                    }
-                }
-            }
+            Self::filter_transaction(
+                self,
+                &mut state_update,
+                shard_id,
+                t,
+                &mut new_receipts,
+                &mut authority_proposals
+            )
         });
         let (transaction, new_root) = state_update.finalize();
         ApplyResult { 
@@ -848,6 +923,7 @@ impl Runtime {
             authority_proposals,
             shard_id,
             filtered_transactions: transactions,
+            filtered_receipts: prev_receipts,
             new_receipts,
         }
     }
@@ -859,7 +935,7 @@ impl Runtime {
         initial_authorities: &[(ReadablePublicKey, u64)]
     ) -> MerkleHash {
         let mut state_db_update =
-            storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
+            StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         balances.iter().for_each(|(account_alias, public_key, balance)| {
             set(
                 &mut state_db_update,
@@ -1058,7 +1134,7 @@ mod tests {
             block_index: 0 
         };
         let mut apply_result = runtime.apply(
-            &apply_state, vec![Transaction::Transaction(transaction)],
+            &apply_state, vec![], vec![Transaction::Transaction(transaction)],
         );
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
@@ -1093,7 +1169,7 @@ mod tests {
             block_index: 0
         };
         let mut apply_result = runtime.apply(
-            &apply_state, vec![Transaction::Transaction(transaction)],
+            &apply_state, vec![], vec![Transaction::Transaction(transaction)],
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
@@ -1179,7 +1255,7 @@ mod tests {
             block_index: 0
         };
         let mut apply_result = runtime.apply(
-            &apply_state, vec![Transaction::Transaction(transaction)]
+            &apply_state, vec![], vec![Transaction::Transaction(transaction)]
         );
         assert_eq!(apply_result.filtered_transactions.len(), 0);
         assert_eq!(apply_result.new_receipts.len(), 0);
@@ -1431,7 +1507,7 @@ mod tests {
             block_index: 0,
         };
         let mut apply_result = runtime.apply(
-            &apply_state, vec![Transaction::Transaction(transaction1)],
+            &apply_state, vec![], vec![Transaction::Transaction(transaction1)],
         );
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);

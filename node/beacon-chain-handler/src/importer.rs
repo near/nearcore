@@ -81,9 +81,13 @@ impl BlockImporter {
         let prev_header = self.beacon_chain
             .get_header(&BlockId::Hash(parent_hash))
             .expect("Parent is known but header not found.");
-        let prev_shard_header = self.shard_chain
-            .get_header(&BlockId::Hash(parent_shard_hash))
+        let prev_shard_block = self.shard_chain
+            .get_block(&BlockId::Hash(parent_shard_hash))
             .expect("At this moment shard chain should be present together with beacon chain");
+        //let prev_shard_header = self.shard_chain
+        //    .get_header(&BlockId::Hash(parent_shard_hash))
+        //    .expect("At this moment shard chain should be present together with beacon chain");
+        let prev_shard_header = prev_shard_block.header();
         let apply_state = ApplyState {
             root: prev_shard_header.body.merkle_root_state,
             block_index: prev_header.body.index,
@@ -92,6 +96,7 @@ impl BlockImporter {
         };
         let mut apply_result = self.runtime.write().apply(
             &apply_state,
+            prev_shard_block.body.new_receipts.clone(),
             shard_block.body.transactions.clone()
         );
         if apply_result.root != prev_shard_header.body.merkle_root_state {
