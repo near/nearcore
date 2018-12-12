@@ -7,7 +7,7 @@ wasm-gc ../to_wasm.wasm
 popd
 
 pushd $(dirname "$0")/import-memory
-cargo +nightly run --release ../to_wasm.wasm ../../res/wasm_with_mem.wasm
+cargo run --release ../to_wasm.wasm ../../res/wasm_with_mem.wasm
 wasm-gc ../../res/wasm_with_mem.wasm
 popd
 

@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(Config::default().max_memory_pages, 16);
+        assert_eq!(Config::default().max_memory_pages, 32);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));
