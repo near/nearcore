@@ -1,3 +1,4 @@
+use std::env;
 use std::fs;
 
 extern crate parity_wasm;
@@ -42,15 +43,31 @@ fn externalize_mem(
     builder.build()
 }
 
+fn help() {
+    println!("Usage: import_memory <source.wasm> <out.wasm>")
+}
+
 fn main() {
-    let wasm_binary = fs::read("../to_wasm.wasm").expect("Unable to read file");
+    let args: Vec<String> = env::args().collect();
 
-    // Load wasm binary and prepare it for instantiation.
-    let elements_module = parity_wasm::elements::deserialize_buffer(wasm_binary.as_ref())
-        .expect("deserialize failed");
+    match args.len() {
+        3 => {
+            let input_file = &args[1];
+            let output_file = &args[2];
 
-    let module_with_mem = externalize_mem(elements_module, None, 16);
+            let wasm_binary = fs::read(input_file).expect("Unable to read file");
 
-    parity_wasm::elements::serialize_to_file("../../res/wasm_with_mem.wasm", module_with_mem)
-        .expect("Can't write the file")
+            // Load wasm binary and prepare it for instantiation.
+            let elements_module = parity_wasm::elements::deserialize_buffer(wasm_binary.as_ref())
+                .expect("deserialize failed");
+
+            let module_with_mem = externalize_mem(elements_module, None, 16);
+
+            parity_wasm::elements::serialize_to_file(output_file, module_with_mem)
+                .expect("Can't write the file")
+        },
+        _ => {
+            help();
+        }
+    }
 }
