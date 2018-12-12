@@ -410,7 +410,7 @@ impl Payload for BeaconChainPayload {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: UID,
@@ -434,6 +434,22 @@ impl<P: Hash> Hash for MessageDataBody<P> {
         // TODO: Hash endorsements.
     }
 }
+
+impl<P: Hash> PartialEq for MessageDataBody<P> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut parents: Vec<_> = self.parents.clone().into_iter().collect();
+        parents.sort();
+
+        let mut other_parents: Vec<_> = other.parents.clone().into_iter().collect();
+        other_parents.sort();
+
+        self.owner_uid == other.owner_uid
+            && self.epoch  == other.epoch
+            && parents == other_parents
+    }
+}
+
+impl<P: Hash> Eq for MessageDataBody<P> {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedMessageData<P> {
