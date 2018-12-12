@@ -315,7 +315,7 @@ impl Runtime {
                     DEFAULT_MANA_LIMIT,
                 ),
             ).map_err(|e| format!("wasm execution failed with error: {:?}", e))?;
-            sender.amount = wasm_res.balance;
+            sender.amount = wasm_res.balance + staked;
             let receipts = runtime_ext.get_receipts();
             self.callbacks.extend(runtime_ext.callbacks);
             receipts
@@ -564,7 +564,7 @@ impl Runtime {
                 receiver_id,
             );
             if result.is_ok() {
-                receiver.amount = wasm_res.balance;
+                receiver.amount = wasm_res.balance + staked;
             }
             result
         };
