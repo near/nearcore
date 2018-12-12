@@ -319,7 +319,7 @@ impl ReceiptTransaction {
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub enum Transaction {
-    Transaction(SignedTransaction),
+    SignedTransaction(SignedTransaction),
     Receipt(ReceiptTransaction),
 }
 

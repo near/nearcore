@@ -90,7 +90,7 @@ impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
         };
         let mut apply_result = self.runtime.write().apply(
             &apply_state,
-            last_shard_block.body.new_receipts.clone(),
+            &last_shard_block.body.new_receipts,
             transactions
         );
         self.state_db.commit(&mut apply_result.transaction).ok();

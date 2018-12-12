@@ -96,7 +96,7 @@ impl BlockImporter {
         };
         let mut apply_result = self.runtime.write().apply(
             &apply_state,
-            prev_shard_block.body.new_receipts.clone(),
+            &prev_shard_block.body.new_receipts,
             shard_block.body.transactions.clone()
         );
         if apply_result.root != prev_shard_header.body.merkle_root_state {
