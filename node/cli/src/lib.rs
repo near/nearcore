@@ -43,6 +43,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
+use network::service::get_test_secret_from_node_index;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -78,6 +79,7 @@ fn get_rpc_server_task(
 
 fn get_network_tasks(
     p2p_port: Option<u16>,
+    test_node_index: Option<u32>,
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
@@ -99,6 +101,7 @@ fn get_network_tasks(
         get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)
     ];
 
+    network_config.use_secret = test_node_index.map(get_test_secret_from_node_index);
     let network_service = Arc::new(Mutex::new(new_network_service(
         &protocol_config,
         network_config,
@@ -115,6 +118,7 @@ pub fn start_service(
     chain_spec_path: Option<&Path>,
     p2p_port: Option<u16>,
     rpc_port: Option<u16>,
+    test_node_index: Option<u32>,
     consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<ChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
 ) {
     let mut builder = Builder::new();
@@ -177,6 +181,7 @@ pub fn start_service(
     // processing.
     let (messages_handler_task, network_task) = get_network_tasks(
         p2p_port,
+        test_node_index,
         beacon_chain.clone(),
         beacon_block_tx.clone(),
         transactions_tx.clone(),
@@ -226,6 +231,14 @@ pub fn run() {
                 .value_name("RPC_PORT")
                 .help("Sets the rpc protocol TCP port.")
                 .takes_value(true),
+        ).arg(
+           Arg::with_name("test_node_index")
+            .long("test-node-index")
+            .value_name("TEST_NODE_INDEX")
+            .help("Used as a seed for generating a node ID.\
+                 This should only be used for deterministically \
+                 creating node ID's during tests.")
+            .takes_value(true),
         ).get_matches();
 
     let base_path = matches.value_of("base_path")
@@ -241,11 +254,15 @@ pub fn run() {
     let rpc_port = matches.value_of("rpc_port")
         .map(|x| { x.parse::<u16>().unwrap() });
 
+    let test_node_index = matches.value_of("test_node_index")
+        .map(|x| { x.parse::<u32>().unwrap() });
+
     start_service(
         base_path,
         chain_spec_path,
         p2p_port,
         rpc_port,
+        test_node_index,
         &test_utils::create_passthrough_beacon_block_consensus_task,
     );
 }

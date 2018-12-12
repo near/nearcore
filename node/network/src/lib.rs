@@ -2,6 +2,7 @@ extern crate libp2p;
 extern crate primitives;
 extern crate substrate_network_libp2p;
 
+extern crate byteorder;
 extern crate serde;
 extern crate serde_json;
 #[macro_use]

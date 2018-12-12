@@ -1,4 +1,5 @@
 use std::iter;
+use std::mem;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,7 @@ use substrate_network_libp2p::{
 };
 pub use substrate_network_libp2p::NetworkConfiguration;
 use tokio::timer::Interval;
+use substrate_network_libp2p::Secret;
 
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
@@ -123,6 +125,16 @@ pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
     iter::once(NetworkProtocol::Ip4(ip_addr))
         .chain(iter::once(NetworkProtocol::Tcp(port)))
         .collect()
+}
+
+pub fn get_test_secret_from_node_index(test_node_index: u32) -> Secret {
+    let bytes: [u8; 4] = unsafe { mem::transmute(test_node_index) };
+
+    let mut array = [0; 32];
+    for (count, b) in bytes.iter().enumerate() {
+        array[array.len() - count - 1] = *b;
+    }
+    array
 }
 
 //#[cfg(test)]
