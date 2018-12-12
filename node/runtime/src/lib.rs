@@ -579,12 +579,15 @@ impl Runtime {
     fn apply_callback(
         &mut self,
         state_update: &mut StateDbUpdate,
+        runtime_data: &RuntimeData,
         callback_res: &CallbackResult,
         sender_id: AccountId,
         receiver_id: AccountId,
         nonce: Vec<u8>,
         receiver: &mut Account,
     ) -> Result<Vec<ReceiptTransaction>, String> {
+        let staked = runtime_data.at_stake(receiver_id);
+        assert!(receiver.amount >= staked);
         let mut needs_removal = false;
         let receipts = {
             let mut runtime_ext = RuntimeExt::new(
@@ -607,7 +610,7 @@ impl Runtime {
                             &mut runtime_ext,
                             &wasm::types::Config::default(),
                             &RuntimeContext::new(
-                                receiver.amount,
+                                receiver.amount - staked,
                                 0,
                                 sender_id,
                                 receiver_id,
@@ -623,7 +626,7 @@ impl Runtime {
                             sender_id,
                             receiver_id,
                         ).and_then(|receipts| {
-                            receiver.amount = balance;
+                            receiver.amount = balance + staked;
                             Ok(receipts)
                         })?
                     } else {
@@ -693,6 +696,7 @@ impl Runtime {
                         callback_info = Some(callback_res.info.clone());
                         self.apply_callback(
                             state_update,
+                            &runtime_data,
                             &callback_res,
                             receipt.sender,
                             receipt.receiver,
