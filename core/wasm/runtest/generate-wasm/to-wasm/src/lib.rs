@@ -234,6 +234,25 @@ pub fn create_promises_and_join() {
 }
 
 #[no_mangle]
+pub fn answer_to_life() {
+    return_i32(43);
+}
+
+#[no_mangle]
+pub fn transfer_to_bob() {
+    unsafe {
+        let promise1 = promise_create(
+            to_account_id(b"bob").as_ptr(),
+            serialize(b"deposit").as_ptr(),
+            serialize(b"").as_ptr(),
+            0,
+            1u64,
+        );
+        return_promise(promise1);
+    }
+}
+
+#[no_mangle]
 pub fn get_prev_balance() {
     unsafe {
         let bal = balance();

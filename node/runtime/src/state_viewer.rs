@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::str;
 
 use primitives::types::{AccountId, MerkleHash, ViewCall, ViewCallResult};
+use primitives::hash::hash;
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
@@ -96,6 +97,7 @@ impl StateDbViewer {
                     stake: runtime_data.at_stake(view_call.account),
                     nonce: account.nonce,
                     result,
+                    code_hash: hash(&account.code),
                 })
             }
             None => Err("account does not exist")
