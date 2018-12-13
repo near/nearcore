@@ -1,6 +1,7 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
 use jsonrpc_core::types::{Error, ErrorCode, Value};
+
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::types::{
@@ -8,7 +9,6 @@ use primitives::types::{
     SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
     TransactionBody, ViewCall,
 };
-use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest,
@@ -176,7 +176,7 @@ impl TransactionApi for RpcImpl {
             originator: r.originator_account_id,
             contract_id: r.contract_account_id,
             method_name: r.method_name.into_bytes(),
-            args: concat(r.args),
+            args: r.args,
         });
         Ok(PreparedTransactionBodyResponse { body })
     }

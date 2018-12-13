@@ -932,7 +932,6 @@ mod tests {
         TransactionBody, ViewCall, ViewCallResult
     };
     use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
-    use primitives::utils::concat;
     use storage::test_utils::create_state_db;
     use test_utils::{
         encode_int, get_runtime_and_state_db_viewer, get_test_state_db_viewer
@@ -1026,7 +1025,7 @@ mod tests {
             originator: hash(b"alice"),
             contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
-            args: concat((2..4).into_iter().map(|x| encode_int(x).to_vec()).collect()),
+            args: (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState { 
@@ -1497,7 +1496,7 @@ mod tests {
     fn test_async_call_with_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let args = concat((7..9).into_iter().map(|x| encode_int(x).to_vec()).collect());
+        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);
         let callback_id = [0; 32].to_vec();
@@ -1531,7 +1530,7 @@ mod tests {
     fn test_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let args = concat((7..9).into_iter().map(|x| encode_int(x).to_vec()).collect());
+        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);
         let callback_id = [0; 32].to_vec();

@@ -70,14 +70,14 @@ pub enum BlockId {
 pub struct ViewCall {
     pub account: AccountId,
     pub method_name: String,
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<u8>,
 }
 
 impl ViewCall {
     pub fn balance(account: AccountId) -> Self {
         ViewCall { account, method_name: String::new(), args: vec![] }
     }
-    pub fn func_call(account: AccountId, method_name: String, args: Vec<Vec<u8>>) -> Self {
+    pub fn func_call(account: AccountId, method_name: String, args: Vec<u8>) -> Self {
         ViewCall { account, method_name, args }
     }
 }
