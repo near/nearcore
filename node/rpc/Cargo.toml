@@ -9,6 +9,7 @@ jsonrpc-http-server = { git = "https://github.com/paritytech/jsonrpc" }
 futures = "0.1.25"
 serde = "1.0"
 serde_derive = "1.0"
+log = "0.4"
 
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
