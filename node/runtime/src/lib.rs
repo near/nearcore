@@ -684,7 +684,11 @@ impl Runtime {
                                 &mut receiver
                             )
                         } else if async_call.method_name == b"create_account".to_vec() {
-                            debug!(target: "runtime", "account {} already exists", receipt.receiver);
+                            debug!(
+                                target: "runtime",
+                                "account {} already exists",
+                                receipt.receiver,
+                            );
                             let receipt = ReceiptTransaction::new(
                                 system_account(),
                                 receipt.sender,
@@ -950,13 +954,13 @@ mod tests {
         let viewer = get_test_state_db_viewer();
         let result = viewer.view(&ViewCall::balance(hash(b"alice")));
         assert_eq!(
-            result,
+            result.unwrap(),
             ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![] }
         );
         let result2 =
             viewer.view(&ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]));
         assert_eq!(
-            result2,
+            result2.unwrap(),
             ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![20, 0, 0, 0] }
         );
     }
@@ -1162,7 +1166,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result1,
+            result1.unwrap(),
             ViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
@@ -1176,7 +1180,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result2,
+            result2.unwrap(),
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"bob"),
@@ -1188,7 +1192,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_money_failure() {
+    fn test_send_money_over_balance() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
@@ -1216,7 +1220,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result1,
+            result1.unwrap(),
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"alice"),
@@ -1230,7 +1234,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result2,
+            result2.unwrap(),
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"bob"),
@@ -1242,12 +1246,13 @@ mod tests {
     }
 
     #[test]
-    fn test_send_money_refund() {
+    fn test_refund_on_send_money_to_non_existent_account() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
+            // Account should not exist
             receiver: hash(b"eve"),
             amount: 10,
         });
@@ -1268,7 +1273,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result1,
+            result1.unwrap(),
             ViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
@@ -1281,16 +1286,7 @@ mod tests {
             &ViewCall::balance(hash(b"eve")),
             apply_result.root,
         );
-        assert_eq!(
-            result2,
-            ViewCallResult {
-                nonce: 0,
-                account: hash(b"eve"),
-                amount: 0,
-                stake: 0,
-                result: vec![],
-            }
-        );
+        assert!(result2.is_err());
     }
 
     #[test]
@@ -1322,7 +1318,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result1,
+            result1.unwrap(),
             ViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
@@ -1336,7 +1332,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result2,
+            result2.unwrap(),
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"eve"),
@@ -1348,7 +1344,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_account_failure() {
+    fn test_create_account_failure_already_exists() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let (pub_key, _) = get_keypair();
@@ -1389,7 +1385,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result1,
+            result1.unwrap(),
             ViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
@@ -1403,7 +1399,7 @@ mod tests {
             apply_result.root,
         );
         assert_eq!(
-            result2,
+            result2.unwrap(),
             ViewCallResult {
                 nonce: 0,
                 account: hash(b"bob"),

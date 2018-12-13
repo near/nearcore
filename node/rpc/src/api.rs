@@ -1,20 +1,21 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
+use jsonrpc_core::types::{Error, ErrorCode, Value};
 use node_runtime::state_viewer::StateDbViewer;
+use primitives::traits::Encode;
 use primitives::types::{
-    DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
-    CreateAccountTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
+    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
+    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
     TransactionBody, ViewCall,
 };
 use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
-    DeployContractRequest, PreparedTransactionBodyResponse,
-    ScheduleFunctionCallRequest, SendMoneyRequest, StakeRequest,
-    CreateAccountRequest, ViewAccountRequest, SwapKeyRequest,
+    CreateAccountRequest, DeployContractRequest,
+    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
+    StakeRequest, SwapKeyRequest, ViewAccountRequest,
     ViewAccountResponse,
 };
-use primitives::traits::Encode;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -187,12 +188,20 @@ impl TransactionApi for RpcImpl {
             args: Vec::new(),
         };
         let result = self.state_db_viewer.view(&call);
-        let response = ViewAccountResponse {
-            account_id: result.account,
-            amount: result.amount,
-            nonce: result.nonce,
-        };
-        Ok(response)
+        match result {
+            Ok(r) => {
+                Ok(ViewAccountResponse {
+                    account_id: r.account,
+                    amount: r.amount,
+                    nonce: r.nonce,
+                })
+            },
+            Err(e) => {
+                let mut error = Error::new(ErrorCode::InvalidRequest);
+                error.data = Some(Value::String(e.to_string()));
+                Err(error)
+            }
+        }
     }
 
     fn rpc_call_view_function(
@@ -205,13 +214,22 @@ impl TransactionApi for RpcImpl {
             args: r.args,
         };
         let result = self.state_db_viewer.view(&call);
-        let response = CallViewFunctionResponse {
-            account_id: result.account,
-            amount: result.amount,
-            nonce: result.nonce,
-            result: result.result,
-        };
-        Ok(response)
+
+        match result {
+            Ok(r) => {
+                Ok(CallViewFunctionResponse {
+                    account_id: r.account,
+                    amount: r.amount,
+                    nonce: r.nonce,
+                    result: r.result,
+                })
+            },
+            Err(e) => {
+                let mut error = Error::new(ErrorCode::InvalidRequest);
+                error.data = Some(Value::String(e.to_string()));
+                Err(error)
+            }
+        }
     }
 
     fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
@@ -232,10 +250,10 @@ mod tests {
     extern crate serde_json;
 
     use futures::sync::mpsc::channel;
+    use node_runtime::test_utils::get_test_state_db_viewer;
     use primitives::hash::hash;
     use self::jsonrpc_test::Rpc;
     use super::*;
-    use node_runtime::test_utils::get_test_state_db_viewer;
 
     #[test]
     fn test_call() {

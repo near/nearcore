@@ -26,12 +26,12 @@ impl StateDbViewer {
         self.shard_chain.best_block().body.header.merkle_root_state
     }
 
-    pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
+    pub fn view(&self, view_call: &ViewCall) -> Result<ViewCallResult, &str> {
         let root = self.get_root();
         self.view_at(view_call, root)
     }
 
-    pub fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> ViewCallResult {
+    pub fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> Result<ViewCallResult, &str> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).expect("Runtime data is missing");
         // TODO(#172): Distinguish sender and receiver accounts.
@@ -68,23 +68,15 @@ impl StateDbViewer {
                         }
                     }
                 }
-                ViewCallResult {
+                Ok(ViewCallResult {
                     account: view_call.account,
                     amount: account.amount,
                     stake: runtime_data.at_stake(view_call.account),
                     nonce: account.nonce,
                     result,
-                }
+                })
             }
-            None => {
-                ViewCallResult { 
-                    account: view_call.account,
-                    amount: 0,
-                    stake: 0,
-                    nonce: 0,
-                    result: vec![]
-                }
-            }
+            None => Err("account does not exist")
         }
     }
 }
@@ -101,7 +93,7 @@ mod tests {
         let viewer = get_test_state_db_viewer();
         let view_call = ViewCall::func_call(hash(b"alice"), "run_test".into(), vec![]);
         let view_call_result = viewer.view(&view_call);
-        assert_eq!(view_call_result.result, encode_int(20).to_vec());
+        assert_eq!(view_call_result.unwrap().result, encode_int(20).to_vec());
     }
 
     #[test]
@@ -110,6 +102,6 @@ mod tests {
         let args = (1..3).into_iter().map(|x| encode_int(x).to_vec()).collect();
         let view_call = ViewCall::func_call(hash(b"alice"), "sum_with_input".into(), args);
         let view_call_result = viewer.view(&view_call);
-        assert_eq!(view_call_result.result, encode_int(3).to_vec());
+        assert_eq!(view_call_result.unwrap().result, encode_int(3).to_vec());
     }
 }
