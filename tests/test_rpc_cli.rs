@@ -171,6 +171,8 @@ fn test_call_view_function_inner() {
         .arg("call_view_function")
         .arg(contract_name)
         .arg("run_test")
+        .arg("--args")
+        .arg("10")
         .output()
         .expect("call_view_function command failed to process");
 

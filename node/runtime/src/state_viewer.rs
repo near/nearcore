@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::str;
 
 use primitives::types::{AccountId, MerkleHash, ViewCall, ViewCallResult};
-use primitives::utils::concat;
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
@@ -66,7 +65,7 @@ impl StateDbViewer {
                     let wasm_res = executor::execute(
                         &account.code,
                         view_call.method_name.as_bytes(),
-                        &concat(view_call.args.clone()),
+                        &view_call.args.clone(),
                         &[],
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
@@ -122,7 +121,7 @@ mod tests {
     #[test]
     fn test_view_call_with_args() {
         let viewer = get_test_state_db_viewer();
-        let args = (1..3).into_iter().map(|x| encode_int(x).to_vec()).collect();
+        let args = (1..3).into_iter().flat_map(|x| encode_int(x).to_vec()).collect();
         let view_call = ViewCall::func_call(hash(b"alice"), "sum_with_input".into(), args);
         let view_call_result = viewer.view(&view_call);
         assert_eq!(view_call_result.unwrap().result, encode_int(3).to_vec());

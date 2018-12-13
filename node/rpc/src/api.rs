@@ -9,7 +9,6 @@ use primitives::types::{
     SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
     TransactionBody, ViewCall,
 };
-use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest,
@@ -185,7 +184,7 @@ impl TransactionApi for RpcImpl {
             originator: r.originator_account_id,
             contract_id: r.contract_account_id,
             method_name: r.method_name.into_bytes(),
-            args: concat(r.args),
+            args: r.args,
         });
         Ok(PreparedTransactionBodyResponse { body })
     }

@@ -63,7 +63,7 @@ pub struct ScheduleFunctionCallRequest {
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub method_name: String,
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,7 +85,7 @@ pub struct CallViewFunctionRequest {
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub method_name: String,
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]

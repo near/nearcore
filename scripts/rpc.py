@@ -68,11 +68,13 @@ class NearRPC(object):
             keystore_binary=None,
             keystore_path=None,
             public_key=None,
+            debug=False,
     ):
         self._server_url = server_url
         self._keystore_binary = keystore_binary
         self._keystore_path = keystore_path
         self._nonces = {}
+        self._debug = debug
 
         # This may be None, use 'self._get_public_key' in order
         # to check against the keystore
@@ -95,13 +97,20 @@ class NearRPC(object):
             'method': method_name,
             'params': [params],
         }
+        if self._debug:
+            print(data)
+
         try:
             response = _post(self._server_url, data)
             if 'error' in response:
                 print(response['error'])
                 exit(1)
 
-            return response['result']
+            result = response['result']
+            if self._debug:
+                print(result)
+
+            return result
         except URLError:
             error = "Connection to {} refused. " \
                     "To start RPC server at http://127.0.0.1:3030, run:\n" \
@@ -210,7 +219,7 @@ class NearRPC(object):
         args=None,
     ):
         if args is None:
-            args = [[]]
+            args = []
 
         nonce = self._get_nonce(sender)
         params = {
@@ -275,7 +284,7 @@ class NearRPC(object):
 
     def call_view_function(self, contract_name, function_name, args=None):
         if args is None:
-            args = [[]]
+            args = []
 
         params = {
             'contract_account_id': _get_account_id(contract_name),
@@ -337,6 +346,12 @@ swap_key                 {}
             default='http://127.0.0.1:3030',
             help='url of RPC server',
         )
+        parser.add_argument(
+            '--debug',
+            action="store_true",
+            default=False,
+            help='set to emit debug logs',
+        )
         return parser
 
     @staticmethod
@@ -384,6 +399,7 @@ swap_key                 {}
             keystore_binary,
             keystore_path,
             public_key,
+            command_args.debug,
         )
 
     def send_money(self):
@@ -458,7 +474,7 @@ swap_key                 {}
         self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
-        parser.add_argument('args', nargs='?', type=str, default=None)
+        parser.add_argument('--args', nargs='+', type=int, default=None)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.schedule_function_call(
@@ -473,11 +489,13 @@ swap_key                 {}
         parser = self._get_command_parser(self.call_view_function.__doc__)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
+        parser.add_argument('--args', nargs='+', type=int, default=None)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.call_view_function(
             args.contract_name,
             args.function_name,
+            args.args,
         )
 
     def view_account(self):
