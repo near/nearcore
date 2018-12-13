@@ -594,11 +594,6 @@ impl Runtime {
     ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.at_stake(receiver_id);
         assert!(receiver.amount >= staked);
-        let mut runtime_ext = RuntimeExt::new(
-            state_update,
-            sender_id,
-            nonce,
-        );
         let mut needs_removal = false;
         let receipts = {
             let mut runtime_ext = RuntimeExt::new(

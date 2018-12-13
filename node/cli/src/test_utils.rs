@@ -2,7 +2,7 @@ use beacon_chain_handler::producer::{ChainConsensusBlockBody, ShardChainPayload}
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{MessageDataBody, SignedMessageData, SignedTransaction};
+use primitives::types::{MessageDataBody, SignedMessageData, SignedTransaction, Transaction};
 use std::collections::HashSet;
 use tokio;
 
@@ -20,7 +20,7 @@ pub fn spawn_pasthrough_consensus(
                         owner_uid: 0,
                         parents: HashSet::new(),
                         epoch: 0,
-                        payload: (vec![t], vec![]),
+                        payload: vec![Transaction::SignedTransaction(t)],
                         endorsements: vec![],
                     },
                 };

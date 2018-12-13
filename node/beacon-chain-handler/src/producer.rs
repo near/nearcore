@@ -125,7 +125,7 @@ impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
                 parent_block_hash: shard_block.block_hash(),
                 block_index: shard_block.body.header.index + 1,
             };
-            transactions = shard_block.body.new_receipts.clone();
+            transactions = shard_block.body.transactions.clone();
             last_shard_block = shard_block;
         }
     }
