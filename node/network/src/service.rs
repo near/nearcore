@@ -67,7 +67,7 @@ pub fn spawn_network_tasks<B, Header, P>(
         let network_service1 = network_service.clone();
         let protocol1 = protocol.clone();
         move |event| {
-            debug!(target: "sub-libp2p", "event: {:?}", event);
+            debug!(target: "network", "event: {:?}", event);
             match event {
                 ServiceEvent::CustomMessage { node_index, data, .. } => {
                     if let Err((node_index, severity))
@@ -94,8 +94,17 @@ pub fn spawn_network_tasks<B, Header, P>(
                 ServiceEvent::ClosedCustomProtocol { node_index, .. } => {
                     protocol1.on_peer_disconnected(node_index);
                 }
-                _ => {
-                    debug!("TODO");
+                ServiceEvent::NodeClosed { node_index, .. } => {
+                    // TODO(#218): actually do something here
+                    debug!(target: "network", "Node closed {}", node_index);
+                }
+                ServiceEvent::ClosedCustomProtocols { node_index, .. } => {
+                    // TODO(#218): actually do something here
+                    debug!(
+                        target: "network",
+                        "Protocols closed for {}",
+                        node_index,
+                    );
                 }
             };
             Ok(())

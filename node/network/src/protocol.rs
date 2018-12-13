@@ -237,6 +237,8 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         let message: Message<B, Header, P> = Decode::decode(data)
             .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
+        debug!(target: "network", "message received: {:?}", message);
+
         match message {
             Message::Transaction(tx) => {
                 self.on_transaction_message(*tx);
@@ -263,7 +265,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                 self.on_block_response(peer, response);
             },
             Message::BlockAnnounce(ann) => {
-                debug!(target: "sync", "receive block announcement: {:?}", ann);
+                debug!(target: "network", "receive block announcement: {:?}", ann);
                 // header is actually block for now
                 match ann {
                     message::BlockAnnounce::Block(b) => {
