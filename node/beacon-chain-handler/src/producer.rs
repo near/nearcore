@@ -77,7 +77,7 @@ impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
             .flat_map(|message| message.body.payload.clone())
             .collect();
 
-        let last_block = self.beacon_chain.best_block();
+        let mut last_block = self.beacon_chain.best_block();
         let mut last_shard_block = self.shard_chain
             .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
             .expect("At the moment we should have shard blocks accompany beacon blocks");
@@ -125,8 +125,9 @@ impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
                 parent_block_hash: shard_block.block_hash(),
                 block_index: shard_block.body.header.index + 1,
             };
-            transactions = shard_block.body.transactions.clone();
+            transactions = vec![];
             last_shard_block = shard_block;
+            last_block = block;
         }
     }
 }
