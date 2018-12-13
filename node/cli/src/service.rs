@@ -62,6 +62,7 @@ fn spawn_rpc_server_task(
 
 fn spawn_network_tasks(
     p2p_port: Option<u16>,
+    boot_nodes: Vec<String>,
     test_node_index: Option<u32>,
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
@@ -79,6 +80,7 @@ fn spawn_network_tasks(
         net_messages_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
+    network_config.boot_nodes = boot_nodes;
     let p2p_port = p2p_port.unwrap_or(DEFAULT_P2P_PORT);
     network_config.listen_addresses = vec![
         network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port),
@@ -99,7 +101,7 @@ fn spawn_network_tasks(
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets = vec!["producer", "runtime"];
+    let internal_targets = vec!["network", "producer", "runtime", "service"];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
@@ -126,8 +128,11 @@ pub struct ServiceConfig {
     pub base_path: PathBuf,
     pub chain_spec_path: Option<PathBuf>,
     pub log_level: log::LevelFilter,
-    pub p2p_port: u16,
     pub rpc_port: u16,
+
+    // Network configuration
+    pub p2p_port: u16,
+    pub boot_nodes: Vec<String>,
     pub test_node_index: Option<u32>,
 }
 
@@ -137,8 +142,9 @@ impl Default for ServiceConfig {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
             chain_spec_path: None,
             log_level: DEFAULT_LOG_LEVEL,
-            p2p_port: DEFAULT_P2P_PORT,
             rpc_port: DEFAULT_RPC_PORT,
+            p2p_port: DEFAULT_P2P_PORT,
+            boot_nodes: vec![],
             test_node_index: None,
         }
     }
@@ -208,6 +214,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // to send transactions and receipts for processing.
         spawn_network_tasks(
             Some(config.p2p_port),
+            config.boot_nodes,
             config.test_node_index,
             beacon_chain.clone(),
             beacon_block_tx.clone(),
