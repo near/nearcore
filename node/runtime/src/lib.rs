@@ -28,6 +28,7 @@ use primitives::types::{
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
     SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
+    FunctionCallTransaction,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes
@@ -288,52 +289,41 @@ impl Runtime {
     }
 
     fn call_function(
-        &mut self,
+        &self,
         state_update: &mut StateDbUpdate,
-        runtime_data: &RuntimeData,
-        sender: &mut Account,
-        sender_account_id: AccountId,
+        transaction: &FunctionCallTransaction,
         hash: CryptoHash,
-        method_name: &[u8],
-        args: &[u8],
+        sender: &mut Account,
+        runtime_data: &mut RuntimeData,
     ) -> Result<Vec<Transaction>, String> {
-        let staked = runtime_data.at_stake(sender_account_id);
-        // sender.amount cannot be less than staked
-        // otherwise staking would have failed
-        assert!(sender.amount >= staked);
-        let receipts = {
-            let mut runtime_ext = RuntimeExt::new(
-                state_update,
-                sender_account_id,
-                hash.into()
-            );
-            let wasm_res = executor::execute(
-                &sender.code,
-                &method_name,
-                args,
-                &[],
-                &mut runtime_ext,
-                &wasm::types::Config::default(),
-                &RuntimeContext::new(
-                    sender.amount - staked,
-                    0,
-                    sender_account_id,
-                    sender_account_id,
+        let staked = runtime_data.at_stake(transaction.originator);
+        if sender.amount - staked >= transaction.amount {
+            sender.amount -= transaction.amount;
+            set(state_update, &account_id_to_bytes(transaction.originator), sender);
+            let receipt = ReceiptTransaction::new(
+                transaction.originator,
+                transaction.contract_id,
+                hash.into(),
+                ReceiptBody::NewCall(AsyncCall::new(
+                    transaction.method_name.clone(),
+                    transaction.args.clone(),
+                    transaction.amount,
                     DEFAULT_MANA_LIMIT,
-                ),
-            ).map_err(|e| format!("wasm execution failed with error: {:?}", e))?;
-            sender.amount = wasm_res.balance + staked;
-            let receipts = runtime_ext.get_receipts();
-            self.callbacks.extend(runtime_ext.callbacks);
-            receipts
-        };
-        set(
-            state_update,
-            &account_id_to_bytes(sender_account_id),
-            &sender
-        );        
-        Ok(receipts)
-    }   
+                ))
+            );
+            Ok(vec![Transaction::Receipt(receipt)])
+        } else {
+            Err(
+                format!(
+                    "Account {} tries to call some contract with the amount {}, but has staked {} and only has {}",
+                    transaction.originator,
+                    transaction.amount,
+                    staked,
+                    sender.amount
+                )
+            )
+        }
+    }
 
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
@@ -378,12 +368,10 @@ impl Runtime {
                     TransactionBody::FunctionCall(ref t) => {
                         self.call_function(
                             state_update,
-                            &runtime_data,
-                            &mut sender,
-                            transaction.body.get_sender(),
+                            &t,
                             transaction.transaction_hash(),
-                            &t.method_name,
-                            &t.args,
+                            &mut sender,
+                            &mut runtime_data,
                         )
                     },
                     TransactionBody::DeployContract(ref t) => {
@@ -1040,6 +1028,7 @@ mod tests {
             contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
             args: vec![],
+            amount: 0,
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
@@ -1066,6 +1055,7 @@ mod tests {
             contract_id: hash(b"bob"),
             method_name: b"run_test".to_vec(),
             args: (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
+            amount: 0,
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState { 

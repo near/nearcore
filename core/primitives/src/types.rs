@@ -125,6 +125,7 @@ pub struct FunctionCallTransaction {
     pub contract_id: AccountId,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
+    pub amount: Balance,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
