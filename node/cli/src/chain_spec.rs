@@ -21,6 +21,11 @@ struct ChainSpecRef {
 #[derive(Deserialize, Serialize)]
 struct ChainSpecDeserializer(#[serde(with = "ChainSpecRef")] ChainSpec);
 
+pub fn serialize_chain_spec(chain_spec: ChainSpec) -> String {
+    serde_json::to_string(&ChainSpecDeserializer(chain_spec))
+        .expect("Error serializing the chain spec.")
+}
+
 pub fn deserialize_chain_spec(config: &str) -> ChainSpec {
     serde_json::from_str(config)
         .map(|ChainSpecDeserializer(c)| c)

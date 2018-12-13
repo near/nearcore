@@ -1,0 +1,11 @@
+[package]
+name = "chain-spec-builder"
+version = "0.1.0"
+
+[dependencies]
+clap = "2.32.0"
+serde_json = "1.0.0"
+
+network = { path = "../../node/network" }
+node-cli = { path = "../../node/cli" }
+node-runtime = { path = "../../node/runtime" }
