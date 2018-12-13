@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(Config::default().max_memory_pages, 16);
+        assert_eq!(Config::default().max_memory_pages, 32);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));
@@ -232,7 +232,7 @@ mod tests {
         assert_matches!(r, Ok(_));
 
         // initial exceed maximum
-        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 16 1)))"#);
+        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
         assert_matches!(r, Err(Error::Memory));
 
         // no maximum
@@ -240,7 +240,7 @@ mod tests {
         assert_matches!(r, Err(Error::Memory));
 
         // requested maximum exceed configured maximum
-        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 17)))"#);
+        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
         assert_matches!(r, Err(Error::Memory));
     }
 

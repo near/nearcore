@@ -54,7 +54,7 @@ fn convert(input_file: &str, output_file: &str) {
     let elements_module = parity_wasm::elements::deserialize_buffer(wasm_binary.as_ref())
         .expect("deserialize failed");
 
-    let module_with_mem = externalize_mem(elements_module, None, 16);
+    let module_with_mem = externalize_mem(elements_module, None, 32);
 
     parity_wasm::elements::serialize_to_file(output_file, module_with_mem)
         .expect("Can't write the file")
