@@ -348,8 +348,9 @@ impl Runtime {
             (Some(mut runtime_data), Some(mut sender)) => {
                 if transaction.body.get_nonce() <= sender.nonce {
                     return Err(format!(
-                        "Transaction nonce {} is invalid",
-                        transaction.body.get_nonce()
+                        "Transaction nonce {} must be larger than sender nonce {}",
+                        transaction.body.get_nonce(),
+                        sender.nonce,
                     ));
                 }
                 sender.nonce = transaction.body.get_nonce();
