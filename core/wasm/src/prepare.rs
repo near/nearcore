@@ -2,7 +2,8 @@
 //! wasm module before execution.
 
 use memory::Memory;
-use parity_wasm::elements::{self, External, MemoryType, Type};
+use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
+use parity_wasm::builder;
 use pwasm_utils::{self, rules};
 use types::{Config, PrepareError as Error};
 
@@ -22,6 +23,42 @@ impl<'a> ContractModule<'a> {
             module: Some(module),
             config,
         })
+    }
+
+    fn externalize_mem(&mut self) -> Result<(), Error> {
+        let mut module = self
+            .module
+            .take()
+            .expect("On entry to the function `module` can't be `None`; qed");
+
+        let mut tmp = MemorySection::default();
+
+        let entry = module.memory_section_mut()
+            .unwrap_or_else(|| &mut tmp)
+            .entries_mut()
+            .pop();
+
+        match entry {
+            Some(mut entry) => {
+                if entry.limits().maximum().is_none() {
+                    entry = elements::MemoryType::new(
+                        entry.limits().initial(),
+                        Some(self.config.max_memory_pages));
+                }
+
+                let mut builder = builder::from_module(module);
+                builder.push_import(elements::ImportEntry::new(
+                    "env".to_owned(),
+                    "memory".to_owned(),
+                    elements::External::Memory(entry),
+                ));
+
+                self.module = Some(builder.build());
+            }
+            None => self.module = Some(module)
+        };
+
+        Ok(())
     }
 
     /// Ensures that module doesn't declare internal memories.
@@ -158,6 +195,7 @@ pub(super) fn prepare_contract(
     config: &Config,
 ) -> Result<PreparedContract, Error> {
     let mut contract_module = ContractModule::init(original_code, config)?;
+    contract_module.externalize_mem()?;
     contract_module.ensure_no_internal_memory()?;
     // TODO(#208): Re-enable after fixing issues with running AssemblyScript code
     // contract_module.inject_gas_metering()?;
@@ -217,7 +255,7 @@ mod tests {
     #[test]
     fn internal_memory_declaration() {
         let r = parse_and_prepare_wat(r#"(module (memory 1 1))"#);
-        assert_matches!(r, Err(Error::InternalMemoryDeclared));
+        assert_matches!(r, Ok(_));
     }
 
     #[test]
