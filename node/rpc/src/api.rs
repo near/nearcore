@@ -130,6 +130,7 @@ impl TransactionApi for RpcImpl {
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: r.nonce,
+            sender: r.sender_account_id,
             contract_id: r.contract_account_id,
             wasm_byte_array: r.wasm_byte_array,
             public_key: r.public_key.encode().unwrap()

@@ -112,6 +112,7 @@ pub struct SendMoneyTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
+    pub sender: AccountId,
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
     pub public_key: Vec<u8>,
@@ -172,7 +173,7 @@ impl TransactionBody {
         match self {
             TransactionBody::Stake(t) => t.staker,
             TransactionBody::SendMoney(t) => t.sender,
-            TransactionBody::DeployContract(t) => t.contract_id,
+            TransactionBody::DeployContract(t) => t.sender,
             TransactionBody::FunctionCall(t) => t.originator,
             TransactionBody::CreateAccount(t) => t.sender,
             TransactionBody::SwapKey(t) => t.sender,
