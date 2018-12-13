@@ -177,6 +177,7 @@ impl StateDbViewer {
 #[cfg(test)]
 mod tests {
     use primitives::hash::hash;
+    use std::collections::HashMap;
     use test_utils::*;
 
     #[test]

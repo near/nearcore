@@ -77,8 +77,8 @@ pub struct ViewAccountResponse {
     #[serde(with = "bs58_format")]
     pub account_id: AccountId,
     pub amount: Balance,
+    pub stake: Balance,
     pub nonce: u64,
-    pub stake: u64,
     #[serde(with = "bs58_format")]
     pub code_hash: CryptoHash,
 }

@@ -31,17 +31,6 @@ pub struct Status {
     pub genesis_hash: CryptoHash,
 }
 
-impl Default for Status {
-    fn default() -> Self {
-        Status {
-            version: 1,
-            best_index: 0,
-            best_hash: CryptoHash::default(),
-            genesis_hash: CryptoHash::default(),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockRequest {
     // request id

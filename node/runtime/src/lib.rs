@@ -360,7 +360,7 @@ impl Runtime {
                         self.send_money(
                             state_update,
                             &t,
-                            transaction.hash,
+                            transaction.transaction_hash(),
                             &mut sender,
                             &mut runtime_data,
                         )
@@ -380,7 +380,7 @@ impl Runtime {
                             &runtime_data,
                             &mut sender,
                             transaction.body.get_sender(),
-                            transaction.hash,
+                            transaction.transaction_hash(),
                             &t.method_name,
                             &t.args,
                         )
@@ -396,7 +396,7 @@ impl Runtime {
                         self.create_account(
                             state_update,
                             t,
-                            transaction.hash,
+                            transaction.transaction_hash(),
                             &mut sender,
                             &mut runtime_data
                         )
@@ -947,6 +947,11 @@ mod tests {
         }
     }
 
+    fn default_code_hash() -> CryptoHash {
+        let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+        hash(genesis_wasm)
+    }
+
     #[test]
     fn test_genesis_state() {
         let viewer = get_test_state_db_viewer();
@@ -958,6 +963,7 @@ mod tests {
                 amount: 100,
                 nonce: 0,
                 stake: 50,
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.call_function(
@@ -973,6 +979,7 @@ mod tests {
                 amount: 100,
                 nonce: 0,
                 result: vec![20, 0, 0, 0],
+                code_hash: default_code_hash(),
             }
         );
     }
@@ -1181,6 +1188,7 @@ mod tests {
                 account: hash(b"alice"),
                 amount: 90,
                 stake: 50,
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
@@ -1191,6 +1199,7 @@ mod tests {
                 account: hash(b"bob"),
                 amount: 10,
                 stake: 0,
+                code_hash: default_code_hash(),
             }
         );
     }
@@ -1227,6 +1236,7 @@ mod tests {
                 account: hash(b"alice"),
                 amount: 100,
                 stake: 50,
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
@@ -1237,6 +1247,7 @@ mod tests {
                 account: hash(b"bob"),
                 amount: 0,
                 stake: 0,
+                code_hash: default_code_hash(),
             }
         );
     }
@@ -1272,6 +1283,7 @@ mod tests {
                 account: hash(b"alice"),
                 amount: 100,
                 stake: 50,
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_account_at(hash(b"eve"), apply_result.root);
@@ -1310,6 +1322,7 @@ mod tests {
                 account: hash(b"alice"),
                 amount: 90,
                 stake: 50,
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_account_at(hash(b"eve"), apply_result.root);
@@ -1320,6 +1333,7 @@ mod tests {
                 account: hash(b"eve"),
                 amount: 10,
                 stake: 0,
+                code_hash: hash(b""),
             }
         );
     }
@@ -1369,6 +1383,7 @@ mod tests {
                 account: hash(b"alice"),
                 amount: 100,
                 stake: 50,
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
@@ -1379,6 +1394,7 @@ mod tests {
                 account: hash(b"bob"),
                 amount: 0,
                 stake: 0,
+                code_hash: default_code_hash(),
             }
         );
     }

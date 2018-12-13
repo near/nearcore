@@ -107,8 +107,13 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
-        // use this placeholder for now. Change this when block storage is ready
-        let status = message::Status::default();
+        let best_block_header = self.chain.best_block().header();
+        let status = message::Status {
+            version: CURRENT_VERSION,
+            best_index: best_block_header.index(),
+            best_hash: best_block_header.block_hash(),
+            genesis_hash: self.chain.genesis_hash,
+        };
         let message = Message::Status(status);
         self.send_message(peer, message);
     }
@@ -237,6 +242,8 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         let message: Message<B, Header, P> = Decode::decode(data)
             .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
+        debug!(target: "network", "message received: {:?}", message);
+
         match message {
             Message::Transaction(tx) => {
                 self.on_transaction_message(*tx);
@@ -263,7 +270,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                 self.on_block_response(peer, response);
             },
             Message::BlockAnnounce(ann) => {
-                debug!(target: "sync", "receive block announcement: {:?}", ann);
+                debug!(target: "network", "receive block announcement: {:?}", ann);
                 // header is actually block for now
                 match ann {
                     message::BlockAnnounce::Block(b) => {
