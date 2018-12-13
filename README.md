@@ -104,6 +104,9 @@ $ ./scripts/rpc.py send_money -r bob -a 1
 
 # Create an account
 ./scripts/rpc.py create_account cindy 1
+
+# View full state db of the contract
+./scripts/rpc.py view_state test_contract
 ```
 
 ## Development

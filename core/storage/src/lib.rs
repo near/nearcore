@@ -18,7 +18,7 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use primitives::hash::CryptoHash;
 use primitives::types::MerkleHash;
 use std::sync::Arc;
-use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend};
+use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend, Backend};
 pub use substrate_storage::TrieBackendTransaction;
 
 mod substrate_storage;
@@ -61,6 +61,9 @@ impl<'a> StateDbUpdate<'a> {
     }
     pub fn delete(&mut self, key: &[u8]) {
         self.ext.clear_storage(key);
+    }
+    pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], f: F) {
+        self._backend.for_keys_with_prefix(prefix, f);
     }
     pub fn commit(&mut self) {
         self.overlay.commit_prospective();
@@ -138,10 +141,13 @@ mod tests {
         let mut state_db_update = StateDbUpdate::new(state_db.clone(), root);
         state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
-        state_db_update.set(b"dog3", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
         let (mut transaction, new_root) = state_db_update.finalize();
         state_db.commit(&mut transaction).ok();
         let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
         assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
+        let mut values = vec![];
+        state_db_update2.for_keys_with_prefix(b"dog", |key| { values.push(key.to_vec()) });
+        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
     }
 }

@@ -224,6 +224,10 @@ class NearRPC(object):
         response = self._call_rpc('schedule_function_call', params)
         return self._handle_prepared_transaction_body_response(response)
 
+    def view_state(self, contract_name):
+        params = {'contract_account_id': _get_account_id(contract_name)}
+        return self._call_rpc('view_state', params)
+
     def create_account(
         self,
         sender,
@@ -292,6 +296,7 @@ deploy                   {}
 send_money               {}
 schedule_function_call   {}
 view_account             {}
+view_state               {}
 stake                    {}
 create_account           {}
 swap_key                 {}
@@ -301,6 +306,7 @@ swap_key                 {}
                 self.send_money.__doc__,
                 self.schedule_function_call.__doc__,
                 self.view_account.__doc__,
+                self.view_state.__doc__,
                 self.stake.__doc__,
                 self.create_account.__doc__,
                 self.swap_key.__doc__,
@@ -502,6 +508,16 @@ swap_key                 {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.stake(args.sender, args.amount)
+
+    def view_state(self):
+        """View state of the contract."""
+        parser = self._get_command_parser(self.view_state.__doc__)
+        parser.add_argument('contract_name', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.view_state(
+            args.contract_name,
+        )
 
 
 if __name__ == "__main__":
