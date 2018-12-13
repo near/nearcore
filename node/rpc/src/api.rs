@@ -5,9 +5,9 @@ use jsonrpc_core::types::{Error, ErrorCode, Value};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::types::{
-    AccountViewCall, FunctionCallViewCall, CreateAccountTransaction,
-    DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
-    SignedTransaction, StakeTransaction, SwapKeyTransaction, TransactionBody,
+    CreateAccountTransaction, DeployContractTransaction,
+    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
+    StakeTransaction, SwapKeyTransaction, TransactionBody,
 };
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
@@ -182,11 +182,7 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
-        let call = AccountViewCall {
-            account: r.account_id,
-        };
-        let result = self.state_db_viewer.view_account(&call);
-        match result {
+        match self.state_db_viewer.view_account(r.account_id) {
             Ok(r) => {
                 Ok(ViewAccountResponse {
                     account_id: r.account,
@@ -206,15 +202,12 @@ impl TransactionApi for RpcImpl {
         &self,
         r: CallViewFunctionRequest,
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
-        let call = FunctionCallViewCall {
-            originator: r.originator_id,
-            contract: r.contract_account_id,
-            method_name: r.method_name,
-            args: r.args,
-        };
-        let result = self.state_db_viewer.call_function(&call);
-
-        match result {
+        match self.state_db_viewer.call_function(
+            r.originator_id,
+            r.contract_account_id,
+            &r.method_name,
+            &r.args,
+        ) {
             Ok(r) => {
                 Ok(CallViewFunctionResponse {
                     contract: r.contract,

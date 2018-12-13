@@ -64,54 +64,6 @@ pub enum BlockId {
 }
 
 // 1. Transaction structs.
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct AccountViewCall {
-    pub account: AccountId,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct AccountViewCallResult {
-    pub account: AccountId,
-    pub nonce: u64,
-    pub amount: Balance,
-    pub stake: u64,
-}
-
-/// Call view function in the contracts.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FunctionCallViewCall {
-    pub originator: AccountId,
-    pub contract: AccountId,
-    pub method_name: String,
-    pub args: Vec<u8>,
-}
-
-impl FunctionCallViewCall {
-    pub fn new(
-        originator: AccountId,
-        contract: AccountId,
-        method_name: String,
-        args: Vec<u8>,
-    ) -> FunctionCallViewCall {
-        FunctionCallViewCall {
-            originator,
-            contract,
-            method_name,
-            args,
-        }
-    }
-}
-
-/// Result of view function call.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FunctionCallViewCallResult {
-    pub contract: AccountId,
-    pub nonce: u64,
-    pub amount: Balance,
-    pub result: Vec<u8>,
-}
-
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
     pub nonce: u64,

@@ -929,15 +929,14 @@ mod tests {
 
     use primitives::hash::hash;
     use primitives::types::{
-        AccountViewCallResult, DeployContractTransaction,
-        FunctionCallTransaction, FunctionCallViewCall,
-        FunctionCallViewCallResult, TransactionBody,
+        DeployContractTransaction, FunctionCallTransaction,
+        TransactionBody,
     };
     use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
+    use state_viewer::{AccountViewCallResult, FunctionCallViewCallResult};
     use storage::test_utils::create_state_db;
     use test_utils::*;
     use super::*;
-    use primitives::types::AccountViewCall;
 
     impl Default for Runtime {
         fn default() -> Runtime {
@@ -951,9 +950,7 @@ mod tests {
     #[test]
     fn test_genesis_state() {
         let viewer = get_test_state_db_viewer();
-        let result = viewer.view_account(
-            &AccountViewCall { account: hash(b"alice") }
-        );
+        let result = viewer.view_account(hash(b"alice"));
         assert_eq!(
             result.unwrap(),
             AccountViewCallResult {
@@ -963,13 +960,12 @@ mod tests {
                 stake: 50,
             }
         );
-        let view_call = FunctionCallViewCall::new(
+        let result2 = viewer.call_function(
             hash(b"alice"),
             hash(b"alice"),
-            "run_test".to_string(),
-            vec![],
+            "run_test",
+            &vec![],
         );
-        let result2 = viewer.call_function(&view_call);
         assert_eq!(
             result2.unwrap(),
             FunctionCallViewCallResult {
@@ -1177,10 +1173,7 @@ mod tests {
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"alice") },
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1190,10 +1183,7 @@ mod tests {
                 stake: 50,
             }
         );
-        let result2 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"bob") },
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1229,10 +1219,7 @@ mod tests {
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"alice") },
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1242,10 +1229,7 @@ mod tests {
                 stake: 50,
             }
         );
-        let result2 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"bob") },
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1280,10 +1264,7 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"alice") },
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1293,10 +1274,7 @@ mod tests {
                 stake: 50,
             }
         );
-        let result2 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"eve") },
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"eve"), apply_result.root);
         assert!(result2.is_err());
     }
 
@@ -1324,10 +1302,7 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"alice") },
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1337,10 +1312,7 @@ mod tests {
                 stake: 50,
             }
         );
-        let result2 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"eve") },
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"eve"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1389,10 +1361,7 @@ mod tests {
         //assert_eq!(apply_result.new_receipts.len(), 0);
         //assert_ne!(root, apply_result.root);
         //runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"alice") },
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1402,10 +1371,7 @@ mod tests {
                 stake: 50,
             }
         );
-        let result2 = viewer.view_account_at(
-            &AccountViewCall { account: hash(b"bob") },
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
