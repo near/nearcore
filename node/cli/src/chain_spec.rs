@@ -15,6 +15,7 @@ struct ChainSpecRef {
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
+    boot_nodes: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -53,6 +54,7 @@ fn test_deserialize() {
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,
         "beacon_chain_num_seats_per_slot": 100,
+        "boot_nodes": [],
     });
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(

@@ -157,11 +157,19 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         + Sync
         + 'static,
 {
-    configure_logging(config.log_level);
-
     // Create shared-state objects.
     let storage = get_storage(&config.base_path);
     let chain_spec = chain_spec::read_or_default_chain_spec(&config.chain_spec_path);
+    let boot_nodes = if chain_spec.boot_nodes.is_empty() {
+        config.boot_nodes.clone()
+    } else {
+        if !config.boot_nodes.is_empty() {
+            // TODO(#222): return an error here instead of panicking
+            panic!("boot nodes cannot be specified when chain spec has boot nodes");
+        } else {
+            chain_spec.boot_nodes
+        }
+    };
 
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
@@ -177,6 +185,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
     let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
     let signer = Arc::new(InMemorySigner::default());
 
+    configure_logging(config.log_level);
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (transactions_tx, transactions_rx) = channel(1024);
@@ -214,7 +223,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // to send transactions and receipts for processing.
         spawn_network_tasks(
             Some(config.p2p_port),
-            config.boot_nodes,
+            boot_nodes,
             config.test_node_index,
             beacon_chain.clone(),
             beacon_block_tx.clone(),

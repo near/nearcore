@@ -13,4 +13,6 @@ pub struct ChainSpec {
 
     pub beacon_chain_epoch_length: u64,
     pub beacon_chain_num_seats_per_slot: u64,
+
+    pub boot_nodes: Vec<String>,
 }
