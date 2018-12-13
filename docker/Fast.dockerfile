@@ -28,14 +28,16 @@ RUN --mount=type=cache,target=/tmp/target \
 
 FROM alpine:edge
 
-COPY --from=builder /usr/local/bin/devnet /usr/local/bin
-
 RUN apk add --no-cache ca-certificates \
     libstdc++ \
-    openssl-dev
+    openssl-dev \
+    tini
 
 RUN rm -rf /usr/lib/python* && \
 	mkdir -p /root/.local/share/nearcore && \
 	ln -s /root/.local/share/nearcore /data
 
+COPY --from=builder /usr/local/bin/devnet /usr/local/bin
+
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["/usr/local/bin/devnet"]
