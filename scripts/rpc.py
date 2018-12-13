@@ -180,6 +180,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
+            'sender_account_id': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
             'public_key': self._get_public_key(),

@@ -266,23 +266,25 @@ impl Runtime {
 
     fn deploy(
         &self,
-        state_update: &mut StateDbUpdate,
         body: &DeployContractTransaction,
-        account: &mut Account,
+        hash: CryptoHash,
     ) -> Result<Vec<Transaction>, String> {
         // TODO: check signature
-        let pub_key = Decode::decode(&body.public_key).ok_or("cannot decode public key")?;
-        if account.public_keys.contains(&pub_key) {
-            account.code = body.wasm_byte_array.clone();
-            set(
-                state_update,
-                &account_id_to_bytes(body.contract_id),
-                &account,
-            );
-            Ok(vec![])
-        } else {
-            Err(format!("account {} does not contain key {}", body.contract_id, pub_key))
-        }
+        
+        let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
+        let args = Encode::encode(&(&body.public_key, &body.wasm_byte_array)).ok_or("cannot encode args")?;
+        let receipt = ReceiptTransaction::new(
+            body.sender,
+            body.contract_id,
+            new_nonce,
+            ReceiptBody::NewCall(AsyncCall::new(
+                b"deploy".to_vec(),
+                args,
+                0,
+                0
+            ))
+        );
+        Ok(vec![Transaction::Receipt(receipt)])
     }
 
     fn call_function(
@@ -385,11 +387,7 @@ impl Runtime {
                         )
                     },
                     TransactionBody::DeployContract(ref t) => {
-                        self.deploy(
-                            state_update,
-                            t,
-                            &mut sender,
-                        )
+                        self.deploy(t, transaction.transaction_hash())
                     },
                     TransactionBody::CreateAccount(ref t) => {
                         self.create_account(
@@ -441,26 +439,41 @@ impl Runtime {
         account_id: AccountId,
     ) -> Result<Vec<Transaction>, String> {
         let account_id_bytes = account_id_to_bytes(account_id);
-        match get::<Account>(state_update, &account_id_bytes) {
-            Some(_) => {
-                // this case should already be handled
-                unreachable!()
-            }
-            _ => {
-                let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
-                let new_account = Account::new(
-                    vec![public_key],
-                    call.amount,
-                    vec![]
-                );
-                set(
-                    state_update,
-                    &account_id_bytes,
-                    &new_account
-                );
-                Ok(vec![])
-            }
-        }
+       
+        let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
+        let new_account = Account::new(
+            vec![public_key],
+            call.amount,
+            vec![]
+        );
+        set(
+            state_update,
+            &account_id_bytes,
+            &new_account
+        );
+        Ok(vec![])
+    }
+
+    fn system_deploy(
+        &self,
+        state_update: &mut StateDbUpdate,
+        call: &AsyncCall,
+        account_id: AccountId,
+    ) -> Result<Vec<Transaction>, String> {
+        let account_id_bytes = account_id_to_bytes(account_id);
+        let (public_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&call.args).ok_or("cannot decode public key")?;
+        let public_key = Decode::decode(&public_key).ok_or("cannot decode public key")?;
+        let new_account = Account::new(
+            vec![public_key],
+            call.amount,
+            code,
+        );
+        set(
+            state_update,
+            &account_id_bytes,
+            &new_account
+        );
+        Ok(vec![])
     }
 
     fn return_data_to_receipts(
@@ -696,6 +709,22 @@ impl Runtime {
                                 ReceiptBody::Refund(async_call.amount)
                             );
                             Ok(vec![Transaction::Receipt(receipt)])
+                        } else if async_call.method_name == b"deploy".to_vec() {
+                            println!("here");
+                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).ok_or("cannot decode args")?;
+                            let pub_key = Decode::decode(&pub_key).ok_or("cannot decode public key")?;
+                            if receiver.public_keys.contains(&pub_key) {
+                                receiver.code = code;
+                                set(
+                                    state_update,
+                                    &receiver_id,
+                                    &receiver,
+                                );
+                                Ok(vec![])
+                            } else {
+                                println!("account does not have key");
+                                Err(format!("account {} does not contain key {}", receipt.receiver, pub_key))
+                            }
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
@@ -739,6 +768,12 @@ impl Runtime {
                     amount = call.amount;
                     if call.method_name == b"create_account".to_vec() {
                         self.system_create_account(
+                            state_update,
+                            &call,
+                            receipt.receiver,
+                        )
+                    } else if call.method_name == b"deploy".to_vec() {
+                        self.system_deploy(
                             state_update,
                             &call,
                             receipt.receiver,
@@ -1054,13 +1089,13 @@ mod tests {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let (pub_key, _) = get_keypair();
-        // first create a new account with no contract
-        let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
+        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+        let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: 1,
             sender: hash(b"alice"),
-            new_account_id: hash(b"eve"),
-            amount: 10,
+            contract_id: hash(b"eve"),
             public_key: pub_key.encode().unwrap(),
+            wasm_byte_array: wasm_binary.to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState { 
@@ -1075,25 +1110,6 @@ mod tests {
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        // deploy contract
-        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
-        let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
-            nonce: 1,
-            contract_id: hash(b"eve"),
-            wasm_byte_array: wasm_binary.to_vec(),
-            public_key: pub_key.encode().unwrap(),
-        });
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState {
-            shard_id: 0,
-            root: apply_result.root,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0 
-        };
-        let mut apply_result = runtime.apply(
-            &apply_state, &[], vec![Transaction::SignedTransaction(transaction)],
-        );
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
         let new_account: Account = get(
@@ -1115,6 +1131,7 @@ mod tests {
         ).unwrap();
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction{
             nonce: 1,
+            sender: hash(b"bob"),
             contract_id: hash(b"bob"),
             wasm_byte_array: test_binary.to_vec(),
             public_key: account.public_keys[0].encode().unwrap(),
@@ -1126,8 +1143,8 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply(
-            &apply_state, &[], vec![Transaction::SignedTransaction(transaction)],
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)],
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
