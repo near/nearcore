@@ -1,10 +1,11 @@
+use std::borrow::Borrow;
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+
+use ::traits::Payload;
 use hash::{CryptoHash, hash, hash_struct};
 use signature::{PublicKey, Signature};
 use signature::DEFAULT_SIGNATURE;
-use std::borrow::Borrow;
-use std::hash::{Hash, Hasher};
-use std::collections::HashSet;
-use ::traits::Payload;
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -178,12 +179,10 @@ impl TransactionBody {
     }
 }
 
-
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, Eq, Debug, Clone)]
 pub struct SignedTransaction {
-    pub sender_sig: StructSignature,
-    pub hash: CryptoHash,
     pub body: TransactionBody,
+    pub sender_sig: StructSignature,
 }
 
 impl SignedTransaction {
@@ -193,7 +192,6 @@ impl SignedTransaction {
     ) -> SignedTransaction {
         SignedTransaction {
             sender_sig,
-            hash: hash_struct(&body),
             body,
         }
     }
@@ -206,7 +204,24 @@ impl SignedTransaction {
             receiver: AccountId::default(),
             amount: 0,
         });
-        SignedTransaction { sender_sig: DEFAULT_SIGNATURE, hash: hash_struct(&body), body }
+        SignedTransaction { sender_sig: DEFAULT_SIGNATURE, body }
+    }
+
+    pub fn transaction_hash(&self) -> CryptoHash {
+        // TODO(#227): Fill in hash when deserializing.
+        hash_struct(&self.body)
+    }
+}
+
+impl Hash for SignedTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(hash_struct(&self.body).as_ref());
+    }
+}
+
+impl PartialEq for SignedTransaction {
+    fn eq(&self, other: &SignedTransaction) -> bool {
+        self.body == other.body && self.sender_sig == other.sender_sig
     }
 }
 
@@ -317,63 +332,10 @@ impl ReceiptTransaction {
     }
 }
 
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub enum Transaction {
     SignedTransaction(SignedTransaction),
     Receipt(ReceiptTransaction),
-}
-
-// 2. State structs.
-
-#[derive(Hash, Debug)]
-pub struct State {
-    // TODO: Fill in.
-}
-
-// 3. Epoch blocks produced by verifiers running inside a shard.
-
-#[derive(Hash, Debug, Serialize, Deserialize)]
-pub struct EpochBlockHeader {
-    pub shard_id: u32,
-    pub verifier_epoch: u64,
-    pub txflow_epoch: u64,
-    pub prev_header_hash: CryptoHash,
-
-    pub states_merkle_root: MerkleHash,
-    pub new_transactions_merkle_root: MerkleHash,
-    pub cancelled_transactions_merkle_root: MerkleHash,
-}
-
-#[derive(Hash, Debug)]
-pub struct SignedEpochBlockHeader {
-    pub bls_sig: MultiSignature,
-    pub epoch_block_header: EpochBlockHeader,
-}
-
-#[derive(Hash, Debug)]
-pub struct FullEpochBlockBody {
-    states: Vec<State>,
-    new_transactions: Vec<SignedTransaction>,
-    cancelled_transactions: Vec<SignedTransaction>,
-}
-
-#[derive(Hash, Debug)]
-pub enum MerkleStateNode {
-    Hash(MerkleHash),
-    State(State),
-}
-
-#[derive(Hash, Debug)]
-pub enum MerkleSignedTransactionNode {
-    Hash(MerkleHash),
-    SignedTransaction(Box<SignedTransaction>),
-}
-
-#[derive(Hash, Debug)]
-pub struct ShardedEpochBlockBody {
-    states_subtree: Vec<MerkleStateNode>,
-    new_transactions_subtree: Vec<MerkleSignedTransactionNode>,
-    cancelled_transactions_subtree: Vec<MerkleSignedTransactionNode>,
 }
 
 // 4. TxFlow-specific structs.

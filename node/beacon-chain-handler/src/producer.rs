@@ -116,6 +116,7 @@ impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
             self.shard_chain.insert_block(shard_block.clone());
             self.beacon_chain.insert_block(block.clone());
             info!(target: "block_producer", "Block body: {:?}", block.body);
+            info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
             if shard_block.body.new_receipts.is_empty() {
                 break;
             }

@@ -28,11 +28,10 @@ fn sign_transaction(matches: &ArgMatches) {
     let body: TransactionBody = serde_json::from_str(data).unwrap();
     let hash = hash_struct(&body);
     let sender_sig = sign(hash.as_ref(), &key_file.secret_key);
-    let transaction = SignedTransaction {
+    let transaction = SignedTransaction::new(
         sender_sig,
-        hash,
         body,
-    };
+    );
     print!("{}", serde_json::to_string(&transaction).unwrap());
 }
 
