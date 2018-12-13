@@ -1,19 +1,17 @@
 extern crate node_cli;
 
-use std::path::Path;
+use std::path::PathBuf;
 
 pub fn start_devnet() {
-    let base_path = Path::new(".");
-    let chain_spec_path = None;
-    let p2p_port = None;
-    let rpc_port = None;
-    let test_node_index = None;
+    let config = node_cli::ServiceConfig {
+        base_path: PathBuf::from("."),
+        chain_spec_path: None,
+        p2p_port: None,
+        rpc_port: None,
+        test_node_index: None,
+    };
     node_cli::start_service(
-        base_path,
-        chain_spec_path,
-        p2p_port,
-        rpc_port,
-        test_node_index,
+        &config,
         &node_cli::test_utils::create_passthrough_beacon_block_consensus_task,
     );
 }

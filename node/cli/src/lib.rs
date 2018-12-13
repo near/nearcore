@@ -44,6 +44,7 @@ use std::path::Path;
 use std::sync::Arc;
 use storage::{StateDb, Storage};
 use network::service::get_test_secret_from_node_index;
+use std::path::PathBuf;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -113,12 +114,16 @@ fn get_network_tasks(
     )
 }
 
+pub struct ServiceConfig {
+    pub base_path: PathBuf,
+    pub chain_spec_path: Option<PathBuf>,
+    pub p2p_port: Option<u16>,
+    pub rpc_port: Option<u16>,
+    pub test_node_index: Option<u32>,
+}
+
 pub fn start_service(
-    base_path: &Path,
-    chain_spec_path: Option<&Path>,
-    p2p_port: Option<u16>,
-    rpc_port: Option<u16>,
-    test_node_index: Option<u32>,
+    config: &ServiceConfig,
     consensus_task_fn: &Fn(Receiver<SignedTransaction>, &Sender<ChainConsensusBlockBody>) -> Box<Future<Item=(), Error=()> + Send>,
 ) {
     let mut builder = Builder::new();
@@ -127,8 +132,8 @@ pub fn start_service(
     builder.init();
 
     // Create shared-state objects.
-    let storage = get_storage(base_path);
-    let chain_spec = chain_spec::read_or_default_chain_spec(&chain_spec_path);
+    let storage = get_storage(&config.base_path);
+    let chain_spec = chain_spec::read_or_default_chain_spec(&config.chain_spec_path);
 
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
@@ -147,7 +152,7 @@ pub fn start_service(
     let (transactions_tx, transactions_rx) = channel(1024);
     let rpc_server_task = get_rpc_server_task(
         transactions_tx.clone(),
-        rpc_port,
+        config.rpc_port,
         shard_chain.clone(),
         state_db.clone(),
     );
@@ -180,8 +185,8 @@ pub fn start_service(
     // Note, that network and RPC are using the same channels to send transactions and receipts for
     // processing.
     let (messages_handler_task, network_task) = get_network_tasks(
-        p2p_port,
-        test_node_index,
+        config.p2p_port,
+        config.test_node_index,
         beacon_chain.clone(),
         beacon_block_tx.clone(),
         transactions_tx.clone(),
@@ -242,11 +247,11 @@ pub fn run() {
         ).get_matches();
 
     let base_path = matches.value_of("base_path")
-        .map(|x| Path::new(x))
-        .unwrap_or_else(|| Path::new("."));
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
 
     let chain_spec_path = matches.value_of("chain_spec_file")
-        .map(|x| Path::new(x));
+        .map(PathBuf::from);
 
     let p2p_port = matches.value_of("p2p_port")
         .map(|x| { x.parse::<u16>().unwrap() });
@@ -257,12 +262,15 @@ pub fn run() {
     let test_node_index = matches.value_of("test_node_index")
         .map(|x| { x.parse::<u32>().unwrap() });
 
-    start_service(
+    let config = ServiceConfig {
         base_path,
         chain_spec_path,
         p2p_port,
         rpc_port,
         test_node_index,
+    };
+    start_service(
+        &config,
         &test_utils::create_passthrough_beacon_block_consensus_task,
     );
 }

@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde_json;
 
@@ -33,7 +33,7 @@ pub fn get_default_chain_spec() -> ChainSpec {
         .expect("Error deserializing the default chain spec.")
 }
 
-pub fn read_or_default_chain_spec(chain_spec_path: &Option<&Path>) -> ChainSpec {
+pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpec {
     match chain_spec_path {
         Some(path) => {
             let mut file = File::open(path).expect("Could not open chain spec file.");
