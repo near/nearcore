@@ -107,7 +107,6 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
-        // use this placeholder for now. Change this when block storage is ready
         let best_block_header = self.chain.best_block().header();
         let status = message::Status {
             version: CURRENT_VERSION,
