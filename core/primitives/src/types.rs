@@ -182,6 +182,7 @@ impl TransactionBody {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     pub sender_sig: StructSignature,
+    #[serde(skip)]
     pub hash: CryptoHash,
     pub body: TransactionBody,
 }
