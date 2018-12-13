@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::str;
 
+use primitives::hash::{CryptoHash, hash};
 use primitives::types::{AccountId, Balance, MerkleHash};
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
@@ -28,6 +29,7 @@ pub struct AccountViewCallResult {
     pub nonce: u64,
     pub amount: Balance,
     pub stake: u64,
+    pub code_hash: CryptoHash,
 }
 
 /// Result of view function call.
@@ -37,6 +39,7 @@ pub struct FunctionCallViewCallResult {
     pub nonce: u64,
     pub amount: Balance,
     pub result: Vec<u8>,
+    pub code_hash: CryptoHash,
 }
 
 impl StateDbViewer {
@@ -66,6 +69,7 @@ impl StateDbViewer {
                     nonce: account.nonce,
                     amount: account.amount,
                     stake: runtime_data.get_stake_for_account(account_id),
+                    code_hash: hash(&account.code),
                 })
             },
             _ => Err("account does not exist"),
@@ -145,6 +149,7 @@ impl StateDbViewer {
                     amount: account.amount,
                     nonce: account.nonce,
                     result,
+                    code_hash: hash(&account.code),
                 })
             }
             None => Err("contract does not exist")
