@@ -2,6 +2,7 @@ extern crate devnet;
 extern crate keystore;
 #[macro_use]
 extern crate lazy_static;
+extern crate log;
 extern crate node_rpc;
 extern crate rand;
 extern crate primitives;
@@ -33,7 +34,10 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    thread::spawn(move || { devnet::start_devnet(Some(&base_path)) });
+    let mut service_config = devnet::ServiceConfig::default();
+    service_config.base_path = base_path;
+    service_config.log_level = log::LevelFilter::Off;
+    thread::spawn(|| { devnet::start_devnet(Some(service_config)) });
     thread::sleep(Duration::from_secs(1));
     true
 }

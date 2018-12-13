@@ -44,7 +44,21 @@ cd nearcore
 It will build the first time and then run:
 
 ```bash
-cargo run --release
+cargo run
+```
+
+### Logging
+
+For runnable apps (devnet, nearcore, etc.), you can use
+the `--log-level` option to configure the log level across all internal crates.
+You can also use the `RUST_LOG` environment variable, with `env_logger`
+[semantics](https://docs.rs/env_logger/0.6.0/env_logger/#enabling-logging)
+to override the log level for specific targets. `RUST_LOG` can also be used in
+integration tests which spawn runnable apps.
+
+Example:
+```bash
+$ RUST_LOG=runtime=debug cargo run -- --log-level warn
 ```
 
 ### Simple Install for Mac and Linux
