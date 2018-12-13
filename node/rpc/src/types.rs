@@ -81,6 +81,8 @@ pub struct ViewAccountResponse {
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionRequest {
     #[serde(with = "bs58_format")]
+    pub originator_id: AccountId,
+    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
@@ -89,7 +91,7 @@ pub struct CallViewFunctionRequest {
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionResponse {
     #[serde(with = "bs58_format")]
-    pub account_id: AccountId,
+    pub contract: AccountId,
     pub amount: Balance,
     pub nonce: u64,
     pub result: Vec<u8>,

@@ -1,13 +1,15 @@
-use state_viewer::StateDbViewer;
+use std::sync::Arc;
+
+use byteorder::{ByteOrder, LittleEndian};
+
+use chain::BlockChain;
 use chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
 use primitives::types::Transaction;
-use std::sync::Arc;
+use shard::SignedShardBlock;
+use state_viewer::StateDbViewer;
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
-use shard::SignedShardBlock;
-use chain::BlockChain;
-use byteorder::{ByteOrder, LittleEndian};
 use super::{Runtime, ApplyResult, ApplyState};
 
 pub fn generate_test_chain_spec() -> ChainSpec {

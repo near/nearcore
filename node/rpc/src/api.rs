@@ -5,9 +5,9 @@ use jsonrpc_core::types::{Error, ErrorCode, Value};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::types::{
-    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
-    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
-    TransactionBody, ViewCall,
+    AccountViewCall, FunctionCallViewCall, CreateAccountTransaction,
+    DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
+    SignedTransaction, StakeTransaction, SwapKeyTransaction, TransactionBody,
 };
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
@@ -182,12 +182,10 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
-        let call = ViewCall {
+        let call = AccountViewCall {
             account: r.account_id,
-            method_name: String::new(),
-            args: Vec::new(),
         };
-        let result = self.state_db_viewer.view(&call);
+        let result = self.state_db_viewer.view_account(&call);
         match result {
             Ok(r) => {
                 Ok(ViewAccountResponse {
@@ -208,17 +206,18 @@ impl TransactionApi for RpcImpl {
         &self,
         r: CallViewFunctionRequest,
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
-        let call = ViewCall {
-            account: r.contract_account_id,
+        let call = FunctionCallViewCall {
+            originator: r.originator_id,
+            contract: r.contract_account_id,
             method_name: r.method_name,
             args: r.args,
         };
-        let result = self.state_db_viewer.view(&call);
+        let result = self.state_db_viewer.call_function(&call);
 
         match result {
             Ok(r) => {
                 Ok(CallViewFunctionResponse {
-                    account_id: r.account,
+                    contract: r.contract,
                     amount: r.amount,
                     nonce: r.nonce,
                     result: r.result,
