@@ -1,5 +1,6 @@
 extern crate devnet;
 
 fn main () {
-    devnet::start_devnet();
+    let base_path = None;
+    devnet::start_devnet(base_path);
 }
