@@ -43,7 +43,7 @@ impl<'a> ContractModule<'a> {
         Ok(())
     }
 
-    fn inject_gas_metering(&mut self) -> Result<(), Error> {
+    fn _inject_gas_metering(&mut self) -> Result<(), Error> {
         // TODO(#194): Re-enable .with_forbidden_floats() once AssemblyScript is fixed.
         let gas_rules = rules::Set::new(self.config.regular_op_cost, Default::default())
             .with_grow_cost(self.config.grow_mem_cost);
@@ -159,7 +159,8 @@ pub(super) fn prepare_contract(
 ) -> Result<PreparedContract, Error> {
     let mut contract_module = ContractModule::init(original_code, config)?;
     contract_module.ensure_no_internal_memory()?;
-    contract_module.inject_gas_metering()?;
+    // TODO(#208): Re-enable after fixing issues with running AssemblyScript code
+    // contract_module.inject_gas_metering()?;
     contract_module.inject_stack_height_metering()?;
 
     let memory = if let Some(memory_type) = contract_module.scan_imports()? {

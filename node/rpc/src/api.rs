@@ -1,5 +1,6 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
+use jsonrpc_core::types::{Error, ErrorCode, Value};
 
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
@@ -13,8 +14,9 @@ use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
-    StakeRequest, ViewStateRequest, ViewStateResponse,
-    SwapKeyRequest, ViewAccountRequest, ViewAccountResponse
+    StakeRequest, SwapKeyRequest, ViewAccountRequest,
+    ViewAccountResponse, ViewStateRequest,
+    ViewStateResponse,
 };
 
 build_rpc_trait! {
@@ -195,12 +197,20 @@ impl TransactionApi for RpcImpl {
             args: Vec::new(),
         };
         let result = self.state_db_viewer.view(&call);
-        let response = ViewAccountResponse {
-            account_id: result.account,
-            amount: result.amount,
-            nonce: result.nonce,
-        };
-        Ok(response)
+        match result {
+            Ok(r) => {
+                Ok(ViewAccountResponse {
+                    account_id: r.account,
+                    amount: r.amount,
+                    nonce: r.nonce,
+                })
+            },
+            Err(e) => {
+                let mut error = Error::new(ErrorCode::InvalidRequest);
+                error.data = Some(Value::String(e.to_string()));
+                Err(error)
+            }
+        }
     }
 
     fn rpc_call_view_function(
@@ -213,13 +223,22 @@ impl TransactionApi for RpcImpl {
             args: r.args,
         };
         let result = self.state_db_viewer.view(&call);
-        let response = CallViewFunctionResponse {
-            account_id: result.account,
-            amount: result.amount,
-            nonce: result.nonce,
-            result: result.result,
-        };
-        Ok(response)
+
+        match result {
+            Ok(r) => {
+                Ok(CallViewFunctionResponse {
+                    account_id: r.account,
+                    amount: r.amount,
+                    nonce: r.nonce,
+                    result: r.result,
+                })
+            },
+            Err(e) => {
+                let mut error = Error::new(ErrorCode::InvalidRequest);
+                error.data = Some(Value::String(e.to_string()));
+                Err(error)
+            }
+        }
     }
 
     fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
