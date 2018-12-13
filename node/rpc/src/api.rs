@@ -14,7 +14,8 @@ use types::{
     CreateAccountRequest, DeployContractRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
     StakeRequest, SwapKeyRequest, ViewAccountRequest,
-    ViewAccountResponse,
+    ViewAccountResponse, ViewStateRequest,
+    ViewStateResponse,
 };
 
 build_rpc_trait! {
@@ -81,6 +82,13 @@ build_rpc_trait! {
             &self,
             SignedTransaction
         ) -> JsonRpcResult<()>;
+
+        /// View contract state.
+        #[rpc(name = "view_state")]
+        fn rpc_view_state(
+            &self,
+            ViewStateRequest
+        ) -> JsonRpcResult<ViewStateResponse>;
     }
 }
 
@@ -236,6 +244,15 @@ impl TransactionApi for RpcImpl {
         self.submit_txn_sender.clone().try_send(r).unwrap();
         Ok(())
     }
+
+    fn rpc_view_state(&self, r: ViewStateRequest) -> JsonRpcResult<ViewStateResponse> {
+        let result = self.state_db_viewer.view_state(r.contract_account_id);
+        let response = ViewStateResponse {
+            contract_account_id: r.contract_account_id,
+            values: result.values
+        };
+        Ok(response)
+    }
 }
 
 pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
@@ -250,10 +267,13 @@ mod tests {
     extern crate serde_json;
 
     use futures::sync::mpsc::channel;
+
     use node_runtime::test_utils::get_test_state_db_viewer;
     use primitives::hash::hash;
-    use self::jsonrpc_test::Rpc;
+
     use super::*;
+
+    use self::jsonrpc_test::Rpc;
 
     #[test]
     fn test_call() {

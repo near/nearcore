@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use primitives::hash::bs58_format;
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{AccountId, Balance, TransactionBody};
@@ -98,4 +100,17 @@ pub struct CallViewFunctionResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct PreparedTransactionBodyResponse {
     pub body: TransactionBody,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ViewStateRequest {
+    #[serde(with = "bs58_format")]
+    pub contract_account_id: AccountId,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ViewStateResponse {
+    #[serde(with = "bs58_format")]
+    pub contract_account_id: AccountId,
+    pub values: HashMap<Vec<u8>, Vec<u8>>,
 }
