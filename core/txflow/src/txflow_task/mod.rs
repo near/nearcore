@@ -10,7 +10,7 @@ use tokio::timer::Delay;
 use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
-use dag::DAG;
+use dag::{DAG, ViolationType, MisbehaviorReporter, DAGMisbehaviorReporter};
 
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
 static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
@@ -28,8 +28,9 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
     messages_receiver: mpsc::Receiver<Gossip<P>>,
     payload_receiver: mpsc::Receiver<P>,
     messages_sender: mpsc::Sender<Gossip<P>>,
+    slashing_sender: mpsc::Sender<ViolationType>,
     witness_selector: Box<W>,
-    dag: Option<Box<DAG<'a, P, W>>>,
+    dag: Option<Box<DAG<'a, P, W, DAGMisbehaviorReporter>>>,
 
     /// Received messages that we cannot yet add to DAG, because we are missing parents.
     /// message -> hashes that we are missing.
@@ -63,6 +64,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                messages_receiver: mpsc::Receiver<Gossip<P>>,
                payload_receiver: mpsc::Receiver<P>,
                messages_sender: mpsc::Sender<Gossip<P>>,
+               slashing_sender: mpsc::Sender<ViolationType>,
                witness_selector: W) -> Self {
         Self {
             owner_uid,
@@ -71,6 +73,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             messages_receiver,
             payload_receiver,
             messages_sender,
+            slashing_sender,
             witness_selector: Box::new(witness_selector),
             dag: None,
             blocked_messages: HashMap::new(),
@@ -90,12 +93,12 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     }
 
     /// Mutable reference to the DAG.
-    fn dag_as_mut(&mut self) -> &mut DAG<'a, P, W>{
+    fn dag_as_mut(&mut self) -> &mut DAG<'a, P, W, DAGMisbehaviorReporter>{
         self.dag.as_mut().expect(UNINITIALIZED_DAG_ERR).borrow_mut()
     }
 
     /// Immutable reference to the DAG.
-    fn dag_as_ref(&self) -> &DAG<'a, P, W>{
+    fn dag_as_ref(&self) -> &DAG<'a, P, W, DAGMisbehaviorReporter>{
         self.dag.as_ref().expect(UNINITIALIZED_DAG_ERR).borrow()
     }
 
@@ -107,6 +110,14 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         }));
     }
 
+    /// Report detected violation by spawining a separate task.
+    fn report_violation(&self, violation: ViolationType) {
+        let copied_tx = self.slashing_sender.clone();
+        tokio::spawn(copied_tx.send(violation).map(|_| ()).map_err(|e|{
+            error!("Failure reporting violation: {:?}", e);
+        }));
+    }
+
     /// Adds a message to the DAG, and if it unblocks other pending messages then recursively add
     /// them, too. Assumes that the provided message is not in the tracking containers, i.e. it is
     /// either a new message with all parents or it became unblocked just now.
@@ -115,6 +126,11 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         if let Err(e) = self.dag_as_mut().add_existing_message(message) {
             panic!("Attempted to add invalid message to the DAG {}", e)
         }
+
+        // Check new misbehaviors and report them inmediately
+        // TODO: Report misbehaviors here
+        // let x = self.dag_as_ref().misbehavior.borrow();
+
         // Get messages that were blocked by this one.
         // Also start removing it from the collections `pending_messages` and `unknown_hashes` that
         // keep track of the blockers.
@@ -423,10 +439,11 @@ mod tests {
             let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
             let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
             let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+            let (slashing_tx, _slashing_rx) = mpsc::channel(1_024);
             let selector = FakeWitnessSelector::new();
             let task = TxFlowTask::<FakePayload, _>::new(
                 owner_uid, starting_epoch, sample_size, inc_gossip_rx,
-                inc_payload_rx, out_gossip_tx, selector);
+                inc_payload_rx, out_gossip_tx, slashing_tx, selector);
             tokio::spawn(task.for_each(|_| Ok(())));
             Ok(())
         }));

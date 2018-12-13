@@ -47,9 +47,10 @@ pub enum ViolationType {
     MissingEndorsement(TxFlowHash),
     /// Invalid part of the BLS signature
     InvalidEndorsement(TxFlowHash),
+    /// Two messages from the same participant that are not approved by each other.
+    ForkAttempt(TxFlowHash, TxFlowHash),
+
     /// Message contains invalid signature from participant.
     /// Someone pretending being another participant maybe.
     InvalidSignature(TxFlowHash),
-    /// Two messages from the same participant that are not approved by each other.
-    ForkAttempt(TxFlowHash, TxFlowHash),
 }

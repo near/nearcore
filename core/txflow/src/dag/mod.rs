@@ -32,7 +32,7 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + Misbehavior
     witness_selector: &'a W,
     starting_epoch: u64,
 
-    misbehavior: Box<RefCell<M>>,
+    pub misbehavior: Box<RefCell<M>>,
 }
 
 impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'a, P, W, M> {

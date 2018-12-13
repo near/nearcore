@@ -99,6 +99,7 @@ pub fn spawn_all(num_witnesses: u64) {
             let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
             let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
             let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+            let (slashing_tx, _slashing_rx) = mpsc::channel(1_024);
             let selector = FakeWitnessSelector::new(owner_uid, num_witnesses);
 
             inc_gossip_tx_vec.push(inc_gossip_tx);
@@ -108,7 +109,7 @@ pub fn spawn_all(num_witnesses: u64) {
             let task = TxFlowTask::<FakePayload, _>::new(
                 owner_uid, starting_epoch, sample_size,
                 inc_gossip_rx, inc_payload_rx, out_gossip_tx,
-                selector);
+                slashing_tx, selector);
             tokio::spawn(task.for_each(|_| Ok(())));
         }
 
