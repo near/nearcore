@@ -82,6 +82,7 @@ fn deploy_contract() -> (Output, String) {
 macro_rules! test {
     (fn $name:ident() $body:block) => {
         #[test]
+        #[ignore]
         fn $name() {
             let guard = $crate::TEST_MUTEX.lock().unwrap();
             if let Err(e) = panic::catch_unwind(|| { $body }) {
