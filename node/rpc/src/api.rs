@@ -228,7 +228,7 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_view_state(&self, r: ViewStateRequest) -> JsonRpcResult<ViewStateResponse> {
-        let result = self.state_db_viewer.view_state(&r.contract_account_id);
+        let result = self.state_db_viewer.view_state(r.contract_account_id);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id,
             values: result.values

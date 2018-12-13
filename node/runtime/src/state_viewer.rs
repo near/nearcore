@@ -13,7 +13,7 @@ use super::{Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, Runtim
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
-    pub values: HashMap<String, String>
+    pub values: HashMap<Vec<u8>, Vec<u8>>
 }
 
 pub struct StateDbViewer {
@@ -38,15 +38,17 @@ impl StateDbViewer {
         self.view_at(view_call, root)
     }
 
-    pub fn view_state(&self, account: &AccountId) -> ViewStateResult {
+    pub fn view_state(&self, account_id: AccountId) -> ViewStateResult {
         let root = self.get_root();
-        // let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let mut values = HashMap::default();
-        for (key, value) in self.state_db.iter_prefix(account.as_ref()) {
-            values.insert(String::from_utf8(key.to_vec()).expect("Failed to convert"),
-                          String::from_utf8(value.to_vec()).expect("Failed to convert"));
-        }
-        // state_update.
+        let state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let mut prefix = account_id_to_bytes(account_id);
+        prefix.append(&mut b",".to_vec());
+        state_update.for_keys_with_prefix(&prefix, |key| {
+            if let Some(value) = state_update.get(key) {
+                values.insert(key.to_vec(), value.to_vec());
+            }
+        });
         ViewStateResult {
             values
         }
@@ -137,7 +139,7 @@ mod tests {
     #[test]
     fn test_view_state() {
         let viewer = get_test_state_db_viewer();
-        let result = viewer.view_state(&hash(b"alice"));
+        let result = viewer.view_state(hash(b"alice"));
         assert_eq!(result.values, HashMap::default());
     }
 }
