@@ -56,6 +56,8 @@ fn system_account() -> AccountId {
 pub struct RuntimeData {
     /// Currently staked money.
     pub stake: HashMap<AccountId, u64>,
+    /// scheduled callbacks
+    pub callbacks: HashMap<CallbackId, Callback>,
 }
 
 impl RuntimeData {
@@ -121,12 +123,11 @@ fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
 
 pub struct Runtime {
     state_db: Arc<StateDb>,
-    callbacks: HashMap<CallbackId, Callback>,
 }
 
 impl Runtime {
     pub fn new(state_db: Arc<StateDb>) -> Self {
-        Runtime { state_db, callbacks: HashMap::new() }
+        Runtime { state_db }
     }
 
     fn send_money(
@@ -587,7 +588,7 @@ impl Runtime {
     fn apply_callback(
         &mut self,
         state_update: &mut StateDbUpdate,
-        runtime_data: &RuntimeData,
+        runtime_data: &mut RuntimeData,
         callback_res: &CallbackResult,
         sender_id: AccountId,
         receiver_id: AccountId,
@@ -604,7 +605,7 @@ impl Runtime {
                 nonce,
             );
         
-            match self.callbacks.get_mut(&callback_res.info.id) {
+            match runtime_data.callbacks.get_mut(&callback_res.info.id) {
                 Some(callback) => {
                     callback.results[callback_res.info.result_index] = callback_res.result.clone();
                     callback.result_counter += 1;
@@ -649,7 +650,12 @@ impl Runtime {
         };
         
         if needs_removal {
-            self.callbacks.remove(&callback_res.info.id);
+            runtime_data.callbacks.remove(&callback_res.info.id);
+            set(
+                state_update,
+                RUNTIME_DATA,
+                &runtime_data,
+            );
             set(
                 state_update,
                 &account_id_to_bytes(receiver_id),
@@ -667,7 +673,7 @@ impl Runtime {
     ) -> Result<(), String> {
         let receiver_id = account_id_to_bytes(receipt.receiver);
         let receiver: Option<Account> = get(state_update, &receiver_id);
-        let runtime_data: RuntimeData = 
+        let mut runtime_data: RuntimeData = 
             get(state_update, RUNTIME_DATA).ok_or("runtime data does not exist")?;
         let mut amount = 0;
         let mut callback_info = None;
@@ -730,7 +736,7 @@ impl Runtime {
                         callback_info = Some(callback_res.info.clone());
                         self.apply_callback(
                             state_update,
-                            &runtime_data,
+                            &mut runtime_data,
                             &callback_res,
                             receipt.sender,
                             receipt.receiver,
@@ -935,7 +941,8 @@ impl Runtime {
             .map(|(pk, amount)| (*pk_to_acc_id.get(pk).expect("Missing account for public key"), *amount))
             .collect();
         let runtime_data = RuntimeData {
-            stake
+            stake,
+            callbacks: HashMap::new(),
         };
         set(&mut state_db_update, RUNTIME_DATA, &runtime_data);
         let (mut transaction, genesis_root) = state_db_update.finalize();
@@ -966,7 +973,6 @@ mod tests {
         fn default() -> Runtime {
             Runtime {
                 state_db: Arc::new(create_state_db()),
-                callbacks: HashMap::new()
             }
         }
     }
@@ -1385,19 +1391,6 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        //let apply_state = ApplyState {
-        //    root: apply_result.root,
-        //    shard_id: 0,
-        //    parent_block_hash: CryptoHash::default(),
-        //    block_index: 0
-        //};
-        //let mut apply_result = runtime.apply(
-        //    &apply_state, apply_result.new_receipts
-        //);
-        //assert_eq!(apply_result.filtered_transactions.len(), 0);
-        //assert_eq!(apply_result.new_receipts.len(), 0);
-        //assert_ne!(root, apply_result.root);
-        //runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 = viewer.view_at(
             &ViewCall::balance(hash(b"alice")),
             apply_result.root,
@@ -1555,7 +1548,16 @@ mod tests {
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);
         let callback_id = [0; 32].to_vec();
-        runtime.callbacks.insert(callback_id.clone(), callback);
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
+        let mut runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).unwrap();
+        runtime_data.callbacks.insert(callback_id.clone(), callback);
+        set(
+            &mut state_update,
+            RUNTIME_DATA,
+            &runtime_data
+        );
+        let (mut transaction, new_root) = state_update.finalize();
+        runtime.state_db.commit(&mut transaction).unwrap();
         let receipt = ReceiptTransaction::new(
             hash(b"alice"),
             hash(b"bob"),
@@ -1566,15 +1568,18 @@ mod tests {
             ))
         );
         let apply_state = ApplyState {
-            root,
+            root: new_root,
             shard_id: 0,
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
-            apply_state, vec![Transaction::Receipt(receipt)]
+        let mut apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::Receipt(receipt)]
         );
-        assert_eq!(runtime.callbacks.len(), 0);
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
+        let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).unwrap();
+        assert_eq!(runtime_data.callbacks.len(), 0);
         assert_eq!(root, apply_result.root);
     }
 }

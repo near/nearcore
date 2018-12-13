@@ -53,6 +53,11 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     pub fn get_receipts(&mut self) -> Vec<Transaction> {
         self.receipts.drain().map(|(_, v)| Transaction::Receipt(v)).collect()
     }
+
+    pub fn get_receipts_and_callbacks(mut self) -> (Vec<Transaction>, HashMap<CallbackId, Callback>) {
+        let receipts = self.get_receipts();
+        (receipts, self.callbacks)
+    }
 }
 
 impl<'a, 'b> External for RuntimeExt<'a, 'b> {
