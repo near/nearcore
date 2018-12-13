@@ -51,7 +51,7 @@ fn spawn_rpc_server_task(
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
     let rpc_addr = Some(
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port)
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_port)
     );
     let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
     tokio::spawn(future::lazy(|| {

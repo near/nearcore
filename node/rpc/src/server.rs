@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub fn get_server(io: IoHandler, addr: Option<SocketAddr>) -> Server {
     let addr = addr.unwrap_or_else(|| {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3030)
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030)
     });
     ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Null]))

@@ -14,7 +14,7 @@ fn main() {
                 .long("boot-node")
                 .help(
                     "Specify a list of boot nodes in the format of \
-                    '{host},{port},{test_node_index}'.")
+                    '{host_name},{port},{test_node_index}'.")
                 .multiple(true)
                 .takes_value(true),
         ).get_matches();
@@ -26,7 +26,7 @@ fn main() {
             let d: Vec<_> = x.split(',').collect();
             if d.len() != 3 {
                 let message = "boot node must be in \
-                '{host},{port},{test_node_index}' format";
+                '{host_name},{port},{test_node_index}' format";
                 panic!("{}", message);
             }
             let host = &d[0];
@@ -40,7 +40,7 @@ fn main() {
             );
             let key = network::test_utils::raw_key_to_peer_id(secret);
 
-            format!("/ip4/{}/tcp/{}/p2p/{}", host, port, key.to_base58())
+            format!("/dns4/{}/tcp/{}/p2p/{}", host, port, key.to_base58())
         })
         .collect();
 

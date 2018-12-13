@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ namespace }}
+  labels:
+    name: {{ namespace }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: node
+  namespace: {{ namespace }}
+spec:
+  replicas: {{ node_count }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: node
+  serviceName: node
+  template:
+    metadata:
+      labels:
+        app: node
+    spec:
+      containers:
+      - name: node
+        image: {{ image_tag }}
+        ports:
+        # jank until https://github.com/kubernetes/kubernetes/pull/68719
+        command:
+        - "/bin/ash"
+        - "-c"
+        - |
+          NODE_ID=${HOSTNAME##*-}
+          apk add --no-cache wget
+          wget -O /tmp/chain_spec.json {{ chain_spec_url }}
+          RUST_LOG=sub-libp2p=debug nearcore --test-node-index ${NODE_ID} --chain-spec-file /tmp/chain_spec.json
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: node
+  namespace: {{ namespace }}
+spec:
+  ports:
+  - port: 30334
+    targetPort: 30334
+    protocol: TCP
+  selector:
+    app: node
+  clusterIP: None

@@ -145,6 +145,17 @@ pub fn get_test_secret_from_node_index(test_node_index: u32) -> Secret {
     array
 }
 
+#[cfg(test)]
+mod tests {
+    use substrate_network_libp2p::parse_str_addr;
+
+    #[test]
+    fn test_parse_str_addr_dns() {
+        let addr = "/dns4/node-0/tcp/30333/p2p/\
+        QmQZ8TjTqeDj3ciwr93EJ95hxfDsb9pEYDizUAbWpigtQN";
+        assert!(parse_str_addr(addr).is_ok());
+    }
+}
 //#[cfg(test)]
 //mod tests {
 //    use super::*;
