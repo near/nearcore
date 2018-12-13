@@ -65,6 +65,7 @@ pub struct ScheduleFunctionCallRequest {
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
+    pub amount: Balance,
 }
 
 #[derive(Serialize, Deserialize)]

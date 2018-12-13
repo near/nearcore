@@ -186,6 +186,7 @@ impl TransactionApi for RpcImpl {
             contract_id: r.contract_account_id,
             method_name: r.method_name.into_bytes(),
             args: r.args,
+            amount: r.amount,
         });
         Ok(PreparedTransactionBodyResponse { body })
     }
