@@ -35,41 +35,49 @@ pub fn get_service_config() -> service::ServiceConfig {
     let matches = App::new("near")
         .arg(
             Arg::with_name("base_path")
-                .short("b")
+                .short("d")
                 .long("base-path")
                 .value_name("PATH")
-                .help("Sets a base path for persisted files.")
+                .help("Specify a base path for persisted files.")
                 .default_value(service::DEFAULT_BASE_PATH)
                 .takes_value(true),
         ).arg(
             Arg::with_name("chain_spec_file")
                 .short("c")
                 .long("chain-spec-file")
-                .value_name("CHAIN_SPEC_FILE")
-                .help("Sets a file location to read a custom chain spec.")
-                .takes_value(true),
-        ).arg(
-            Arg::with_name("p2p_port")
-                .short("p")
-                .long("p2p_port")
-                .value_name("P2P_PORT")
-                .help("Sets the p2p protocol TCP port.")
-                .default_value(&default_p2p_port)
+                .value_name("CHAIN_SPEC")
+                .help("Specify a file location to read a custom chain spec.")
                 .takes_value(true),
         ).arg(
             Arg::with_name("rpc_port")
                 .short("r")
                 .long("rpc_port")
-                .value_name("RPC_PORT")
-                .help("Sets the rpc protocol TCP port.")
+                .value_name("PORT")
+                .help("Specify the rpc protocol TCP port.")
                 .default_value(&default_rpc_port)
+                .takes_value(true),
+        ).arg(
+            Arg::with_name("p2p_port")
+                .short("p")
+                .long("p2p_port")
+                .value_name("PORT")
+                .help("Specify the p2p protocol TCP port.")
+                .default_value(&default_p2p_port)
+                .takes_value(true),
+        ).arg(
+            Arg::with_name("boot_node")
+                .short("b")
+                .long("boot-node")
+                .value_name("URL")
+                .help("Specify a list of boot nodes.")
+                .multiple(true)
                 .takes_value(true),
         ).arg(
             Arg::with_name("test_node_index")
                 .long("test-node-index")
                 .value_name("TEST_NODE_INDEX")
                 .help(
-                    "Used as a seed for generating a node ID.\
+                    "Specify a seed for generating a node ID.\
                      This should only be used for deterministically \
                      creating node ID's during tests.",
                 )
@@ -118,12 +126,19 @@ pub fn get_service_config() -> service::ServiceConfig {
         .unwrap()
         .unwrap();
 
+    let boot_nodes = matches
+        .values_of("boot_node")
+        .unwrap_or_else(clap::Values::default)
+        .map(String::from)
+        .collect();
+
     service::ServiceConfig {
         base_path,
         chain_spec_path,
         log_level,
         p2p_port,
         rpc_port,
+        boot_nodes,
         test_node_index,
     }
 }
