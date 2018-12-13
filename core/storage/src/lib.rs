@@ -87,6 +87,8 @@ pub struct StateDb {
     null_node_data: DBValue,
 }
 
+type StateDbIterator<'a> = Box<Iterator<Item=(Box<[u8]>, Box<[u8]>)> + 'a>;
+
 impl StateDb {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
         StateDb {
@@ -105,6 +107,10 @@ impl StateDb {
             }
         }
         self.storage.write(db_transaction)
+    }
+
+    pub fn iter_prefix<'a>(&'a self, prefix: &'a [u8]) -> StateDbIterator<'a> {
+        self.storage.iter_from_prefix(COL_STATE, prefix)
     }
 }
 

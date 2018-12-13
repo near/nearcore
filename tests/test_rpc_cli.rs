@@ -6,9 +6,10 @@ extern crate node_rpc;
 extern crate primitives;
 extern crate serde_json;
 
+use std::collections::HashMap;
 use serde_json::Value;
 use node_rpc::types::{
-    CallViewFunctionResponse, ViewAccountResponse,
+    CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
 };
 use std::borrow::Cow;
 use std::path::Path;
@@ -81,6 +82,7 @@ fn test_deploy() {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("deploy command failed to process");
+    println!("{:?}", output);
     let result = check_result(&output);
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
@@ -117,6 +119,20 @@ fn test_call_view_function() {
         .expect("call_view_function command failed to process");
     let result = check_result(&output);
     let _: CallViewFunctionResponse = serde_json::from_str(&result).unwrap();
+}
+
+#[test]
+fn test_view_state() {
+    if !*DEVNET_STARTED { panic!() }
+    test_deploy();
+    let output = Command::new("./scripts/rpc.py")
+        .arg("view_state")
+        .arg("test_contract_name")
+        .output()
+        .expect("view_state command failed to process");
+    let result = check_result(&output);
+    let response: ViewStateResponse = serde_json::from_str(&result).unwrap();
+    assert_eq!(response.values, HashMap::default());
 }
 
 #[test]

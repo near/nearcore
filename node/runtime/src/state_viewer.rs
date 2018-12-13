@@ -1,13 +1,20 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::str;
 
-use primitives::types::{MerkleHash, ViewCall, ViewCallResult};
+use primitives::types::{AccountId, MerkleHash, ViewCall, ViewCallResult};
 use primitives::utils::concat;
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::types::{RuntimeContext, ReturnData};
+use wasm::types::{ReturnData, RuntimeContext};
 
 use super::{Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, RuntimeExt};
+
+#[derive(Serialize, Deserialize)]
+pub struct ViewStateResult {
+    pub values: HashMap<String, String>
+}
 
 pub struct StateDbViewer {
     shard_chain: Arc<ShardBlockChain>,
@@ -29,6 +36,20 @@ impl StateDbViewer {
     pub fn view(&self, view_call: &ViewCall) -> ViewCallResult {
         let root = self.get_root();
         self.view_at(view_call, root)
+    }
+
+    pub fn view_state(&self, account: &AccountId) -> ViewStateResult {
+        let root = self.get_root();
+        // let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let mut values = HashMap::default();
+        for (key, value) in self.state_db.iter_prefix(account.as_ref()) {
+            values.insert(String::from_utf8(key.to_vec()).expect("Failed to convert"),
+                          String::from_utf8(value.to_vec()).expect("Failed to convert"));
+        }
+        // state_update.
+        ViewStateResult {
+            values
+        }
     }
 
     pub fn view_at(&self, view_call: &ViewCall, root: MerkleHash) -> ViewCallResult {
@@ -111,5 +132,12 @@ mod tests {
         let view_call = ViewCall::func_call(hash(b"alice"), "sum_with_input".into(), args);
         let view_call_result = viewer.view(&view_call);
         assert_eq!(view_call_result.result, encode_int(3).to_vec());
+    }
+
+    #[test]
+    fn test_view_state() {
+        let viewer = get_test_state_db_viewer();
+        let result = viewer.view_state(&hash(b"alice"));
+        assert_eq!(result.values, HashMap::default());
     }
 }

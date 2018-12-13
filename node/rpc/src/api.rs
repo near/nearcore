@@ -1,20 +1,21 @@
 use futures::sync::mpsc::Sender;
 use jsonrpc_core::{IoHandler, Result as JsonRpcResult};
+
 use node_runtime::state_viewer::StateDbViewer;
+use primitives::traits::Encode;
 use primitives::types::{
-    DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction,
-    CreateAccountTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
+    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
+    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
     TransactionBody, ViewCall,
 };
 use primitives::utils::concat;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
-    DeployContractRequest, PreparedTransactionBodyResponse,
-    ScheduleFunctionCallRequest, SendMoneyRequest, StakeRequest,
-    CreateAccountRequest, ViewAccountRequest, SwapKeyRequest,
-    ViewAccountResponse,
+    CreateAccountRequest, DeployContractRequest,
+    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
+    StakeRequest, ViewStateRequest, ViewStateResponse,
+    SwapKeyRequest, ViewAccountRequest, ViewAccountResponse
 };
-use primitives::traits::Encode;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -80,6 +81,13 @@ build_rpc_trait! {
             &self,
             SignedTransaction
         ) -> JsonRpcResult<()>;
+
+        /// View contract state.
+        #[rpc(name = "view_state")]
+        fn rpc_view_state(
+            &self,
+            ViewStateRequest
+        ) -> JsonRpcResult<ViewStateResponse>;
     }
 }
 
@@ -218,6 +226,15 @@ impl TransactionApi for RpcImpl {
         self.submit_txn_sender.clone().try_send(r).unwrap();
         Ok(())
     }
+
+    fn rpc_view_state(&self, r: ViewStateRequest) -> JsonRpcResult<ViewStateResponse> {
+        let result = self.state_db_viewer.view_state(&r.contract_account_id);
+        let response = ViewStateResponse {
+            contract_account_id: r.contract_account_id,
+            values: result.values
+        };
+        Ok(response)
+    }
 }
 
 pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
@@ -232,10 +249,13 @@ mod tests {
     extern crate serde_json;
 
     use futures::sync::mpsc::channel;
-    use primitives::hash::hash;
-    use self::jsonrpc_test::Rpc;
-    use super::*;
+
     use node_runtime::test_utils::get_test_state_db_viewer;
+    use primitives::hash::hash;
+
+    use super::*;
+
+    use self::jsonrpc_test::Rpc;
 
     #[test]
     fn test_call() {
