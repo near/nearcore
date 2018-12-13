@@ -11,7 +11,7 @@ pub fn start_devnet() {
         test_node_index: None,
     };
     node_cli::start_service(
-        &config,
-        &node_cli::test_utils::create_passthrough_beacon_block_consensus_task,
+        config,
+        node_cli::test_utils::spawn_pasthrough_consensus,
     );
 }

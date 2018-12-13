@@ -1,10 +1,10 @@
 use primitives::hash::CryptoHash;
-use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction};
+use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction, Gossip};
 
 pub type RequestId = u64;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum MessageBody<B, H> {
+pub enum Message<B, H, P> {
     //TODO: add different types of messages here
 
     // Box is used here because SignedTransaction
@@ -15,17 +15,7 @@ pub enum MessageBody<B, H> {
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<B>),
     BlockAnnounce(BlockAnnounce<B, H>),
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Message<B, H> {
-    pub body: MessageBody<B, H>,
-}
-
-impl<B, H> Message<B, H> {
-    pub fn new(body: MessageBody<B, H>) -> Message<B, H> {
-        Message { body }
-    }
+    Gossip(Gossip<P>),
 }
 
 /// status sent on connection

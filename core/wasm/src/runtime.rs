@@ -373,6 +373,22 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn abort(&self, args: &RuntimeArgs) -> Result<()> {
+        let msg_ptr: u32 = args.nth_checked(0)?;
+        let filename_ptr: u32 = args.nth_checked(1)?;
+        let line: u32 = args.nth_checked(2)?;
+        let col: u32 = args.nth_checked(3)?;
+
+        debug!("msg_ptr: {:?} filename_ptr: {:?} line: {:?} col: {:?}", msg_ptr, filename_ptr, line, col);
+
+        let msg = self.read_buffer_with_size(msg_ptr, 32)?;
+        let filename = self.read_buffer_with_size(filename_ptr, 32)?;
+
+        debug!("msg: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+
+        Err(Error::AssertFailed)
+    }
+
     fn sender_id(&self, args: &RuntimeArgs) -> Result<()> {
         let val_ptr: u32 = args.nth_checked(0)?;
 
@@ -445,6 +461,7 @@ mod ext_impl {
                 GAS_LEFT_FUNC => some!(self.gas_left()),
                 RECEIVED_AMOUNT_FUNC => some!(self.received_amount()),
                 ASSERT_FUNC => void!(self.assert(&args)),
+                ABORT_FUNC => void!(self.abort(&args)),
                 SENDER_ID_FUNC => void!(self.sender_id(&args)),
                 ACCOUNT_ID_FUNC => void!(self.account_id(&args)),
                 ACCOUNT_ALIAS_TO_ID_FUNC => void!(self.account_alias_to_id(&args)),

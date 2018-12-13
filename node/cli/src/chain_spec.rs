@@ -55,5 +55,8 @@ fn test_deserialize() {
         "beacon_chain_num_seats_per_slot": 100,
     });
     let spec = deserialize_chain_spec(&data.to_string());
-    assert_eq!(spec.initial_authorities[0], ("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50));
+    assert_eq!(
+        spec.initial_authorities[0],
+        ("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50)
+    );
 }

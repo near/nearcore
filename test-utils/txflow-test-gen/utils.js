@@ -1,6 +1,20 @@
 var _rand_int = function(n) {
-    return parseInt(Math.random() * n);
+    return Math.floor(Math.random() * n);
 }
+
+var get_only_selected_node = function(nodes) {
+    var ret = null;
+
+    for (var node of nodes) {
+        if (node.selected) {
+            if (ret) return null;
+            ret = node;
+        }
+    }
+
+    return ret;
+}
+
 
 var _select_random_nodes = function(nodes) {
     if (nodes.length == 0) return [];
@@ -23,7 +37,7 @@ var _select_random_nodes = function(nodes) {
 }
 
 var stress_epoch_blocks = function(nodes, num_users, seconds) {
-    if (nodes.length == 0) return;
+    if (nodes.length == 0) return "No nodes";
     seconds = seconds || 2;
 
     var started = new Date().getTime();
@@ -52,8 +66,7 @@ var stress_epoch_blocks = function(nodes, num_users, seconds) {
             var right = epoch_blocks[i];
 
             if (left[0] != right[0] || left[1] != right[1]) {
-                alert(`FAILED!\nLeft: nodes: ${longest_selected_node_ids}, epoch blocks: ${longest_epoch_blocks}\nRight: nodes: ${selected_node_ids}, epoch blocks: ${epoch_blocks}`);
-                return;
+                return `FAILED!\nLeft: nodes: ${longest_selected_node_ids}, epoch blocks: ${longest_epoch_blocks}\nRight: nodes: ${selected_node_ids}, epoch blocks: ${epoch_blocks}`;
             }
         }
 
@@ -65,10 +78,43 @@ var stress_epoch_blocks = function(nodes, num_users, seconds) {
         ++ iter;
     }
 
-    alert(`PASSED!\nRan stress for ${seconds} seconds. Completed ${iter} iterations.\nLongest epoch blocks: ${longest_epoch_blocks}`);
+    return `PASSED!\nRan stress for ${seconds} seconds. Completed ${iter} iterations.\nLongest epoch blocks: ${longest_epoch_blocks}`;
 }
 
-var generate_random_graph = function(num_users, num_malicious, num_nodes) {
+var stress_beacon = function(nodes, num_users, seconds) {
+    seconds = seconds || 2;
+    var started = new Date().getTime();
+    var iter = 0;
+    var existing_report = null;
+    var existing_reporter = -1;
+    while (new Date().getTime() - started < seconds * 1000) {
+        var selected_node = nodes[_rand_int(nodes.length)];
+        var beacon_chain_observation = compute_beacon_chain_observation(selected_node, num_users);
+
+        var new_report = false;
+
+        for (var key in beacon_chain_observation) {
+            if (existing_report === null || existing_report[key] === undefined) {
+                new_report = true;
+            }
+            else {
+                if (existing_report[key] != beacon_chain_observation[key]) {
+                    return `FAILED\nLeft node: ${existing_reporter}, Right node: ${selected_node.uid}\nLeft report: ${existing_report}\nRight report: ${beacon_chain_observation}`;
+                }
+            }
+        }
+
+        if (new_report) {
+            existing_report = beacon_chain_observation;
+            existing_reporter = selected_node.uid;
+        }
+        
+        ++ iter;
+    }
+    return `PASSED!\nRan stress for ${seconds} seconds. Completed ${iter} iterations.\nLargest report: ${JSON.stringify(existing_report)}`;
+}
+
+var generate_random_graph = function(num_users, num_malicious, num_nodes, beacon_mode) {
     last_node_uid = 0;
 
     var mode_users_hanging = _rand_int(2);
@@ -148,9 +194,61 @@ var generate_random_graph = function(num_users, num_malicious, num_nodes) {
     graph = _get_roots(all_nodes, 0);
     for (var node of graph) node.selected = true;
 
+    if (beacon_mode) {
+        var changed = true;
+        var iters = 0;
+        while (changed) {
+            changed = false;
+            ++ iters;
+            if (iters >= 30) {
+                console.error("Beacon mode randgen entered an infinite loop");
+                break;
+            }
+
+            var beacon_states = [];
+            for (var i = 0; i < num_users; ++ i) {
+                beacon_states.push(-1);
+            }
+
+            var annotations = compute_annotations(graph, num_users)
+            var toposorted = toposort(graph);
+            add_beacon_annotations(toposorted, annotations, num_users);
+
+            for (var a of annotations) {
+                var node = a.node;
+                if (a.state > beacon_states[node.owner]) {
+                    var old_payload = node.payload_type || PAYLOAD_NONE;
+                    beacon_states[node.owner] = a.state;
+                    if (a.state == STATE_INIT) {
+                        node.payload_type = PAYLOAD_PREVBLOCK;
+                        node.prevblock = _rand_int(10);
+                    }
+                    else if (a.state == STATE_PREVDF) {
+                        if (_rand_int(3) == 1) {
+                            node.payload_type = PAYLOAD_VDF;
+                        }
+                        else {
+                            -- beacon_states[node.owner];
+                        }
+                    }
+                    else if (a.state == STATE_COMMIT) {
+                        node.payload_type = PAYLOAD_COMMIT;
+                    }
+                    else if (a.state == STATE_SIGNATURE) {
+                        node.payload_type = PAYLOAD_SIGNATURE;
+                    }
+                    var new_payload = node.payload_type || PAYLOAD_NONE;
+                    if (new_payload != old_payload) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
     refresh();
     serialize();
 
-    stress_epoch_blocks(all_nodes.map(x => x[0]), num_users, 0.5);
+    alert(stress_epoch_blocks(all_nodes.map(x => x[0]), num_users, 0.5));
 }
 
