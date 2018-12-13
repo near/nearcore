@@ -1,14 +1,21 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::str;
 
 use primitives::types::{AccountId, Balance, MerkleHash};
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
-use wasm::types::{RuntimeContext, ReturnData};
+use wasm::types::{ReturnData, RuntimeContext};
 
 use super::{
     Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, RuntimeExt,
 };
+
+#[derive(Serialize, Deserialize)]
+pub struct ViewStateResult {
+    pub values: HashMap<Vec<u8>, Vec<u8>>
+}
 
 pub struct StateDbViewer {
     shard_chain: Arc<ShardBlockChain>,
@@ -71,6 +78,22 @@ impl StateDbViewer {
     ) -> Result<AccountViewCallResult, &str> {
         let root = self.get_root();
         self.view_account_at(account_id, root)
+    }
+
+    pub fn view_state(&self, account_id: AccountId) -> ViewStateResult {
+        let root = self.get_root();
+        let mut values = HashMap::default();
+        let state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let mut prefix = account_id_to_bytes(account_id);
+        prefix.append(&mut b",".to_vec());
+        state_update.for_keys_with_prefix(&prefix, |key| {
+            if let Some(value) = state_update.get(key) {
+                values.insert(key.to_vec(), value.to_vec());
+            }
+        });
+        ViewStateResult {
+            values
+        }
     }
 
     pub fn call_function_at(
@@ -177,5 +200,12 @@ mod tests {
             &args,
         );
         assert_eq!(view_call_result.unwrap().result, encode_int(3).to_vec());
+    }
+
+    #[test]
+    fn test_view_state() {
+        let viewer = get_test_state_db_viewer();
+        let result = viewer.view_state(hash(b"alice"));
+        assert_eq!(result.values, HashMap::default());
     }
 }

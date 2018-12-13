@@ -1,6 +1,7 @@
 extern crate devnet;
+extern crate node_cli;
 
 fn main () {
-    let base_path = None;
-    devnet::start_devnet(base_path);
+    let service_config = node_cli::get_service_config();
+    devnet::start_devnet(Some(service_config));
 }

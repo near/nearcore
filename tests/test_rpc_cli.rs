@@ -1,14 +1,16 @@
+extern crate core;
 extern crate devnet;
 extern crate keystore;
 #[macro_use]
 extern crate lazy_static;
+extern crate log;
 extern crate node_rpc;
-extern crate rand;
 extern crate primitives;
+extern crate rand;
 extern crate serde_json;
-extern crate core;
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::panic;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -20,7 +22,7 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_rpc::types::{
-    CallViewFunctionResponse, ViewAccountResponse,
+    CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
 };
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
@@ -33,7 +35,10 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    thread::spawn(move || { devnet::start_devnet(Some(&base_path)) });
+    let mut service_config = devnet::ServiceConfig::default();
+    service_config.base_path = base_path;
+    service_config.log_level = log::LevelFilter::Off;
+    thread::spawn(|| { devnet::start_devnet(Some(service_config)) });
     thread::sleep(Duration::from_secs(1));
     true
 }
@@ -174,6 +179,21 @@ fn test_call_view_function_inner() {
     thread::sleep(Duration::from_secs(1));
     let result = check_result(&output);
     let _: CallViewFunctionResponse = serde_json::from_str(&result).unwrap();
+}
+
+test! { fn test_view_state() { test_view_state_inner() } }
+
+fn test_view_state_inner() {
+    if !*DEVNET_STARTED { panic!() }
+    let (_, contract_name) = deploy_contract();
+    let output = Command::new("./scripts/rpc.py")
+        .arg("view_state")
+        .arg(contract_name)
+        .output()
+        .expect("view_state command failed to process");
+    let result = check_result(&output);
+    let response: ViewStateResponse = serde_json::from_str(&result).unwrap();
+    assert_eq!(response.values, HashMap::default());
 }
 
 test! { fn test_call_view_function() { test_call_view_function_inner() } }

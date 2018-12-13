@@ -1,4 +1,7 @@
+use std::cmp;
+use std::env;
 use std::fs;
+use std::net::{Ipv4Addr, IpAddr, SocketAddr};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -6,7 +9,6 @@ use std::sync::Arc;
 use env_logger::Builder;
 use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
-use std::net::{Ipv4Addr, IpAddr, SocketAddr};
 use parking_lot::{Mutex, RwLock};
 
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
@@ -47,7 +49,7 @@ fn spawn_rpc_server_task(
     let state_db_viewer = StateDbViewer::new(shard_chain, state_db);
     let rpc_impl = node_rpc::api::RpcImpl::new(state_db_viewer, transactions_tx);
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
-    let rpc_port = rpc_port.unwrap_or(3030);
+    let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
     let rpc_addr = Some(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port)
     );
@@ -77,7 +79,7 @@ fn spawn_network_tasks(
         net_messages_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
-    let p2p_port = p2p_port.unwrap_or(30333);
+    let p2p_port = p2p_port.unwrap_or(DEFAULT_P2P_PORT);
     network_config.listen_addresses = vec![
         network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port),
     ];
@@ -96,12 +98,50 @@ fn spawn_network_tasks(
     );
 }
 
+fn configure_logging(log_level: log::LevelFilter) {
+    let internal_targets = vec!["producer", "runtime"];
+    let mut builder = Builder::from_default_env();
+    internal_targets.iter().for_each(|internal_targets| {
+        builder.filter(Some(internal_targets), log_level);
+    });
+
+    let other_log_level = cmp::min(
+        log_level,
+        log::LevelFilter::Info,
+    );
+    builder.filter(None, other_log_level);
+
+    if let Ok(lvl) = env::var("RUST_LOG") {
+        builder.parse(&lvl);
+    }
+    builder.init();
+}
+
+pub const DEFAULT_BASE_PATH: &str = ".";
+pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
+pub const DEFAULT_P2P_PORT: u16 = 30333;
+pub const DEFAULT_RPC_PORT: u16 = 3030;
+
 pub struct ServiceConfig {
     pub base_path: PathBuf,
     pub chain_spec_path: Option<PathBuf>,
-    pub p2p_port: Option<u16>,
-    pub rpc_port: Option<u16>,
+    pub log_level: log::LevelFilter,
+    pub p2p_port: u16,
+    pub rpc_port: u16,
     pub test_node_index: Option<u32>,
+}
+
+impl Default for ServiceConfig {
+    fn default() -> ServiceConfig {
+        ServiceConfig {
+            base_path: PathBuf::from(DEFAULT_BASE_PATH),
+            chain_spec_path: None,
+            log_level: DEFAULT_LOG_LEVEL,
+            p2p_port: DEFAULT_P2P_PORT,
+            rpc_port: DEFAULT_RPC_PORT,
+            test_node_index: None,
+        }
+    }
 }
 
 pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
@@ -111,10 +151,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         + Sync
         + 'static,
 {
-    let mut builder = Builder::new();
-    builder.filter(Some("runtime"), log::LevelFilter::Debug);
-    builder.filter(None, log::LevelFilter::Info);
-    builder.init();
+    configure_logging(config.log_level);
 
     // Create shared-state objects.
     let storage = get_storage(&config.base_path);
@@ -139,7 +176,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         let (transactions_tx, transactions_rx) = channel(1024);
         spawn_rpc_server_task(
             transactions_tx.clone(),
-            config.rpc_port,
+            Some(config.rpc_port),
             shard_chain.clone(),
             state_db.clone(),
         );
@@ -170,7 +207,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
         spawn_network_tasks(
-            config.p2p_port,
+            Some(config.p2p_port),
             config.test_node_index,
             beacon_chain.clone(),
             beacon_block_tx.clone(),
