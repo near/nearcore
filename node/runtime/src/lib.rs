@@ -305,8 +305,8 @@ impl Runtime {
                 transaction.contract_id,
                 hash.into(),
                 ReceiptBody::NewCall(AsyncCall::new(
-                    transaction.method_name.to_vec(),
-                    transaction.args.to_vec(),
+                    transaction.method_name.clone(),
+                    transaction.args.clone(),
                     transaction.amount,
                     DEFAULT_MANA_LIMIT,
                 ))
