@@ -1,20 +1,13 @@
 extern crate node_cli;
 
-use std::path::Path;
+pub use node_cli::service::ServiceConfig;
 
-pub fn start_devnet(base_path: Option<&Path>) {
-    let base_path = base_path
-        .unwrap_or_else(|| Path::new("."))
-        .to_owned();
-    let config = node_cli::service::ServiceConfig {
-        base_path,
-        chain_spec_path: None,
-        p2p_port: None,
-        rpc_port: None,
-        test_node_index: None,
-    };
+pub fn start_devnet(service_config: Option<ServiceConfig>) {
+    let service_config = service_config.unwrap_or_else(|| {
+        ServiceConfig::default()
+    });
     node_cli::service::start_service(
-        config,
+        service_config,
         node_cli::test_utils::spawn_pasthrough_consensus,
     );
 }

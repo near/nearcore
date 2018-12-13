@@ -37,6 +37,7 @@ exclude = [
 
 [dev-dependencies]
 lazy_static = "1.2.0"
+log = "0.4.6"
 keystore = { path = "./test-utils/keygen" }
 devnet = { path = "./test-utils/devnet" }
 node-rpc = { path = "./node/rpc" }
