@@ -3,7 +3,7 @@ use kvdb::DBValue;
 
 use primitives::types::{
     ReceiptId, Balance, Mana, CallbackId, ReceiptTransaction, Callback,
-    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo
+    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo, Transaction
 };
 use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
@@ -50,8 +50,8 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
         nonce
     }
 
-    pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
-        self.receipts.drain().map(|(_, v)| v).collect()
+    pub fn get_receipts(&mut self) -> Vec<Transaction> {
+        self.receipts.drain().map(|(_, v)| Transaction::Receipt(v)).collect()
     }
 }
 

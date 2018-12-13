@@ -64,6 +64,22 @@ impl<'a> Runtime<'a> {
         self.read_buffer_with_size(offset + 4, len as usize)
     }
 
+    fn read_string(&self, offset: u32) -> Result<String> {
+        let len: u32 = self
+            .memory
+            .get_u32(offset)
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        let buffer = self
+            .read_buffer_with_size(offset + 4, (len * 2) as usize)
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        let mut u16_buffer = Vec::new();
+        for i in 0..(len as usize) {
+            let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
+            u16_buffer.push(c);
+        }
+        String::from_utf16(&u16_buffer).map_err(|_| Error::BadUtf16)
+    }
+
     fn promise_index_to_id(&self, promise_index: u32) -> Result<PromiseId> {
         Ok(self.promise_ids.get(promise_index as usize).ok_or(Error::InvalidPromiseIndex)?.clone())
     }
@@ -373,6 +389,28 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn abort(&self, args: &RuntimeArgs) -> Result<()> {
+        let msg_ptr: u32 = args.nth_checked(0)?;
+        let filename_ptr: u32 = args.nth_checked(1)?;
+        let line: u32 = args.nth_checked(2)?;
+        let col: u32 = args.nth_checked(3)?;
+
+        debug!("msg_ptr: {:?} filename_ptr: {:?} line: {:?} col: {:?}", msg_ptr, filename_ptr, line, col);
+
+        let msg = self.read_buffer_with_size(msg_ptr, 32)?;
+        let filename = self.read_buffer_with_size(filename_ptr, 32)?;
+
+        debug!("msg: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+
+        Err(Error::AssertFailed)
+    }
+
+    fn log(&self, args: &RuntimeArgs) -> Result<()> {
+        let msg_ptr: u32 = args.nth_checked(0)?;
+        println!("{}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+        Ok(())
+    }
+
     fn sender_id(&self, args: &RuntimeArgs) -> Result<()> {
         let val_ptr: u32 = args.nth_checked(0)?;
 
@@ -445,9 +483,11 @@ mod ext_impl {
                 GAS_LEFT_FUNC => some!(self.gas_left()),
                 RECEIVED_AMOUNT_FUNC => some!(self.received_amount()),
                 ASSERT_FUNC => void!(self.assert(&args)),
+                ABORT_FUNC => void!(self.abort(&args)),
                 SENDER_ID_FUNC => void!(self.sender_id(&args)),
                 ACCOUNT_ID_FUNC => void!(self.account_id(&args)),
                 ACCOUNT_ALIAS_TO_ID_FUNC => void!(self.account_alias_to_id(&args)),
+                LOG_FUNC => void!(self.log(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }

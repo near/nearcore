@@ -96,6 +96,10 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32][..], None),
                 ids::ASSERT_FUNC,
             ),
+            "abort" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32, ValueType::I32, ValueType::I32][..], None),
+                ids::ABORT_FUNC,
+            ),
             "sender_id" => FuncInstance::alloc_host(
                 Signature::new(&[ValueType::I32][..], None),
                 ids::SENDER_ID_FUNC,
@@ -110,7 +114,11 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
             ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
-            }
+            },
+            "log" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::LOG_FUNC,
+            ),
             _ => {
                 return Err(WasmiError::Instantiation(format!(
                     "Export {} not found",

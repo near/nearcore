@@ -7,12 +7,6 @@ variables:
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
 
-cache:
-    key: "${CI_JOB_NAME}"
-    paths:
-        - target/
-        - cargo/
-
 test:cargo:
     stage: test
     before_script:

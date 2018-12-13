@@ -23,10 +23,17 @@ use node_rpc::types::{
     CallViewFunctionResponse, ViewAccountResponse,
 };
 
-const KEY_STORE_PATH: &str = "./tmp/near_key";
+const TMP_DIR: &str = "./tmp/test_rpc_cli";
+const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
 
 fn test_service_ready() -> bool {
-    thread::spawn(|| { devnet::start_devnet() });
+    let mut base_path = Path::new(TMP_DIR).to_owned();
+    base_path.push("base");
+    if base_path.exists() {
+        std::fs::remove_dir_all(base_path.clone()).unwrap();
+    }
+
+    thread::spawn(move || { devnet::start_devnet(Some(&base_path)) });
     thread::sleep(Duration::from_secs(1));
     true
 }

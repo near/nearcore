@@ -1,3 +1,6 @@
+use std::iter;
+use std::mem;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -5,14 +8,16 @@ use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
 use parking_lot::Mutex;
 use substrate_network_libp2p::{
-    NodeIndex, RegisteredProtocol, Service as NetworkService, ServiceEvent, Severity, start_service
+    Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
+    Service as NetworkService, ServiceEvent, Severity, start_service
 };
 pub use substrate_network_libp2p::NetworkConfiguration;
 use tokio::timer::Interval;
+use substrate_network_libp2p::Secret;
 
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
-use primitives::traits::Encode;
+use primitives::traits::{Encode, Payload};
 use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -24,15 +29,14 @@ pub fn new_network_service(protocol_config: &ProtocolConfig, net_config: Network
         .expect("Error starting network service")
 }
 
-pub fn create_network_task<B, Header>(
+pub fn spawn_network_tasks<B, Header, P>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol_: Protocol<B, Header>,
-    message_receiver: Receiver<(NodeIndex, Message<B, Header>)>
-) -> (Box<impl Future<Item=(), Error=()>>,
-      Box<impl Future<Item=(), Error=()>>)
-where
+    protocol_: Protocol<B, Header, P>,
+    message_receiver: Receiver<(NodeIndex, Message<B, Header, P>)>
+) where
     B: SignedBlock,
     Header: BlockHeader,
+    P: Payload,
 {
     let protocol = Arc::new(protocol_);
     // Interval for performing maintenance on the protocol handler.
@@ -107,13 +111,28 @@ where
         Ok(())
     }).map(|_| ()).map_err(|_|());
 
-
-
-    (Box::new(network.select(timer).and_then(|_| {
+    tokio::spawn(network.select(timer).and_then(|_| {
         info!("Networking stopped");
         Ok(())
-    }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e))),
-     Box::new(messages_handler))
+    }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)));
+
+    tokio::spawn(messages_handler);
+}
+
+pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
+    iter::once(NetworkProtocol::Ip4(ip_addr))
+        .chain(iter::once(NetworkProtocol::Tcp(port)))
+        .collect()
+}
+
+pub fn get_test_secret_from_node_index(test_node_index: u32) -> Secret {
+    let bytes: [u8; 4] = unsafe { mem::transmute(test_node_index) };
+
+    let mut array = [0; 32];
+    for (count, b) in bytes.iter().enumerate() {
+        array[array.len() - count - 1] = *b;
+    }
+    array
 }
 
 //#[cfg(test)]
