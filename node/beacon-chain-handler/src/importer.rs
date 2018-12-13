@@ -70,40 +70,46 @@ impl BlockImporter {
 
     pub fn import_shard_block(&mut self, shard_block: SignedShardBlock) {
         let hash = shard_block.block_hash();
-        if !self.pending_shard_blocks.contains_key(&hash) {
-            self.pending_shard_blocks.insert(hash, shard_block);
-        }
+        self.pending_shard_blocks.entry(hash).or_insert(shard_block);
     }
 
     fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
         let num_transactions = shard_block.body.transactions.len();
-        let num_receipts = shard_block.body.receipts.len();
         // we can unwrap because parent is guaranteed to exist
         let prev_header = self.beacon_chain
             .get_header(&BlockId::Hash(parent_hash))
             .expect("Parent is known but header not found.");
-        let prev_shard_header = self.shard_chain
-            .get_header(&BlockId::Hash(parent_shard_hash))
+        let prev_shard_block = self.shard_chain
+            .get_block(&BlockId::Hash(parent_shard_hash))
             .expect("At this moment shard chain should be present together with beacon chain");
+        let prev_shard_header = prev_shard_block.header();
         let apply_state = ApplyState {
             root: prev_shard_header.body.merkle_root_state,
             block_index: prev_header.body.index,
             parent_block_hash: parent_hash,
+            shard_id: shard_block.body.header.shard_id,
         };
-        let (filtered_transactions, filtered_receipts, mut apply_result) =
-            self.runtime.write().apply(&apply_state, shard_block.body.transactions.clone(), shard_block.body.receipts.clone());
+        let mut apply_result = self.runtime.write().apply(
+            &apply_state,
+            &prev_shard_block.body.new_receipts,
+            shard_block.body.transactions.clone()
+        );
         if apply_result.root != prev_shard_header.body.merkle_root_state {
-            info!("Merkle root {} is not equal to received {} after applying the transactions from {:?}", prev_shard_header.body.merkle_root_state, apply_result.root, beacon_block);
+            info!(
+                "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
+                prev_shard_header.body.merkle_root_state,
+                apply_result.root,
+                beacon_block
+            );
             return;
         }
-        if filtered_transactions.len() != num_transactions {
-            info!("Imported block has transactions that were filtered out while merkle roots match in {:?}", beacon_block);
-            return;
-        }
-        if filtered_receipts.len() != num_receipts {
-            info!("Imported block has receipts that were filtered out while merkle roots match in {:?}.", beacon_block);
+        if apply_result.filtered_transactions.len() != num_transactions {
+            info!(
+                "Imported block has transactions that were filtered out while merkle roots match in {:?}",
+                beacon_block
+            );
             return;
         }
         self.state_db.commit(&mut apply_result.transaction).ok();

@@ -291,7 +291,7 @@ impl CallbackResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
     pub sender: AccountId,
@@ -315,6 +315,12 @@ impl ReceiptTransaction {
             body,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Debug)]
+pub enum Transaction {
+    SignedTransaction(SignedTransaction),
+    Receipt(ReceiptTransaction),
 }
 
 // 2. State structs.

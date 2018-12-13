@@ -13,7 +13,7 @@ extern crate shard;
 extern crate storage;
 extern crate wasm;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -27,7 +27,7 @@ use primitives::types::{
     AccountAlias, AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, CallbackId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
-    SwapKeyTransaction, DeployContractTransaction, Balance
+    SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes
@@ -93,14 +93,18 @@ fn create_nonce_with_nonce(base: &[u8], salt: u64) -> Vec<u8> {
 
 pub struct ApplyState {
     pub root: MerkleHash,
+    pub shard_id: ShardId,
     pub block_index: u64,
     pub parent_block_hash: CryptoHash,
 }
 
 pub struct ApplyResult {
     pub root: MerkleHash,
+    pub shard_id: ShardId,
     pub transaction: storage::TrieBackendTransaction,
     pub authority_proposals: Vec<AuthorityProposal>,
+    pub filtered_transactions: Vec<Transaction>,
+    pub new_receipts: Vec<Transaction>,
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
@@ -131,7 +135,7 @@ impl Runtime {
         hash: CryptoHash,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.at_stake(transaction.sender);
         if sender.amount - staked >= transaction.amount {
             sender.amount -= transaction.amount;
@@ -147,7 +151,7 @@ impl Runtime {
                     1,
                 ))
             );
-            Ok(vec![receipt])
+            Ok(vec![Transaction::Receipt(receipt)])
         } else {
             Err(
                 format!(
@@ -168,7 +172,7 @@ impl Runtime {
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
         authority_proposals: &mut Vec<AuthorityProposal>,
-    ) -> Result<Vec<ReceiptTransaction>, String>{
+    ) -> Result<Vec<Transaction>, String>{
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
             runtime_data.put_stake(body.staker, body.amount);
             authority_proposals.push(AuthorityProposal {
@@ -197,7 +201,7 @@ impl Runtime {
         hash: CryptoHash,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.at_stake(body.sender);
         if sender.amount >= staked + body.amount {
             sender.amount -= body.amount;
@@ -218,7 +222,7 @@ impl Runtime {
                     0
                 ))
             );
-            Ok(vec![receipt])
+            Ok(vec![Transaction::Receipt(receipt)])
         } else {
             Err(
                 format!(
@@ -239,7 +243,8 @@ impl Runtime {
         signature: &Signature,
         data: &[u8],
         account: &mut Account,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
+        // TODO: verify signature
         let cur_key = Decode::decode(&body.cur_key).ok_or("cannot decode public key")?;
         if !verify(data, signature, &cur_key) {
             return Err("Invalid signature. Cannot swap key".to_string());
@@ -264,7 +269,7 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         body: &DeployContractTransaction,
         account: &mut Account,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         // TODO: check signature
         let pub_key = Decode::decode(&body.public_key).ok_or("cannot decode public key")?;
         if account.public_keys.contains(&pub_key) {
@@ -289,7 +294,7 @@ impl Runtime {
         hash: CryptoHash,
         method_name: &[u8],
         args: &[u8],
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.at_stake(sender_account_id);
         // sender.amount cannot be less than staked
         // otherwise staking would have failed
@@ -326,7 +331,7 @@ impl Runtime {
             &sender
         );        
         Ok(receipts)
-    }
+    }   
 
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
@@ -335,7 +340,7 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
         authority_proposals: &mut Vec<AuthorityProposal>,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender: Option<Account> =
             get(state_update, &account_id_to_bytes(transaction.body.get_sender()));
@@ -418,7 +423,7 @@ impl Runtime {
         amount: u64,
         receiver_id: AccountId,
         receiver: &mut Account
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         receiver.amount += amount;
         set(
             state_update,
@@ -433,11 +438,12 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         call: &AsyncCall,
         account_id: AccountId,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let account_id_bytes = account_id_to_bytes(account_id);
         match get::<Account>(state_update, &account_id_bytes) {
             Some(_) => {
-                Err(format!("account {} already exists", account_id))
+                // this case should already be handled
+                unreachable!()
             }
             _ => {
                 let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
@@ -462,7 +468,7 @@ impl Runtime {
         callback_info: &Option<CallbackInfo>,
         sender_id: AccountId,
         receiver_id: AccountId,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let callback_info = match callback_info {
             Some(info) => info,
             _ => {
@@ -518,7 +524,7 @@ impl Runtime {
                 runtime_ext.create_nonce(),
                 ReceiptBody::Callback(callback_res),
             );
-            receipts.push(new_receipt);
+            receipts.push(Transaction::Receipt(new_receipt));
         }
         Ok(receipts)
     }
@@ -532,7 +538,7 @@ impl Runtime {
         receiver_id: AccountId,
         nonce: Vec<u8>,
         receiver: &mut Account,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.at_stake(receiver_id);
         assert!(receiver.amount >= staked);
         let result = {
@@ -585,7 +591,7 @@ impl Runtime {
         receiver_id: AccountId,
         nonce: Vec<u8>,
         receiver: &mut Account,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
+    ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.at_stake(receiver_id);
         assert!(receiver.amount >= staked);
         let mut needs_removal = false;
@@ -655,7 +661,7 @@ impl Runtime {
         &mut self,
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
-        new_receipts: &mut Vec<ReceiptTransaction>,
+        new_receipts: &mut Vec<Transaction>,
     ) -> Result<(), String> {
         let receiver_id = account_id_to_bytes(receipt.receiver);
         let receiver: Option<Account> = get(state_update, &receiver_id);
@@ -677,8 +683,14 @@ impl Runtime {
                                 &mut receiver
                             )
                         } else if async_call.method_name == b"create_account".to_vec() {
-                            // account already exists, an error
-                            Err(format!("account {} already exists", receipt.receiver))
+                            debug!(target: "runtime", "account {} already exists", receipt.receiver);
+                            let receipt = ReceiptTransaction::new(
+                                system_account(),
+                                receipt.sender,
+                                create_nonce_with_nonce(&receipt.nonce, 0),
+                                ReceiptBody::Refund(async_call.amount)
+                            );
+                            Ok(vec![Transaction::Receipt(receipt)])
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
@@ -752,7 +764,7 @@ impl Runtime {
                         create_nonce_with_nonce(&receipt.nonce, 0),
                         ReceiptBody::Refund(amount)
                     );
-                    new_receipts.push(new_receipt);
+                    new_receipts.push(Transaction::Receipt(new_receipt));
                 }
                 if let Some(callback_info) = callback_info {
                     let new_receipt = ReceiptTransaction::new(
@@ -764,64 +776,105 @@ impl Runtime {
                             None,
                         ))
                     );
-                    new_receipts.push(new_receipt);
+                    new_receipts.push(Transaction::Receipt(new_receipt));
                 }
                 Err(s)
             }
         }
     }
 
-    pub fn apply(
-        &mut self,
-        apply_state: &ApplyState,
-        transactions: Vec<SignedTransaction>,
-        mut receipts: Vec<ReceiptTransaction>,
-    ) -> (Vec<SignedTransaction>, Vec<ReceiptTransaction>, ApplyResult) {
-        let mut filtered_transactions = vec![];
-        let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
-        let mut authority_proposals = vec![];
-        for t in transactions {
-            match self.apply_signed_transaction(&mut state_update, &t, &mut authority_proposals) {
-                Ok(mut new_receipts) => {
-                    receipts.append(&mut new_receipts);
-                    state_update.commit();
-                    filtered_transactions.push(t);
-                }
-                Err(s) => {
-                    debug!(target: "runtime", "{}", s);
-                    state_update.rollback();
-                }
-            }
-        }
-        // receipts to be recorded in the block
-        let mut filtered_receipts = vec![];
-        let mut receipts: VecDeque<_> = receipts.into();
-        while let Some(receipt) = receipts.pop_front() {
-            // execute same shard receipts
-            if account_to_shard_id(receipt.sender) == account_to_shard_id(receipt.receiver) {
-                let mut new_receipts = vec![];
-                match self.apply_receipt(&mut state_update, &receipt, &mut new_receipts) {
-                    Ok(()) => {
+    fn filter_transaction(
+        runtime: &mut Self,
+        state_update: &mut StateDbUpdate,
+        shard_id: ShardId,
+        transaction: &Transaction,
+        new_receipts: &mut Vec<Transaction>,
+        authority_proposals: &mut Vec<AuthorityProposal>,
+    ) -> bool {
+        match transaction {
+            Transaction::SignedTransaction(ref tx) => {
+                match runtime.apply_signed_transaction(
+                    state_update,
+                    tx,
+                    authority_proposals
+                ) {
+                    Ok(mut receipts) => {
+                        new_receipts.append(&mut receipts);
                         state_update.commit();
+                        true
                     }
                     Err(s) => {
                         debug!(target: "runtime", "{}", s);
                         state_update.rollback();
+                        false
                     }
                 }
-                receipts.append(&mut new_receipts.into());
-            } else {
-                filtered_receipts.push(receipt);
+            }
+            Transaction::Receipt(ref r) => {
+                if account_to_shard_id(r.receiver) == shard_id {
+                    let mut tmp_new_receipts = vec![];
+                    match runtime.apply_receipt(state_update, r, &mut tmp_new_receipts) {
+                        Ok(()) => {
+                            state_update.commit();
+                            new_receipts.append(&mut tmp_new_receipts);
+                            true
+                        }
+                        Err(s) => {
+                            debug!(target: "runtime", "{}", s);
+                            state_update.rollback();
+                            new_receipts.append(&mut tmp_new_receipts);
+                            false
+                        }
+                    }
+                } else {
+                    // wrong receipt
+                    debug!(target: "runtime", "receipt sent to the wrong shard");
+                    false
+                }
             }
         }
+    }
+
+    /// apply receipts from previous block and transactions and receipts from this block
+    pub fn apply(
+        &mut self,
+        apply_state: &ApplyState,
+        prev_receipts: &[Transaction],
+        mut transactions: Vec<Transaction>,
+    ) -> ApplyResult {
+        let mut new_receipts = vec![];
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
+        let mut authority_proposals = vec![];
+        let shard_id = apply_state.shard_id;
+        for receipt in prev_receipts.iter() {
+            Self::filter_transaction(
+                self,
+                &mut state_update,
+                shard_id,
+                receipt,
+                &mut new_receipts,
+                &mut authority_proposals
+            );
+        }
+        transactions.retain(|t| {
+            Self::filter_transaction(
+                self,
+                &mut state_update,
+                shard_id,
+                t,
+                &mut new_receipts,
+                &mut authority_proposals
+            )
+        });
         let (transaction, new_root) = state_update.finalize();
-        // Since we only have one shard, all receipts will be executed,
-        // filtered_receipts should be empty
-        (
-            filtered_transactions,
-            filtered_receipts,
-            ApplyResult { root: new_root, transaction, authority_proposals },
-        )
+        ApplyResult { 
+            root: new_root, 
+            transaction,
+            authority_proposals,
+            shard_id,
+            filtered_transactions: transactions,
+            new_receipts,
+        }
     }
 
     pub fn apply_genesis_state(
@@ -831,7 +884,7 @@ impl Runtime {
         initial_authorities: &[(ReadablePublicKey, u64)]
     ) -> MerkleHash {
         let mut state_db_update =
-            storage::StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
+            StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         balances.iter().for_each(|(account_alias, public_key, balance)| {
             set(
                 &mut state_db_update,
@@ -946,13 +999,16 @@ mod tests {
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
-            root, parent_block_hash: CryptoHash::default(), block_index: 0
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
         };
-        let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
     }
 
@@ -969,13 +1025,16 @@ mod tests {
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState { 
-            root, parent_block_hash: CryptoHash::default(), block_index: 0
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
         };
-        let (filtered_tx, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)],
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
     }
 
@@ -995,13 +1054,17 @@ mod tests {
             public_key: pub_key.encode().unwrap(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState { 
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         // deploy contract
@@ -1013,13 +1076,14 @@ mod tests {
             public_key: pub_key.encode().unwrap(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState { 
+        let apply_state = ApplyState {
+            shard_id: 0,
             root: apply_result.root,
             parent_block_hash: CryptoHash::default(),
             block_index: 0 
         };
-        let (_, _, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let mut apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::SignedTransaction(transaction)],
         );
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
@@ -1047,13 +1111,17 @@ mod tests {
             public_key: account.public_keys[0].encode().unwrap(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::SignedTransaction(transaction)],
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
@@ -1075,13 +1143,17 @@ mod tests {
             amount: 10,
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 = viewer.view_at(
@@ -1125,13 +1197,17 @@ mod tests {
             amount: 1000,
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 0);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 0);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 = viewer.view_at(
@@ -1175,13 +1251,15 @@ mod tests {
             amount: 10,
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 = viewer.view_at(
@@ -1227,13 +1305,15 @@ mod tests {
             public_key: pub_key.encode().unwrap()
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 = viewer.view_at(
@@ -1279,15 +1359,30 @@ mod tests {
             public_key: pub_key.encode().unwrap()
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        //let apply_state = ApplyState {
+        //    root: apply_result.root,
+        //    shard_id: 0,
+        //    parent_block_hash: CryptoHash::default(),
+        //    block_index: 0
+        //};
+        //let mut apply_result = runtime.apply(
+        //    &apply_state, apply_result.new_receipts
+        //);
+        //assert_eq!(apply_result.filtered_transactions.len(), 0);
+        //assert_eq!(apply_result.new_receipts.len(), 0);
+        //assert_ne!(root, apply_result.root);
+        //runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let result1 = viewer.view_at(
             &ViewCall::balance(hash(b"alice")),
             apply_result.root,
@@ -1332,13 +1427,17 @@ mod tests {
             public_key: pub_key1.encode().unwrap()
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (filtered_tx, filtered_receipts, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction], vec![]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(filtered_tx.len(), 1);
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let tx_body = TransactionBody::SwapKey(SwapKeyTransaction {
@@ -1351,12 +1450,13 @@ mod tests {
         let signature = sign(&data, &secret_key1);
         let transaction1 = SignedTransaction::new(signature, tx_body);
         let apply_state = ApplyState {
+            shard_id: 0,
             root: apply_result.root,
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        let (_, _, mut apply_result) = runtime.apply(
-            &apply_state, vec![transaction1], vec![]
+        let mut apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::SignedTransaction(transaction1)],
         );
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
@@ -1382,12 +1482,17 @@ mod tests {
                 0,
             ))
         );
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (_, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![], vec![receipt]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::Receipt(receipt)]
         );
-        assert_eq!(filtered_receipts.len(), 0);
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
     }
 
@@ -1412,11 +1517,17 @@ mod tests {
         let mut new_receipts = vec![];
         runtime.apply_receipt(&mut state_update, &receipt, &mut new_receipts).unwrap();
         assert_eq!(new_receipts.len(), 1);
-        let new_receipt = &new_receipts[0];
-        assert_eq!(new_receipt.sender, hash(b"bob"));
-        assert_eq!(new_receipt.receiver, hash(b"alice"));
-        let callback_res = CallbackResult::new(callback_info.clone(), Some(encode_int(20).to_vec()));
-        assert_eq!(new_receipt.body, ReceiptBody::Callback(callback_res));
+        if let Transaction::Receipt(new_receipt) = &new_receipts[0] {
+            assert_eq!(new_receipt.sender, hash(b"bob"));
+            assert_eq!(new_receipt.receiver, hash(b"alice"));
+            let callback_res = CallbackResult::new(
+                callback_info.clone(), Some(encode_int(20).to_vec())
+            );
+            assert_eq!(new_receipt.body, ReceiptBody::Callback(callback_res));
+        } else {
+            assert!(false);
+        }
+        
     }
 
     #[test]
@@ -1437,12 +1548,15 @@ mod tests {
                 None,
             ))
         );
-        let apply_state =
-            ApplyState { root, parent_block_hash: CryptoHash::default(), block_index: 0 };
-        let (_, filtered_receipts, apply_result) = runtime.apply(
-            &apply_state, vec![], vec![receipt]
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::Receipt(receipt)]
         );
-        assert_eq!(filtered_receipts.len(), 0);
         assert_eq!(runtime.callbacks.len(), 0);
         assert_eq!(root, apply_result.root);
     }
