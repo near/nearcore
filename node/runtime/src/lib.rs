@@ -387,7 +387,7 @@ impl Runtime {
                         )
                     },
                     TransactionBody::DeployContract(ref t) => {
-                        self.deploy(t, transaction.hash)
+                        self.deploy(t, transaction.transaction_hash())
                     },
                     TransactionBody::CreateAccount(ref t) => {
                         self.create_account(
