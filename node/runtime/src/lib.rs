@@ -359,7 +359,7 @@ impl Runtime {
                         self.send_money(
                             state_update,
                             &t,
-                            transaction.hash,
+                            transaction.transaction_hash(),
                             &mut sender,
                             &mut runtime_data,
                         )
@@ -379,7 +379,7 @@ impl Runtime {
                             &runtime_data,
                             &mut sender,
                             transaction.body.get_sender(),
-                            transaction.hash,
+                            transaction.transaction_hash(),
                             &t.method_name,
                             &t.args,
                         )
@@ -395,7 +395,7 @@ impl Runtime {
                         self.create_account(
                             state_update,
                             t,
-                            transaction.hash,
+                            transaction.transaction_hash(),
                             &mut sender,
                             &mut runtime_data
                         )
