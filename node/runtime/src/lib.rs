@@ -948,19 +948,24 @@ mod tests {
         }
     }
 
+    fn default_code_hash() -> CryptoHash {
+        let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+        hash(genesis_wasm)
+    }
+
     #[test]
     fn test_genesis_state() {
         let viewer = get_test_state_db_viewer();
         let result = viewer.view(&ViewCall::balance(hash(b"alice")));
         assert_eq!(
             result.unwrap(),
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![] }
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![], code_hash: default_code_hash() }
         );
         let result2 =
             viewer.view(&ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]));
         assert_eq!(
             result2.unwrap(),
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![20, 0, 0, 0] }
+            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![20, 0, 0, 0], code_hash: default_code_hash() }
         );
     }
 
@@ -1172,6 +1177,7 @@ mod tests {
                 amount: 90,
                 stake: 50,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_at(
@@ -1186,6 +1192,7 @@ mod tests {
                 amount: 10,
                 stake: 0,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
     }
@@ -1226,6 +1233,7 @@ mod tests {
                 amount: 100,
                 stake: 50,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_at(
@@ -1240,6 +1248,7 @@ mod tests {
                 amount: 0,
                 stake: 0,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
     }
@@ -1279,6 +1288,7 @@ mod tests {
                 amount: 100,
                 stake: 50,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_at(
@@ -1324,6 +1334,7 @@ mod tests {
                 amount: 90,
                 stake: 50,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_at(
@@ -1338,6 +1349,7 @@ mod tests {
                 amount: 10,
                 stake: 0,
                 result: vec![],
+                code_hash: hash(b""),
             }
         );
     }
@@ -1391,6 +1403,7 @@ mod tests {
                 amount: 100,
                 stake: 50,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
         let result2 = viewer.view_at(
@@ -1405,6 +1418,7 @@ mod tests {
                 amount: 0,
                 stake: 0,
                 result: vec![],
+                code_hash: default_code_hash(),
             }
         );
     }

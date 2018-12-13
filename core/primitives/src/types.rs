@@ -90,6 +90,7 @@ pub struct ViewCallResult {
     pub nonce: u64,
     pub amount: Balance,
     pub stake: Balance,
+    pub code_hash: CryptoHash,
     pub result: Vec<u8>,
 }
 

@@ -201,6 +201,8 @@ impl TransactionApi for RpcImpl {
                 Ok(ViewAccountResponse {
                     account_id: r.account,
                     amount: r.amount,
+                    stake: r.stake,
+                    code_hash: r.code_hash,
                     nonce: r.nonce,
                 })
             },
@@ -228,6 +230,8 @@ impl TransactionApi for RpcImpl {
                 Ok(CallViewFunctionResponse {
                     account_id: r.account,
                     amount: r.amount,
+                    stake: r.stake,
+                    code_hash: r.code_hash,
                     nonce: r.nonce,
                     result: r.result,
                 })
