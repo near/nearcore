@@ -53,6 +53,7 @@ pub mod ids {
     // Dev
     pub const PANIC_FUNC: usize = 1000;
     pub const DEBUG_FUNC: usize = 1010;
+    pub const LOG_FUNC: usize = 1020;
 }
 
 #[derive(Debug, Clone, PartialEq)]
