@@ -4,6 +4,7 @@ use jsonrpc_core::types::{Error, ErrorCode, Value};
 
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
+use primitives::utils::bs58_vec2str;
 use primitives::types::{
     CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
     SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
@@ -268,7 +269,7 @@ impl TransactionApi for RpcImpl {
         let result = self.state_db_viewer.view_state(r.contract_account_id);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id,
-            values: result.values,
+            values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect()
         };
         Ok(response)
     }
