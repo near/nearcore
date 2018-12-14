@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::fmt;
 
 use ::traits::Payload;
 use hash::{CryptoHash, hash, hash_struct};
@@ -109,7 +110,7 @@ pub struct SendMoneyTransaction {
     pub amount: Balance,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
     pub sender: AccountId,
@@ -118,7 +119,13 @@ pub struct DeployContractTransaction {
     pub public_key: Vec<u8>,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+impl fmt::Debug for DeployContractTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "DeployContractTransaction {{ nonce: {}, sender: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.sender, self.contract_id)
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallTransaction {
     pub nonce: u64,
     pub originator: AccountId,
@@ -126,6 +133,12 @@ pub struct FunctionCallTransaction {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub amount: Balance,
+}
+
+impl fmt::Debug for FunctionCallTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "FunctionCallTransaction {{ nonce: {}, originator: {}, contract_id: {}, method_name: {:?}, args: ..., amount: {} }}", self.nonce, self.originator, self.contract_id, String::from_utf8(self.method_name.clone()), self.amount)
+    }
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -235,7 +248,7 @@ pub enum ReceiptBody {
     Refund(u64),
 }
 
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AsyncCall {
     pub amount: Balance,
     pub mana: Mana,
@@ -253,6 +266,12 @@ impl AsyncCall {
             args,
             callback: None,
         }
+    }
+}
+
+impl fmt::Debug for AsyncCall {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AsyncCall {{ amount: {}, mana: {}, method_name: {:?}, args: ..., callback: {:?} }}", self.amount, self.mana, String::from_utf8(self.method_name.clone()), self.callback)
     }
 }
 
@@ -276,6 +295,12 @@ impl Callback {
             callback: None,
             result_counter: 0,
         }
+    }
+}
+
+impl fmt::Debug for Callback {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Callback {{ method_name: {:?}, args: ..., results: ..., mana: {}, callback: {:?}, result_counter: {} }}", String::from_utf8(self.method_name.clone()), self.mana, self.callback, self.result_counter)
     }
 }
 
@@ -305,7 +330,7 @@ pub struct CallbackResult {
 
 impl CallbackResult {
     pub fn new(info: CallbackInfo, result: Option<Vec<u8>>) -> Self {
-        CallbackResult { info, result}
+        CallbackResult { info, result }
     }
 }
 
@@ -324,7 +349,7 @@ impl ReceiptTransaction {
         sender: AccountId,
         receiver: AccountId,
         nonce: Vec<u8>,
-        body: ReceiptBody
+        body: ReceiptBody,
     ) -> Self {
         ReceiptTransaction {
             sender,
@@ -415,7 +440,7 @@ impl<P: Hash> PartialEq for MessageDataBody<P> {
         other_parents.sort();
 
         self.owner_uid == other.owner_uid
-            && self.epoch  == other.epoch
+            && self.epoch == other.epoch
             && parents == other_parents
     }
 }
