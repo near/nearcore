@@ -92,6 +92,10 @@ impl SignedShardBlock {
             0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![]
         )
     }
+
+    pub fn get_root(&self) -> MerkleHash {
+        self.body.header.merkle_root_state
+    }
 }
 
 impl SignedBlock for SignedShardBlock {

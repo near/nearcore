@@ -964,7 +964,8 @@ mod tests {
     use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
     use storage::test_utils::create_state_db;
     use test_utils::{
-        encode_int, get_runtime_and_state_db_viewer, get_test_state_db_viewer
+        encode_int, get_runtime_and_state_db_viewer, get_genesis_root,
+        get_test_state_db_viewer_and_root, get_runtime_and_root
     };
 
     use super::*;
@@ -984,14 +985,24 @@ mod tests {
 
     #[test]
     fn test_genesis_state() {
-        let viewer = get_test_state_db_viewer();
-        let result = viewer.view(&ViewCall::balance(hash(b"alice")));
+        let (viewer, root) = get_test_state_db_viewer_and_root();
+        let result = viewer.view_at(&ViewCall::balance(hash(b"alice")), root);
         assert_eq!(
             result.unwrap(),
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![], code_hash: default_code_hash() }
+            ViewCallResult { 
+                account: hash(b"alice"),
+                amount: 100,
+                nonce: 0,
+                stake: 50,
+                result: vec![],
+                code_hash: default_code_hash() 
+            }
         );
         let result2 =
-            viewer.view(&ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]));
+            viewer.view_at(
+                &ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]),
+                root
+            );
         assert_eq!(
             result2.unwrap(),
             ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![20, 0, 0, 0], code_hash: default_code_hash() }
@@ -1026,8 +1037,7 @@ mod tests {
 
     #[test]
     fn test_simple_smart_contract() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: hash(b"alice"),
@@ -1053,8 +1063,7 @@ mod tests {
 
     #[test]
     fn test_simple_smart_contract_with_args() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: hash(b"alice"),
@@ -1082,8 +1091,7 @@ mod tests {
     // we need to figure out how to deal with the case where account does not exist
     // especially in the context of sharding
     fn test_upload_contract() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let (pub_key, _) = get_keypair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
@@ -1118,8 +1126,7 @@ mod tests {
     #[test]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
         let account: Account = get(
             &mut state_update,
@@ -1157,7 +1164,7 @@ mod tests {
     #[test]
     fn test_send_money() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let root = get_genesis_root(runtime.state_db.clone());
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1213,7 +1220,7 @@ mod tests {
     #[test]
     fn test_send_money_over_balance() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let root = get_genesis_root(runtime.state_db.clone());
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1269,7 +1276,7 @@ mod tests {
     #[test]
     fn test_refund_on_send_money_to_non_existent_account() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let root = get_genesis_root(runtime.state_db.clone());
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1314,7 +1321,7 @@ mod tests {
     #[test]
     fn test_create_account() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let root = get_genesis_root(runtime.state_db.clone());
         let (pub_key, _) = get_keypair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
@@ -1370,7 +1377,7 @@ mod tests {
     #[test]
     fn test_create_account_failure_already_exists() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let root = get_genesis_root(runtime.state_db.clone());
         let (pub_key, _) = get_keypair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
@@ -1425,8 +1432,7 @@ mod tests {
 
     #[test]
     fn test_swap_key() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let (pub_key1, secret_key1) = get_keypair();
         let (pub_key2, _) = get_keypair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
@@ -1479,8 +1485,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_no_callback() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let receipt = ReceiptTransaction::new(
             hash(b"alice"),
             hash(b"bob"),
@@ -1508,8 +1513,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_callback() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);
@@ -1542,8 +1546,7 @@ mod tests {
 
     #[test]
     fn test_callback() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, root) = get_runtime_and_root();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
         callback.results.resize(1, None);

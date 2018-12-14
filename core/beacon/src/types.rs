@@ -1,7 +1,9 @@
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::PublicKey;
-use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
+use primitives::types::{
+    AuthorityMask, MultiSignature, PartialSignature
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthorityProposal {

@@ -18,6 +18,8 @@ use types::{
     ViewAccountResponse, ViewStateRequest,
     ViewStateResponse,
 };
+use shard::ShardBlockChain;
+use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait TransactionApi {
@@ -95,16 +97,19 @@ build_rpc_trait! {
 
 pub struct RpcImpl {
     state_db_viewer: StateDbViewer,
+    chain: Arc<ShardBlockChain>,
     submit_txn_sender: Sender<SignedTransaction>,
 }
 
 impl RpcImpl {
     pub fn new(
         state_db_viewer: StateDbViewer,
+        chain: Arc<ShardBlockChain>,
         submit_txn_sender: Sender<SignedTransaction>,
     ) -> Self {
         RpcImpl {
             state_db_viewer,
+            chain,
             submit_txn_sender,
         }
     }
@@ -208,7 +213,8 @@ impl TransactionApi for RpcImpl {
             method_name: String::new(),
             args: Vec::new(),
         };
-        let result = self.state_db_viewer.view(&call);
+        let root = self.chain.best_block().get_root();
+        let result = self.state_db_viewer.view_at(&call, root);
         match result {
             Ok(r) => {
                 Ok(ViewAccountResponse {
@@ -237,7 +243,8 @@ impl TransactionApi for RpcImpl {
             method_name: r.method_name,
             args: r.args,
         };
-        let result = self.state_db_viewer.view(&call);
+        let root = self.chain.best_block().get_root();
+        let result = self.state_db_viewer.view_at(&call, root);
 
         match result {
             Ok(r) => {
@@ -266,7 +273,8 @@ impl TransactionApi for RpcImpl {
 
     fn rpc_view_state(&self, r: ViewStateRequest) -> JsonRpcResult<ViewStateResponse> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
-        let result = self.state_db_viewer.view_state(r.contract_account_id);
+        let root = self.chain.best_block().get_root();
+        let result = self.state_db_viewer.view_state(r.contract_account_id, root);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id,
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect()
@@ -285,21 +293,37 @@ pub fn get_handler(rpc_impl: RpcImpl) -> IoHandler {
 mod tests {
     extern crate jsonrpc_test;
     extern crate serde_json;
+    extern crate storage;
 
     use futures::sync::mpsc::channel;
 
-    use node_runtime::test_utils::get_test_state_db_viewer;
-    use primitives::hash::hash;
+    use node_runtime::test_utils::{
+        get_test_state_db_viewer, get_genesis_root
+    };
+    use primitives::hash::{hash, CryptoHash};
+    use shard::SignedShardBlock;
 
     use super::*;
 
     use self::jsonrpc_test::Rpc;
+    use self::storage::{Storage, StateDb, test_utils::create_memory_db};
+
+    fn get_shard_chain(storage: Arc<Storage>) -> Arc<ShardBlockChain> {
+        let state_db = Arc::new(StateDb::new(storage.clone()));
+        let genesis_root = get_genesis_root(state_db);
+        let genesis_block = SignedShardBlock::new(
+            0, 0, CryptoHash::default(), genesis_root, vec![], vec![]
+        );
+        Arc::new(ShardBlockChain::new(genesis_block, storage.clone()))
+    }
 
     #[test]
     fn test_call() {
         let db_state_viewer = get_test_state_db_viewer();
         let (submit_txn_sender, _) = channel(1024);
-        let rpc_impl = RpcImpl::new(db_state_viewer, submit_txn_sender);
+        let storage = Arc::new(create_memory_db());
+        let chain = get_shard_chain(storage);
+        let rpc_impl = RpcImpl::new(db_state_viewer, chain.clone(), submit_txn_sender);
         let handler = get_handler(rpc_impl);
         let rpc = Rpc::from(handler);
         let t = SendMoneyRequest {

@@ -1,12 +1,10 @@
 use state_viewer::StateDbViewer;
 use chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
-use primitives::types::Transaction;
+use primitives::types::{Transaction, MerkleHash};
 use std::sync::Arc;
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
-use shard::SignedShardBlock;
-use chain::BlockChain;
 use byteorder::{ByteOrder, LittleEndian};
 use super::{Runtime, ApplyResult, ApplyState};
 
@@ -27,23 +25,10 @@ pub fn generate_test_chain_spec() -> ChainSpec {
 }
 
 pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
-    let chain_spec = generate_test_chain_spec();
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Runtime::new(state_db.clone());
-    let genesis_root = runtime.apply_genesis_state(
-        &chain_spec.accounts,
-        &chain_spec.genesis_wasm,
-        &chain_spec.initial_authorities
-    );
-
-    let shard_genesis = SignedShardBlock::genesis(genesis_root);
-    let shard_chain = Arc::new(BlockChain::new(shard_genesis, storage));
-
-    let state_db_viewer = StateDbViewer::new(
-        shard_chain.clone(),
-        state_db.clone(),
-    );
+    let state_db_viewer = StateDbViewer::new(state_db.clone());
     (runtime, state_db_viewer)
 }
 
@@ -51,6 +36,35 @@ pub fn get_test_state_db_viewer() -> StateDbViewer {
     let (_, state_db_viewer) = get_runtime_and_state_db_viewer();
     state_db_viewer
 }
+
+pub fn get_genesis_root(state_db: Arc<StateDb>) -> MerkleHash {
+    let runtime = Runtime::new(state_db.clone());
+    let chain_spec = generate_test_chain_spec();
+    runtime.apply_genesis_state(
+        &chain_spec.accounts,
+        &chain_spec.genesis_wasm,
+        &chain_spec.initial_authorities
+    )
+}
+
+pub fn get_runtime_and_root() -> (Runtime, MerkleHash) {
+    let storage = Arc::new(create_memory_db());
+    let state_db = Arc::new(StateDb::new(storage.clone()));
+    let runtime = Runtime::new(state_db.clone());
+    let chain_spec = generate_test_chain_spec();
+    let root = runtime.apply_genesis_state(
+        &chain_spec.accounts,
+        &chain_spec.genesis_wasm,
+        &chain_spec.initial_authorities
+    );
+    (runtime, root)
+}
+
+pub fn get_test_state_db_viewer_and_root() -> (StateDbViewer, MerkleHash) {
+    let (runtime, root) = get_runtime_and_root();
+    (StateDbViewer::new(runtime.state_db.clone()), root)
+}
+
 
 pub fn encode_int(val: i32) -> [u8; 4] {
     let mut tmp = [0u8; 4];

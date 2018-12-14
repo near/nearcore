@@ -46,8 +46,10 @@ fn spawn_rpc_server_task(
     shard_chain: Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
 ) {
-    let state_db_viewer = StateDbViewer::new(shard_chain, state_db);
-    let rpc_impl = node_rpc::api::RpcImpl::new(state_db_viewer, transactions_tx);
+    let state_db_viewer = StateDbViewer::new(state_db);
+    let rpc_impl = node_rpc::api::RpcImpl::new(
+        state_db_viewer, shard_chain, transactions_tx
+    );
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
     let rpc_addr = Some(
