@@ -256,7 +256,7 @@ impl AsyncCall {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Callback {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
