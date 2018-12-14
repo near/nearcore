@@ -99,7 +99,7 @@ mod tests {
     fn test_view_call() {
         let viewer = get_test_state_db_viewer();
         let view_call = ViewCall::func_call(hash(b"alice"), "run_test".into(), vec![]);
-        let root = get_genesis_root(viewer.state_db.clone());
+        let root = get_genesis_root(&viewer.state_db.clone());
         let view_call_result = viewer.view_at(&view_call, root);
         assert_eq!(view_call_result.unwrap().result, encode_int(20).to_vec());
     }
@@ -109,7 +109,7 @@ mod tests {
         let viewer = get_test_state_db_viewer();
         let args = (1..3).into_iter().flat_map(|x| encode_int(x).to_vec()).collect();
         let view_call = ViewCall::func_call(hash(b"alice"), "sum_with_input".into(), args);
-        let root = get_genesis_root(viewer.state_db.clone());
+        let root = get_genesis_root(&viewer.state_db.clone());
         let view_call_result = viewer.view_at(&view_call, root);
         assert_eq!(view_call_result.unwrap().result, encode_int(3).to_vec());
     }
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn test_view_state() {
         let viewer = get_test_state_db_viewer();
-        let root = get_genesis_root(viewer.state_db.clone());
+        let root = get_genesis_root(&viewer.state_db.clone());
         let result = viewer.view_state(hash(b"alice"), root);
         assert_eq!(result.values, HashMap::default());
     }

@@ -310,7 +310,7 @@ mod tests {
 
     fn get_shard_chain(storage: Arc<Storage>) -> Arc<ShardBlockChain> {
         let state_db = Arc::new(StateDb::new(storage.clone()));
-        let genesis_root = get_genesis_root(state_db);
+        let genesis_root = get_genesis_root(&state_db);
         let genesis_block = SignedShardBlock::new(
             0, 0, CryptoHash::default(), genesis_root, vec![], vec![]
         );

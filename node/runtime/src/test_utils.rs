@@ -37,7 +37,7 @@ pub fn get_test_state_db_viewer() -> StateDbViewer {
     state_db_viewer
 }
 
-pub fn get_genesis_root(state_db: Arc<StateDb>) -> MerkleHash {
+pub fn get_genesis_root(state_db: &Arc<StateDb>) -> MerkleHash {
     let runtime = Runtime::new(state_db.clone());
     let chain_spec = generate_test_chain_spec();
     runtime.apply_genesis_state(

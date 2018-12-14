@@ -1164,7 +1164,7 @@ mod tests {
     #[test]
     fn test_send_money() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = get_genesis_root(runtime.state_db.clone());
+        let root = get_genesis_root(&runtime.state_db.clone());
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1220,7 +1220,7 @@ mod tests {
     #[test]
     fn test_send_money_over_balance() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = get_genesis_root(runtime.state_db.clone());
+        let root = get_genesis_root(&runtime.state_db.clone());
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1276,7 +1276,7 @@ mod tests {
     #[test]
     fn test_refund_on_send_money_to_non_existent_account() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = get_genesis_root(runtime.state_db.clone());
+        let root = get_genesis_root(&runtime.state_db.clone());
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             sender: hash(b"alice"),
@@ -1321,7 +1321,7 @@ mod tests {
     #[test]
     fn test_create_account() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = get_genesis_root(runtime.state_db.clone());
+        let root = get_genesis_root(&runtime.state_db.clone());
         let (pub_key, _) = get_keypair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
@@ -1377,7 +1377,7 @@ mod tests {
     #[test]
     fn test_create_account_failure_already_exists() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = get_genesis_root(runtime.state_db.clone());
+        let root = get_genesis_root(&runtime.state_db.clone());
         let (pub_key, _) = get_keypair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
