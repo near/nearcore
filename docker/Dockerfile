@@ -1,4 +1,8 @@
+# syntax=docker/dockerfile-upstream:experimental
+
 FROM alpine:edge AS builder
+
+ARG PACKAGE="devnet"
 
 RUN apk update && apk add build-base \
     cargo \
@@ -10,23 +14,34 @@ RUN apk update && apk add build-base \
 
 WORKDIR /nearcore
 COPY . /nearcore
-RUN cargo build
+
+# Build with mounted cache
+ENV CARGO_HOME=/usr/local/cargo
+ENV CARGO_TARGET_DIR=/tmp/target
+RUN --mount=type=cache,target=/tmp/target \
+    --mount=type=cache,target=/usr/local/cargo \
+    cargo build -p $PACKAGE --release
+
+# Copy binaries into normal layers
+RUN --mount=type=cache,target=/tmp/target \
+    cp /tmp/target/release/$PACKAGE /usr/local/bin/
 
 # ===== SECOND STAGE ======
 
-FROM alpine:3.8
-
-COPY --from=builder /usr/local/bin/substrate /usr/local/bin
+FROM alpine:edge
 
 RUN apk add --no-cache ca-certificates \
     libstdc++ \
-    openssl
+    openssl-dev \
+    tini
 
 RUN rm -rf /usr/lib/python* && \
 	mkdir -p /root/.local/share/nearcore && \
 	ln -s /root/.local/share/nearcore /data
 
-EXPOSE 30333 3030
-VOLUME ["/data"]
+COPY --from=builder /usr/local/bin/$PACKAGE /usr/local/bin
 
-CMD ["/usr/local/bin/nearcore"]
+ENTRYPOINT ["/sbin/tini", "--"]
+
+RUN ln -s /usr/local/bin/$PACKAGE /docker_commando.sh
+CMD ["/docker_commando"]

@@ -124,11 +124,12 @@ class Executor(object):
         deploy_tag = "{}/nearprotocol/nearcore:k8s-{}".format(deploy_registry, _uuid)
         if image_tag is None:
             print('Building image...')
+            package = 'nearcore'
             build_script = os.path.join(
                 os.path.abspath(os.path.dirname(__file__)),
-                '../../docker/build_fast.sh',
+                '../../docker/build.sh',
             )
-            self._docker_runner.run("sudo -E {} {}".format(build_script, push_tag))
+            self._docker_runner.run("sudo -E {} {} {}".format(build_script, package, push_tag))
             self._docker_runner.run('sudo docker image prune -f')
         else:
             print('Tagging image...')
