@@ -1,5 +1,11 @@
 ### Building
 
 ```bash
-./build.sh ${PACKAGE} ${IMAGE_TAG}
+./build ${PACKAGE} ${IMAGE_TAG}
+```
+
+See other usage options with:
+
+```bash
+./build --help
 ``` 

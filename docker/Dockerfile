@@ -3,11 +3,13 @@
 FROM alpine:edge AS builder
 
 ARG PACKAGE="devnet"
+ARG PROFILE="release"
+ARG RELEASE_FLAG="--release"
 
-RUN apk update && apk add build-base \
+RUN apk update && apk add --no-cache build-base \
     cargo \
-    # needed for exonum_sodiumoxide build script
     cmake \
+    # needed for exonum_sodiumoxide build script
     curl \
     linux-headers \
     openssl-dev
@@ -20,11 +22,11 @@ ENV CARGO_HOME=/usr/local/cargo
 ENV CARGO_TARGET_DIR=/tmp/target
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo \
-    cargo build -p $PACKAGE --release
+    cargo build -p $PACKAGE $RELEASE_FLAG
 
 # Copy binaries into normal layers
 RUN --mount=type=cache,target=/tmp/target \
-    cp /tmp/target/release/$PACKAGE /usr/local/bin/
+    cp /tmp/target/$PROFILE/$PACKAGE /usr/local/bin/
 
 # ===== SECOND STAGE ======
 
@@ -33,8 +35,7 @@ FROM alpine:edge
 # Args must be defined for every stage
 ARG PACKAGE="devnet"
 
-RUN apk add --no-cache ca-certificates \
-    libstdc++ \
+RUN apk update && apk add --no-cache libstdc++ \
     openssl-dev \
     tini
 
