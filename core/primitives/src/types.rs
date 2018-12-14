@@ -65,36 +65,6 @@ pub enum BlockId {
     Hash(CryptoHash),
 }
 
-// 1. Transaction structs.
-
-/// Call view function in the contracts.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct ViewCall {
-    pub account: AccountId,
-    pub method_name: String,
-    pub args: Vec<u8>,
-}
-
-impl ViewCall {
-    pub fn balance(account: AccountId) -> Self {
-        ViewCall { account, method_name: String::new(), args: vec![] }
-    }
-    pub fn func_call(account: AccountId, method_name: String, args: Vec<u8>) -> Self {
-        ViewCall { account, method_name, args }
-    }
-}
-
-/// Result of view call.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct ViewCallResult {
-    pub account: AccountId,
-    pub nonce: u64,
-    pub amount: Balance,
-    pub stake: Balance,
-    pub code_hash: CryptoHash,
-    pub result: Vec<u8>,
-}
-
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
     pub nonce: u64,

@@ -285,11 +285,18 @@ class NearRPC(object):
         }
         return self._call_rpc('view_account', params)
 
-    def call_view_function(self, contract_name, function_name, args=None):
+    def call_view_function(
+        self,
+        originator,
+        contract_name,
+        function_name,
+        args=None,
+    ):
         if args is None:
             args = []
 
         params = {
+            'originator_id': _get_account_id(originator),
             'contract_account_id': _get_account_id(contract_name),
             'method_name': function_name,
             'args': args,
@@ -498,12 +505,14 @@ swap_key                 {}
     def call_view_function(self):
         """Call a view function on a smart contract"""
         parser = self._get_command_parser(self.call_view_function.__doc__)
+        self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
         parser.add_argument('--args', nargs='+', type=int, default=None)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.call_view_function(
+            args.sender,
             args.contract_name,
             args.function_name,
             args.args,

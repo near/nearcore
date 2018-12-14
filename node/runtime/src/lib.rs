@@ -61,11 +61,12 @@ pub struct RuntimeData {
 }
 
 impl RuntimeData {
-    pub fn at_stake(&self, account_key: AccountId) -> u64 {
-        self.stake.get(&account_key).cloned().unwrap_or(0)
+    pub fn get_stake_for_account(&self, account_id: AccountId) -> u64 {
+        self.stake.get(&account_id).cloned().unwrap_or(0)
     }
-    pub fn put_stake(&mut self, account_key: AccountId, amount: u64) {
-        self.stake.insert(account_key, amount);
+
+    pub fn put_stake_for_account(&mut self, account_id: AccountId, amount: u64) {
+        self.stake.insert(account_id, amount);
     }
 }
 
@@ -138,7 +139,7 @@ impl Runtime {
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
     ) -> Result<Vec<Transaction>, String> {
-        let staked = runtime_data.at_stake(transaction.sender);
+        let staked = runtime_data.get_stake_for_account(transaction.sender);
         if sender.amount - staked >= transaction.amount {
             sender.amount -= transaction.amount;
             set(state_update, &account_id_to_bytes(transaction.sender), sender);
@@ -176,7 +177,7 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> Result<Vec<Transaction>, String>{
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
-            runtime_data.put_stake(body.staker, body.amount);
+            runtime_data.put_stake_for_account(body.staker, body.amount);
             authority_proposals.push(AuthorityProposal {
                 public_key: sender.public_keys[0],
                 amount: body.amount,
@@ -204,7 +205,7 @@ impl Runtime {
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
     ) -> Result<Vec<Transaction>, String> {
-        let staked = runtime_data.at_stake(body.sender);
+        let staked = runtime_data.get_stake_for_account(body.sender);
         if sender.amount >= staked + body.amount {
             sender.amount -= body.amount;
             set(
@@ -297,7 +298,7 @@ impl Runtime {
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
     ) -> Result<Vec<Transaction>, String> {
-        let staked = runtime_data.at_stake(transaction.originator);
+        let staked = runtime_data.get_stake_for_account(transaction.originator);
         if sender.amount - staked >= transaction.amount {
             sender.amount -= transaction.amount;
             set(state_update, &account_id_to_bytes(transaction.originator), sender);
@@ -542,7 +543,7 @@ impl Runtime {
         nonce: Vec<u8>,
         receiver: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
-        let staked = runtime_data.at_stake(receiver_id);
+        let staked = runtime_data.get_stake_for_account(receiver_id);
         assert!(receiver.amount >= staked);
         let result = {
             let mut runtime_ext = RuntimeExt::new(
@@ -595,7 +596,7 @@ impl Runtime {
         nonce: Vec<u8>,
         receiver: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
-        let staked = runtime_data.at_stake(receiver_id);
+        let staked = runtime_data.get_stake_for_account(receiver_id);
         assert!(receiver.amount >= staked);
         let mut needs_removal = false;
         let receipts = {
@@ -959,14 +960,12 @@ mod tests {
     use primitives::hash::hash;
     use primitives::types::{
         DeployContractTransaction, FunctionCallTransaction,
-        TransactionBody, ViewCall, ViewCallResult
+        TransactionBody,
     };
     use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
+    use state_viewer::AccountViewCallResult;
     use storage::test_utils::create_state_db;
-    use test_utils::{
-        encode_int, get_runtime_and_state_db_viewer, get_test_state_db_viewer
-    };
-
+    use test_utils::*;
     use super::*;
 
     impl Default for Runtime {
@@ -985,16 +984,26 @@ mod tests {
     #[test]
     fn test_genesis_state() {
         let viewer = get_test_state_db_viewer();
-        let result = viewer.view(&ViewCall::balance(hash(b"alice")));
+        let result = viewer.view_account(hash(b"alice"));
         assert_eq!(
             result.unwrap(),
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![], code_hash: default_code_hash() }
+            AccountViewCallResult {
+                account: hash(b"alice"),
+                amount: 100,
+                nonce: 0,
+                stake: 50,
+                code_hash: default_code_hash(),
+            }
         );
-        let result2 =
-            viewer.view(&ViewCall::func_call(hash(b"alice"), "run_test".to_string(), vec![]));
+        let result2 = viewer.call_function(
+            hash(b"alice"),
+            hash(b"alice"),
+            "run_test",
+            &vec![],
+        );
         assert_eq!(
             result2.unwrap(),
-            ViewCallResult { account: hash(b"alice"), amount: 100, nonce: 0, stake: 50, result: vec![20, 0, 0, 0], code_hash: default_code_hash() }
+            vec![20, 0, 0, 0],
         );
     }
 
@@ -1064,7 +1073,7 @@ mod tests {
             amount: 0,
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState { 
+        let apply_state = ApplyState {
             root,
             shard_id: 0,
             parent_block_hash: CryptoHash::default(),
@@ -1094,7 +1103,7 @@ mod tests {
             wasm_byte_array: wasm_binary.to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState { 
+        let apply_state = ApplyState {
             root,
             shard_id: 0,
             parent_block_hash: CryptoHash::default(),
@@ -1178,33 +1187,25 @@ mod tests {
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_at(
-            &ViewCall::balance(hash(b"alice")),
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
                 amount: 90,
                 stake: 50,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_at(
-            &ViewCall::balance(hash(b"bob")),
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 0,
                 account: hash(b"bob"),
                 amount: 10,
                 stake: 0,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
@@ -1234,33 +1235,25 @@ mod tests {
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_at(
-            &ViewCall::balance(hash(b"alice")),
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 0,
                 account: hash(b"alice"),
                 amount: 100,
                 stake: 50,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_at(
-            &ViewCall::balance(hash(b"bob")),
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 0,
                 account: hash(b"bob"),
                 amount: 0,
                 stake: 0,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
@@ -1289,25 +1282,18 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_at(
-            &ViewCall::balance(hash(b"alice")),
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
                 amount: 100,
                 stake: 50,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_at(
-            &ViewCall::balance(hash(b"eve")),
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"eve"), apply_result.root);
         assert!(result2.is_err());
     }
 
@@ -1335,33 +1321,25 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_at(
-            &ViewCall::balance(hash(b"alice")),
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
                 amount: 90,
                 stake: 50,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_at(
-            &ViewCall::balance(hash(b"eve")),
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"eve"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 0,
                 account: hash(b"eve"),
                 amount: 10,
                 stake: 0,
-                result: vec![],
                 code_hash: hash(b""),
             }
         );
@@ -1391,33 +1369,25 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
-        let result1 = viewer.view_at(
-            &ViewCall::balance(hash(b"alice")),
-            apply_result.root,
-        );
+        let result1 = viewer.view_account_at(hash(b"alice"), apply_result.root);
         assert_eq!(
             result1.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 1,
                 account: hash(b"alice"),
                 amount: 100,
                 stake: 50,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_at(
-            &ViewCall::balance(hash(b"bob")),
-            apply_result.root,
-        );
+        let result2 = viewer.view_account_at(hash(b"bob"), apply_result.root);
         assert_eq!(
             result2.unwrap(),
-            ViewCallResult {
+            AccountViewCallResult {
                 nonce: 0,
                 account: hash(b"bob"),
                 amount: 0,
                 stake: 0,
-                result: vec![],
                 code_hash: default_code_hash(),
             }
         );
@@ -1537,7 +1507,7 @@ mod tests {
         } else {
             assert!(false);
         }
-        
+
     }
 
     #[test]
