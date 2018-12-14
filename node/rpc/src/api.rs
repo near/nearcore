@@ -4,6 +4,7 @@ use jsonrpc_core::types::{Error, ErrorCode, Value};
 
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
+use primitives::utils::bs58_vec2str;
 use primitives::types::{
     CreateAccountTransaction, DeployContractTransaction,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
@@ -112,28 +113,31 @@ impl RpcImpl {
 impl TransactionApi for RpcImpl {
     fn rpc_create_account(
         &self,
-        r: CreateAccountRequest
+        r: CreateAccountRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: r.nonce,
             sender: r.sender,
             new_account_id: r.new_account_id,
             amount: r.amount,
-            public_key: r.public_key.encode().unwrap()
+            public_key: r.public_key.encode().unwrap(),
         });
+        debug!(target: "near-rpc", "Create account transaction {:?}", r.new_account_id);
         Ok(PreparedTransactionBodyResponse { body })
     }
-    
+
     fn rpc_deploy_contract(
         &self,
         r: DeployContractRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
         let body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: r.nonce,
+            sender: r.sender_account_id,
             contract_id: r.contract_account_id,
             wasm_byte_array: r.wasm_byte_array,
-            public_key: r.public_key.encode().unwrap()
+            public_key: r.public_key.encode().unwrap(),
         });
+        debug!(target: "near-rpc", "Deploy contract transaction {:?}", r.contract_account_id);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -147,6 +151,7 @@ impl TransactionApi for RpcImpl {
             cur_key: r.current_key.encode().unwrap(),
             new_key: r.new_key.encode().unwrap(),
         });
+        debug!(target: "near-rpc", "Swap key transaction {:?}", r.account);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -160,6 +165,8 @@ impl TransactionApi for RpcImpl {
             receiver: r.receiver_account_id,
             amount: r.amount,
         });
+        debug!(target: "near-rpc", "Send money transaction {:?}->{:?}, amount: {:?}",
+               r.sender_account_id, r.receiver_account_id, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -172,6 +179,8 @@ impl TransactionApi for RpcImpl {
             staker: r.staker_account_id,
             amount: r.amount,
         });
+        debug!(target: "near-rpc", "Stake money transaction {:?}, amount: {:?}",
+               r.staker_account_id, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -179,17 +188,21 @@ impl TransactionApi for RpcImpl {
         &self,
         r: ScheduleFunctionCallRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        debug!(target: "near-rpc", "Schedule function call transaction {:?}.{:?}",
+               r.contract_account_id, r.method_name);
         let body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: r.nonce,
             originator: r.originator_account_id,
             contract_id: r.contract_account_id,
             method_name: r.method_name.into_bytes(),
             args: r.args,
+            amount: r.amount,
         });
         Ok(PreparedTransactionBodyResponse { body })
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
+        debug!(target: "near-rpc", "View account {:?}", r.account_id);
         match self.state_db_viewer.view_account(r.account_id) {
             Ok(r) => {
                 Ok(ViewAccountResponse {
@@ -199,7 +212,7 @@ impl TransactionApi for RpcImpl {
                     code_hash: r.code_hash,
                     nonce: r.nonce,
                 })
-            },
+            }
             Err(e) => {
                 let mut error = Error::new(ErrorCode::InvalidRequest);
                 error.data = Some(Value::String(e.to_string()));
@@ -212,6 +225,7 @@ impl TransactionApi for RpcImpl {
         &self,
         r: CallViewFunctionRequest,
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
+        debug!(target: "near-rpc", "Call view function {:?}{:?}", r.contract_account_id, r.method_name);
         match self.state_db_viewer.call_function(
             r.originator_id,
             r.contract_account_id,
@@ -226,7 +240,7 @@ impl TransactionApi for RpcImpl {
                     nonce: r.nonce,
                     result: r.result,
                 })
-            },
+            }
             Err(e) => {
                 let mut error = Error::new(ErrorCode::InvalidRequest);
                 error.data = Some(Value::String(e.to_string()));
@@ -236,15 +250,17 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
+        debug!(target: "near-rpc", "Received transaction {:?}", r);
         self.submit_txn_sender.clone().try_send(r).unwrap();
         Ok(())
     }
 
     fn rpc_view_state(&self, r: ViewStateRequest) -> JsonRpcResult<ViewStateResponse> {
+        debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
         let result = self.state_db_viewer.view_state(r.contract_account_id);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id,
-            values: result.values
+            values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect()
         };
         Ok(response)
     }

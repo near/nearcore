@@ -26,6 +26,8 @@ pub struct StakeRequest {
 pub struct DeployContractRequest {
     pub nonce: u64,
     #[serde(with = "bs58_format")]
+    pub sender_account_id: AccountId,
+    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
     #[serde(with = "bs58_pub_key_format")]
@@ -64,6 +66,7 @@ pub struct ScheduleFunctionCallRequest {
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
+    pub amount: Balance,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -119,5 +122,5 @@ pub struct ViewStateRequest {
 pub struct ViewStateResponse {
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
-    pub values: HashMap<Vec<u8>, Vec<u8>>,
+    pub values: HashMap<String, Vec<u8>>,
 }

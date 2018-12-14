@@ -61,6 +61,9 @@ Example:
 $ RUST_LOG=runtime=debug cargo run -- --log-level warn
 ```
 
+To add new target (e.g. `info!(target: "my target", "hello")`), 
+add the desired target to the list in `node/cli/src/service.rs` in `configure_logging` function.
+
 ### Simple Install for Mac and Linux
 
 Coming soon.
@@ -80,6 +83,8 @@ Then build and run DevNet:
 ```bash
 cargo run --release --package=devnet
 ```
+
+Use `-- --log-level debug` to see more information about RPC and transaction processing.
 
 Try submitting transactions or views via JSON RPC:
 
