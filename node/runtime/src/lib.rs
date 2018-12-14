@@ -547,7 +547,7 @@ impl Runtime {
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
-                sender_id,
+                receiver_id,
                 nonce,
             );
             let wasm_res = executor::execute(
@@ -601,7 +601,7 @@ impl Runtime {
         let receipts = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
-                sender_id,
+                receiver_id,
                 nonce,
             );
         
