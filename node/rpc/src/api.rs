@@ -121,6 +121,7 @@ impl TransactionApi for RpcImpl {
             amount: r.amount,
             public_key: r.public_key.encode().unwrap()
         });
+        debug!(target: "rpc", "Create account transaction {:?}", r.new_account_id);
         Ok(PreparedTransactionBodyResponse { body })
     }
     
@@ -135,6 +136,7 @@ impl TransactionApi for RpcImpl {
             wasm_byte_array: r.wasm_byte_array,
             public_key: r.public_key.encode().unwrap()
         });
+        debug!(target: "rpc", "Deploy contract transaction {:?}", r.contract_account_id);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -148,6 +150,7 @@ impl TransactionApi for RpcImpl {
             cur_key: r.current_key.encode().unwrap(),
             new_key: r.new_key.encode().unwrap(),
         });
+        debug!(target: "rpc", "Swap key transaction {:?}", r.account);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -161,6 +164,8 @@ impl TransactionApi for RpcImpl {
             receiver: r.receiver_account_id,
             amount: r.amount,
         });
+        debug!(target: "rpc", "[RPC] Send money transaction {:?}->{:?}, amount: {:?}",
+               r.sender_account_id, r.receiver_account_id, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -173,6 +178,8 @@ impl TransactionApi for RpcImpl {
             staker: r.staker_account_id,
             amount: r.amount,
         });
+        debug!(target: "rpc", "[RPC] Stake money transaction {:?}, amount: {:?}",
+               r.staker_account_id, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -180,6 +187,8 @@ impl TransactionApi for RpcImpl {
         &self,
         r: ScheduleFunctionCallRequest,
     ) -> JsonRpcResult<(PreparedTransactionBodyResponse)> {
+        debug!(target: "rpc", "[RPC] Schedule function call transaction {:?}.{:?}",
+               r.contract_account_id, r.method_name);
         let body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: r.nonce,
             originator: r.originator_account_id,
@@ -192,6 +201,7 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
+        debug!(target: "rpc", "View account {:?}", r.account_id);
         let call = ViewCall {
             account: r.account_id,
             method_name: String::new(),
@@ -220,6 +230,7 @@ impl TransactionApi for RpcImpl {
         &self,
         r: CallViewFunctionRequest,
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
+        debug!(target: "rpc", "Call view function {:?}{:?}", r.contract_account_id, r.method_name);
         let call = ViewCall {
             account: r.contract_account_id,
             method_name: r.method_name,
@@ -247,11 +258,13 @@ impl TransactionApi for RpcImpl {
     }
 
     fn rpc_submit_transaction(&self, r: SignedTransaction) -> JsonRpcResult<()> {
+        debug!(target: "rpc", "Received transaction {:?}", r);
         self.submit_txn_sender.clone().try_send(r).unwrap();
         Ok(())
     }
 
     fn rpc_view_state(&self, r: ViewStateRequest) -> JsonRpcResult<ViewStateResponse> {
+        debug!(target: "rpc", "View state {:?}", r.contract_account_id);
         let result = self.state_db_viewer.view_state(r.contract_account_id);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id,
