@@ -30,6 +30,9 @@ RUN --mount=type=cache,target=/tmp/target \
 
 FROM alpine:edge
 
+# Args must be defined for every stage
+ARG PACKAGE="devnet"
+
 RUN apk add --no-cache ca-certificates \
     libstdc++ \
     openssl-dev \
@@ -43,5 +46,6 @@ COPY --from=builder /usr/local/bin/$PACKAGE /usr/local/bin
 
 ENTRYPOINT ["/sbin/tini", "--"]
 
-RUN ln -s /usr/local/bin/$PACKAGE /docker_commando.sh
-CMD ["/docker_commando"]
+# This is required for supporting multiple packages
+RUN ln -s /usr/local/bin/$PACKAGE /docker_command
+CMD ["/docker_command"]
