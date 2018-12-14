@@ -120,5 +120,5 @@ pub struct ViewStateRequest {
 pub struct ViewStateResponse {
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
-    pub values: HashMap<Vec<u8>, Vec<u8>>,
+    pub values: HashMap<String, Vec<u8>>,
 }
