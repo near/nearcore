@@ -963,7 +963,7 @@ mod tests {
         TransactionBody,
     };
     use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
-    use state_viewer::{AccountViewCallResult, FunctionCallViewCallResult};
+    use state_viewer::AccountViewCallResult;
     use storage::test_utils::create_state_db;
     use test_utils::*;
     use super::*;
@@ -1003,13 +1003,7 @@ mod tests {
         );
         assert_eq!(
             result2.unwrap(),
-            FunctionCallViewCallResult {
-                contract: hash(b"alice"),
-                amount: 100,
-                nonce: 0,
-                result: vec![20, 0, 0, 0],
-                code_hash: default_code_hash(),
-            }
+            vec![20, 0, 0, 0],
         );
     }
 

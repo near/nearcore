@@ -98,13 +98,7 @@ pub struct CallViewFunctionRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionResponse {
-    #[serde(with = "bs58_format")]
-    pub contract: AccountId,
-    pub amount: Balance,
-    pub nonce: u64,
     pub result: Vec<u8>,
-    #[serde(with = "bs58_format")]
-    pub code_hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]

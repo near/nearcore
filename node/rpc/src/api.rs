@@ -232,14 +232,8 @@ impl TransactionApi for RpcImpl {
             &r.method_name,
             &r.args,
         ) {
-            Ok(r) => {
-                Ok(CallViewFunctionResponse {
-                    contract: r.contract,
-                    amount: r.amount,
-                    code_hash: r.code_hash,
-                    nonce: r.nonce,
-                    result: r.result,
-                })
+            Ok(result) => {
+                Ok(CallViewFunctionResponse { result })
             }
             Err(e) => {
                 let mut error = Error::new(ErrorCode::InvalidRequest);

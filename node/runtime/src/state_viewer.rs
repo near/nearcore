@@ -32,16 +32,6 @@ pub struct AccountViewCallResult {
     pub code_hash: CryptoHash,
 }
 
-/// Result of view function call.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FunctionCallViewCallResult {
-    pub contract: AccountId,
-    pub nonce: u64,
-    pub amount: Balance,
-    pub result: Vec<u8>,
-    pub code_hash: CryptoHash,
-}
-
 impl StateDbViewer {
     pub fn new(shard_chain: Arc<ShardBlockChain>, state_db: Arc<StateDb>) -> Self {
         StateDbViewer {
@@ -107,7 +97,7 @@ impl StateDbViewer {
         method_name: &str,
         args: &[u8],
         root: MerkleHash,
-    ) -> Result<FunctionCallViewCallResult, &str> {
+    ) -> Result<Vec<u8>, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         match get::<Account>(&mut state_update, &account_id_to_bytes(contract_id)) {
             Some(account) => {
@@ -139,20 +129,16 @@ impl StateDbViewer {
                         if let ReturnData::Value(buf) = res.return_data {
                             result.extend(&buf);
                         }
+                        Ok(result)
                     }
                     Err(e) => {
-                        debug!(target: "runtime", "wasm execution failed with error: {:?}", e);
+                        let message = format!("wasm execution failed with error: {:?}", e);
+                        debug!(target: "runtime", "{}", message);
+                        Err(message)
                     }
                 }
-                Ok(FunctionCallViewCallResult {
-                    contract: contract_id,
-                    amount: account.amount,
-                    nonce: account.nonce,
-                    result,
-                    code_hash: hash(&account.code),
-                })
             }
-            None => Err("contract does not exist")
+            None => Err("contract does not exist".to_string())
         }
     }
 
@@ -162,7 +148,7 @@ impl StateDbViewer {
         contract_id: AccountId,
         method_name: &str,
         args: &[u8],
-    ) -> Result<FunctionCallViewCallResult, &str> {
+    ) -> Result<Vec<u8>, String> {
         let root = self.get_root();
         self.call_function_at(
             originator_id,
@@ -190,7 +176,7 @@ mod tests {
             "run_test",
             &vec![]
         );
-        assert_eq!(view_call_result.unwrap().result, encode_int(20).to_vec());
+        assert_eq!(view_call_result.unwrap(), encode_int(20).to_vec());
     }
 
     #[test]
@@ -205,7 +191,7 @@ mod tests {
             "sum_with_input",
             &args,
         );
-        assert_eq!(view_call_result.unwrap().result, encode_int(3).to_vec());
+        assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
     }
 
     #[test]
