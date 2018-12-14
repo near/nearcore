@@ -118,17 +118,16 @@ impl BlockImporter {
         self.beacon_chain.insert_block(beacon_block);
     }
 
-    fn blocks_to_process(&self, pending_beacon_blocks: &HashMap<CryptoHash, SignedBeaconBlock>) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
+    fn blocks_to_process(&mut self) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
         let mut part_add = vec![];
         let mut part_pending = HashMap::default();
-        // TODO: do this with drains and whatnot. For now, that doesn't work because self is both mutable and immutable.
-        for (hash, other) in pending_beacon_blocks.iter() {
+        for (hash, other) in self.pending_beacon_blocks.drain() {
             if self.beacon_chain.is_known(&other.body.header.parent_hash) && (
                 self.shard_chain.is_known(&other.body.header.shard_block_hash) ||
                     self.pending_shard_blocks.contains_key(&other.body.header.shard_block_hash)) {
-                part_add.push(other.clone());
+                part_add.push(other);
             } else {
-                part_pending.insert(hash.clone(), other.clone());
+                part_pending.insert(hash, other);
             }
         }
         (part_add, part_pending)
@@ -151,7 +150,7 @@ impl BlockImporter {
         loop {
             // Only keep those blocks in `pending_blocks` that are still pending.
             // Otherwise put it in `blocks_to_add`.
-            let (part_add, part_pending) = self.blocks_to_process(&self.pending_beacon_blocks);
+            let (part_add, part_pending) = self.blocks_to_process();
             blocks_to_add.extend(part_add);
             self.pending_beacon_blocks = part_pending;
 
