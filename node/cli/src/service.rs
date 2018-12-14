@@ -101,7 +101,7 @@ fn spawn_network_tasks(
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets = vec!["network", "producer", "runtime", "service", "rpc"];
+    let internal_targets = vec!["network", "producer", "runtime", "service", "near-rpc"];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
