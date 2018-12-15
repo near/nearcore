@@ -10,7 +10,7 @@ use tokio::timer::Delay;
 use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
-use dag::{DAG, ViolationType, MisbehaviorReporter, DAGMisbehaviorReporter};
+use dag::{DAG, ViolationType, DAGMisbehaviorReporter};
 
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
 static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
@@ -112,6 +112,9 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 
     /// Report detected violation by spawining a separate task.
     fn report_violation(&self, violation: ViolationType) {
+        // TODO: Log violation
+        // println!("--violation--> {:?}", violation);
+
         let copied_tx = self.slashing_sender.clone();
         tokio::spawn(copied_tx.send(violation).map(|_| ()).map_err(|e|{
             error!("Failure reporting violation: {:?}", e);
@@ -127,9 +130,10 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             panic!("Attempted to add invalid message to the DAG {}", e)
         }
 
-        // Check new misbehaviors and report them inmediately
-        // TODO: Report misbehaviors here
-        // let x = self.dag_as_ref().misbehavior.borrow();
+        // Check new misbehaviors, report and log them asap.
+        while let Some(violation) = self.dag_as_mut().get_misbehavior() {
+            self.report_violation(violation);
+        }
 
         // Get messages that were blocked by this one.
         // Also start removing it from the collections `pending_messages` and `unknown_hashes` that
@@ -388,11 +392,15 @@ mod tests {
     use super::TxFlowTask;
     use std::collections::HashSet;
     use futures::future::*;
-    use futures::Stream;
+    use futures::{Stream, Sink};
     use futures::sync::mpsc;
 
-    use primitives::types::UID;
-    use primitives::traits::WitnessSelector;
+    use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, MessageDataBody};
+    use primitives::traits::{WitnessSelector, Payload};
+    use primitives::signature::DEFAULT_SIGNATURE;
+
+    use dag::{ViolationType};
+
     use testing_utils::FakePayload;
 
     struct FakeWitnessSelector {
@@ -427,6 +435,69 @@ mod tests {
         }
     }
 
+    /// TODO: Populate properly gossips to create complex tests
+    fn create_gossip(owner_uid: UID) -> Gossip<FakePayload>{
+        let fake_signature = DEFAULT_SIGNATURE;
+        let fake_hash = 0;
+
+        Gossip {
+            sender_uid: 1,
+            receiver_uid: owner_uid,
+            sender_sig: fake_signature,
+            body: GossipBody::Unsolicited(
+                SignedMessageData {
+                    owner_sig : fake_signature,
+                    hash: fake_hash,
+                    body: MessageDataBody {
+                        owner_uid: 0,
+                        parents: HashSet::new(),
+                        epoch: 0,
+                        payload: FakePayload::new(),
+                        endorsements: vec![]
+                    }
+                }
+            )
+        }
+    }
+
+    /// TODO: Design tests in a way such that a single implementation of mininetwork is required
+    /// but different (simple) situations might be tested using callbacks
+    // fn run_mini_network(gossips: Vec<Gossip<FakePayload>>) {
+    //     // Run single txflow instance and send single message.
+    //     // Useful to debug simple txflow functionalities.
+    //     tokio::run(lazy(|| {
+    //         let owner_uid = 0;
+    //         let starting_epoch = 0;
+    //         let sample_size = 2;
+    //         let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
+    //         let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
+    //         let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+    //         let (slashing_tx, slashing_rx) = mpsc::channel(1_024);
+    //         let selector = FakeWitnessSelector::new();
+
+    //         for gossip in gossips {
+    //             tokio::spawn(
+    //                 inc_gossip_tx.clone().send(gossip)
+    //                 .map(|_| ())
+    //                 .map_err(|e| { error!("Failure in the sub-task {:?}", e);})
+    //             );
+    //         }
+
+    //         let task = TxFlowTask::<FakePayload, _>::new(
+    //             owner_uid, starting_epoch, sample_size, inc_gossip_rx,
+    //             inc_payload_rx, out_gossip_tx, slashing_tx, selector);
+
+    //         let fut = slashing_rx.map(|x|{
+    //             println!("Boom {:?}", x);
+    //         });
+
+    //         tokio::spawn(task.for_each(|_| Ok(())));
+    //         tokio::spawn(fut.for_each(|_| Ok(())));
+
+    //         Ok(())
+    //     }));
+    // }
+
     #[test]
     fn empty_start_stop_async() {
         // Start TxFlowTask, but do not feed anything.
@@ -445,6 +516,78 @@ mod tests {
                 owner_uid, starting_epoch, sample_size, inc_gossip_rx,
                 inc_payload_rx, out_gossip_tx, slashing_tx, selector);
             tokio::spawn(task.for_each(|_| Ok(())));
+            Ok(())
+        }));
+    }
+
+    #[test]
+    fn send_single_message() {
+        let gossips = vec![create_gossip(0)];
+
+        tokio::run(lazy(|| {
+            let owner_uid = 0;
+            let starting_epoch = 0;
+            let sample_size = 2;
+            let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
+            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
+            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+            let (slashing_tx, _slashing_rx) = mpsc::channel(1_024);
+            let selector = FakeWitnessSelector::new();
+
+            for gossip in gossips {
+                tokio::spawn(
+                    inc_gossip_tx.clone().send(gossip)
+                    .map(|_| ())
+                    .map_err(|e| { error!("Failure in the sub-task {:?}", e);})
+                );
+            }
+
+            let task = TxFlowTask::<FakePayload, _>::new(
+                owner_uid, starting_epoch, sample_size, inc_gossip_rx,
+                inc_payload_rx, out_gossip_tx, slashing_tx, selector);
+
+            tokio::spawn(task.for_each(|_| Ok(())));
+
+            Ok(())
+        }));
+    }
+
+    #[test]
+    fn create_fork() {
+        let gossips = vec![create_gossip(0), create_gossip(0)];
+
+        tokio::run(lazy(|| {
+            let owner_uid = 0;
+            let starting_epoch = 0;
+            let sample_size = 2;
+            let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
+            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
+            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
+            let (slashing_tx, slashing_rx) = mpsc::channel(1_024);
+            let selector = FakeWitnessSelector::new();
+
+            for gossip in gossips {
+                tokio::spawn(
+                    inc_gossip_tx.clone().send(gossip)
+                    .map(|_| ())
+                    .map_err(|e| { error!("Failure in the sub-task {:?}", e);})
+                );
+            }
+
+            let task = TxFlowTask::<FakePayload, _>::new(
+                owner_uid, starting_epoch, sample_size, inc_gossip_rx,
+                inc_payload_rx, out_gossip_tx, slashing_tx, selector);
+
+            let fut = slashing_rx.map(|x|{
+                match x {
+                    ViolationType::ForkAttempt(_, _) => {},
+                    _ => assert!(false)
+                };
+            });
+
+            tokio::spawn(task.for_each(|_| Ok(())));
+            tokio::spawn(fut.for_each(|_| Ok(())));
+
             Ok(())
         }));
     }

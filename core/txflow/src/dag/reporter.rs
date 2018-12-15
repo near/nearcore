@@ -5,9 +5,14 @@ use primitives::types::*;
 /// but any kind of violation as enumerated in ViolationType
 pub trait MisbehaviorReporter {
     fn new() -> Self;
+
     fn report(&mut self, violation: ViolationType);
+
+    /// Returns one violation stored or None if its empty
+    fn next(&mut self) -> Option<ViolationType>;
 }
 
+#[derive(Debug)]
 pub struct DAGMisbehaviorReporter {
     pub violations: Vec<ViolationType>,
 }
@@ -20,6 +25,11 @@ impl MisbehaviorReporter for DAGMisbehaviorReporter{
     /// Take ownership of the violation
     fn report(&mut self, violation: ViolationType) {
         self.violations.push(violation);
+    }
+
+    /// Violations vector behave like a LIFO
+    fn next(&mut self) -> Option<ViolationType> {
+        self.violations.pop()
     }
 }
 
@@ -34,6 +44,10 @@ impl MisbehaviorReporter for NoopMisbehaviorReporter{
     }
 
     fn report(&mut self, _violation: ViolationType) {
+    }
+
+    fn next(&mut self) -> Option<ViolationType> {
+        None
     }
 }
 

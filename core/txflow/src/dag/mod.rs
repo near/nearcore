@@ -86,6 +86,11 @@ impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> 
        self.messages.get(&hash).map(|m| m.data.clone())
     }
 
+    /// Consume detected misbehaviors. Notice they are erased once retreived.
+    pub fn get_misbehavior(&mut self) -> Option<ViolationType> {
+        self.misbehavior.borrow_mut().next()
+    }
+
     /// Check if a message form a fork with at least one message from the point of view of the DAG.
     /// Notice in case there is a multi-fork at least first fork is reported.
     /// IMPORTANT: The way is currently implemented don't log all forks. 
