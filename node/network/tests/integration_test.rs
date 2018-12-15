@@ -1,0 +1,121 @@
+extern crate primitives;
+extern crate network;
+extern crate chain;
+extern crate beacon;
+extern crate storage;
+extern crate substrate_network_libp2p;
+
+extern crate futures;
+extern crate parking_lot;
+extern crate tokio;
+
+use std::sync::Arc;
+use futures::sync::mpsc::{channel, Receiver, Sender};
+use futures::{future, Stream, Future};
+use std::thread;
+use std::time::Duration;
+use parking_lot::Mutex;
+use substrate_network_libp2p::NodeIndex;
+use primitives::hash::CryptoHash;
+use primitives::types::BeaconChainPayload;
+use network::protocol::{Protocol, ProtocolConfig};
+use network::service::{new_network_service, spawn_network_tasks};
+use network::message::Message;
+use network::test_utils::{
+    test_config, test_config_with_secret, create_secret, raw_key_to_peer_id_str,
+};
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
+use storage::test_utils::create_memory_db;
+
+fn spawn_simple_block_import_task(
+    beacon_chain: Arc<BeaconBlockChain>,
+    receiver: Receiver<SignedBeaconBlock>
+) {
+    let task = receiver.fold(beacon_chain, |chain, block| {
+        chain.insert_block(block);
+        future::ok(chain)
+    }).and_then(|_| Ok(()));
+    tokio::spawn(task);
+}
+
+fn get_test_protocol(
+    chain: Arc<BeaconBlockChain>,
+    block_tx: Sender<SignedBeaconBlock>,
+    message_tx: Sender<(NodeIndex, Message<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload>)>
+) -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload> {
+    let (transaction_tx, _) = channel(1024);
+    let (receipt_tx, _) = channel(1024);
+    Protocol::new(
+        ProtocolConfig::default(),
+        chain,
+        block_tx,
+        transaction_tx,
+        receipt_tx,
+        message_tx,
+    )
+}
+
+#[test]
+fn test_block_catch_up_without_network() {
+    let storage1 = Arc::new(create_memory_db());
+    let genesis_block = SignedBeaconBlock::new(
+        0, CryptoHash::default(), vec![], CryptoHash::default()
+    );
+    // chain1
+    let beacon_chain1 = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage1.clone()));
+    let block1 = SignedBeaconBlock::new(1, genesis_block.hash, vec![], CryptoHash::default());
+    let block2 = SignedBeaconBlock::new(2, block1.hash, vec![], CryptoHash::default());
+    beacon_chain1.insert_block(block1.clone());
+    beacon_chain1.insert_block(block2.clone());
+    assert_eq!(beacon_chain1.best_index(), 2);
+    let (block_tx1, _) = channel(1024);
+    let (message_tx1, message_rx1) = channel(1024);
+    let protocol1 = get_test_protocol(
+        beacon_chain1.clone(),
+        block_tx1,
+        message_tx1
+    );
+    let addr = "/ip4/127.0.0.1/tcp/30000";
+    let secret = create_secret();
+    let config1 = test_config_with_secret(addr, vec![], secret);
+    let network_service1 = Arc::new(Mutex::new(
+        new_network_service(&ProtocolConfig::default(), config1)
+    ));
+
+    //chain2
+    let storage2 = Arc::new(create_memory_db());
+    let beacon_chain2 = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage2.clone()));
+    assert_eq!(beacon_chain2.best_index(), 0);
+    let (block_tx2, block_rx2) = channel(1024);
+    let (message_tx2, message_rx2) = channel(1024);
+    let protocol2 = get_test_protocol(
+        beacon_chain2.clone(),
+        block_tx2,
+        message_tx2
+    );
+    let boot_node = "/ip4/127.0.0.1/tcp/30000/p2p/".to_string() + &raw_key_to_peer_id_str(secret);
+    let config2 = test_config("/ip4/127.0.0.1/tcp/30001", vec![boot_node]);
+    let network_service2 = Arc::new(Mutex::new(
+        new_network_service(&ProtocolConfig::default(), config2)
+    ));
+
+    // chain2 should catch up with chain1
+    let task = futures::lazy({
+        let chain = beacon_chain2.clone();
+        move || {
+        spawn_network_tasks(network_service1, protocol1, message_rx1);
+        spawn_network_tasks(network_service2, protocol2, message_rx2);
+        spawn_simple_block_import_task(chain, block_rx2);
+        Ok(())
+    }});
+    let handle = thread::spawn(move || {
+        tokio::run(task);
+    });
+    while beacon_chain2.best_index() < 2 {
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    // This is very hacky, but I cannot find a proper way
+    // to stop the tokio event loop.
+    std::mem::drop(handle);
+}
