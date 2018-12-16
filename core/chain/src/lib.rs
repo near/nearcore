@@ -150,10 +150,12 @@ impl<B: SignedBlock> BlockChain<B> {
         self.best_block.read().clone()
     }
 
+    #[inline]
     pub fn best_index(&self) -> u64 {
         self.best_block().header().index()
     }
 
+    #[inline]
     pub fn best_hash(&self) -> CryptoHash {
         self.best_block().block_hash()
     }

@@ -31,13 +31,13 @@ pub struct Status {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct BlockRequest {
-    // request id
+    /// request id
     pub id: RequestId,
-    // starting from this id
+    /// starting from this id
     pub from: BlockId,
-    // ending at this id,
+    /// ending at this id,
     pub to: Option<BlockId>,
-    // max number of blocks requested
+    /// max number of blocks requested
     pub max: Option<u64>,
 }
 

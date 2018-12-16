@@ -327,23 +327,15 @@ mod tests {
     use super::*;
     use primitives::traits::Encode;
     use primitives::types::{SignedTransaction, BeaconChainPayload};
-    use test_utils::*;
-
-    impl<B: SignedBlock, H: BlockHeader> Protocol<B, H, BeaconChainPayload> {
-        fn _on_message(&self, data: &[u8]) -> Message<B, H, BeaconChainPayload> {
-            match Decode::decode(data) {
-                Some(m) => m,
-                _ => panic!("cannot decode message: {:?}", data),
-            }
-        }
-    }
+    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 
     #[test]
     fn test_serialization() {
         let tx = SignedTransaction::empty();
-        let message = Message::Transaction(Box::new(tx));
-        let protocol = get_test_protocol();
-        let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
+        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload> = 
+            Message::Transaction(Box::new(tx));
+        let encoded = Encode::encode(&message).unwrap();
+        let decoded = Decode::decode(&encoded).unwrap();
         assert_eq!(message, decoded);
     }
 }

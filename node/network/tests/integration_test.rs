@@ -116,8 +116,7 @@ fn test_block_catch_up_from_start() {
         thread::sleep(Duration::from_millis(100));
     }
 
-    // This is very hacky, but I cannot find a proper way
-    // to stop the tokio event loop.
+    // This is hacky
     std::mem::drop(handle);
 }
 
