@@ -11,9 +11,10 @@ extern crate tokio;
 
 use std::sync::Arc;
 use futures::sync::mpsc::{channel, Receiver, Sender};
-use futures::{future, Stream, Future};
+use futures::{future, Stream, Future, stream};
+use tokio::timer::Delay;
 use std::thread;
-use std::time::Duration;
+use std::time::{self, Duration};
 use parking_lot::Mutex;
 use substrate_network_libp2p::NodeIndex;
 use primitives::hash::CryptoHash;
@@ -56,7 +57,7 @@ fn get_test_protocol(
 }
 
 #[test]
-fn test_block_catch_up_without_network() {
+fn test_block_catch_up_from_start() {
     let storage1 = Arc::new(create_memory_db());
     let genesis_block = SignedBeaconBlock::new(
         0, CryptoHash::default(), vec![], CryptoHash::default()
@@ -117,5 +118,103 @@ fn test_block_catch_up_without_network() {
 
     // This is very hacky, but I cannot find a proper way
     // to stop the tokio event loop.
+    std::mem::drop(handle);
+}
+
+// this test is expensive to run. should be ignored when running
+// all tests
+#[test]
+#[ignore]
+fn test_block_catchup_from_network_interruption() {
+    let storage1 = Arc::new(create_memory_db());
+    let genesis_block = SignedBeaconBlock::new(
+        0, CryptoHash::default(), vec![], CryptoHash::default()
+    );
+    // chain1
+    let beacon_chain1 = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage1.clone()));
+    let (block_tx1, _) = channel(1024);
+    let (message_tx1, message_rx1) = channel(1024);
+    let protocol1 = get_test_protocol(
+        beacon_chain1.clone(),
+        block_tx1,
+        message_tx1
+    );
+    let addr = "/ip4/127.0.0.1/tcp/30000";
+    let secret = create_secret();
+    let config1 = test_config_with_secret(addr, vec![], secret);
+    let network_service1 = Arc::new(Mutex::new(
+        new_network_service(&ProtocolConfig::default(), config1)
+    ));
+
+    //chain2
+    let storage2 = Arc::new(create_memory_db());
+    let beacon_chain2 = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage2.clone()));
+    let (block_tx2, block_rx2) = channel(1024);
+    let (message_tx2, message_rx2) = channel(1024);
+    let protocol2 = get_test_protocol(
+        beacon_chain2.clone(),
+        block_tx2,
+        message_tx2
+    );
+    let boot_node = "/ip4/127.0.0.1/tcp/30000/p2p/".to_string() + &raw_key_to_peer_id_str(secret);
+    let config2 = test_config("/ip4/127.0.0.1/tcp/30001", vec![boot_node]);
+    let network_service2 = Arc::new(Mutex::new(
+        new_network_service(&ProtocolConfig::default(), config2)
+    ));
+
+    // first both protocol produces some blocks, then protocol2 drops out of the network
+    // and then comes back
+    let network_service = network_service2.clone();
+    let block_task = Delay::new(time::Instant::now() + Duration::from_secs(1))
+        .map_err(|_| ())
+        .and_then({
+            let chain1 = beacon_chain1.clone();
+            let chain2 = beacon_chain2.clone();
+            move |_| {
+            stream::iter_ok::<_, ()>(1..3).for_each(move |_| {
+                let prev_hash = chain1.best_hash();
+                let prev_index = chain1.best_index();
+                let new_block = SignedBeaconBlock::new(
+                    prev_index + 1, prev_hash, vec![], CryptoHash::default()
+                );
+                chain1.insert_block(new_block.clone());
+                chain2.insert_block(new_block.clone());
+                Ok(())
+        }).and_then(move |_| {
+            // protocol2 leaves network
+            for i in 0..2 {
+                network_service.lock().drop_node(i);
+            }
+            Delay::new(time::Instant::now() + Duration::from_millis(500)).map_err(|_| ())
+        }).and_then({
+            let chain = beacon_chain1.clone();
+            move |_| {
+            // protocol1 produces a block
+            let hash = chain.best_hash();
+            let index = chain.best_index() + 1;
+            let new_block = SignedBeaconBlock::new(
+                index, hash, vec![], CryptoHash::default()
+            );
+            chain.insert_block(new_block);
+            Delay::new(time::Instant::now() + Duration::from_millis(500)).map_err(|_| ())
+        }})
+    }});
+
+    let task = futures::lazy({
+        let chain = beacon_chain2.clone();
+        move || {
+        spawn_network_tasks(network_service1, protocol1, message_rx1);
+        spawn_network_tasks(network_service2.clone(), protocol2, message_rx2);
+        spawn_simple_block_import_task(chain, block_rx2);
+        block_task
+    }}).map(|_| ()).map_err(|_| ());
+
+    let handle = thread::spawn(move || {
+        tokio::run(task);
+    });
+
+    while beacon_chain2.best_index() < 3 {
+        thread::sleep(Duration::from_secs(1));
+    }
     std::mem::drop(handle);
 }
