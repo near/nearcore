@@ -137,6 +137,3 @@ We currently use [clippy](https://github.com/rust-lang-nursery/rust-clippy) to e
 This check is run automatically during CI builds, and in a `pre-commit`
 hook. You can run do a clippy check with `./scripts/run_clippy.sh`.
 
-## Documentation
-
-Check out documentation at [http://docs.rs/nearcore](http://docs.rs/nearcore)
