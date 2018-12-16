@@ -540,7 +540,7 @@ impl Runtime {
         async_call: &AsyncCall,
         sender_id: AccountId,
         receiver_id: AccountId,
-        nonce: Vec<u8>,
+        nonce: &[u8],
         receiver: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.get_stake_for_account(receiver_id);
@@ -593,7 +593,7 @@ impl Runtime {
         callback_res: &CallbackResult,
         sender_id: AccountId,
         receiver_id: AccountId,
-        nonce: Vec<u8>,
+        nonce: &[u8],
         receiver: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.get_stake_for_account(receiver_id);
@@ -728,7 +728,7 @@ impl Runtime {
                                 &async_call,
                                 receipt.sender,
                                 receipt.receiver,
-                                receipt.nonce.clone(),
+                                &receipt.nonce,
                                 &mut receiver,
                             )
                         }
@@ -741,7 +741,7 @@ impl Runtime {
                             &callback_res,
                             receipt.sender,
                             receipt.receiver,
-                            receipt.nonce.clone(),
+                            &receipt.nonce,
                             &mut receiver,
                         )
                     }
