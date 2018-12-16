@@ -76,7 +76,6 @@ impl BlockImporter {
     fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
-        let num_transactions = shard_block.body.transactions.len();
         // we can unwrap because parent is guaranteed to exist
         let prev_header = self.beacon_chain
             .get_header(&BlockId::Hash(parent_hash))
@@ -91,31 +90,34 @@ impl BlockImporter {
             parent_block_hash: parent_hash,
             shard_id: shard_block.body.header.shard_id,
         };
-        let mut apply_result = self.runtime.write().apply(
+        let apply_result = self.runtime.write().check(
             &apply_state,
             &prev_shard_block.body.new_receipts,
-            shard_block.body.transactions.clone()
+            &shard_block.body.transactions
         );
-        if apply_result.root != prev_shard_header.body.merkle_root_state {
-            info!(
-                "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
-                prev_shard_header.body.merkle_root_state,
-                apply_result.root,
-                beacon_block
-            );
-            return;
+        match apply_result {
+            Some((mut transaction, root)) => {
+                if root != prev_shard_header.body.merkle_root_state {
+                    info!(
+                        "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
+                        prev_shard_header.body.merkle_root_state,
+                        root,
+                        beacon_block
+                    );
+                    return;
+                }
+                self.state_db.commit(&mut transaction).ok();
+                self.shard_chain.insert_block(shard_block);
+                self.beacon_chain.insert_block(beacon_block);
+            }
+            None => {
+                info!(
+                    "Imported block has transactions that were filtered out while merkle roots match in {:?}",
+                    beacon_block
+                );
+                return;
+            }
         }
-        if apply_result.filtered_transactions.len() != num_transactions {
-            info!(
-                "Imported block has transactions that were filtered out while merkle roots match in {:?}",
-                beacon_block
-            );
-            return;
-        }
-        self.state_db.commit(&mut apply_result.transaction).ok();
-        // TODO: figure out where to store apply_result.authority_change_set.
-        self.shard_chain.insert_block(shard_block);
-        self.beacon_chain.insert_block(beacon_block);
     }
 
     fn blocks_to_process(&mut self) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {

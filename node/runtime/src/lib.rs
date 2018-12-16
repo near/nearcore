@@ -870,6 +870,35 @@ impl Runtime {
         }
     }
 
+    /// check whether transactions in a block are valid and return the new root
+    /// if they are
+    pub fn check(
+        &mut self,
+        apply_state: &ApplyState,
+        prev_receipts: &[Transaction],
+        transactions: &[Transaction],
+    ) -> Option<(storage::TrieBackendTransaction, MerkleHash)> {
+        let mut new_receipts = vec![];
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
+        let mut authority_proposals = vec![];
+        let shard_id = apply_state.shard_id;
+        for tx in prev_receipts.iter().chain(transactions) {
+            let filter_res = Self::filter_transaction(
+                self,
+                &mut state_update,
+                shard_id,
+                tx,
+                &mut new_receipts,
+                &mut authority_proposals
+            );
+            if !filter_res {
+                return None;
+            }
+        }
+        let (transaction, new_root) = state_update.finalize();
+        Some((transaction, new_root))
+    }
+
     /// apply receipts from previous block and transactions and receipts from this block
     pub fn apply(
         &mut self,
