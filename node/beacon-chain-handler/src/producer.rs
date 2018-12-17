@@ -14,6 +14,8 @@ use primitives::types::BlockId;
 use primitives::types::{ConsensusBlockBody, ChainPayload};
 use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
+use std::io;
+use std::io::prelude::*;
 
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
@@ -112,6 +114,7 @@ impl BlockProducer {
             self.beacon_chain.insert_block(block.clone());
             info!(target: "block_producer", "Block body: {:?}", block.body);
             info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
+            io::stdout().flush().expect("Could not flush stdout");
             if shard_block.body.new_receipts.is_empty() {
                 break;
             }
