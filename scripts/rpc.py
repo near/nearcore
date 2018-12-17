@@ -15,6 +15,11 @@ except ImportError:
     from urllib.request import urlopen, Request
     from urllib.error import HTTPError, URLError
 
+try:
+    import bson
+except ImportError:
+    print("Please install bson: pip install bson")
+    exit(1)
 
 def _post(url, data):
     request = Request(url, data=json.dumps(data).encode('utf-8'))
@@ -59,6 +64,11 @@ def b58encode(v):
 def _get_account_id(account_alias):
     digest = hashlib.sha256(account_alias.encode('utf-8')).digest()
     return b58encode(digest).decode('utf-8')
+
+
+def _json_to_bson_bytes(args):
+    args = json.loads(args)
+    return list(bytearray(bson.dumps(args)))
 
 
 class NearRPC(object):
@@ -221,7 +231,8 @@ class NearRPC(object):
         args=None,
     ):
         if args is None:
-            args = []
+            args = "{}"
+        args = _json_to_bson_bytes(args)
 
         nonce = self._get_nonce(sender)
         params = {
@@ -293,7 +304,8 @@ class NearRPC(object):
         args=None,
     ):
         if args is None:
-            args = []
+            args = "{}"
+        args = _json_to_bson_bytes(args)
 
         params = {
             'originator_id': _get_account_id(originator),
@@ -484,6 +496,7 @@ swap_key                 {}
         self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
+        parser.add_argument('args', type=str, default="{}")
         parser.add_argument(
             '-a',
             '--amount',
@@ -491,7 +504,6 @@ swap_key                 {}
             default=0,
             help='amount of money being sent with the function call',
         )
-        parser.add_argument('--args', nargs='+', type=int, default=None)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.schedule_function_call(
@@ -508,7 +520,7 @@ swap_key                 {}
         self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
-        parser.add_argument('--args', nargs='+', type=int, default=None)
+        parser.add_argument('args', type=str, default="{}")
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.call_view_function(
