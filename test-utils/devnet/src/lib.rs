@@ -1,6 +1,8 @@
 extern crate node_cli;
+extern crate consensus;
 
 pub use node_cli::service::ServiceConfig;
+use consensus::passthrough;
 
 pub fn start_devnet(service_config: Option<ServiceConfig>) {
     let service_config = service_config.unwrap_or_else(|| {
@@ -8,6 +10,6 @@ pub fn start_devnet(service_config: Option<ServiceConfig>) {
     });
     node_cli::service::start_service(
         service_config,
-        node_cli::test_utils::spawn_pasthrough_consensus,
+        passthrough::spawn_consensus,
     );
 }

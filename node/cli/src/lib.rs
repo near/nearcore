@@ -25,10 +25,10 @@ extern crate txflow;
 use clap::{App, Arg};
 use std::path::PathBuf;
 use std::str::FromStr;
+use consensus::passthrough;
 
 pub mod chain_spec;
 pub mod service;
-pub mod test_utils;
 
 pub fn get_service_config() -> service::ServiceConfig {
     let default_p2p_port = service::DEFAULT_P2P_PORT.to_string();
@@ -149,6 +149,6 @@ pub fn run() {
     let config = get_service_config();
     service::start_service(
         config,
-        test_utils::spawn_pasthrough_consensus,
+        passthrough::spawn_consensus,
     );
 }
