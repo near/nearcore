@@ -354,11 +354,11 @@ pub struct Endorsement {
 }
 
 #[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct BeaconChainPayload {
-    pub body: Vec<SignedTransaction>,
+pub struct ChainPayload {
+    pub body: Vec<Transaction>,
 }
 
-impl Payload for BeaconChainPayload {
+impl Payload for ChainPayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
