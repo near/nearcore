@@ -22,6 +22,7 @@ libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "d961e656a74d1ba
 substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
 primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
+storage = { path = "../../core/storage", features=["test-utils"] }
 
 [features]
 test-utils = []

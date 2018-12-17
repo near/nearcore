@@ -67,7 +67,7 @@ pub fn spawn_network_tasks<B, Header, P>(
         let network_service1 = network_service.clone();
         let protocol1 = protocol.clone();
         move |event| {
-            debug!(target: "network", "event: {:?}", event);
+            // debug!(target: "network", "event: {:?}", event);
             match event {
                 ServiceEvent::CustomMessage { node_index, data, .. } => {
                     if let Err((node_index, severity))
@@ -145,40 +145,3 @@ pub fn get_test_secret_from_node_index(test_node_index: u32) -> Secret {
     array
 }
 
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use std::time::Instant;
-//    use test_utils::*;
-//    use tokio::timer::Delay;
-//
-//    #[test]
-//    fn test_send_message() {
-//        let services = create_test_services(2);
-//        let mut runtime = tokio::runtime::current_thread::Runtime::new().unwrap();
-//        for service in services.iter() {
-//            let task = generate_service_task::<MockBlock, MockProtocolHandler, MockBlockHeader>(
-//                &service.network,
-//                &service.protocol,
-//            );
-//            runtime.spawn(task);
-//        }
-//
-//        let when = Instant::now() + Duration::from_millis(1000);
-//        let send_messages =
-//            Delay::new(when).map_err(|e| panic!("timer failed; err={:?}", e)).and_then(move |_| {
-//                for service in services.iter() {
-//                    for peer in service.protocol.sample_peers(1).unwrap() {
-//                        let message = fake_tx_message();
-//                        let mut net_sync = NetSyncIo::new(
-//                            service.network.clone(),
-//                            service.protocol.config.protocol_id,
-//                        );
-//                        service.protocol.send_message(&mut net_sync, peer, &message);
-//                    }
-//                }
-//                Ok(())
-//            });
-//        runtime.block_on(send_messages).unwrap();
-//    }
-//}

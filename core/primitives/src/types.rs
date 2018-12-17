@@ -59,7 +59,7 @@ impl<'a> From<&'a ReadablePublicKey> for PublicKey {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
 pub enum BlockId {
     Number(u64),
     Hash(CryptoHash),

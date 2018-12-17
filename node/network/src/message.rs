@@ -5,8 +5,6 @@ pub type RequestId = u64;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum Message<B, H, P> {
-    //TODO: add different types of messages here
-
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
     Transaction(Box<SignedTransaction>),
@@ -31,15 +29,15 @@ pub struct Status {
     pub genesis_hash: CryptoHash,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct BlockRequest {
-    // request id
+    /// request id
     pub id: RequestId,
-    // starting from this id
+    /// starting from this id
     pub from: BlockId,
-    // ending at this id,
+    /// ending at this id,
     pub to: Option<BlockId>,
-    // max number of blocks requested
+    /// max number of blocks requested
     pub max: Option<u64>,
 }
 
