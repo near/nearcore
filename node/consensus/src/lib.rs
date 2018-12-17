@@ -9,4 +9,7 @@ extern crate tokio;
 extern crate futures;
 extern crate typed_arena;
 extern crate primitives;
+extern crate network;
+extern crate beacon;
+extern crate substrate_network_libp2p;
 pub mod adapters;

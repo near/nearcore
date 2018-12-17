@@ -1,16 +1,21 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use primitives::types::{ChainPayload, Transaction, ReceiptTransaction};
+use primitives::types::{ChainPayload, Gossip};
+use beacon::types::{SignedBeaconBlockHeader, SignedBeaconBlock};
+use network::message::Message;
+use substrate_network_libp2p::NodeIndex;
 
-pub fn spawn_task(receiver: Receiver<ReceiptTransaction>, sender: Sender<ChainPayload>) {
+pub fn spawn_task(
+    receiver: Receiver<Gossip<ChainPayload>>,
+    sender: Sender<(NodeIndex, Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload>)>) {
     let task = receiver
-        .map(|t| ChainPayload { body: vec![Transaction::Receipt(t)] })
+        .map(|g| (g.receiver_uid as NodeIndex, Message::Gossip(g)))
         .forward(
-            sender.sink_map_err(|err| error!("Error sending payload down the sink: {:?}", err)),
+            sender.sink_map_err(|err| error!("Error sending gossip down the sink: {:?}", err)),
         )
         .map(|_| ())
-        .map_err(|err| error!("Error while converting receipt transaction to payload: {:?}", err));
+        .map_err(|err| error!("Error while converting gossip to message: {:?}", err));
     tokio::spawn(task);
 }
 
@@ -19,34 +24,40 @@ mod tests {
     use super::*;
     use futures::{lazy, stream};
     use futures::sync::mpsc::channel;
-    use primitives::types::{Transaction, ReceiptTransaction, ReceiptBody};
-    use primitives::hash::CryptoHash;
+    use primitives::types::GossipBody;
+    use primitives::signature::DEFAULT_SIGNATURE;
 
     #[test]
     fn pass_through() {
         tokio::run(lazy(|| {
-            let (transaction_tx, transaction_rx) = channel(1024);
-            let (payload_tx, payload_rx) = channel(1024);
-            spawn_task(transaction_rx, payload_tx);
-            let mut transactions = vec![];
+            let (gossip_tx, gossip_rx) = channel(1024);
+            let (message_tx, message_rx) = channel(1024);
+            spawn_task(gossip_rx, message_tx);
+            let mut gossips = vec![];
             for i in 0..10 {
-                transactions.push(
-                    ReceiptTransaction::new(CryptoHash::default(), CryptoHash::default(), vec![],
-                                            ReceiptBody::Refund(i)
-                ));
+                gossips.push(
+                    Gossip {
+                        sender_uid: i,
+                        receiver_uid: i,
+                        sender_sig: DEFAULT_SIGNATURE,
+                        body: GossipBody::Fetch::<ChainPayload>(vec![]),
+                    }
+                );
             }
 
-            let expected: Vec<u64> = (0..10).collect();
+            let expected: Vec<NodeIndex> = (0..10).collect();
 
-            let assert_task = stream::iter_ok(transactions)
+            let assert_task = stream::iter_ok(gossips)
                 .forward(
-                    transaction_tx.sink_map_err(|err| panic!("Error sending fake transactions {:?}", err))
+                    gossip_tx.sink_map_err(|err| panic!("Error sending fake gossips {:?}", err))
                 )
                 .and_then(|_|
-                payload_rx.map(|p| match p.body[0] {
-                    Transaction::Receipt(
-                        ReceiptTransaction { body: ReceiptBody::Refund(r), .. }) => r,
-                    _ => panic!("Unexpected transaction")
+                message_rx.map(|m| match m {
+                    (uid1, Message::Gossip( Gossip { sender_uid: uid2, .. } )) => {
+                        assert_eq!(uid1, uid2 as NodeIndex);
+                        uid1
+                    },
+                    _ => panic!("Unexpected message")
                 })
                     .collect().map(move |actual| {
                     assert_eq!(actual, expected);

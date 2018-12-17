@@ -80,7 +80,7 @@ fn spawn_network_tasks(
         beacon_block_tx,
         transactions_tx,
         receipts_tx,
-        net_messages_tx,
+        net_messages_tx.clone(),
         gossip_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
@@ -102,6 +102,9 @@ fn spawn_network_tasks(
         protocol,
         net_messages_rx,
     );
+
+    // Spawn task sending gossips to the network.
+    adapters::gossip_to_network_message::spawn_task(gossip_rx, net_messages_tx.clone());
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
@@ -217,8 +220,8 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
         let (receipts_tx, receipts_rx) = channel(1024);
-        let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
-        let (out_gossip_tx, out_gossip_rx) = channel(1024);
+        let (inc_gossip_tx, _inc_gossip_rx) = channel(1024);
+        let (_out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
             Some(config.p2p_port),
             config.boot_nodes,
