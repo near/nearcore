@@ -705,7 +705,6 @@ impl Runtime {
                             );
                             Ok(vec![Transaction::Receipt(receipt)])
                         } else if async_call.method_name == b"deploy".to_vec() {
-                            println!("here");
                             let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).ok_or("cannot decode args")?;
                             let pub_key = Decode::decode(&pub_key).ok_or("cannot decode public key")?;
                             if receiver.public_keys.contains(&pub_key) {
@@ -717,7 +716,6 @@ impl Runtime {
                                 );
                                 Ok(vec![])
                             } else {
-                                println!("account does not have key");
                                 Err(format!("account {} does not contain key {}", receipt.receiver, pub_key))
                             }
                         } else {
@@ -895,8 +893,8 @@ impl Runtime {
                 return None;
             }
         }
-        let (transaction, new_root) = state_update.finalize();
-        Some((transaction, new_root))
+        let (db_transaction, new_root) = state_update.finalize();
+        Some((db_transaction, new_root))
     }
 
     /// apply receipts from previous block and transactions and receipts from this block

@@ -96,7 +96,7 @@ impl BlockImporter {
             &shard_block.body.transactions
         );
         match apply_result {
-            Some((mut transaction, root)) => {
+            Some((mut db_transaction, root)) => {
                 if root != prev_shard_header.body.merkle_root_state {
                     info!(
                         "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
@@ -106,13 +106,13 @@ impl BlockImporter {
                     );
                     return;
                 }
-                self.state_db.commit(&mut transaction).ok();
+                self.state_db.commit(&mut db_transaction).ok();
                 self.shard_chain.insert_block(shard_block);
                 self.beacon_chain.insert_block(beacon_block);
             }
             None => {
                 info!(
-                    "Imported block has transactions that were filtered out while merkle roots match in {:?}",
+                    "Found incorrect transaction in block {:?}",
                     beacon_block
                 );
                 return;
