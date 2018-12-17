@@ -10,7 +10,7 @@ use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
 use chain::SignedBlock;
 use node_runtime::{ApplyState, Runtime};
 use primitives::traits::Signer;
-use primitives::types::{BlockId, Transaction};
+use primitives::types::BlockId;
 use primitives::types::{ConsensusBlockBody, ChainPayload};
 use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
@@ -64,6 +64,8 @@ impl BlockProducer {
         }
     }
 
+    // TODO(#191): Properly consume the consensus body.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
         let mut transactions = body.messages.iter()
