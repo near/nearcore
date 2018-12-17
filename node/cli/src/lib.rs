@@ -2,6 +2,7 @@ extern crate beacon;
 extern crate beacon_chain_handler;
 extern crate chain;
 extern crate clap;
+extern crate consensus;
 extern crate env_logger;
 extern crate futures;
 #[macro_use]

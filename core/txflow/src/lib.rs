@@ -18,5 +18,4 @@ mod initializer_tools;
 mod testing_utils;
 pub mod dag;
 pub mod txflow_task;
-pub mod adapters;
 

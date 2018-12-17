@@ -21,14 +21,14 @@ use network::protocol::{Protocol, ProtocolConfig};
 use node_rpc;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
-use primitives::types::{ReceiptTransaction, SignedTransaction};
+use primitives::types::{ReceiptTransaction, SignedTransaction, Gossip};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage;
 use storage::{StateDb, Storage};
 use network;
 use primitives::types::ChainPayload;
 use tokio;
-use txflow::adapters;
+use consensus::adapters;
 
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
@@ -69,16 +69,19 @@ fn spawn_network_tasks(
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
     receipts_tx: Sender<ReceiptTransaction>,
+    gossip_tx: Sender<Gossip<ChainPayload>>,
+    gossip_rx: Receiver<Gossip<ChainPayload>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
-    let protocol = Protocol::<_, SignedBeaconBlockHeader, ChainPayload>::new(
+    let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
         protocol_config,
         beacon_chain,
         beacon_block_tx,
         transactions_tx,
         receipts_tx,
         net_messages_tx,
+        gossip_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
     network_config.boot_nodes = boot_nodes;
@@ -214,6 +217,8 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
         let (receipts_tx, receipts_rx) = channel(1024);
+        let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
+        let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
             Some(config.p2p_port),
             config.boot_nodes,
@@ -222,6 +227,8 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
             beacon_block_tx.clone(),
             transactions_tx.clone(),
             receipts_tx.clone(),
+            inc_gossip_tx.clone(),
+            out_gossip_rx,
         );
 
         // Spawn consensus tasks.

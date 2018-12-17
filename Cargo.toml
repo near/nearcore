@@ -15,6 +15,7 @@ node-runtime = { path = "./node/runtime" }
 members = [
     "core/primitives",
     "core/storage",
+    "core/consensus",
     "core/txflow",
     "core/chain",
     "core/beacon",

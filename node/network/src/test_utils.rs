@@ -100,7 +100,7 @@ pub fn get_noop_network_task() -> impl Future<Item=(), Error=()> {
         .then(|_| Ok(()))
 }
 
-pub fn get_test_protocol() -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader, types::ChainPayload> {
+pub fn get_test_protocol() -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader> {
     let storage = Arc::new(create_memory_db());
     let genesis_block = SignedBeaconBlock::new(
         0, CryptoHash::default(), vec![], CryptoHash::default()
@@ -110,12 +110,14 @@ pub fn get_test_protocol() -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeade
     let (transaction_tx, _) = channel(1024);
     let (receipt_tx, _) = channel(1024);
     let (message_tx, _) = channel(1024);
+    let (gossip_tx, _) = channel(1024);
     Protocol::new(
         ProtocolConfig::default(),
         chain,
         block_tx,
         transaction_tx,
         receipt_tx,
-        message_tx
+        message_tx,
+        gossip_tx,
     )
 }
