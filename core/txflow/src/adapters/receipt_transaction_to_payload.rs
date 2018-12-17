@@ -1,16 +1,16 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use primitives::types::{ChainPayload, Transaction};
+use primitives::types::{ChainPayload, Transaction, ReceiptTransaction};
 
-pub fn spawn_task(receiver: Receiver<Transaction>, sender: Sender<ChainPayload>) {
+pub fn spawn_task(receiver: Receiver<ReceiptTransaction>, sender: Sender<ChainPayload>) {
     let task = receiver
-        .map(|t| ChainPayload { body: vec![t] })
+        .map(|t| ChainPayload { body: vec![Transaction::Receipt(t)] })
         .forward(
             sender.sink_map_err(|err| error!("Error sending payload down the sink: {:?}", err)),
         )
         .map(|_| ())
-        .map_err(|err| error!("Error while converting transaction to payload: {:?}", err));
+        .map_err(|err| error!("Error while converting receipt transaction to payload: {:?}", err));
     tokio::spawn(task);
 }
 
@@ -30,9 +30,9 @@ mod tests {
             spawn_task(transaction_rx, payload_tx);
             let mut transactions = vec![];
             for i in 0..10 {
-                transactions.push(Transaction::Receipt(
+                transactions.push(
                     ReceiptTransaction::new(CryptoHash::default(), CryptoHash::default(), vec![],
-                                            ReceiptBody::Refund(i))
+                                            ReceiptBody::Refund(i)
                 ));
             }
 

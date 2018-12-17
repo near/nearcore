@@ -19,6 +19,7 @@ extern crate serde_json;
 extern crate shard;
 extern crate storage;
 extern crate tokio;
+extern crate txflow;
 
 use clap::{App, Arg};
 use std::path::PathBuf;

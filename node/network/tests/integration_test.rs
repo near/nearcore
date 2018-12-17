@@ -18,7 +18,7 @@ use std::time::{self, Duration};
 use parking_lot::Mutex;
 use substrate_network_libp2p::NodeIndex;
 use primitives::hash::CryptoHash;
-use primitives::types::BeaconChainPayload;
+use primitives::types::ChainPayload;
 use network::protocol::{Protocol, ProtocolConfig};
 use network::service::{new_network_service, spawn_network_tasks};
 use network::message::Message;
@@ -42,8 +42,8 @@ fn spawn_simple_block_import_task(
 fn get_test_protocol(
     chain: Arc<BeaconBlockChain>,
     block_tx: Sender<SignedBeaconBlock>,
-    message_tx: Sender<(NodeIndex, Message<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload>)>
-) -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload> {
+    message_tx: Sender<(NodeIndex, Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload>)>
+) -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> {
     let (transaction_tx, _) = channel(1024);
     let (receipt_tx, _) = channel(1024);
     Protocol::new(

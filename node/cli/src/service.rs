@@ -21,13 +21,14 @@ use network::protocol::{Protocol, ProtocolConfig};
 use node_rpc;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
-use primitives::types::SignedTransaction;
+use primitives::types::{ReceiptTransaction, SignedTransaction};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage;
 use storage::{StateDb, Storage};
 use network;
 use primitives::types::ChainPayload;
 use tokio;
+use txflow::adapters;
 
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
@@ -67,8 +68,8 @@ fn spawn_network_tasks(
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
+    receipts_tx: Sender<ReceiptTransaction>,
 ) {
-    let (receipts_tx, _receipts_rx) = channel(1024);
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
     let protocol = Protocol::<_, SignedBeaconBlockHeader, ChainPayload>::new(
@@ -152,7 +153,7 @@ impl Default for ServiceConfig {
 
 pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
     where
-        S: Fn(Receiver<SignedTransaction>, Sender<ChainConsensusBlockBody>) -> ()
+        S: Fn(Receiver<ChainPayload>, Sender<ChainConsensusBlockBody>) -> ()
         + Send
         + Sync
         + 'static,
@@ -212,6 +213,7 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // Spawn protocol and the network_task.
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
+        let (receipts_tx, receipts_rx) = channel(1024);
         spawn_network_tasks(
             Some(config.p2p_port),
             config.boot_nodes,
@@ -219,10 +221,16 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
             beacon_chain.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),
+            receipts_tx.clone(),
         );
 
+        // Spawn consensus tasks.
+        let (payload_tx, payload_rx) = channel(1024);
+        adapters::signed_transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
+        adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
+
         spawn_consensus_task_fn(
-            transactions_rx,
+            payload_rx,
             beacon_block_consensus_body_tx,
         );
         Ok(())

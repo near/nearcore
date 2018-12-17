@@ -326,13 +326,13 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
 mod tests {
     use super::*;
     use primitives::traits::Encode;
-    use primitives::types::{SignedTransaction, BeaconChainPayload};
+    use primitives::types::{SignedTransaction, ChainPayload};
     use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 
     #[test]
     fn test_serialization() {
         let tx = SignedTransaction::empty();
-        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload> = 
+        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> =
             Message::Transaction(Box::new(tx));
         let encoded = Encode::encode(&message).unwrap();
         let decoded = Decode::decode(&encoded).unwrap();
