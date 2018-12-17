@@ -16,14 +16,14 @@ pub struct RuntimeExt<'a, 'b: 'a> {
     pub callbacks: HashMap<CallbackId, Callback>,
     account_id: AccountId,
     nonce: u64,
-    transaction_hash: Vec<u8>,
+    transaction_hash: &'a [u8],
 }
 
 impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     pub fn new(
         state_db_update: &'a mut StateDbUpdate<'b>,
         account_id: AccountId,
-        transaction_hash: Vec<u8>
+        transaction_hash: &'a [u8]
     ) -> Self {
         let mut prefix = account_id_to_bytes(account_id);
         prefix.append(&mut b",".to_vec());
@@ -45,7 +45,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     }
 
     pub fn create_nonce(&mut self) -> Vec<u8> {
-        let nonce = create_nonce_with_nonce(&self.transaction_hash, self.nonce);
+        let nonce = create_nonce_with_nonce(self.transaction_hash, self.nonce);
         self.nonce += 1;
         nonce
     }

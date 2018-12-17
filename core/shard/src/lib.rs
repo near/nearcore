@@ -109,7 +109,6 @@ impl SignedBlock for SignedShardBlock {
             signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
         }
-
     }
 
     fn add_signature(&mut self, signature: PartialSignature) {

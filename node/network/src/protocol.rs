@@ -156,16 +156,20 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.chain.best_block().header().index();
+        let best_index = self.chain.best_index();
         let mut next_request_id = 0;
+        let mut block_request = None;
+        let mut request_timestamp = None;
         if status.best_index > best_index {
             let request = message::BlockRequest {
                 id: next_request_id,
-                from: BlockId::Number(best_index),
+                from: BlockId::Number(best_index + 1),
                 to: Some(BlockId::Number(status.best_index)),
-                max: None,
+                max: Some(MAX_BLOCK_DATA_RESPONSE),
             };
+            block_request = Some(request.clone());
             next_request_id += 1;
+            request_timestamp = Some(time::Instant::now());
             let message = Message::BlockRequest(request);
             self.send_message(peer, message);
         }
@@ -174,8 +178,8 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
             protocol_version: status.version,
             best_hash: status.best_hash,
             best_index: status.best_index,
-            request_timestamp: None,
-            block_request: None,
+            request_timestamp,
+            block_request,
             next_request_id,
         };
         self.peer_info.write().insert(peer, peer_info);
@@ -207,7 +211,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
             if reach_end {
                 break;
             }
-            id = BlockId::Number(block_index);
+            id = BlockId::Number(block_index + 1);
         }
         let response = message::BlockResponse { id: request.id, blocks };
         let message = Message::BlockResponse(response);
@@ -264,14 +268,19 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                             .ok_or((peer, Severity::Bad("Unexpected response packet received from peer")))?
                 };
                 if request.id != response.id {
-                    trace!(target: "sync", "Ignoring mismatched response packet from {} (expected {} got {})", peer, request.id, response.id);
+                    trace!(
+                        target: "network",
+                        "Ignoring mismatched response packet from {} (expected {} got {})",
+                        peer,
+                        request.id,
+                        response.id
+                    );
                     return Ok(())
                 }
                 self.on_block_response(peer, response);
             },
             Message::BlockAnnounce(ann) => {
                 debug!(target: "network", "receive block announcement: {:?}", ann);
-                // header is actually block for now
                 match ann {
                     message::BlockAnnounce::Block(b) => {
                         self.on_incoming_block(b);
@@ -311,82 +320,22 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         }
         aborting
     }
-
-//    /// produce blocks
-//    /// some super fake logic: if the node has a specific key,
-//    /// then it produces and broadcasts the block
-//    pub fn prod_block(&self) {
-//        let special_secret = test_utils::special_secret();
-//        if special_secret == self.config.secret {
-//            let block = self.chain.write().prod_block();
-//            let block_announce = message::BlockAnnounce::Block(block.clone());
-//            let message: Message<_, Header> =
-//                Message::new(MessageBody::BlockAnnounce(block_announce));
-//            let peer_info = self.peer_info.read();
-//            for peer in peer_info.keys() {
-//                self.send_message(*peer, &message);
-//            }
-//            self.on_incoming_block(block);
-//        }
-//    }
 }
 
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use client::test_utils::*;
-//    use primitives::hash::hash;
-//    use primitives::types::{SignedTransaction, TransactionBody};
-//    use test_utils::*;
-//    use primitives::signature::DEFAULT_SIGNATURE;
-//    use parking_lot::Mutex;
-//
-//    impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
-//        fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
-//            match Decode::decode(data) {
-//                Some(m) => m,
-//                _ => panic!("cannot decode message: {:?}", data),
-//            }
-//        }
-//    }
-//
-//    #[test]
-//    fn test_serialization() {
-//        let tx = SignedTransaction::empty();
-//        let message: Message<MockBlock, MockBlockHeader> =
-//            Message::new(MessageBody::Transaction(Box::new(tx)));
-//        let config = ProtocolConfig::default();
-//        let mock_client = Arc::new(RwLock::new(MockClient::default()));
-//        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-//        let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
-//        assert_eq!(message, decoded);
-//    }
-//
-//    #[test]
-//    fn test_on_transaction_message() {
-//        let config = ProtocolConfig::default();
-//        let mock_client = Arc::new(RwLock::new(MockClient::default()));
-//        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-//        let tx = SignedTransaction::empty();
-//        protocol.on_transaction_message(tx);
-//    }
-//
-//    #[test]
-//    fn test_protocol_and_client() {
-//        let client = Arc::new(RwLock::new(generate_test_client()));
-//        let handler = MockHandler { client: client.clone() };
-//        let config = ProtocolConfig::new_with_default_id(special_secret());
-//        let protocol = Protocol::new(config, handler, client.clone());
-//        let network_service = Arc::new(Mutex::new(default_network_service()));
-//        protocol.on_transaction_message(SignedTransaction::new(
-//            DEFAULT_SIGNATURE,
-//            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
-//        ));
-//        assert_eq!(client.read().num_transactions(), 1);
-//        assert_eq!(client.read().num_blocks_in_queue(), 0);
-//        protocol.prod_block::<MockBlockHeader>(&mut net_sync);
-//        assert_eq!(client.read().num_transactions(), 0);
-//        assert_eq!(client.read().num_blocks_in_queue(), 0);
-//        assert_eq!(client.read().best_index(), 1);
-//    }
-//}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use primitives::traits::Encode;
+    use primitives::types::{SignedTransaction, BeaconChainPayload};
+    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+
+    #[test]
+    fn test_serialization() {
+        let tx = SignedTransaction::empty();
+        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, BeaconChainPayload> = 
+            Message::Transaction(Box::new(tx));
+        let encoded = Encode::encode(&message).unwrap();
+        let decoded = Decode::decode(&encoded).unwrap();
+        assert_eq!(message, decoded);
+    }
+}

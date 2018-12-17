@@ -59,11 +59,13 @@ impl<'a> From<&'a ReadablePublicKey> for PublicKey {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
 pub enum BlockId {
     Number(u64),
     Hash(CryptoHash),
 }
+
+// Transaction structs.
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
@@ -336,11 +338,11 @@ pub enum Transaction {
     Receipt(ReceiptTransaction),
 }
 
-// 4. TxFlow-specific structs.
+// TxFlow-specific structs.
 
 pub type TxFlowHash = u64;
 
-// 4.1 DAG-specific structs.
+// DAG-specific structs.
 
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
@@ -458,7 +460,8 @@ pub struct ConsensusBlockBody<P> {
     pub messages: Vec<SignedMessageData<P>>,
 }
 
-// 4.2 Gossip-specific structs.
+// Gossip-specific structs.
+
 #[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GossipBody<P> {
     /// A gossip with a single `SignedMessageData` that one participant decided to share with another.

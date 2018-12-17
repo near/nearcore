@@ -105,7 +105,7 @@ impl StateDbViewer {
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
-                    vec![],
+                    &[],
                 );
                 let wasm_res = executor::execute(
                     &account.code,
