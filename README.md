@@ -99,15 +99,13 @@ Try submitting transactions or views via JSON RPC:
 ./scripts/rpc.py send_money -r bob -a 1
 
 # Deploy a smart contract
-./scripts/rpc.py deploy test_contract core/wasm/runtest/res/wasm_with_mem.wasm
+./scripts/rpc.py deploy test_contract tests/add.wasm
 
 # Call method 'run_test' for contract 'test_contract'
-./scripts/rpc.py schedule_function_call test_contract run_test
-./scripts/rpc.py schedule_function_call test_contract run_test --args 10 20
+./scripts/rpc.py schedule_function_call test_contract near_func_add '{"a": 10, "b": 20}'
 
 # Call view function 'run_test' for contract 'test_contract'
-./scripts/rpc.py call_view_function test_contract run_test
-./scripts/rpc.py call_view_function test_contract run_test --args 10 20
+./scripts/rpc.py call_view_function test_contract near_func_add '{"a": 10, "b": 20}'
 
 # View state for Bob's account
 ./scripts/rpc.py view_account -a bob
