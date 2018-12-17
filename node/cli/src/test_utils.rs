@@ -1,8 +1,9 @@
-use beacon_chain_handler::producer::{ChainConsensusBlockBody, ShardChainPayload};
+use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{MessageDataBody, SignedMessageData, SignedTransaction, Transaction};
+use primitives::types::{MessageDataBody, SignedMessageData, SignedTransaction, Transaction,
+                        ChainPayload};
 use std::collections::HashSet;
 use tokio;
 
@@ -12,14 +13,14 @@ pub fn spawn_pasthrough_consensus(
 ) {
     let task = transactions_rx
         .fold(consensus_tx, |consensus_tx, t| {
-            let message: SignedMessageData<ShardChainPayload> = SignedMessageData {
+            let message: SignedMessageData<ChainPayload> = SignedMessageData {
                 owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                 hash: 0,                      // Compute real hash
                 body: MessageDataBody {
                     owner_uid: 0,
                     parents: HashSet::new(),
                     epoch: 0,
-                    payload: vec![Transaction::SignedTransaction(t)],
+                    payload: ChainPayload{body: vec![Transaction::SignedTransaction(t)]},
                     endorsements: vec![],
                 },
             };

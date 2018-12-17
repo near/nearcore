@@ -26,7 +26,7 @@ use shard::{ShardBlockChain, SignedShardBlock};
 use storage;
 use storage::{StateDb, Storage};
 use network;
-use primitives::types::BeaconChainPayload;
+use primitives::types::ChainPayload;
 use tokio;
 
 
@@ -71,7 +71,7 @@ fn spawn_network_tasks(
     let (receipts_tx, _receipts_rx) = channel(1024);
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
-    let protocol = Protocol::<_, SignedBeaconBlockHeader, BeaconChainPayload>::new(
+    let protocol = Protocol::<_, SignedBeaconBlockHeader, ChainPayload>::new(
         protocol_config,
         beacon_chain,
         beacon_block_tx,

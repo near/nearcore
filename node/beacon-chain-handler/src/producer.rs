@@ -11,9 +11,11 @@ use chain::SignedBlock;
 use node_runtime::{ApplyState, Runtime};
 use primitives::traits::Signer;
 use primitives::types::{BlockId, Transaction};
-use primitives::types::ConsensusBlockBody;
+use primitives::types::{ConsensusBlockBody, ChainPayload};
 use shard::{SignedShardBlock, ShardBlockChain};
 use storage::StateDb;
+
+pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 pub fn spawn_block_producer(
     beacon_chain: Arc<BeaconBlockChain>,
@@ -35,10 +37,6 @@ pub fn spawn_block_producer(
         future::ok(beacon_block_producer)
     }).and_then(|_| Ok(()));
     tokio::spawn(task);
-}
-
-pub trait ConsensusHandler<B: SignedBlock, P>: Send + Sync {
-    fn produce_block(&self, body: ConsensusBlockBody<P>);
 }
 
 pub struct BlockProducer {
@@ -65,16 +63,11 @@ impl BlockProducer {
             state_db,
         }
     }
-}
 
-pub type ShardChainPayload = Vec<Transaction>;
-pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
-
-impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
-    fn produce_block(&self, body: ChainConsensusBlockBody) {
+    pub fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
         let mut transactions = body.messages.iter()
-            .flat_map(|message| message.body.payload.clone())
+            .flat_map(|message| message.body.payload.body.clone())
             .collect();
 
         let mut last_block = self.beacon_chain.best_block();
