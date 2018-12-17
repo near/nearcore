@@ -15,7 +15,6 @@ node-runtime = { path = "./node/runtime" }
 members = [
     "core/primitives",
     "core/storage",
-    "core/consensus",
     "core/txflow",
     "core/chain",
     "core/beacon",
@@ -25,6 +24,7 @@ members = [
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/beacon-chain-handler",
     "node/cli",
+    "node/consensus",
     "node/rpc",
     "node/runtime",
     "node/network",
