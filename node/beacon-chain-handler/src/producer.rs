@@ -73,8 +73,8 @@ pub type ChainConsensusBlockBody = ConsensusBlockBody<ShardChainPayload>;
 impl ConsensusHandler<SignedBeaconBlock, ShardChainPayload> for BlockProducer {
     fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
-        let mut transactions = body.messages.iter()
-            .flat_map(|message| message.body.payload.clone())
+        let mut transactions = body.messages.into_iter()
+            .flat_map(|message| message.body.payload)
             .collect();
 
         let mut last_block = self.beacon_chain.best_block();

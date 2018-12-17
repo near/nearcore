@@ -540,7 +540,7 @@ impl Runtime {
         async_call: &AsyncCall,
         sender_id: AccountId,
         receiver_id: AccountId,
-        nonce: Vec<u8>,
+        nonce: &[u8],
         receiver: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.get_stake_for_account(receiver_id);
@@ -593,7 +593,7 @@ impl Runtime {
         callback_res: &CallbackResult,
         sender_id: AccountId,
         receiver_id: AccountId,
-        nonce: Vec<u8>,
+        nonce: &[u8],
         receiver: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.get_stake_for_account(receiver_id);
@@ -705,7 +705,6 @@ impl Runtime {
                             );
                             Ok(vec![Transaction::Receipt(receipt)])
                         } else if async_call.method_name == b"deploy".to_vec() {
-                            println!("here");
                             let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).ok_or("cannot decode args")?;
                             let pub_key = Decode::decode(&pub_key).ok_or("cannot decode public key")?;
                             if receiver.public_keys.contains(&pub_key) {
@@ -717,7 +716,6 @@ impl Runtime {
                                 );
                                 Ok(vec![])
                             } else {
-                                println!("account does not have key");
                                 Err(format!("account {} does not contain key {}", receipt.receiver, pub_key))
                             }
                         } else {
@@ -728,7 +726,7 @@ impl Runtime {
                                 &async_call,
                                 receipt.sender,
                                 receipt.receiver,
-                                receipt.nonce.clone(),
+                                &receipt.nonce,
                                 &mut receiver,
                             )
                         }
@@ -741,7 +739,7 @@ impl Runtime {
                             &callback_res,
                             receipt.sender,
                             receipt.receiver,
-                            receipt.nonce.clone(),
+                            &receipt.nonce,
                             &mut receiver,
                         )
                     }
@@ -868,6 +866,35 @@ impl Runtime {
                 }
             }
         }
+    }
+
+    /// check whether transactions in a block are valid and return the new root
+    /// if they are
+    pub fn check(
+        &mut self,
+        apply_state: &ApplyState,
+        prev_receipts: &[Transaction],
+        transactions: &[Transaction],
+    ) -> Option<(storage::TrieBackendTransaction, MerkleHash)> {
+        let mut new_receipts = vec![];
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
+        let mut authority_proposals = vec![];
+        let shard_id = apply_state.shard_id;
+        for tx in prev_receipts.iter().chain(transactions) {
+            let filter_res = Self::filter_transaction(
+                self,
+                &mut state_update,
+                shard_id,
+                tx,
+                &mut new_receipts,
+                &mut authority_proposals
+            );
+            if !filter_res {
+                return None;
+            }
+        }
+        let (db_transaction, new_root) = state_update.finalize();
+        Some((db_transaction, new_root))
     }
 
     /// apply receipts from previous block and transactions and receipts from this block
