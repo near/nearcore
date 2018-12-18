@@ -10,7 +10,7 @@ use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
-use primitives::traits::{Decode, Payload};
+use primitives::traits::Decode;
 use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload};
 use test_utils;
 
