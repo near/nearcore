@@ -172,6 +172,7 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         body: &StakeTransaction,
+        sender_account_id: &AccountId,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
         authority_proposals: &mut Vec<AuthorityProposal>,
@@ -179,6 +180,7 @@ impl Runtime {
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
             runtime_data.put_stake_for_account(body.staker, body.amount);
             authority_proposals.push(AuthorityProposal {
+                account_id: *sender_account_id,
                 public_key: sender.public_keys[0],
                 amount: body.amount,
             });
@@ -336,8 +338,9 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> Result<Vec<Transaction>, String> {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
+        let sender_account_id = transaction.body.get_sender();
         let sender: Option<Account> =
-            get(state_update, &account_id_to_bytes(transaction.body.get_sender()));
+            get(state_update, &account_id_to_bytes(sender_account_id));
         match (runtime_data, sender) {
             (Some(mut runtime_data), Some(mut sender)) => {
                 if transaction.body.get_nonce() <= sender.nonce {
@@ -362,6 +365,7 @@ impl Runtime {
                         self.staking(
                             state_update,
                             &t,
+                            &sender_account_id,
                             &mut sender,
                             &mut runtime_data,
                             authority_proposals,
@@ -402,7 +406,7 @@ impl Runtime {
                 }
             }
             (None, _) => Err("runtime data does not exist".to_string()),
-            _ => Err(format!("sender {} does not exist", transaction.body.get_sender()))
+            _ => Err(format!("sender {} does not exist", sender_account_id))
         }
     }
 

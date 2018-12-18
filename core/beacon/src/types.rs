@@ -1,10 +1,12 @@
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::PublicKey;
-use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
+use primitives::types::{AccountId, AuthorityMask, MultiSignature, PartialSignature};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthorityProposal {
+    /// Account that stakes money.
+    pub account_id: AccountId,
     /// Public key of the proposed authority.
     pub public_key: PublicKey,
     /// Stake / weight of the authority.
@@ -66,17 +68,10 @@ impl SignedBeaconBlock {
         authority_proposal: Vec<AuthorityProposal>,
         shard_block_hash: CryptoHash,
     ) -> SignedBeaconBlock {
-        let header = BeaconBlockHeader {
-            index,
-            parent_hash,
-            authority_proposal,
-            shard_block_hash,
-        };
+        let header = BeaconBlockHeader { index, parent_hash, authority_proposal, shard_block_hash };
         let hash = hash_struct(&header);
         SignedBeaconBlock {
-            body: BeaconBlock {
-                header
-            },
+            body: BeaconBlock { header },
             hash,
             signature: vec![],
             authority_mask: vec![],
@@ -125,7 +120,8 @@ mod tests {
     #[test]
     fn test_genesis() {
         let storage = Arc::new(create_memory_db());
-        let genesis = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let genesis =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage);
         assert_eq!(bc.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
         assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
@@ -134,7 +130,8 @@ mod tests {
     #[test]
     fn test_restart_chain() {
         let storage = Arc::new(create_memory_db());
-        let genesis = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let genesis =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage.clone());
         let block1 = SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
         assert_eq!(bc.insert_block(block1.clone()), false);
@@ -153,8 +150,10 @@ mod tests {
     #[test]
     fn test_two_chains() {
         let storage = Arc::new(create_memory_db());
-        let genesis1 = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let genesis2 = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], genesis1.block_hash());
+        let genesis1 =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let genesis2 =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], genesis1.block_hash());
         let bc1 = BlockChain::new(genesis1.clone(), storage.clone());
         let bc2 = BlockChain::new(genesis2.clone(), storage.clone());
         assert_eq!(bc1.best_block().block_hash(), genesis1.block_hash());
