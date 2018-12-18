@@ -91,7 +91,7 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
     gossip_sender: Sender<Gossip<ChainPayload>>,
     /// map between authority uid and authority public key
-    pub authority_map: RwLock<HashMap<UID, PublicKey>>,
+    authority_map: RwLock<HashMap<UID, PublicKey>>,
 }
 
 impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
