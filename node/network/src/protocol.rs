@@ -10,8 +10,8 @@ use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
-use primitives::traits::{Decode, Payload};
-use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
+use primitives::traits::Decode;
+use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload};
 use test_utils;
 
 /// time to wait (secs) for a request
@@ -66,7 +66,7 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-pub struct Protocol<B: SignedBlock, Header: BlockHeader, P> {
+pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -82,16 +82,20 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader, P> {
     /// Channel into which the protocol sends the received receipts.
     receipt_sender: Sender<ReceiptTransaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
-    message_sender: Sender<(NodeIndex, Message<B, Header, P>)>,
+    message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+    /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
+    gossip_sender: Sender<Gossip<ChainPayload>>,
 }
 
-impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
-    pub fn new(config: ProtocolConfig,
-               chain: Arc<BlockChain<B>>,
-               block_sender: Sender<B>,
-               transaction_sender: Sender<SignedTransaction>,
-               receipt_sender: Sender<ReceiptTransaction>,
-               message_sender: Sender<(NodeIndex, Message<B, Header, P>)>,
+impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
+    pub fn new(
+        config: ProtocolConfig,
+        chain: Arc<BlockChain<B>>,
+        block_sender: Sender<B>,
+        transaction_sender: Sender<SignedTransaction>,
+        receipt_sender: Sender<ReceiptTransaction>,
+        message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+        gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
         Self {
             config,
@@ -102,6 +106,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
             transaction_sender,
             receipt_sender,
             message_sender,
+            gossip_sender,
         }
     }
 
@@ -141,6 +146,16 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                 .send(receipt)
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the receipts {:?}", e)),
+        );
+    }
+
+    pub fn on_gossip_message(&self, gossip: Gossip<ChainPayload>) {
+        let copied_tx = self.gossip_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send(gossip)
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the gossip {:?}", e)),
         );
     }
 
@@ -243,7 +258,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
     }
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
-        let message: Message<B, Header, P> = Decode::decode(data)
+        let message: Message<B, Header, ChainPayload> = Decode::decode(data)
             .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
@@ -288,12 +303,14 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                     _ => unimplemented!(),
                 }
             },
-            Message::Gossip(_) => {},
+            Message::Gossip(gossip) => {
+               self.on_gossip_message(gossip);
+            },
         }
         Ok(())
     }
 
-    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header, P>) {
+    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header, ChainPayload>) {
         let copied_tx = self.message_sender.clone();
         tokio::spawn(
             copied_tx

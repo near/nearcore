@@ -43,9 +43,10 @@ fn get_test_protocol(
     chain: Arc<BeaconBlockChain>,
     block_tx: Sender<SignedBeaconBlock>,
     message_tx: Sender<(NodeIndex, Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload>)>
-) -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> {
+) -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader> {
     let (transaction_tx, _) = channel(1024);
     let (receipt_tx, _) = channel(1024);
+    let (gossip_tx, _) = channel(1024);
     Protocol::new(
         ProtocolConfig::default(),
         chain,
@@ -53,6 +54,7 @@ fn get_test_protocol(
         transaction_tx,
         receipt_tx,
         message_tx,
+        gossip_tx,
     )
 }
 

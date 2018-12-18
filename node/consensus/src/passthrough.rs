@@ -2,13 +2,16 @@ use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{MessageDataBody, SignedMessageData, ChainPayload};
+use primitives::types::{MessageDataBody, SignedMessageData, ChainPayload, Gossip};
 use std::collections::HashSet;
 use tokio;
 
-pub fn spawn_pasthrough_consensus(
+#[allow(clippy::needless_pass_by_value)]
+pub fn spawn_consensus(
     payload_rx: Receiver<ChainPayload>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
+    _inc_gossip_rx: Receiver<Gossip<ChainPayload>>,
+    _out_gossip_tx: Sender<Gossip<ChainPayload>>,
 ) {
     let task = payload_rx
         .fold(consensus_tx, |consensus_tx, p| {

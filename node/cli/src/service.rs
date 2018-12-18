@@ -1,7 +1,7 @@
 use std::cmp;
 use std::env;
 use std::fs;
-use std::net::{Ipv4Addr, IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,20 +16,19 @@ use beacon_chain_handler;
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use chain::SignedBlock;
 use chain_spec;
+use consensus::adapters;
 use log;
+use network;
 use network::protocol::{Protocol, ProtocolConfig};
 use node_rpc;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
-use primitives::types::{ReceiptTransaction, SignedTransaction};
+use primitives::types::ChainPayload;
+use primitives::types::{Gossip, ReceiptTransaction, SignedTransaction};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage;
 use storage::{StateDb, Storage};
-use network;
-use primitives::types::ChainPayload;
 use tokio;
-use txflow::adapters;
-
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
@@ -51,9 +50,7 @@ fn spawn_rpc_server_task(
     let rpc_impl = node_rpc::api::RpcImpl::new(state_db_viewer, transactions_tx);
     let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
-    let rpc_addr = Some(
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port)
-    );
+    let rpc_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
     let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
     tokio::spawn(future::lazy(|| {
         server.wait();
@@ -69,36 +66,38 @@ fn spawn_network_tasks(
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
     receipts_tx: Sender<ReceiptTransaction>,
+    gossip_tx: Sender<Gossip<ChainPayload>>,
+    gossip_rx: Receiver<Gossip<ChainPayload>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
-    let protocol = Protocol::<_, SignedBeaconBlockHeader, ChainPayload>::new(
+    let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
         protocol_config,
         beacon_chain,
         beacon_block_tx,
         transactions_tx,
         receipts_tx,
-        net_messages_tx,
+        net_messages_tx.clone(),
+        gossip_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
     network_config.boot_nodes = boot_nodes;
     let p2p_port = p2p_port.unwrap_or(DEFAULT_P2P_PORT);
-    network_config.listen_addresses = vec![
-        network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port),
-    ];
+    network_config.listen_addresses =
+        vec![network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
 
-    network_config.use_secret = test_node_index
-        .map(network::service::get_test_secret_from_node_index);
+    network_config.use_secret =
+        test_node_index.map(network::service::get_test_secret_from_node_index);
 
-    let network_service = network::service::new_network_service(
-        &protocol_config,
-        network_config,
-    );
+    let network_service = network::service::new_network_service(&protocol_config, network_config);
     network::service::spawn_network_tasks(
         Arc::new(Mutex::new(network_service)),
         protocol,
         net_messages_rx,
     );
+
+    // Spawn task sending gossips to the network.
+    adapters::gossip_to_network_message::spawn_task(gossip_rx, net_messages_tx.clone());
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
@@ -108,10 +107,7 @@ fn configure_logging(log_level: log::LevelFilter) {
         builder.filter(Some(internal_targets), log_level);
     });
 
-    let other_log_level = cmp::min(
-        log_level,
-        log::LevelFilter::Info,
-    );
+    let other_log_level = cmp::min(log_level, log::LevelFilter::Info);
     builder.filter(None, other_log_level);
 
     if let Ok(lvl) = env::var("RUST_LOG") {
@@ -152,8 +148,13 @@ impl Default for ServiceConfig {
 }
 
 pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
-    where
-        S: Fn(Receiver<ChainPayload>, Sender<ChainConsensusBlockBody>) -> ()
+where
+    S: Fn(
+            Receiver<ChainPayload>,
+            Sender<ChainConsensusBlockBody>,
+            Receiver<Gossip<ChainPayload>>,
+            Sender<Gossip<ChainPayload>>,
+        ) -> ()
         + Send
         + Sync
         + 'static,
@@ -214,6 +215,8 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
         let (receipts_tx, receipts_rx) = channel(1024);
+        let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
+        let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
             Some(config.p2p_port),
             config.boot_nodes,
@@ -222,6 +225,8 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
             beacon_block_tx.clone(),
             transactions_tx.clone(),
             receipts_tx.clone(),
+            inc_gossip_tx.clone(),
+            out_gossip_rx,
         );
 
         // Spawn consensus tasks.
@@ -232,6 +237,8 @@ pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
         spawn_consensus_task_fn(
             payload_rx,
             beacon_block_consensus_body_tx,
+            inc_gossip_rx,
+            out_gossip_tx,
         );
         Ok(())
     }));

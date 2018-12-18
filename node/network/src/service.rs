@@ -17,7 +17,8 @@ use substrate_network_libp2p::Secret;
 
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
-use primitives::traits::{Encode, Payload};
+use primitives::traits::Encode;
+use primitives::types::ChainPayload;
 use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -29,14 +30,13 @@ pub fn new_network_service(protocol_config: &ProtocolConfig, net_config: Network
         .expect("Error starting network service")
 }
 
-pub fn spawn_network_tasks<B, Header, P>(
+pub fn spawn_network_tasks<B, Header>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol_: Protocol<B, Header, P>,
-    message_receiver: Receiver<(NodeIndex, Message<B, Header, P>)>
+    protocol_: Protocol<B, Header>,
+    message_receiver: Receiver<(NodeIndex, Message<B, Header, ChainPayload>)>,
 ) where
     B: SignedBlock,
     Header: BlockHeader,
-    P: Payload,
 {
     let protocol = Arc::new(protocol_);
     // Interval for performing maintenance on the protocol handler.

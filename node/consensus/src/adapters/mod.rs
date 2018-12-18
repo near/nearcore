@@ -3,3 +3,4 @@
 //! converting specific structs like transaction to non-specific structs, like payload.
 pub mod signed_transaction_to_payload;
 pub mod receipt_transaction_to_payload;
+pub mod gossip_to_network_message;

@@ -24,6 +24,7 @@ members = [
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/beacon-chain-handler",
     "node/cli",
+    "node/consensus",
     "node/rpc",
     "node/runtime",
     "node/network",

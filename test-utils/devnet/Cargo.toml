@@ -1,7 +1,8 @@
 [package]
- name = "devnet"
- version = "0.1.0"
- authors = ["Near Inc <hello@nearprotocol.com>"]
+name = "devnet"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
 
- [dependencies]
- node-cli = { path = "../../node/cli" }
+[dependencies]
+node-cli = { path = "../../node/cli" }
+consensus = { path = "../../node/consensus" }
