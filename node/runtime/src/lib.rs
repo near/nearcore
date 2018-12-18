@@ -172,6 +172,7 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         body: &StakeTransaction,
+        sender_account_id: &AccountId,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
         authority_proposals: &mut Vec<AuthorityProposal>,
@@ -179,6 +180,7 @@ impl Runtime {
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
             runtime_data.put_stake_for_account(body.staker, body.amount);
             authority_proposals.push(AuthorityProposal {
+                account_id: *sender_account_id,
                 public_key: sender.public_keys[0],
                 amount: body.amount,
             });
@@ -362,6 +364,7 @@ impl Runtime {
                         self.staking(
                             state_update,
                             &t,
+                            &transaction.body.get_sender(),
                             &mut sender,
                             &mut runtime_data,
                             authority_proposals,
