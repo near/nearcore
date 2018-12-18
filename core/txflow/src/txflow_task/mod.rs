@@ -12,8 +12,12 @@ use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
 
+mod beacon_witness_selector;
+
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
 static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
+static UNINITIALIZED_SELECTOR_ERR: &'static str =
+    "Witness selector cannot be used before it receives witnesses from the authority tracker.";
 const COOLDOWN_MS: u64 = 1;
 const FORCED_GOSSIP_MS: u64 = 1000;
 
