@@ -153,13 +153,13 @@ impl Authority {
                     .get(&self.current_epoch)
                     .expect("Missing threshold for current epoch")
                     as i64;
-                self.proposals
+                let recorded_proposal = self.proposals
                     .entry(header_authorities[i].account_id)
                     .or_insert(RecordedProposal {
                         public_key: header_authorities[i].public_key,
                         stake: 0,
-                    })
-                    .stake -= threshold;
+                    });
+                recorded_proposal.stake -= threshold;
             }
         }
         let next_epoch = header.body.index / self.authority_config.epoch_length;

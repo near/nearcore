@@ -338,8 +338,9 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> Result<Vec<Transaction>, String> {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
+        let sender_account_id = transaction.body.get_sender();
         let sender: Option<Account> =
-            get(state_update, &account_id_to_bytes(transaction.body.get_sender()));
+            get(state_update, &account_id_to_bytes(sender_account_id));
         match (runtime_data, sender) {
             (Some(mut runtime_data), Some(mut sender)) => {
                 if transaction.body.get_nonce() <= sender.nonce {
@@ -364,7 +365,7 @@ impl Runtime {
                         self.staking(
                             state_update,
                             &t,
-                            &transaction.body.get_sender(),
+                            &sender_account_id,
                             &mut sender,
                             &mut runtime_data,
                             authority_proposals,
@@ -405,7 +406,7 @@ impl Runtime {
                 }
             }
             (None, _) => Err("runtime data does not exist".to_string()),
-            _ => Err(format!("sender {} does not exist", transaction.body.get_sender()))
+            _ => Err(format!("sender {} does not exist", sender_account_id))
         }
     }
 
