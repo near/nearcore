@@ -243,7 +243,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         );
     }
 
-    pub fn on_outgoing_block(&self, block: B) {
+    pub fn on_outgoing_block(&self, block: &B) {
         let peers = self.peer_info.read();
         for peer in peers.keys() {
             let message = Message::BlockAnnounce(message::BlockAnnounce::Block(block.clone()));

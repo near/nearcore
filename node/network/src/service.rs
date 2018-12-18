@@ -114,15 +114,14 @@ pub fn spawn_network_tasks<B, Header>(
 
     // Handles messages going into the network.
     let protocol_id = protocol.config.protocol_id;
-    let service = network_service.clone();
     let messages_handler = message_receiver.for_each(move |(node_index, m)| {
         let data = Encode::encode(&m).expect("Error encoding message.");
-        service.lock().send_custom_message(node_index, protocol_id, data);
+        network_service.lock().send_custom_message(node_index, protocol_id, data);
         Ok(())
     }).map(|_| ()).map_err(|_|());
 
     let block_announce_handler = block_receiver.for_each(move |block| {
-        protocol.on_outgoing_block(block);
+        protocol.on_outgoing_block(&block);
         Ok(())
     });
 
