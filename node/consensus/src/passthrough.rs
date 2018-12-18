@@ -6,6 +6,7 @@ use primitives::types::{MessageDataBody, SignedMessageData, ChainPayload, Gossip
 use std::collections::HashSet;
 use tokio;
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn spawn_consensus(
     payload_rx: Receiver<ChainPayload>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
