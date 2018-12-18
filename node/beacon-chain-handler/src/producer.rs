@@ -2,8 +2,8 @@
 //! state, signs it and puts in on the BeaconChain.
 use std::sync::Arc;
 
-use futures::{Future, future, Stream};
-use futures::sync::mpsc::Receiver;
+use futures::{Future, future, Stream, Sink};
+use futures::sync::mpsc::{Sender, Receiver};
 use parking_lot::RwLock;
 
 use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
@@ -25,7 +25,8 @@ pub fn spawn_block_producer(
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
-    receiver: Receiver<ChainConsensusBlockBody>
+    receiver: Receiver<ChainConsensusBlockBody>,
+    block_announce_tx: Sender<SignedBeaconBlock>,
 ) {
     let beacon_block_producer = BlockProducer::new(
         beacon_chain,
@@ -33,6 +34,7 @@ pub fn spawn_block_producer(
         runtime,
         signer,
         state_db,
+        block_announce_tx,
     );
     let task = receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
         beacon_block_producer.produce_block(body);
@@ -47,6 +49,7 @@ pub struct BlockProducer {
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
+    block_announce_tx: Sender<SignedBeaconBlock>,
 }
 
 impl BlockProducer {
@@ -56,6 +59,7 @@ impl BlockProducer {
         runtime: Arc<RwLock<Runtime>>,
         signer: Arc<Signer>,
         state_db: Arc<StateDb>,
+        block_announce_tx: Sender<SignedBeaconBlock>,
     ) -> Self {
         Self {
             beacon_chain,
@@ -63,15 +67,14 @@ impl BlockProducer {
             runtime,
             signer,
             state_db,
+            block_announce_tx,
         }
     }
 
-    // TODO(#191): Properly consume the consensus body.
-    #[allow(clippy::needless_pass_by_value)]
     pub fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
-        let mut transactions = body.messages.iter()
-            .flat_map(|message| message.body.payload.body.clone())
+        let mut transactions = body.messages.into_iter()
+            .flat_map(|message| message.body.payload.body)
             .collect();
 
         let mut last_block = self.beacon_chain.best_block();
@@ -115,6 +118,14 @@ impl BlockProducer {
             info!(target: "block_producer", "Block body: {:?}", block.body);
             info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
             io::stdout().flush().expect("Could not flush stdout");
+            // send only beacon block to network for now
+            tokio::spawn({
+                let block_tx = self.block_announce_tx.clone();
+                block_tx
+                    .send(block.clone())
+                    .map(|_| ())
+                    .map_err(|e| error!("Error sending block: {:?}", e))
+            });
             if shard_block.body.new_receipts.is_empty() {
                 break;
             }

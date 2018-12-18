@@ -68,6 +68,7 @@ fn spawn_network_tasks(
     receipts_tx: Sender<ReceiptTransaction>,
     gossip_tx: Sender<Gossip<ChainPayload>>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
+    beacon_block_rx: Receiver<SignedBeaconBlock>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
@@ -94,6 +95,7 @@ fn spawn_network_tasks(
         Arc::new(Mutex::new(network_service)),
         protocol,
         net_messages_rx,
+        beacon_block_rx,
     );
 
     // Spawn task sending gossips to the network.
@@ -192,6 +194,7 @@ where
         // Create a task that consumes the consensuses
         // and produces the beacon chain blocks.
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
+        let (beacon_block_outgoing_tx, beacon_block_outgoing_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
             beacon_chain.clone(),
             shard_chain.clone(),
@@ -199,6 +202,7 @@ where
             signer.clone(),
             state_db.clone(),
             beacon_block_consensus_body_rx,
+            beacon_block_outgoing_tx,
         );
 
         // Create task that can import beacon chain blocks from other peers.
@@ -227,6 +231,7 @@ where
             receipts_tx.clone(),
             inc_gossip_tx.clone(),
             out_gossip_rx,
+            beacon_block_outgoing_rx,
         );
 
         // Spawn consensus tasks.
