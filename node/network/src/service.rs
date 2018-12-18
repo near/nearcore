@@ -114,15 +114,14 @@ pub fn spawn_network_tasks<B, Header>(
 
     // Handles messages going into the network.
     let protocol_id = protocol.config.protocol_id;
-    let messages_handler = message_receiver.for_each({
-        let service = network_service.clone();
-        move |(node_index, m)| {
+    let service = network_service.clone();
+    let messages_handler = message_receiver.for_each(move |(node_index, m)| {
         let data = Encode::encode(&m).expect("Error encoding message.");
         service.lock().send_custom_message(node_index, protocol_id, data);
         Ok(())
-    }}).map(|_| ()).map_err(|_|());
+    }).map(|_| ()).map_err(|_|());
 
-    let block_handler = block_receiver.for_each(move |block| {
+    let block_announce_handler = block_receiver.for_each(move |block| {
         protocol.on_outgoing_block(block);
         Ok(())
     });
@@ -133,7 +132,7 @@ pub fn spawn_network_tasks<B, Header>(
     }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)));
 
     tokio::spawn(messages_handler);
-    tokio::spawn(block_handler);
+    tokio::spawn(block_announce_handler);
 }
 
 pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {

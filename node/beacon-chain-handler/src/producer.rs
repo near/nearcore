@@ -26,7 +26,7 @@ pub fn spawn_block_producer(
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
     receiver: Receiver<ChainConsensusBlockBody>,
-    beacon_block_tx: Sender<SignedBeaconBlock>,
+    block_announce_tx: Sender<SignedBeaconBlock>,
 ) {
     let beacon_block_producer = BlockProducer::new(
         beacon_chain,
@@ -34,7 +34,7 @@ pub fn spawn_block_producer(
         runtime,
         signer,
         state_db,
-        beacon_block_tx,
+        block_announce_tx,
     );
     let task = receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
         beacon_block_producer.produce_block(body);
@@ -49,7 +49,7 @@ pub struct BlockProducer {
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
-    beacon_block_tx: Sender<SignedBeaconBlock>,
+    block_announce_tx: Sender<SignedBeaconBlock>,
 }
 
 impl BlockProducer {
@@ -59,7 +59,7 @@ impl BlockProducer {
         runtime: Arc<RwLock<Runtime>>,
         signer: Arc<Signer>,
         state_db: Arc<StateDb>,
-        beacon_block_tx: Sender<SignedBeaconBlock>,
+        block_announce_tx: Sender<SignedBeaconBlock>,
     ) -> Self {
         Self {
             beacon_chain,
@@ -67,7 +67,7 @@ impl BlockProducer {
             runtime,
             signer,
             state_db,
-            beacon_block_tx,
+            block_announce_tx,
         }
     }
 
@@ -120,7 +120,7 @@ impl BlockProducer {
             io::stdout().flush().expect("Could not flush stdout");
             // send only beacon block to network for now
             tokio::spawn({
-                let block_tx = self.beacon_block_tx.clone();
+                let block_tx = self.block_announce_tx.clone();
                 block_tx
                     .send(block.clone())
                     .map(|_| ())
