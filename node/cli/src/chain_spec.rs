@@ -6,12 +6,13 @@ use serde_json;
 
 use node_runtime::chain_spec::ChainSpec;
 use primitives::types::{AccountAlias, ReadablePublicKey};
+use beacon::authority::{AuthorityConfig, AuthorityProposal};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
     accounts: Vec<(AccountAlias, ReadablePublicKey, u64)>,
-    initial_authorities: Vec<(ReadablePublicKey, u64)>,
+    initial_authorities: Vec<(AccountAlias, ReadablePublicKey, u64)>,
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
@@ -45,11 +46,29 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpe
     }
 }
 
+pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
+    let initial_authorities: Vec<AuthorityProposal> = chain_spec.initial_authorities
+        .iter()
+        .map(|(alias, key, amount)| {
+            AuthorityProposal {
+                account_id: alias.into(),
+                public_key: key.into(),
+                amount: *amount,
+            }
+        })
+        .collect();
+    AuthorityConfig {
+        initial_authorities,
+        epoch_length: chain_spec.beacon_chain_epoch_length,
+        num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
+    }
+}
+
 #[test]
 fn test_deserialize() {
     let data = json!({
         "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
-        "initial_authorities": [("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
+        "initial_authorities": [("alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,
         "beacon_chain_num_seats_per_slot": 100,
@@ -57,6 +76,6 @@ fn test_deserialize() {
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(
         spec.initial_authorities[0],
-        ("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50)
+        ("alice".to_string(), "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50)
     );
 }

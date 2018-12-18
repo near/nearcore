@@ -21,7 +21,7 @@ pub fn generate_test_chain_spec() -> ChainSpec {
             ("bob".to_string(), public_keys[1].to_string(), 0),
             ("system".to_string(), public_keys[2].to_string(), 0),
         ],
-        initial_authorities: vec![(public_keys[0].to_string(), 50)],
+        initial_authorities: vec![("alice".to_string(), public_keys[0].to_string(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,

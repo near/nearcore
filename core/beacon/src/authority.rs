@@ -6,7 +6,17 @@ use chain::{BlockChain, SignedBlock};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, BlockId};
-use types::{AuthorityProposal, SignedBeaconBlock, SignedBeaconBlockHeader};
+use types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct AuthorityProposal {
+    /// Account that stakes money.
+    pub account_id: AccountId,
+    /// Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// Stake / weight of the authority.
+    pub amount: u64,
+}
 
 /// Configure the authority rotation.
 pub struct AuthorityConfig {
