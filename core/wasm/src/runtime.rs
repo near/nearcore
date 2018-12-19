@@ -136,7 +136,7 @@ impl<'a> Runtime<'a> {
             Some(v) => v.len(),
             None => 0,
         };
-
+        debug!(target: "wasm", "storage_read_len('{}') => {}", format_buf(key), len);
         Ok(RuntimeValue::I32(len as i32))
     }
 
@@ -154,6 +154,7 @@ impl<'a> Runtime<'a> {
             self.memory
                 .set(val_ptr, &buf)
                 .map_err(|_| Error::MemoryAccessViolation)?;
+            debug!(target: "wasm", "storage_read_into('{}') => '{}'", format_buf(key), format_buf(buf));
         }
         Ok(())
     }
@@ -170,6 +171,7 @@ impl<'a> Runtime<'a> {
         self.ext
             .storage_set(&key, &val)
             .map_err(|_| Error::StorageUpdateError)?;
+        debug!(target: "wasm", "storage_write('{}', '{}')", format_buf(key), format_buf(val));
         Ok(())
     }
 
@@ -439,6 +441,10 @@ impl<'a> Runtime<'a> {
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
     }
+}
+
+fn format_buf(buf: Vec<u8>) -> String {
+    std::str::from_utf8(&buf).unwrap_or(&format!("{:?}", buf)).to_string()
 }
 
 mod ext_impl {
