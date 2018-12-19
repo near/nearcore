@@ -30,9 +30,12 @@ use storage;
 use storage::{StateDb, Storage};
 use tokio;
 
+const STORAGE_PATH: &str = "storage/db";
+const NETWORK_CONFIG_PATH: &str = "storage";
+
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
-    storage_path.push("storage/db");
+    storage_path.push(STORAGE_PATH);
     match fs::canonicalize(storage_path.clone()) {
         Ok(path) => info!("Opening storage database at {:?}", path),
         _ => info!("Could not resolve {:?} path", storage_path),
@@ -59,6 +62,7 @@ fn spawn_rpc_server_task(
 }
 
 fn spawn_network_tasks(
+    base_path: &Path,
     p2p_port: Option<u16>,
     boot_nodes: Vec<String>,
     test_node_index: Option<u32>,
@@ -82,6 +86,9 @@ fn spawn_network_tasks(
         gossip_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
+    let mut network_config_path = base_path.to_owned();
+    network_config_path.push(NETWORK_CONFIG_PATH);
+    network_config.net_config_path = Some(network_config_path.to_string_lossy().to_string());
     network_config.boot_nodes = boot_nodes;
     let p2p_port = p2p_port.unwrap_or(DEFAULT_P2P_PORT);
     network_config.listen_addresses =
@@ -103,7 +110,7 @@ fn spawn_network_tasks(
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets = vec!["network", "producer", "runtime", "service", "near-rpc"];
+    let internal_targets = vec!["network", "producer", "runtime", "service", "near-rpc", "sub-libp2p"];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
@@ -222,6 +229,7 @@ where
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
+            &config.base_path,
             Some(config.p2p_port),
             config.boot_nodes,
             config.test_node_index,
