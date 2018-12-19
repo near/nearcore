@@ -1,5 +1,5 @@
 use primitives::hash::CryptoHash;
-use primitives::types::{BlockId, SignedTransaction, ReceiptTransaction, Gossip};
+use primitives::types::{AccountId, BlockId, SignedTransaction, ReceiptTransaction, Gossip};
 
 pub type RequestId = u64;
 
@@ -27,6 +27,8 @@ pub struct Status {
     pub best_hash: CryptoHash,
     /// Genesis hash.
     pub genesis_hash: CryptoHash,
+    /// Account id.
+    pub account_id: Option<AccountId>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

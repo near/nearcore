@@ -135,3 +135,11 @@ We currently use [clippy](https://github.com/rust-lang-nursery/rust-clippy) to e
 This check is run automatically during CI builds, and in a `pre-commit`
 hook. You can run do a clippy check with `./scripts/run_clippy.sh`.
 
+## Development cluster
+
+To spin multiple nodes, you must first spin up one node and then use it as boot node for all the rest:
+
+    cargo run -- --p2p_port 30333 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1
+
+    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK 
+ 
