@@ -19,12 +19,14 @@ use substrate_network_libp2p::{
 use tokio::timer::Interval;
 
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
+use beacon::authority::{AuthorityConfig, AuthorityProposal};
 use chain::{SignedBlock, SignedHeader};
 use error::Error;
 use message::Message;
-use primitives::hash::CryptoHash;
+use primitives::hash::{CryptoHash, hash_struct};
 use primitives::traits::GenericResult;
 use primitives::types;
+use primitives::signature::get_keypair;
 use protocol::{CURRENT_VERSION, ProtocolConfig, Protocol};
 use self::storage::test_utils::create_memory_db;
 
@@ -120,4 +122,18 @@ pub fn get_test_protocol() -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeade
         message_tx,
         gossip_tx,
     )
+}
+
+pub fn get_test_authority_config(
+        num_authorities: u32,
+        epoch_length: u64,
+        num_seats_per_slot: u64,
+) -> AuthorityConfig {
+    let mut initial_authorities = vec![];
+    for _ in 0..num_authorities {
+        let (public_key, _) = get_keypair();
+        let account_id = hash_struct(&public_key);
+        initial_authorities.push(AuthorityProposal { account_id, public_key, amount: 100 });
+    }
+    AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
 }

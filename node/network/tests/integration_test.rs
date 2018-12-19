@@ -95,6 +95,7 @@ fn test_block_catch_up_from_start() {
     let (block_tx1, _) = channel(1024);
     let (_, block_outgoing_rx1) = channel(1024);
     let (message_tx1, message_rx1) = channel(1024);
+    let (_, authority_rx1) = channel(1024);
     let protocol1 = get_test_protocol(
         beacon_chain1.clone(),
         block_tx1,
@@ -114,6 +115,7 @@ fn test_block_catch_up_from_start() {
     let (block_tx2, block_rx2) = channel(1024);
     let (_, block_outgoing_rx2) = channel(1024);
     let (message_tx2, message_rx2) = channel(1024);
+    let (_, authority_rx2) = channel(1024);
     let protocol2 = get_test_protocol(
         beacon_chain2.clone(),
         block_tx2,
@@ -129,8 +131,8 @@ fn test_block_catch_up_from_start() {
     let task = futures::lazy({
         let chain = beacon_chain2.clone();
         move || {
-        spawn_network_tasks(network_service1, protocol1, message_rx1, block_outgoing_rx1);
-        spawn_network_tasks(network_service2, protocol2, message_rx2, block_outgoing_rx2);
+        spawn_network_tasks(network_service1, protocol1, message_rx1, block_outgoing_rx1, authority_rx1);
+        spawn_network_tasks(network_service2, protocol2, message_rx2, block_outgoing_rx2, authority_rx2);
         spawn_simple_block_import_task(chain, block_rx2);
         Ok(())
     }});
@@ -148,7 +150,6 @@ fn test_block_catch_up_from_start() {
 // this test is expensive to run. should be ignored when running
 // all tests
 #[test]
-#[ignore]
 fn test_block_catchup_from_network_interruption() {
     let storage1 = Arc::new(create_memory_db());
     let genesis_block = SignedBeaconBlock::new(
@@ -159,12 +160,13 @@ fn test_block_catchup_from_network_interruption() {
     let (block_tx1, _) = channel(1024);
     let (_, block_outgoing_rx1) = channel(1024);
     let (message_tx1, message_rx1) = channel(1024);
+    let (_, authority_rx1) = channel(1024);
     let protocol1 = get_test_protocol(
         beacon_chain1.clone(),
         block_tx1,
         message_tx1
     );
-    let addr = "/ip4/127.0.0.1/tcp/30000";
+    let addr = "/ip4/127.0.0.1/tcp/30002";
     let secret = create_secret();
     let config1 = test_config_with_secret(addr, vec![], secret);
     let network_service1 = Arc::new(Mutex::new(
@@ -177,13 +179,14 @@ fn test_block_catchup_from_network_interruption() {
     let (block_tx2, block_rx2) = channel(1024);
     let (_, block_outgoing_rx2) = channel(1024);
     let (message_tx2, message_rx2) = channel(1024);
+    let (_, authority_rx2) = channel(1024);
     let protocol2 = get_test_protocol(
         beacon_chain2.clone(),
         block_tx2,
         message_tx2
     );
-    let boot_node = "/ip4/127.0.0.1/tcp/30000/p2p/".to_string() + &raw_key_to_peer_id_str(secret);
-    let config2 = test_config("/ip4/127.0.0.1/tcp/30001", vec![boot_node]);
+    let boot_node = "/ip4/127.0.0.1/tcp/30002/p2p/".to_string() + &raw_key_to_peer_id_str(secret);
+    let config2 = test_config("/ip4/127.0.0.1/tcp/30003", vec![boot_node]);
     let network_service2 = Arc::new(Mutex::new(
         new_network_service(&ProtocolConfig::default(), config2)
     ));
@@ -229,8 +232,20 @@ fn test_block_catchup_from_network_interruption() {
     let task = futures::lazy({
         let chain = beacon_chain2.clone();
         move || {
-        spawn_network_tasks(network_service1, protocol1, message_rx1, block_outgoing_rx1);
-        spawn_network_tasks(network_service2.clone(), protocol2, message_rx2, block_outgoing_rx2);
+        spawn_network_tasks(
+            network_service1,
+            protocol1,
+            message_rx1,
+            block_outgoing_rx1,
+            authority_rx1
+        );
+        spawn_network_tasks(
+            network_service2.clone(),
+            protocol2,
+            message_rx2,
+            block_outgoing_rx2,
+            authority_rx2
+        );
         spawn_simple_block_import_task(chain, block_rx2);
         block_task
     }}).map(|_| ()).map_err(|_| ());
@@ -259,12 +274,13 @@ fn test_block_announce() {
     let (block_tx1, _) = channel(1024);
     let (block_outgoing_tx1, block_outgoing_rx1) = channel(1024);
     let (message_tx1, message_rx1) = channel(1024);
+    let (_, authority_rx1) = channel(1024);
     let protocol1 = get_test_protocol(
         beacon_chain1.clone(),
         block_tx1,
         message_tx1
     );
-    let addr = "/ip4/127.0.0.1/tcp/30000";
+    let addr = "/ip4/127.0.0.1/tcp/30004";
     let secret = create_secret();
     let config1 = test_config_with_secret(addr, vec![], secret);
     let network_service1 = Arc::new(Mutex::new(
@@ -277,13 +293,14 @@ fn test_block_announce() {
     let (block_tx2, block_rx2) = channel(1024);
     let (_, block_outgoing_rx2) = channel(1024);
     let (message_tx2, message_rx2) = channel(1024);
+    let (_, authority_rx2) = channel(1024);
     let protocol2 = get_test_protocol(
         beacon_chain2.clone(),
         block_tx2,
         message_tx2
     );
-    let boot_node = "/ip4/127.0.0.1/tcp/30000/p2p/".to_string() + &raw_key_to_peer_id_str(secret);
-    let config2 = test_config("/ip4/127.0.0.1/tcp/30001", vec![boot_node]);
+    let boot_node = "/ip4/127.0.0.1/tcp/30004/p2p/".to_string() + &raw_key_to_peer_id_str(secret);
+    let config2 = test_config("/ip4/127.0.0.1/tcp/30005", vec![boot_node]);
     let network_service2 = Arc::new(Mutex::new(
         new_network_service(&ProtocolConfig::default(), config2)
     ));
@@ -294,10 +311,10 @@ fn test_block_announce() {
         let service1 = network_service1.clone();
         let service2 = network_service2.clone();
         move || {
-        spawn_network_tasks(service1.clone(), protocol1, message_rx1, block_outgoing_rx1);
-        spawn_network_tasks(service2.clone(), protocol2, message_rx2, block_outgoing_rx2);
+        spawn_network_tasks(service1.clone(), protocol1, message_rx1, block_outgoing_rx1, authority_rx1);
+        spawn_network_tasks(service2.clone(), protocol2, message_rx2, block_outgoing_rx2, authority_rx2);
         spawn_simple_block_import_task(chain2, block_rx2);
-        thread::sleep(Duration::from_secs(4));
+        thread::sleep(Duration::from_secs(3));
         spawn_simple_block_prod_task(chain1, block_outgoing_tx1);
         Ok(())
     }});
@@ -310,5 +327,4 @@ fn test_block_announce() {
         thread::sleep(Duration::from_secs(1));
     }
     std::mem::drop(handle);
-
 }
