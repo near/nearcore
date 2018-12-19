@@ -1,7 +1,7 @@
 var txflow = require('./txflow.js');
 var utils = require('./utils.js');
 const fs = require('fs');
-
+const path = require('path');
 
 maxUsers = 25;
 maxNodes = 100;
@@ -10,7 +10,7 @@ function getRandomInt(max) {
     return Math.floor((Math.random()) * Math.floor(max)) + 1;
 }
 
-common_for_tests = fs.readFileSync('common_rust_code_for_tests.txt', 'utf8');
+common_for_tests = fs.readFileSync(path.resolve(__dirname, 'common_rust_code_for_tests.txt'), 'utf8');
 
 failed_rust = false;
 
@@ -37,7 +37,7 @@ while (true) {
     if (!failed_rust) {
         rust_test = txflow.gen_rust(graph, totalUsers, timeStamp, comment, serialized)
 
-        fs.writeFileSync('../../core/txflow/src/dag/message/' + fn_name, common_for_tests + '\n' + rust_test + '}');
+        fs.writeFileSync(path.resolve(__dirname, '../../core/txflow/src/dag/message/' + fn_name), common_for_tests + '\n' + rust_test + '}');
 
         const execSync = require('child_process').execSync;
         try {
