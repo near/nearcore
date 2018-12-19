@@ -128,14 +128,23 @@ impl StateDbViewer {
                 match wasm_res {
                     Ok(res) => {
                         debug!(target: "runtime", "result of execution: {:?}", res);
-                        // TODO: Handle other ExecutionOutcome results
-                        if let ReturnData::Value(buf) = res.return_data {
-                            result.extend(&buf);
+                        match res.return_data {
+                            Ok(return_data) => {
+                                // TODO(#297): Handle other ExecutionOutcome results
+                                if let ReturnData::Value(buf) = return_data {
+                                    result.extend(&buf);
+                                }
+                                Ok(result)
+                            },
+                            Err(e) => {
+                                let message = format!("wasm view call execution failed with error: {:?}", e);
+                                debug!(target: "runtime", "{}", message);
+                                Err(message)
+                            }
                         }
-                        Ok(result)
                     }
                     Err(e) => {
-                        let message = format!("wasm execution failed with error: {:?}", e);
+                        let message = format!("wasm view call preparation failed with error: {:?}", e);
                         debug!(target: "runtime", "{}", message);
                         Err(message)
                     }

@@ -149,7 +149,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(20)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(20)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -168,7 +168,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(40)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(40)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -191,7 +191,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(12)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(12)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(outcome.mana_used, 4); 
 
         match outcome.return_data {
-            ReturnData::Promise(promise_id) => assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec())),
+            Ok(ReturnData::Promise(promise_id)) => assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec())),
             _ => assert!(false, "Expected returned promise"),
         };
     }
@@ -224,9 +224,9 @@ mod tests {
             &input_data,
             &[],
             &runtime_context(0, 0, 3),
-        );
+        ).expect("outcome to be ok");
 
-        match outcome {
+        match outcome.return_data {
             Err(_) => assert!(true, "That's legit"),
             _ => assert!(false, "Expected to fail with mana limit"),
         };
@@ -253,9 +253,9 @@ mod tests {
             &input_data,
             &[],
             &runtime_context(0, 0, 0),
-        );
+        ).expect("outcome to be ok");
 
-        match outcome {
+        match outcome.return_data {
             Err(_) => assert!(true, "That's legit"),
             _ => assert!(false, "Expected to fail with assert failure"),
         };
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(outcome.mana_left, 10);
 
         match outcome.return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -295,7 +295,7 @@ mod tests {
         let approximate_expected_gas = Config::default().gas_limit;
 
         match return_data {
-            ReturnData::Value(output_data) => {
+            Ok(ReturnData::Value(output_data)) => {
                 assert_eq!(output_data.len(), 8);
                 let actual_gas = LittleEndian::read_u64(&output_data);
                 assert!(actual_gas <= approximate_expected_gas);
@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(outcome.balance, 100);
 
         match outcome.return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_u64(90)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(90)),
             _ => assert!(false, "Expected returned value"),
         };
     }
