@@ -7,16 +7,16 @@ use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
+use beacon::authority::SelectedAuthority;
+use chain::{BlockChain, SignedBlock, SignedHeader as BlockHeader};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
+use primitives::signature::PublicKey;
 use primitives::traits::Decode;
 use primitives::types::{
-    AccountId, BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload,
+    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction,
     UID,
 };
-use primitives::signature::PublicKey;
-use beacon::authority::SelectedAuthority;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -388,17 +388,21 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 mod tests {
     extern crate storage;
 
-    use super::*;
     use std::thread;
     use std::time::Duration;
-    use primitives::traits::Encode;
-    use primitives::types::{SignedTransaction, ChainPayload};
-    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
-    use beacon::authority::Authority;
-    use test_utils::{get_test_protocol, get_test_authority_config};
-    use self::storage::test_utils::create_memory_db;
-    use futures::sync::mpsc::channel;
+
     use futures::{Sink, Stream};
+    use futures::sync::mpsc::channel;
+
+    use beacon::authority::Authority;
+    use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
+    use primitives::traits::Encode;
+    use primitives::types::{ChainPayload, SignedTransaction};
+    use test_utils::{get_test_authority_config, get_test_protocol};
+
+    use super::*;
+
+    use self::storage::test_utils::create_memory_db;
 
     #[test]
     fn test_serialization() {

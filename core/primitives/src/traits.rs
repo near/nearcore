@@ -46,7 +46,7 @@ pub trait Signer: Sync + Send {
     fn account_id(&self) -> types::AccountId;
 }
 
-pub trait WitnessSelector {
+pub trait WitnessSelector: 'static {
     fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
     fn epoch_leader(&self, epoch: u64) -> types::UID;
     /// Random sample of witnesses. Should exclude the current witness.

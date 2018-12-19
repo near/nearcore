@@ -8,7 +8,7 @@ primitives = { path = "../primitives" }
 typed-arena = "1.4.1"
 futures = "0.1.25"
 tokio = "0.1"
-rand = "0.6.0"
+rand = "0.6"
 chrono = "0.4.6"
 log = "0.4"
 serde = "1.0"
