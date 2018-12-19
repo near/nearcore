@@ -21,13 +21,12 @@ except ImportError:
     print("Please install bson: pip install bson")
     exit(1)
 
+
 def _post(url, data):
     request = Request(url, data=json.dumps(data).encode('utf-8'))
     request.add_header('Content-Type', 'application/json')
     connection = urlopen(request)
-    if connection.code == 200:
-        raw = connection.read()
-        return json.loads(raw)
+    return connection
 
 
 alphabet = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
@@ -101,26 +100,21 @@ class NearRPC(object):
         self._nonces[sender] += 1
 
     def _call_rpc(self, method_name, params):
-        data = {
-            'jsonrpc': '2.0',
-            'id': 1,
-            'method': method_name,
-            'params': [params],
-        }
+        data = params
         if self._debug:
             print(data)
 
         try:
-            response = _post(self._server_url, data)
-            if 'error' in response:
-                print(response['error'])
-                exit(1)
-
-            result = response['result']
+            connection = _post(self._server_url + method_name, data)
+            raw = connection.read()
             if self._debug:
-                print(result)
-
-            return result
+                print(raw)
+            return json.loads(raw)
+        except HTTPError as e:
+            if e.code == 400:
+                print(e.fp.read())
+                exit(1)
+            raise
         except URLError:
             error = "Connection to {} refused. " \
                     "To start RPC server at http://127.0.0.1:3030, run:\n" \
@@ -365,7 +359,7 @@ swap_key                 {}
             '-u',
             '--server-url',
             type=str,
-            default='http://127.0.0.1:3030',
+            default='http://127.0.0.1:3030/',
             help='url of RPC server',
         )
         parser.add_argument(
@@ -496,7 +490,7 @@ swap_key                 {}
         self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
-        parser.add_argument('args', type=str, default="{}")
+        parser.add_argument('--args', type=str, default="{}")
         parser.add_argument(
             '-a',
             '--amount',
@@ -520,7 +514,7 @@ swap_key                 {}
         self._add_transaction_args(parser)
         parser.add_argument('contract_name', type=str)
         parser.add_argument('function_name', type=str)
-        parser.add_argument('args', type=str, default="{}")
+        parser.add_argument('--args', type=str, default="{}")
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.call_view_function(

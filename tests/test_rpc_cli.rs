@@ -4,7 +4,7 @@ extern crate keystore;
 #[macro_use]
 extern crate lazy_static;
 extern crate log;
-extern crate node_rpc;
+extern crate node_http;
 extern crate primitives;
 extern crate rand;
 extern crate serde_json;
@@ -20,7 +20,7 @@ use std::time::Duration;
 use rand::Rng;
 use serde_json::Value;
 
-use node_rpc::types::{
+use node_http::types::{
     CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
 };
 
@@ -159,10 +159,13 @@ test! { fn test_deploy() { test_deploy_inner() } }
 fn test_schedule_function_call_inner() {
     if !*DEVNET_STARTED { panic!() }
     let (_, contract_name) = deploy_contract().unwrap();
+    thread::sleep(Duration::from_millis(500));
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
         .arg(contract_name)
         .arg("run_test")
+        .arg("--args")
+        .arg("{}")
         .arg("-d")
         .arg(KEY_STORE_PATH)
         .arg("-k")
@@ -184,7 +187,7 @@ fn test_call_view_function_inner() {
         .arg(contract_name)
         .arg("run_test")
         .arg("--args")
-        .arg("10")
+        .arg("{}")
         .output()
         .expect("call_view_function command failed to process");
 
