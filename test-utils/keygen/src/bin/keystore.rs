@@ -4,9 +4,9 @@ extern crate primitives;
 extern crate serde_json;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use keystore::{get_key_file, write_key_file};
 use primitives::hash::hash_struct;
 use primitives::signature::sign;
+use primitives::signer::{get_key_file, write_key_file};
 use primitives::types::{SignedTransaction, TransactionBody};
 use std::path::PathBuf;
 use std::process;
@@ -21,7 +21,7 @@ fn get_key_store_path(matches: &ArgMatches) -> PathBuf {
 fn sign_transaction(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
 
-    let public_key = matches.value_of("public_key");
+    let public_key = matches.value_of("public_key").map(String::from);
     let key_file = get_key_file(&key_store_path, public_key);
 
     let data = matches.value_of("data").unwrap();

@@ -1,6 +1,5 @@
 extern crate core;
 extern crate devnet;
-extern crate keystore;
 #[macro_use]
 extern crate lazy_static;
 extern crate log;
@@ -23,6 +22,7 @@ use serde_json::Value;
 use node_http::types::{
     CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
 };
+use primitives::signer::write_key_file;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
@@ -44,7 +44,7 @@ fn test_service_ready() -> bool {
 
 fn get_public_key() -> String {
     let key_store_path = Path::new(KEY_STORE_PATH);
-    keystore::write_key_file(key_store_path)
+    write_key_file(key_store_path)
 }
 
 lazy_static! {
