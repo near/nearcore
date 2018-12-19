@@ -405,7 +405,7 @@ impl<'a> Runtime<'a> {
 
     fn log(&self, args: &RuntimeArgs) -> Result<()> {
         let msg_ptr: u32 = args.nth_checked(0)?;
-        println!("{}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+        debug!(target: "wasm", "{}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
         Ok(())
     }
 
