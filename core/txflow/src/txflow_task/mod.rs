@@ -12,24 +12,38 @@ use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
 use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
 
+pub mod beacon_witness_selector;
+
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
+static UNINITIALIZED_STATE_ERR: &'static str = "The state was not initialized yet.";
 static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
 const COOLDOWN_MS: u64 = 1;
 const FORCED_GOSSIP_MS: u64 = 1000;
 
-/// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
-/// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
-/// and consensuses. Currently produces only stream of gossips, TODO stream of consensuses.
-pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
+pub struct State<W: WitnessSelector> {
     owner_uid: UID,
     starting_epoch: u64,
     /// The size of the random sample of witnesses that we draw every time we gossip.
     gossip_size: usize,
+    witness_selector: Box<W>,
+}
+
+/// An enum that we use to start and stop the TxFlow task.
+pub enum Control<W: WitnessSelector> {
+    Reset(State<W>),
+    Stop,
+}
+
+/// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
+/// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
+/// and consensuses. Currently produces only stream of gossips, TODO stream of consensuses.
+pub struct TxFlowTask<'a, P: 'a + Payload, W: WitnessSelector> {
+    state: Option<State<W>>,
+    dag: Option<Box<DAG<'a, P, W>>>,
     messages_receiver: mpsc::Receiver<Gossip<P>>,
     payload_receiver: mpsc::Receiver<P>,
     messages_sender: mpsc::Sender<Gossip<P>>,
-    witness_selector: Box<W>,
-    dag: Option<Box<DAG<'a, P, W>>>,
+    control_receiver: mpsc::Receiver<Control<W>>,
 
     /// Received messages that we cannot yet add to DAG, because we are missing parents.
     /// message -> hashes that we are missing.
@@ -57,22 +71,17 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: 'a + WitnessSelector> {
 }
 
 impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
-    pub fn new(owner_uid: UID,
-               starting_epoch: u64,
-               gossip_size: usize,
-               messages_receiver: mpsc::Receiver<Gossip<P>>,
+    pub fn new(messages_receiver: mpsc::Receiver<Gossip<P>>,
                payload_receiver: mpsc::Receiver<P>,
                messages_sender: mpsc::Sender<Gossip<P>>,
-               witness_selector: W) -> Self {
+               control_receiver: mpsc::Receiver<Control<W>>) -> Self {
         Self {
-            owner_uid,
-            starting_epoch,
-            gossip_size,
+            state: None,
+            dag: None,
             messages_receiver,
             payload_receiver,
             messages_sender,
-            witness_selector: Box::new(witness_selector),
-            dag: None,
+            control_receiver,
             blocked_messages: HashMap::new(),
             blocking_hashes: HashMap::new(),
             blocked_replies: HashMap::new(),
@@ -84,19 +93,36 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         }
     }
 
-    /// Drop the current TxFlow DAG.
-    pub fn drop_dag(&mut self) {
-        self.dag.take();
-    }
-
     /// Mutable reference to the DAG.
+    #[inline]
     fn dag_as_mut(&mut self) -> &mut DAG<'a, P, W>{
         self.dag.as_mut().expect(UNINITIALIZED_DAG_ERR).borrow_mut()
     }
 
     /// Immutable reference to the DAG.
+    #[inline]
     fn dag_as_ref(&self) -> &DAG<'a, P, W>{
         self.dag.as_ref().expect(UNINITIALIZED_DAG_ERR).borrow()
+    }
+
+    #[inline]
+    fn owner_uid(&self) -> UID {
+        self.state.as_ref().expect(UNINITIALIZED_STATE_ERR).owner_uid
+    }
+
+    #[inline]
+    fn starting_epoch(&self) -> u64 {
+        self.state.as_ref().expect(UNINITIALIZED_STATE_ERR).starting_epoch
+    }
+
+    #[inline]
+    fn gossip_size(&self) -> usize {
+        self.state.as_ref().expect(UNINITIALIZED_STATE_ERR).gossip_size
+    }
+
+    #[inline]
+    fn witness_selector(&self) -> &W {
+        self.state.as_ref().expect(UNINITIALIZED_STATE_ERR).witness_selector.as_ref()
     }
 
     /// Sends a gossip by spawning a separate task.
@@ -202,7 +228,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                     |h| self.dag_as_ref()
                         .copy_message_data_by_hash(h)).collect();
                 let reply = Gossip {
-                    sender_uid: self.owner_uid,
+                    sender_uid: self.owner_uid(),
                     receiver_uid: gossip.sender_uid,
                     sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::FetchReply(reply_messages)
@@ -218,11 +244,11 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     }
 
     fn init_dag(&mut self) {
-        let witness_ptr = self.witness_selector.as_ref() as *const W;
+        let witness_ptr = self.witness_selector() as *const W;
         // Since we are controlling the creation of the DAG by encapsulating it here
         // this code is safe.
         self.dag = Some(Box::new(
-            DAG::new(self.owner_uid, self.starting_epoch, unsafe {&*witness_ptr})));
+            DAG::new(self.owner_uid(), self.starting_epoch(), unsafe {&*witness_ptr})));
     }
 }
 
@@ -232,10 +258,39 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        // Check if DAG needs to be created.
-        if self.dag.is_none() {
-            self.init_dag();
-        }
+        match self.control_receiver.poll() {
+            // Independently on whether we were stopped or not, if we receive a reset signal we
+            // reset the state and the dag.
+            Ok(Async::Ready(Some(Control::Reset(state)))) => {
+                self.state = Some(state);
+                self.init_dag();
+            },
+            // Stop command received.
+            Ok(Async::Ready(Some(Control::Stop))) => {
+                if self.state.is_some() {
+                    self.state = None;
+                    self.dag = None;
+                    // On the next call of poll if we still don't have the state this task will be
+                    // parked because we will return NotReady.
+                    return Ok(Async::Ready(Some(())));
+                } else {
+                    panic!("TxFlow task received stop command, but it is already stopped");
+                }
+            },
+            // The input to control channel was dropped. We terminate TxFlow entirely.
+            Ok(Async::Ready(None)) => {
+                println!("Control channel was dropped");
+                return Ok(Async::Ready(None));
+            },
+            Ok(Async::NotReady) => {
+                // If there is not state then we cannot proceed, we return NotReady which will park
+                // the task and wait until we get the state over the control channel.
+                if self.state.is_none() {
+                    return Ok(Async::NotReady);
+                }
+            },
+            Err(err) => error!("Failed to read from the control channel {:?}", err),
+        };
 
         // Process new gossips.
         let mut end_of_gossips = false;
@@ -268,11 +323,12 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         }
 
         // Sending pending fetches.
+        let owner_uid = self.owner_uid();
         let mut gossips_to_send = vec![];
         for (receiver_uid, mut hashes) in self.pending_fetches.drain() {
             assert!(!hashes.is_empty());
             let reply = Gossip {
-                sender_uid: self.owner_uid,
+                sender_uid: owner_uid,
                 receiver_uid,
                 sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                 body: GossipBody::Fetch(hashes.drain().collect())
@@ -326,11 +382,11 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             );
 
             // First send gossip to random witnesses.
-            let random_witnesses = self.witness_selector.random_witnesses(
-                gossip_body.body.epoch, self.gossip_size);
+            let random_witnesses = self.witness_selector().random_witnesses(
+                gossip_body.body.epoch, self.gossip_size());
             for w in &random_witnesses {
                 let gossip = Gossip {
-                    sender_uid: self.owner_uid,
+                    sender_uid: owner_uid,
                     receiver_uid: *w,
                     sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::Unsolicited(gossip_body.clone())
@@ -341,7 +397,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             // Then, send it to whoever has requested it.
             for w in &self.pending_replies - &random_witnesses {
                 let gossip = Gossip {
-                    sender_uid: self.owner_uid,
+                    sender_uid: owner_uid,
                     receiver_uid: w,
                     sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
                     body: GossipBody::UnsolicitedReply(gossip_body.clone())
@@ -379,35 +435,17 @@ mod tests {
     use primitives::traits::WitnessSelector;
     use testing_utils::FakePayload;
 
-    struct FakeWitnessSelector {
-        schedule: HashSet<UID>,
-        next_random_witnesses: HashSet<UID>,
-    }
-
-    impl FakeWitnessSelector {
-        fn new() -> Self {
-            Self {
-                schedule: set!{0,1,2},
-                next_random_witnesses: set!{0},
-            }
-        }
-
-        // Will be used in the future unit tests.
-        #[allow(dead_code)]
-        fn set_next_random_witness(&mut self, uids: HashSet<UID>) {
-            self.next_random_witnesses = uids;
-        }
-    }
+    struct FakeWitnessSelector { }
 
     impl WitnessSelector for FakeWitnessSelector {
         fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<UID> {
-            &self.schedule
+            unimplemented!()
         }
-        fn epoch_leader(&self, epoch: u64) -> UID {
-            epoch % self.schedule.len() as u64
+        fn epoch_leader(&self, _epoch: u64) -> UID {
+            unimplemented!()
         }
         fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
-            self.next_random_witnesses.clone()
+            unimplemented!()
         }
     }
 
@@ -417,16 +455,12 @@ mod tests {
         // The input channels drop and end immediately and so should TxFlowTask
         // without producing anything.
         tokio::run(lazy(|| {
-            let owner_uid = 0;
-            let starting_epoch = 0;
-            let sample_size = 2;
-            let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
-            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
-            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
-            let selector = FakeWitnessSelector::new();
-            let task = TxFlowTask::<FakePayload, _>::new(
-                owner_uid, starting_epoch, sample_size, inc_gossip_rx,
-                inc_payload_rx, out_gossip_tx, selector);
+            let (_inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
+            let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1024);
+            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1024);
+            let (_control_tx, control_rx) = mpsc::channel(1024);
+            let task = TxFlowTask::<FakePayload, FakeWitnessSelector>::new(inc_gossip_rx,
+                inc_payload_rx, out_gossip_tx, control_rx);
             tokio::spawn(task.for_each(|_| Ok(())));
             Ok(())
         }));
