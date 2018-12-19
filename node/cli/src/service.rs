@@ -5,6 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 use env_logger::Builder;
 use futures::future;
@@ -12,8 +13,10 @@ use futures::sync::mpsc::{channel, Receiver, Sender};
 use parking_lot::{Mutex, RwLock};
 
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
+use beacon::authority::{Authority, SelectedAuthority};
 use beacon_chain_handler;
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
+use beacon_chain_handler::authority_handler::{AuthorityHandler, spawn_authority_task};
 use chain::SignedBlock;
 use chain_spec;
 use consensus::adapters;
@@ -23,8 +26,10 @@ use network::protocol::{Protocol, ProtocolConfig};
 use node_rpc;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
-use primitives::types::ChainPayload;
-use primitives::types::{Gossip, ReceiptTransaction, SignedTransaction};
+use primitives::types::{
+    Gossip, ReceiptTransaction, SignedTransaction, ChainPayload,
+    UID, AccountId, AccountAlias,
+};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage;
 use storage::{StateDb, Storage};
@@ -69,6 +74,7 @@ fn spawn_network_tasks(
     gossip_tx: Sender<Gossip<ChainPayload>>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
     beacon_block_rx: Receiver<SignedBeaconBlock>,
+    authority_rx: Receiver<HashMap<UID, SelectedAuthority>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::default();
@@ -96,6 +102,7 @@ fn spawn_network_tasks(
         protocol,
         net_messages_rx,
         beacon_block_rx,
+        authority_rx,
     );
 
     // Spawn task sending gossips to the network.
@@ -133,6 +140,8 @@ pub struct ServiceConfig {
     pub p2p_port: u16,
     pub boot_nodes: Vec<String>,
     pub test_node_index: Option<u32>,
+
+    pub account_name: AccountAlias,
 }
 
 impl Default for ServiceConfig {
@@ -145,6 +154,7 @@ impl Default for ServiceConfig {
             p2p_port: DEFAULT_P2P_PORT,
             boot_nodes: vec![],
             test_node_index: None,
+            account_name: "alice".to_string()
         }
     }
 }
@@ -179,7 +189,11 @@ where
     let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
     let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
     let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
-    let signer = Arc::new(InMemorySigner::default());
+    let account_id = AccountId::from(&config.account_name);
+    let signer = Arc::new(InMemorySigner::new(account_id));
+    let authority_config = chain_spec::get_authority_config(&chain_spec);
+    let authority = Authority::new(authority_config, &beacon_chain);
+    let authority_handler = AuthorityHandler::new(authority, account_id);
 
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
@@ -191,10 +205,16 @@ where
             state_db.clone(),
         );
 
+        // Create a task that receives new blocks from importer/producer
+        // and send the authority information to consensus
+        let (new_block_tx, new_block_rx) = channel(1024);
+        let (authority_tx, authority_rx) = channel(1024);
+        spawn_authority_task(authority_handler, new_block_rx, authority_tx);
+
         // Create a task that consumes the consensuses
         // and produces the beacon chain blocks.
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
-        let (beacon_block_outgoing_tx, beacon_block_outgoing_rx) = channel(1024);
+        let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
             beacon_chain.clone(),
             shard_chain.clone(),
@@ -202,7 +222,8 @@ where
             signer.clone(),
             state_db.clone(),
             beacon_block_consensus_body_rx,
-            beacon_block_outgoing_tx,
+            beacon_block_announce_tx,
+            new_block_tx.clone(),
         );
 
         // Create task that can import beacon chain blocks from other peers.
@@ -213,6 +234,7 @@ where
             runtime.clone(),
             state_db.clone(),
             beacon_block_rx,
+            new_block_tx,
         );
 
         // Spawn protocol and the network_task.
@@ -231,7 +253,8 @@ where
             receipts_tx.clone(),
             inc_gossip_tx.clone(),
             out_gossip_rx,
-            beacon_block_outgoing_rx,
+            beacon_block_announce_rx,
+            authority_rx
         );
 
         // Spawn consensus tasks.

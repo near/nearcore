@@ -27,6 +27,7 @@ pub fn spawn_block_producer(
     state_db: Arc<StateDb>,
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<SignedBeaconBlock>,
+    new_block_tx: Sender<SignedBeaconBlock>,
 ) {
     let beacon_block_producer = BlockProducer::new(
         beacon_chain,
@@ -35,6 +36,7 @@ pub fn spawn_block_producer(
         signer,
         state_db,
         block_announce_tx,
+        new_block_tx,
     );
     let task = receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
         beacon_block_producer.produce_block(body);
@@ -50,6 +52,7 @@ pub struct BlockProducer {
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
     block_announce_tx: Sender<SignedBeaconBlock>,
+    new_block_tx: Sender<SignedBeaconBlock>,
 }
 
 impl BlockProducer {
@@ -60,6 +63,7 @@ impl BlockProducer {
         signer: Arc<Signer>,
         state_db: Arc<StateDb>,
         block_announce_tx: Sender<SignedBeaconBlock>,
+        new_block_tx: Sender<SignedBeaconBlock>,
     ) -> Self {
         Self {
             beacon_chain,
@@ -68,6 +72,7 @@ impl BlockProducer {
             signer,
             state_db,
             block_announce_tx,
+            new_block_tx
         }
     }
 
@@ -118,10 +123,18 @@ impl BlockProducer {
             info!(target: "block_producer", "Block body: {:?}", block.body);
             info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
             io::stdout().flush().expect("Could not flush stdout");
-            // send only beacon block to network for now
+            // send beacon block to network
             tokio::spawn({
-                let block_tx = self.block_announce_tx.clone();
-                block_tx
+                let block_announce_tx = self.block_announce_tx.clone();
+                block_announce_tx
+                    .send(block.clone())
+                    .map(|_| ())
+                    .map_err(|e| error!("Error sending block: {:?}", e))
+            });
+            // send beacon block to authority handler
+            tokio::spawn({
+                let new_block_tx = self.new_block_tx.clone();
+                new_block_tx
                     .send(block.clone())
                     .map(|_| ())
                     .map_err(|e| error!("Error sending block: {:?}", e))

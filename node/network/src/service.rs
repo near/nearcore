@@ -3,6 +3,7 @@ use std::mem;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::collections::HashMap;
 
 use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
@@ -18,8 +19,9 @@ use substrate_network_libp2p::Secret;
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
 use primitives::traits::Encode;
-use primitives::types::ChainPayload;
+use primitives::types::{ChainPayload, UID};
 use protocol::{self, Protocol, ProtocolConfig};
+use beacon::authority::SelectedAuthority;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -35,6 +37,7 @@ pub fn spawn_network_tasks<B, Header>(
     protocol_: Protocol<B, Header>,
     message_receiver: Receiver<(NodeIndex, Message<B, Header, ChainPayload>)>,
     block_receiver: Receiver<B>,
+    authority_receiver: Receiver<HashMap<UID, SelectedAuthority>>,
 ) where
     B: SignedBlock,
     Header: BlockHeader,
@@ -120,8 +123,9 @@ pub fn spawn_network_tasks<B, Header>(
         Ok(())
     }).map(|_| ()).map_err(|_|());
 
+    let protocol1 = protocol.clone();
     let block_announce_handler = block_receiver.for_each(move |block| {
-        protocol.on_outgoing_block(&block);
+        protocol1.on_outgoing_block(&block);
         Ok(())
     });
 
@@ -132,6 +136,12 @@ pub fn spawn_network_tasks<B, Header>(
 
     tokio::spawn(messages_handler);
     tokio::spawn(block_announce_handler);
+    tokio::spawn(
+        authority_receiver.for_each(move |map| {
+            protocol.set_authority_map(map);
+            Ok(())
+        })
+    );
 }
 
 pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {

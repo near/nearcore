@@ -1,17 +1,7 @@
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::PublicKey;
-use primitives::types::{AccountId, AuthorityMask, MultiSignature, PartialSignature};
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct AuthorityProposal {
-    /// Account that stakes money.
-    pub account_id: AccountId,
-    /// Public key of the proposed authority.
-    pub public_key: PublicKey,
-    /// Stake / weight of the authority.
-    pub amount: u64,
-}
+use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
+use authority::AuthorityProposal;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {

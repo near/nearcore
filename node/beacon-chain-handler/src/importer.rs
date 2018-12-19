@@ -1,11 +1,10 @@
 //! BeaconBlockImporter consumes blocks that we received from other peers and adds them to the
 //! chain.
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::{Future, future, Stream};
-use futures::sync::mpsc::Receiver;
+use futures::{Future, future, Stream, Sink};
+use futures::sync::mpsc::{Receiver, Sender};
 use parking_lot::RwLock;
 
 use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
@@ -21,16 +20,18 @@ pub fn spawn_block_importer(
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
-    receiver: Receiver<SignedBeaconBlock>
+    receiver: Receiver<SignedBeaconBlock>,
+    new_block_tx: Sender<SignedBeaconBlock>,
 ) {
-    let beacon_block_importer = RefCell::new(BlockImporter::new(
+    let beacon_block_importer = BlockImporter::new(
         beacon_chain,
         shard_chain,
         runtime,
         state_db,
-    ));
-    let task = receiver.fold(beacon_block_importer, |beacon_block_importer, body| {
-        beacon_block_importer.borrow_mut().import_beacon_block(body);
+        new_block_tx,
+    );
+    let task = receiver.fold(beacon_block_importer, |mut beacon_block_importer, body| {
+        beacon_block_importer.import_beacon_block(body);
         future::ok(beacon_block_importer)
     }).and_then(|_| Ok(()));
     tokio::spawn(task);
@@ -44,6 +45,7 @@ pub struct BlockImporter {
     /// Stores blocks that cannot be added yet.
     pending_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
     pending_shard_blocks: HashMap<CryptoHash, SignedShardBlock>,
+    new_block_tx: Sender<SignedBeaconBlock>,
 }
 
 impl BlockImporter {
@@ -52,6 +54,7 @@ impl BlockImporter {
         shard_chain: Arc<ShardBlockChain>,
         runtime: Arc<RwLock<Runtime>>,
         state_db: Arc<StateDb>,
+        new_block_tx: Sender<SignedBeaconBlock>,
     ) -> Self {
         Self {
             beacon_chain,
@@ -60,6 +63,7 @@ impl BlockImporter {
             state_db,
             pending_beacon_blocks: HashMap::new(),
             pending_shard_blocks: HashMap::new(),
+            new_block_tx,
         }
     }
 
@@ -164,7 +168,19 @@ impl BlockImporter {
             let hash = next_beacon_block.block_hash();
             if self.beacon_chain.is_known(&hash) { continue; }
 
-            let next_shard_block = self.pending_shard_blocks.remove(&next_beacon_block.body.header.shard_block_hash).expect("Expected to have shard block present when processing beacon block");
+            let next_shard_block = self.pending_shard_blocks
+                .remove(&next_beacon_block.body.header.shard_block_hash)
+                .expect("Expected to have shard block present when processing beacon block");
+
+            tokio::spawn({
+                let block_tx = self.new_block_tx.clone();
+                block_tx
+                    .send(next_beacon_block.clone())
+                    .map(|_| ())
+                    .map_err(|e| {
+                        error!("failed to send new block: {:?}", e);
+                    })
+            });
             self.add_block(next_beacon_block, next_shard_block);
         }
     }

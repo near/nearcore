@@ -11,7 +11,12 @@ use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
-use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload};
+use primitives::types::{
+    BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload,
+    UID,
+};
+use primitives::signature::PublicKey;
+use beacon::authority::SelectedAuthority;
 use test_utils;
 
 /// time to wait (secs) for a request
@@ -85,6 +90,8 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
     gossip_sender: Sender<Gossip<ChainPayload>>,
+    /// map between authority uid and authority public key
+    authority_map: RwLock<HashMap<UID, PublicKey>>,
 }
 
 impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
@@ -107,6 +114,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             receipt_sender,
             message_sender,
             gossip_sender,
+            authority_map: RwLock::new(HashMap::new())
         }
     }
 
@@ -345,14 +353,30 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         }
         aborting
     }
+
+    pub fn set_authority_map(&self, authority_map: HashMap<UID, SelectedAuthority>) {
+        *self.authority_map.write() = authority_map
+            .into_iter()
+            .map(|(k, v)| (k, v.public_key))
+            .collect();
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    extern crate storage;
+
     use super::*;
+    use std::thread;
+    use std::time::Duration;
     use primitives::traits::Encode;
     use primitives::types::{SignedTransaction, ChainPayload};
-    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
+    use beacon::authority::Authority;
+    use test_utils::{get_test_protocol, get_test_authority_config};
+    use self::storage::test_utils::create_memory_db;
+    use futures::sync::mpsc::channel;
+    use futures::{Sink, Stream};
 
     #[test]
     fn test_serialization() {
@@ -362,5 +386,49 @@ mod tests {
         let encoded = Encode::encode(&message).unwrap();
         let decoded = Decode::decode(&encoded).unwrap();
         assert_eq!(message, decoded);
+    }
+
+    #[test]
+    fn test_authority_map() {
+        let storage = Arc::new(create_memory_db());
+        let genesis_block = SignedBeaconBlock::new(
+            0, CryptoHash::default(), vec![], CryptoHash::default()
+        );
+        // chain1
+        let beacon_chain = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage.clone()));
+        let authority_config = get_test_authority_config(1, 1, 1);
+        let authority = Authority::new(authority_config, &beacon_chain);
+        let (authority_tx, authority_rx) = channel(1024);
+        let protocol = Arc::new(get_test_protocol());
+
+        // get authorities for block 1
+        let authorities = authority.get_authorities(1).unwrap();
+        let authority_map: HashMap<UID, SelectedAuthority> = 
+            authorities.into_iter().enumerate().map(|(k, v)| (k as UID, v)).collect();
+        let authority_map1 = authority_map.clone().into_iter().map(|(k, v)| (k, v.public_key)).collect();
+        let protocol1 = protocol.clone();
+        let task = futures::lazy(move || {
+            tokio::spawn(
+                authority_rx.for_each(move |map| {
+                    protocol1.set_authority_map(map);
+                    Ok(())
+                })
+            );
+            tokio::spawn(
+                authority_tx
+                    .send(authority_map)
+                    .map(|_| ())
+                    .map_err(|_| ())
+            );
+            Ok(())
+        });
+
+        let handle = thread::spawn(move || {
+            tokio::run(task);
+        });
+        thread::sleep(Duration::from_secs(1));
+        let map = protocol.authority_map.read();
+        assert_eq!(*map, authority_map1);
+        std::mem::drop(handle);
     }
 }

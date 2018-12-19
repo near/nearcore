@@ -43,6 +43,7 @@ where
 pub trait Signer: Sync + Send {
     fn public_key(&self) -> signature::PublicKey;
     fn sign(&self, hash: &CryptoHash) -> types::PartialSignature;
+    fn account_id(&self) -> types::AccountId;
 }
 
 pub trait WitnessSelector: 'static {

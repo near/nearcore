@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use beacon::types::AuthorityProposal;
+use beacon::authority::AuthorityProposal;
 use ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
@@ -947,7 +947,7 @@ impl Runtime {
         &self,
         balances: &[(AccountAlias, ReadablePublicKey, u64)],
         wasm_binary: &[u8],
-        initial_authorities: &[(ReadablePublicKey, u64)]
+        initial_authorities: &[(AccountAlias, ReadablePublicKey, u64)]
     ) -> MerkleHash {
         let mut state_db_update =
             StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
@@ -970,7 +970,7 @@ impl Runtime {
                 .collect();
         let stake = initial_authorities
             .iter()
-            .map(|(pk, amount)| (*pk_to_acc_id.get(pk).expect("Missing account for public key"), *amount))
+            .map(|(_, pk, amount)| (*pk_to_acc_id.get(pk).expect("Missing account for public key"), *amount))
             .collect();
         let runtime_data = RuntimeData {
             stake,
