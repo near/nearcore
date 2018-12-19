@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use beacon::authority::AuthorityProposal;
+use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
-use primitives::types::{AccountId, Balance, TransactionBody};
+use primitives::types::{AccountId, AuthorityMask, Balance, TransactionBody};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -117,4 +119,84 @@ pub struct ViewStateResponse {
     #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub values: HashMap<String, Vec<u8>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AuthorityProposalResponse {
+    #[serde(with = "bs58_format")]
+    pub account_id: AccountId,
+    #[serde(with = "bs58_pub_key_format")]
+    pub public_key: PublicKey,
+    pub amount: u64,
+}
+
+impl From<AuthorityProposal> for AuthorityProposalResponse {
+    fn from(proposal: AuthorityProposal) -> Self {
+        AuthorityProposalResponse {
+            account_id: proposal.account_id,
+            public_key: proposal.public_key,
+            amount: proposal.amount,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BeaconBlockHeaderResponse {
+    #[serde(with = "bs58_format")]
+    pub parent_hash: CryptoHash,
+    pub index: u64,
+    pub authority_proposal: Vec<AuthorityProposalResponse>,
+    #[serde(with = "bs58_format")]
+    pub shard_block_hash: CryptoHash,
+}
+
+impl From<BeaconBlockHeader> for BeaconBlockHeaderResponse {
+    fn from(header: BeaconBlockHeader) -> Self {
+        let authority_proposal = header.authority_proposal.into_iter()
+            .map(|x| x.into())
+            .collect();
+        BeaconBlockHeaderResponse {
+            parent_hash: header.shard_block_hash,
+            index: header.index,
+            authority_proposal,
+            shard_block_hash: header.shard_block_hash,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BeaconBlockResponse {
+    pub header: BeaconBlockHeaderResponse,
+}
+
+impl From<BeaconBlock> for BeaconBlockResponse {
+    fn from(block: BeaconBlock) -> Self {
+        BeaconBlockResponse {
+            header: block.header.into()
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedBeaconBlockResponse {
+    pub body: BeaconBlockResponse,
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash,
+    // TODO(#298): should have a format for MultiSignature
+    pub signature: Vec<String>,
+    pub authority_mask: AuthorityMask,
+}
+
+impl From<SignedBeaconBlock> for SignedBeaconBlockResponse {
+    fn from(block: SignedBeaconBlock) -> Self {
+        let signature = block.signature.iter()
+            .map(String::from)
+            .collect();
+        SignedBeaconBlockResponse {
+            body: block.body.into(),
+            hash: block.hash,
+            signature,
+            authority_mask: block.authority_mask,
+        }
+    }
 }

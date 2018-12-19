@@ -22,9 +22,18 @@ except ImportError:
     exit(1)
 
 
-def _post(url, data):
-    request = Request(url, data=json.dumps(data).encode('utf-8'))
-    request.add_header('Content-Type', 'application/json')
+# Data is empty string instead of None because method is
+# defined by whether or not data is None and cannot be
+# specified otherwise in py2
+def _post(url, data=""):
+    if data != "":
+        data = json.dumps(data).encode('utf-8')
+
+    request = Request(url, data=data)
+
+    if data is not None:
+        request.add_header('Content-Type', 'application/json')
+
     connection = urlopen(request)
     return connection
 
@@ -99,7 +108,7 @@ class NearRPC(object):
     def _update_nonce(self, sender):
         self._nonces[sender] += 1
 
-    def _call_rpc(self, method_name, params):
+    def _call_rpc(self, method_name, params=None):
         data = params
         if self._debug:
             print(data)
@@ -245,6 +254,9 @@ class NearRPC(object):
         params = {'contract_account_id': _get_account_id(contract_name)}
         return self._call_rpc('view_state', params)
 
+    def view_latest_beacon_block(self):
+        return self._call_rpc('view_latest_beacon_block')
+
     def create_account(
         self,
         sender,
@@ -316,15 +328,16 @@ class MultiCommandParser(object):
             usage="""python rpc.py <command> [<args>]
 
 Commands:
-call_view_function       {}
-deploy                   {}
-send_money               {}
-schedule_function_call   {}
-view_account             {}
-view_state               {}
-stake                    {}
-create_account           {}
-swap_key                 {}
+call_view_function        {}
+deploy                    {}
+send_money                {}
+schedule_function_call    {}
+view_account              {}
+view_state                {}
+stake                     {}
+create_account            {}
+swap_key                  {}
+view_latest_beacon_block  {}
             """.format(
                 self.call_view_function.__doc__,
                 self.deploy.__doc__,
@@ -335,6 +348,7 @@ swap_key                 {}
                 self.stake.__doc__,
                 self.create_account.__doc__,
                 self.swap_key.__doc__,
+                self.view_latest_beacon_block.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -562,6 +576,13 @@ swap_key                 {}
         return client.view_state(
             args.contract_name,
         )
+
+    def view_latest_beacon_block(self):
+        """View latest beacon block."""
+        parser = self._get_command_parser(self.view_state.__doc__)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.view_latest_beacon_block()
 
 
 if __name__ == "__main__":

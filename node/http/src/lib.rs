@@ -1,3 +1,4 @@
+extern crate beacon;
 extern crate hyper;
 extern crate futures;
 #[macro_use]

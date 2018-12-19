@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use futures::sync::mpsc::Sender;
 
+use beacon::types::BeaconBlockChain;
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::types::{
@@ -12,7 +15,7 @@ use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
-    StakeRequest, SwapKeyRequest, ViewAccountRequest,
+    SignedBeaconBlockResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest,
     ViewStateResponse,
 };
@@ -20,16 +23,19 @@ use types::{
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
     submit_txn_sender: Sender<SignedTransaction>,
+    beacon_chain: Arc<BeaconBlockChain>,
 }
 
 impl HttpApi {
     pub fn new(
         state_db_viewer: StateDbViewer,
         submit_txn_sender: Sender<SignedTransaction>,
+        beacon_chain: Arc<BeaconBlockChain>,
     ) -> HttpApi {
         HttpApi {
             state_db_viewer,
             submit_txn_sender,
+            beacon_chain,
         }
     }
 }
@@ -182,5 +188,9 @@ impl HttpApi {
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect()
         };
         Ok(response)
+    }
+
+    pub fn view_latest_beacon_block(&self) -> Result<SignedBeaconBlockResponse, ()> {
+        Ok(self.beacon_chain.best_block().into())
     }
 }

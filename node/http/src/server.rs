@@ -252,6 +252,18 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                 }
             }))
         }
+        (&Method::POST, "/view_latest_beacon_block") => {
+            Box::new(future::ok(
+                match http_api.view_latest_beacon_block() {
+                    Ok(response) => {
+                        Response::builder()
+                            .body(Body::from(serde_json::to_string(&response).unwrap()))
+                            .unwrap()
+                    }
+                    Err(_) => unreachable!()
+                }
+            ))
+        }
 
         _ => {
             Box::new(future::ok(

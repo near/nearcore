@@ -20,7 +20,8 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_http::types::{
-    CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
+    CallViewFunctionResponse, SignedBeaconBlockResponse, ViewAccountResponse,
+    ViewStateResponse,
 };
 use primitives::signer::write_key_file;
 
@@ -250,3 +251,15 @@ fn test_swap_key_inner() {
 }
 
 test! { fn test_swap_key() { test_swap_key_inner() } }
+
+fn test_view_latest_beacon_block_inner() {
+    if !*DEVNET_STARTED { panic!() }
+    let output = Command::new("./scripts/rpc.py")
+        .arg("view_latest_beacon_block")
+        .output()
+        .expect("view_latest_beacon_block command failed to process");
+    let result = check_result(output).unwrap();
+    let _: SignedBeaconBlockResponse = serde_json::from_str(&result).unwrap();
+}
+
+test! { fn test_view_latest_beacon_block() { test_view_latest_beacon_block_inner() } }

@@ -51,11 +51,12 @@ fn spawn_rpc_server_task(
     rpc_port: Option<u16>,
     shard_chain: Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
+    beacon_chain: Arc<BeaconBlockChain>,
 ) {
     let state_db_viewer = StateDbViewer::new(shard_chain, state_db);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
-    let http_api = HttpApi::new(state_db_viewer, transactions_tx);
+    let http_api = HttpApi::new(state_db_viewer, transactions_tx, beacon_chain);
     node_http::server::spawn_server(http_api, http_addr);
 }
 
@@ -208,6 +209,7 @@ where
             Some(config.rpc_port),
             shard_chain.clone(),
             state_db.clone(),
+            beacon_chain.clone(),
         );
 
         // Create a task that receives new blocks from importer/producer
