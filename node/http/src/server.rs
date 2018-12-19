@@ -158,7 +158,12 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
-                            Err(_) => unreachable!()
+                            Err(e) => {
+                                Response::builder()
+                                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                                    .body(Body::from(e.to_string()))
+                                    .unwrap()
+                            }
                         }
                     }
                     Err(e) => {

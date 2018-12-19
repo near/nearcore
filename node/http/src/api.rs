@@ -167,11 +167,11 @@ impl HttpApi {
         }
     }
 
-    pub fn submit_transaction(&self, r: SignedTransaction) -> Result<(), ()> {
-        debug!(target: "near-rpc", "Received transactio\
-        n {:?}", r);
-        self.submit_txn_sender.clone().try_send(r).unwrap();
-        Ok(())
+    pub fn submit_transaction(&self, r: SignedTransaction) -> Result<(), &str> {
+        debug!(target: "near-rpc", "Received transaction {:?}", r);
+        self.submit_txn_sender.clone().try_send(r).map_err(|_| {
+            "transaction channel is full"
+        })
     }
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {
