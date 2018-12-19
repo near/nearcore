@@ -6,7 +6,7 @@ extern crate serde_json;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use keystore::{get_key_file, write_key_file};
 use primitives::hash::hash_struct;
-use primitives::signature::sign;
+use primitives::signature::{get_keypair, sign};
 use primitives::types::{SignedTransaction, TransactionBody};
 use std::path::PathBuf;
 use std::process;
@@ -35,6 +35,12 @@ fn sign_transaction(matches: &ArgMatches) {
     print!("{}", serde_json::to_string(&transaction).unwrap());
 }
 
+fn get_new_keypair(_matches: &ArgMatches) {
+    let (public_key, secret_key) = get_keypair();
+    let new_keypair = (public_key.to_string(), secret_key.to_string());
+    print!("{}", serde_json::to_string(&new_keypair).unwrap());
+}
+
 fn generate_key(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
     write_key_file(&key_store_path);
@@ -60,6 +66,8 @@ fn main() {
         .subcommand(SubCommand::with_name("keygen")
             .arg(key_store_path_arg))
         .subcommand(SubCommand::with_name("get_public_key")
+            .arg(key_store_path_arg))
+        .subcommand(SubCommand::with_name("get_new_keypair")
             .arg(key_store_path_arg))
         .subcommand(SubCommand::with_name("sign_transaction")
             .arg(key_store_path_arg)
@@ -87,6 +95,8 @@ fn main() {
         sign_transaction(sub);
     } else if let Some(sub) = matches.subcommand_matches("get_public_key") {
         get_public_key(sub);
+    } else if let Some(sub) = matches.subcommand_matches("get_new_keypair") {
+        get_new_keypair(sub);
     } else {
         println!("Incorrect usage. See usage with: keystore --help");
         process::exit(1);
