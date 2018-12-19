@@ -5,7 +5,7 @@ use std::time;
 use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
 use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
 use message::{self, Message};
@@ -17,7 +17,6 @@ use primitives::types::{
 };
 use primitives::signature::PublicKey;
 use beacon::authority::SelectedAuthority;
-use test_utils;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -34,26 +33,21 @@ pub struct ProtocolConfig {
     pub account_id: Option<AccountId>,
     /// Config information goes here.
     pub protocol_id: ProtocolId,
-    /// This is hacky. Ideally we want public key here, but
-    /// I haven't figured out how to get public key for a node
-    /// from substrate libp2p
-    pub secret: Secret,
 }
 
 impl ProtocolConfig {
-    pub fn new(account_id: Option<AccountId>, protocol_id: ProtocolId, secret: Secret) -> ProtocolConfig {
-        ProtocolConfig { account_id, protocol_id, secret }
+    pub fn new(account_id: Option<AccountId>, protocol_id: ProtocolId) -> ProtocolConfig {
+        ProtocolConfig { account_id, protocol_id }
     }
 
-    pub fn new_with_default_id(secret: Secret) -> ProtocolConfig {
-        ProtocolConfig { account_id: None, protocol_id: ProtocolId::default(), secret }
+    pub fn new_with_default_id(account_id: Option<AccountId>) -> ProtocolConfig {
+        ProtocolConfig { account_id, protocol_id: ProtocolId::default() }
     }
 }
 
 impl Default for ProtocolConfig {
     fn default() -> Self {
-        let secret = test_utils::create_secret();
-        ProtocolConfig::new(None, ProtocolId::default(), secret)
+        ProtocolConfig::new(None, ProtocolId::default())
     }
 }
 

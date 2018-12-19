@@ -98,13 +98,21 @@ pub fn get_service_config() -> service::ServiceConfig {
                 .default_value(&default_log_level)
                 .takes_value(true),
         ).arg(
-            Arg::with_name("account_name")
-            .value_name("ACCOUNT_NAME")
-            .help("Set the account name of the node")
+            Arg::with_name("account_id")
+            .value_name("ACCOUNT_ID")
+            .help("Set the account id of the node")
             .takes_value(true)
+                // TODO(#282): Remove default account id from here.
             .default_value("alice")
-        )
-        .get_matches();
+        ).arg(
+            Arg::with_name("public_key")
+              .short("k")
+              .long("public-key")
+              .value_name("PUBLIC_KEY")
+              .help("Sets public key to sign with, \
+                         can be omitted with 1 file in keystore")
+              .takes_value(true)
+        ).get_matches();
 
     let base_path = matches
         .value_of("base_path")
@@ -141,20 +149,25 @@ pub fn get_service_config() -> service::ServiceConfig {
         .map(String::from)
         .collect();
 
-    let account_name = matches
-        .value_of("account_name")
+    let account_id = matches
+        .value_of("account_id")
         .map(String::from)
         .unwrap();
 
+    let public_key = matches
+        .value_of("public_key")
+        .map(String::from);
+
     service::ServiceConfig {
         base_path,
+        account_id,
+        public_key,
         chain_spec_path,
         log_level,
         p2p_port,
         rpc_port,
         boot_nodes,
         test_node_index,
-        account_name
     }
 }
 

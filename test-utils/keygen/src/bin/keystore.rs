@@ -4,9 +4,9 @@ extern crate primitives;
 extern crate serde_json;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use keystore::{get_key_file, write_key_file};
 use primitives::hash::hash_struct;
 use primitives::signature::sign;
+use primitives::signer::{get_key_file, write_key_file};
 use primitives::types::{SignedTransaction, TransactionBody};
 use std::path::PathBuf;
 use std::process;

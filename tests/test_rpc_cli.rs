@@ -1,6 +1,5 @@
 extern crate core;
 extern crate devnet;
-extern crate keystore;
 #[macro_use]
 extern crate lazy_static;
 extern crate log;
@@ -21,6 +20,7 @@ use std::time::Duration;
 use rand::Rng;
 use serde_json::Value;
 
+use primitives::signer::write_key_file;
 use node_rpc::types::{
     CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
 };
@@ -45,7 +45,7 @@ fn test_service_ready() -> bool {
 
 fn get_public_key() -> String {
     let key_store_path = Path::new(KEY_STORE_PATH);
-    keystore::write_key_file(key_store_path)
+    write_key_file(key_store_path)
 }
 
 lazy_static! {
