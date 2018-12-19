@@ -351,6 +351,11 @@ impl Runtime {
                     ));
                 }
                 sender.nonce = transaction.body.get_nonce();
+                set(
+                    state_update,
+                    &account_id_to_bytes(sender_account_id),
+                    &sender
+                );
                 match transaction.body {
                     TransactionBody::SendMoney(ref t) => {
                         self.send_money(
@@ -1119,8 +1124,6 @@ mod tests {
     }
 
     #[test]
-    // we need to figure out how to deal with the case where account does not exist
-    // especially in the context of sharding
     fn test_upload_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
@@ -1582,5 +1585,34 @@ mod tests {
         let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).unwrap();
         assert_eq!(runtime_data.callbacks.len(), 0);
         assert_eq!(root, apply_result.root);
+    }
+
+    #[test]
+    fn test_nonce_update_when_deploying_contract() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let (pub_key, _) = get_keypair();
+        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+        let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
+            nonce: 1,
+            sender: hash(b"alice"),
+            contract_id: hash(b"eve"),
+            public_key: pub_key.encode().unwrap(),
+            wasm_byte_array: wasm_binary.to_vec(),
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let mut apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::SignedTransaction(transaction)]
+        );
+        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
+        let account: Account = get(&mut state_update, &account_id_to_bytes(hash(b"alice"))).unwrap();
+        assert_eq!(account.nonce, 1);
     }
 }
