@@ -69,11 +69,11 @@ fn spawn_rpc_server_task(
 }
 
 fn spawn_network_tasks(
-    signer: &Signer,
+    account_id: Option<AccountId>,
     base_path: &Path,
     p2p_port: Option<u16>,
     boot_nodes: Vec<String>,
-    test_node_index: Option<u32>,
+    test_network_key_seed: Option<u32>,
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
@@ -84,7 +84,7 @@ fn spawn_network_tasks(
     authority_rx: Receiver<HashMap<UID, SelectedAuthority>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
-    let protocol_config = ProtocolConfig::new_with_default_id(Some(signer.account_id()));
+    let protocol_config = ProtocolConfig::new_with_default_id(account_id);
     let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
         protocol_config,
         beacon_chain,
@@ -104,7 +104,7 @@ fn spawn_network_tasks(
         vec![network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
 
     network_config.use_secret =
-        test_node_index.map(network::service::get_test_secret_from_node_index);
+        test_network_key_seed.map(network::service::get_test_secret_from_node_index);
 
     let network_service = network::service::new_network_service(&protocol_config, network_config);
     network::service::spawn_network_tasks(
@@ -151,7 +151,7 @@ pub struct ServiceConfig {
     // Network configuration
     pub p2p_port: u16,
     pub boot_nodes: Vec<String>,
-    pub test_node_index: Option<u32>,
+    pub test_network_key_seed: Option<u32>,
 }
 
 impl Default for ServiceConfig {
@@ -165,7 +165,7 @@ impl Default for ServiceConfig {
             rpc_port: DEFAULT_RPC_PORT,
             p2p_port: DEFAULT_P2P_PORT,
             boot_nodes: vec![],
-            test_node_index: None,
+            test_network_key_seed: None,
         }
     }
 }
@@ -204,7 +204,7 @@ where
     let account_id = AccountId::from(&config.account_id);
     let mut key_file_path = config.base_path.to_path_buf();
     key_file_path.push(KEY_STORE_PATH);
-    let signer = Arc::new(InMemorySigner::from_key_file(account_id, key_file_path.as_path()));
+    let signer = Arc::new(InMemorySigner::from_key_file(account_id, key_file_path.as_path(), config.public_key.clone()));
     let authority_config = chain_spec::get_authority_config(&chain_spec);
     let authority = Authority::new(authority_config, &beacon_chain);
     let authority_handler = AuthorityHandler::new(authority, account_id);
@@ -258,11 +258,11 @@ where
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
-            &*signer,
+            Some(signer.account_id()),
             &config.base_path,
             Some(config.p2p_port),
             config.boot_nodes,
-            config.test_node_index,
+            config.test_network_key_seed,
             beacon_chain.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),

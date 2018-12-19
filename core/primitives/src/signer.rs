@@ -28,7 +28,7 @@ pub fn write_key_file(key_store_path: &Path) -> String {
     public_key.to_string()
 }
 
-pub fn get_key_file(key_store_path: &Path, public_key: Option<&str>) -> KeyFile {
+pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFile {
     if !key_store_path.exists() {
         println!("Key store path does not exist: {:?}", &key_store_path);
         process::exit(3);
@@ -52,6 +52,15 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<&str>) -> KeyFile 
     serde_json::from_str(&key_file_string).unwrap()
 }
 
+pub fn get_or_create_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFile {
+    if !key_store_path.exists() {
+        let new_public_key = write_key_file(key_store_path);
+        get_key_file(key_store_path, Some(new_public_key))
+    } else {
+        get_key_file(key_store_path, public_key)
+    }
+}
+
 
 pub struct InMemorySigner {
     account_id: types::AccountId,
@@ -60,8 +69,8 @@ pub struct InMemorySigner {
 }
 
 impl InMemorySigner {
-    pub fn from_key_file(account_id: types::AccountId, key_store_path: &Path) -> Self {
-        let key_file = get_key_file(key_store_path, None);
+    pub fn from_key_file(account_id: types::AccountId, key_store_path: &Path, public_key: Option<String>) -> Self {
+        let key_file = get_or_create_key_file(key_store_path, public_key);
         InMemorySigner {
             account_id,
             public_key: key_file.public_key,

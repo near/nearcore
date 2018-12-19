@@ -75,9 +75,9 @@ pub fn get_service_config() -> service::ServiceConfig {
                 .multiple(true)
                 .takes_value(true),
         ).arg(
-            Arg::with_name("test_node_index")
-                .long("test-node-index")
-                .value_name("TEST_NODE_INDEX")
+            Arg::with_name("test_network_key_seed")
+                .long("test-network-key-seed")
+                .value_name("TEST_NETWORK_KEY_SEED")
                 .help(
                     "Specify a seed for generating a node ID.\
                      This should only be used for deterministically \
@@ -133,8 +133,8 @@ pub fn get_service_config() -> service::ServiceConfig {
         .map(|x| x.parse::<u16>().unwrap())
         .unwrap();
 
-    let test_node_index = matches
-        .value_of("test_node_index")
+    let test_network_key_seed = matches
+        .value_of("test_network_key_seed")
         .map(|x| x.parse::<u32>().unwrap());
 
     let log_level = matches
@@ -167,7 +167,7 @@ pub fn get_service_config() -> service::ServiceConfig {
         p2p_port,
         rpc_port,
         boot_nodes,
-        test_node_index,
+        test_network_key_seed,
     }
 }
 

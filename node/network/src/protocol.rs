@@ -122,7 +122,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
     pub fn get_node_by_account_id(&self, account_id: AccountId) -> Option<NodeIndex> {
         let peer_account_info = self.peer_account_info.read();
-        Some(*peer_account_info.get(&account_id)?)
+        peer_account_info.get(&account_id).cloned()
     }
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
@@ -363,7 +363,6 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         let mut aborting = Vec::new();
         let peer_info = self.peer_info.read();
         let handshaking_peers = self.handshaking_peers.read();
-        info!("Peer info: {:?}, {:?}", peer_info.iter(), handshaking_peers.iter());
         for (peer, time_stamp) in peer_info
             .iter()
             .filter_map(|(id, info)| info.request_timestamp.as_ref().map(|x| (id, x)))
