@@ -35,7 +35,7 @@ pub struct DAG<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + Misbehavior
     misbehavior: Box<RefCell<M>>,
 }
 
-impl<'a, P: 'a + Payload, W: 'a + WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'a, P, W, M> {
+impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'a, P, W, M> {
     pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
