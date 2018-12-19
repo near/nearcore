@@ -25,7 +25,7 @@ members = [
     "node/beacon-chain-handler",
     "node/cli",
     "node/consensus",
-    "node/rpc",
+    "node/http",
     "node/runtime",
     "node/network",
     "test-utils/devnet",
@@ -39,9 +39,10 @@ exclude = [
 [dev-dependencies]
 lazy_static = "1.2.0"
 log = "0.4.6"
-keystore = { path = "./test-utils/keygen" }
-devnet = { path = "./test-utils/devnet" }
-node-rpc = { path = "./node/rpc" }
-primitives = { path = "./core/primitives" }
 rand = "0.6.1"
 serde_json = "1.0.0"
+
+keystore = { path = "./test-utils/keygen" }
+devnet = { path = "./test-utils/devnet" }
+node-http = { path = "./node/http" }
+primitives = { path = "./core/primitives" }

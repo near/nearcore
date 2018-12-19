@@ -47,6 +47,15 @@ It will build the first time and then run:
 cargo run
 ```
 
+### Testing
+
+In order to run tests currently, you must setup the following:
+
+```bash
+# sudo may be required if you are not testing with a python virtual environment
+pip install bson
+```
+
 ### Logging
 
 For runnable apps (devnet, nearcore, etc.), you can use
@@ -102,10 +111,10 @@ Try submitting transactions or views via JSON RPC:
 ./scripts/rpc.py deploy test_contract tests/add.wasm
 
 # Call method 'run_test' for contract 'test_contract'
-./scripts/rpc.py schedule_function_call test_contract near_func_add '{"a": 10, "b": 20}'
+./scripts/rpc.py schedule_function_call test_contract near_func_add --args '{"a": 10, "b": 20}'
 
 # Call view function 'run_test' for contract 'test_contract'
-./scripts/rpc.py call_view_function test_contract near_func_add '{"a": 10, "b": 20}'
+./scripts/rpc.py call_view_function test_contract near_func_add --args '{"a": 10, "b": 20}'
 
 # View state for Bob's account
 ./scripts/rpc.py view_account -a bob

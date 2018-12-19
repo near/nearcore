@@ -3,12 +3,11 @@ extern crate devnet;
 #[macro_use]
 extern crate lazy_static;
 extern crate log;
-extern crate node_rpc;
+extern crate node_http;
 extern crate primitives;
 extern crate rand;
 extern crate serde_json;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::panic;
 use std::path::Path;
@@ -20,10 +19,10 @@ use std::time::Duration;
 use rand::Rng;
 use serde_json::Value;
 
-use primitives::signer::write_key_file;
-use node_rpc::types::{
+use node_http::types::{
     CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
 };
+use primitives::signer::write_key_file;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
@@ -54,11 +53,12 @@ lazy_static! {
     static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
 }
 
-fn check_result(output: &Output) -> Cow<str> {
+fn check_result(output: Output) -> Result<String, String> {
+    let result = String::from_utf8_lossy(output.stdout.as_slice());
     if !output.status.success() {
-        panic!("{}", String::from_utf8_lossy(&output.stdout));
+        return Err(result.to_owned().to_string())
     }
-    String::from_utf8_lossy(&output.stdout)
+    Ok(result.to_owned().to_string())
 }
 
 fn create_account(account_name: &str) -> Output {
@@ -74,10 +74,26 @@ fn create_account(account_name: &str) -> Output {
         .expect("create_account command failed to process")
 }
 
-fn deploy_contract() -> (Output, String) {
+fn view_account(account_name: Option<&str>) -> Output {
+    let mut args = vec!["view_account"];
+    if let Some(a) = account_name {
+        args.push("--account");
+        args.push(a);
+    };
+    Command::new("./scripts/rpc.py")
+        .args(args)
+        .output()
+        .expect("view_account command failed to process")
+}
+
+fn deploy_contract() -> Result<(Output, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
     create_account(contract_name.as_str());
+    thread::sleep(Duration::from_millis(500));
+    let account = view_account(Some(&contract_name));
+    check_result(account)?;
+
     let output = Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg(contract_name.as_str())
@@ -88,13 +104,12 @@ fn deploy_contract() -> (Output, String) {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("deploy command failed to process");
-    (output, contract_name)
+    Ok((output, contract_name))
 }
 
 macro_rules! test {
     (fn $name:ident() $body:block) => {
         #[test]
-        #[ignore]
         fn $name() {
             let guard = $crate::TEST_MUTEX.lock().unwrap();
             if let Err(e) = panic::catch_unwind(|| { $body }) {
@@ -115,7 +130,7 @@ fn test_send_money_inner() {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("send_money command failed to process");
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 }
@@ -124,11 +139,8 @@ test! { fn test_send_money() { test_send_money_inner() } }
 
 fn test_view_account_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let output = Command::new("./scripts/rpc.py")
-        .arg("view_account")
-        .output()
-        .expect("view_account command failed to process");
-    let result = check_result(&output);
+    let output = view_account(None);
+    let result = check_result(output).unwrap();
     let _: ViewAccountResponse = serde_json::from_str(&result).unwrap();
 }
 
@@ -136,8 +148,8 @@ test! { fn test_view_account() { test_view_account_inner() } }
 
 fn test_deploy_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let (output, _) = deploy_contract();
-    let result = check_result(&output);
+    let (output, _) = deploy_contract().unwrap();
+    let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 }
@@ -146,18 +158,21 @@ test! { fn test_deploy() { test_deploy_inner() } }
 
 fn test_schedule_function_call_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let (_, contract_name) = deploy_contract();
+    let (_, contract_name) = deploy_contract().unwrap();
+    thread::sleep(Duration::from_millis(500));
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
         .arg(contract_name)
         .arg("run_test")
+        .arg("--args")
+        .arg("{}")
         .arg("-d")
         .arg(KEY_STORE_PATH)
         .arg("-k")
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("schedule_function_call command failed to process");
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 }
@@ -166,42 +181,42 @@ test! { fn test_schedule_function_call() { test_schedule_function_call_inner() }
 
 fn test_call_view_function_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let (_, contract_name) = deploy_contract();
+    let (_, contract_name) = deploy_contract().unwrap();
     let output = Command::new("./scripts/rpc.py")
         .arg("call_view_function")
         .arg(contract_name)
         .arg("run_test")
         .arg("--args")
-        .arg("10")
+        .arg("{}")
         .output()
         .expect("call_view_function command failed to process");
 
     thread::sleep(Duration::from_secs(1));
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let _: CallViewFunctionResponse = serde_json::from_str(&result).unwrap();
 }
 
-test! { fn test_view_state() { test_view_state_inner() } }
+test! { fn test_call_view_function() { test_call_view_function_inner() } }
 
 fn test_view_state_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let (_, contract_name) = deploy_contract();
+    let (_, contract_name) = deploy_contract().unwrap();
     let output = Command::new("./scripts/rpc.py")
         .arg("view_state")
         .arg(contract_name)
         .output()
         .expect("view_state command failed to process");
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let response: ViewStateResponse = serde_json::from_str(&result).unwrap();
     assert_eq!(response.values, HashMap::default());
 }
 
-test! { fn test_call_view_function() { test_call_view_function_inner() } }
+test! { fn test_view_state() { test_view_state_inner() } }
 
 fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
     let output = create_account("eve");
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 
@@ -211,7 +226,7 @@ fn test_create_account_inner() {
         .arg("eve")
         .output()
         .expect("view_account command failed to process");
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let _: ViewAccountResponse = serde_json::from_str(&result).unwrap();
 }
 
@@ -229,7 +244,7 @@ fn test_swap_key_inner() {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("swap key command failed to process");
-    let result = check_result(&output);
+    let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 }

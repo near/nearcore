@@ -11,6 +11,8 @@ test:cargo:
     stage: test
     before_script:
     - rustup component add clippy-preview
+    # TODO(#289): remove this
+    - pip install bson
     script:
     - rustc --version && cargo --version
     - ./scripts/run_clippy.sh

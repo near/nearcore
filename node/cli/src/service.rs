@@ -20,10 +20,8 @@ use beacon_chain_handler::authority_handler::{AuthorityHandler, spawn_authority_
 use chain::SignedBlock;
 use chain_spec;
 use consensus::adapters;
-use log;
-use network;
 use network::protocol::{Protocol, ProtocolConfig};
-use node_rpc;
+use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
@@ -32,9 +30,7 @@ use primitives::types::{
     UID, AccountId, AccountAlias
 };
 use shard::{ShardBlockChain, SignedShardBlock};
-use storage;
 use storage::{StateDb, Storage};
-use tokio;
 
 const STORAGE_PATH: &str = "storage/db";
 const NETWORK_CONFIG_PATH: &str = "storage";
@@ -57,15 +53,10 @@ fn spawn_rpc_server_task(
     state_db: Arc<StateDb>,
 ) {
     let state_db_viewer = StateDbViewer::new(shard_chain, state_db);
-    let rpc_impl = node_rpc::api::RpcImpl::new(state_db_viewer, transactions_tx);
-    let rpc_handler = node_rpc::api::get_handler(rpc_impl);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
-    let rpc_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
-    let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
-    tokio::spawn(future::lazy(|| {
-        server.wait();
-        Ok(())
-    }));
+    let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
+    let http_api = HttpApi::new(state_db_viewer, transactions_tx);
+    node_http::server::spawn_server(http_api, http_addr);
 }
 
 fn spawn_network_tasks(
