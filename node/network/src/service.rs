@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::iter;
 use std::mem;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use beacon::authority::SelectedAuthority;
 use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
 use parking_lot::Mutex;
@@ -17,7 +19,8 @@ use substrate_network_libp2p::Secret;
 
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
-use primitives::traits::{Encode, Payload};
+use primitives::traits::Encode;
+use primitives::types::{ChainPayload, UID};
 use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -29,14 +32,15 @@ pub fn new_network_service(protocol_config: &ProtocolConfig, net_config: Network
         .expect("Error starting network service")
 }
 
-pub fn spawn_network_tasks<B, Header, P>(
+pub fn spawn_network_tasks<B, Header>(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol_: Protocol<B, Header, P>,
-    message_receiver: Receiver<(NodeIndex, Message<B, Header, P>)>
+    protocol_: Protocol<B, Header>,
+    message_receiver: Receiver<(NodeIndex, Message<B, Header, ChainPayload>)>,
+    block_receiver: Receiver<B>,
+    authority_receiver: Receiver<HashMap<UID, SelectedAuthority>>,
 ) where
     B: SignedBlock,
     Header: BlockHeader,
-    P: Payload,
 {
     let protocol = Arc::new(protocol_);
     // Interval for performing maintenance on the protocol handler.
@@ -67,7 +71,7 @@ pub fn spawn_network_tasks<B, Header, P>(
         let network_service1 = network_service.clone();
         let protocol1 = protocol.clone();
         move |event| {
-            debug!(target: "network", "event: {:?}", event);
+            // debug!(target: "network", "event: {:?}", event);
             match event {
                 ServiceEvent::CustomMessage { node_index, data, .. } => {
                     if let Err((node_index, severity))
@@ -115,10 +119,15 @@ pub fn spawn_network_tasks<B, Header, P>(
     let protocol_id = protocol.config.protocol_id;
     let messages_handler = message_receiver.for_each(move |(node_index, m)| {
         let data = Encode::encode(&m).expect("Error encoding message.");
-        let cloned = network_service.clone();
-        cloned.lock().send_custom_message(node_index, protocol_id, data);
+        network_service.lock().send_custom_message(node_index, protocol_id, data);
         Ok(())
     }).map(|_| ()).map_err(|_|());
+
+    let protocol1 = protocol.clone();
+    let block_announce_handler = block_receiver.for_each(move |block| {
+        protocol1.on_outgoing_block(&block);
+        Ok(())
+    });
 
     tokio::spawn(network.select(timer).and_then(|_| {
         info!("Networking stopped");
@@ -126,6 +135,13 @@ pub fn spawn_network_tasks<B, Header, P>(
     }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)));
 
     tokio::spawn(messages_handler);
+    tokio::spawn(block_announce_handler);
+    tokio::spawn(
+        authority_receiver.for_each(move |map| {
+            protocol.set_authority_map(map);
+            Ok(())
+        })
+    );
 }
 
 pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
@@ -156,40 +172,3 @@ mod tests {
         assert!(parse_str_addr(addr).is_ok());
     }
 }
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use std::time::Instant;
-//    use test_utils::*;
-//    use tokio::timer::Delay;
-//
-//    #[test]
-//    fn test_send_message() {
-//        let services = create_test_services(2);
-//        let mut runtime = tokio::runtime::current_thread::Runtime::new().unwrap();
-//        for service in services.iter() {
-//            let task = generate_service_task::<MockBlock, MockProtocolHandler, MockBlockHeader>(
-//                &service.network,
-//                &service.protocol,
-//            );
-//            runtime.spawn(task);
-//        }
-//
-//        let when = Instant::now() + Duration::from_millis(1000);
-//        let send_messages =
-//            Delay::new(when).map_err(|e| panic!("timer failed; err={:?}", e)).and_then(move |_| {
-//                for service in services.iter() {
-//                    for peer in service.protocol.sample_peers(1).unwrap() {
-//                        let message = fake_tx_message();
-//                        let mut net_sync = NetSyncIo::new(
-//                            service.network.clone(),
-//                            service.protocol.config.protocol_id,
-//                        );
-//                        service.protocol.send_message(&mut net_sync, peer, &message);
-//                    }
-//                }
-//                Ok(())
-//            });
-//        runtime.block_on(send_messages).unwrap();
-//    }
-//}

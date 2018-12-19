@@ -10,8 +10,13 @@ use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
 use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
-use primitives::traits::{Decode, Payload};
-use primitives::types::{BlockId, ReceiptTransaction, SignedTransaction};
+use primitives::traits::Decode;
+use primitives::types::{
+    BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload,
+    UID,
+};
+use primitives::signature::PublicKey;
+use beacon::authority::SelectedAuthority;
 use test_utils;
 
 /// time to wait (secs) for a request
@@ -66,7 +71,7 @@ pub(crate) struct PeerInfo {
     next_request_id: u64,
 }
 
-pub struct Protocol<B: SignedBlock, Header: BlockHeader, P> {
+pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -82,16 +87,22 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader, P> {
     /// Channel into which the protocol sends the received receipts.
     receipt_sender: Sender<ReceiptTransaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
-    message_sender: Sender<(NodeIndex, Message<B, Header, P>)>,
+    message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+    /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
+    gossip_sender: Sender<Gossip<ChainPayload>>,
+    /// map between authority uid and authority public key
+    authority_map: RwLock<HashMap<UID, PublicKey>>,
 }
 
-impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
-    pub fn new(config: ProtocolConfig,
-               chain: Arc<BlockChain<B>>,
-               block_sender: Sender<B>,
-               transaction_sender: Sender<SignedTransaction>,
-               receipt_sender: Sender<ReceiptTransaction>,
-               message_sender: Sender<(NodeIndex, Message<B, Header, P>)>,
+impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
+    pub fn new(
+        config: ProtocolConfig,
+        chain: Arc<BlockChain<B>>,
+        block_sender: Sender<B>,
+        transaction_sender: Sender<SignedTransaction>,
+        receipt_sender: Sender<ReceiptTransaction>,
+        message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+        gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
         Self {
             config,
@@ -102,6 +113,8 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
             transaction_sender,
             receipt_sender,
             message_sender,
+            gossip_sender,
+            authority_map: RwLock::new(HashMap::new())
         }
     }
 
@@ -144,6 +157,16 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         );
     }
 
+    pub fn on_gossip_message(&self, gossip: Gossip<ChainPayload>) {
+        let copied_tx = self.gossip_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send(gossip)
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the gossip {:?}", e)),
+        );
+    }
+
     fn on_status_message(
         &self, peer: NodeIndex,
         status: &message::Status
@@ -156,16 +179,20 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.chain.best_block().header().index();
+        let best_index = self.chain.best_index();
         let mut next_request_id = 0;
+        let mut block_request = None;
+        let mut request_timestamp = None;
         if status.best_index > best_index {
             let request = message::BlockRequest {
                 id: next_request_id,
-                from: BlockId::Number(best_index),
+                from: BlockId::Number(best_index + 1),
                 to: Some(BlockId::Number(status.best_index)),
-                max: None,
+                max: Some(MAX_BLOCK_DATA_RESPONSE),
             };
+            block_request = Some(request.clone());
             next_request_id += 1;
+            request_timestamp = Some(time::Instant::now());
             let message = Message::BlockRequest(request);
             self.send_message(peer, message);
         }
@@ -174,8 +201,8 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
             protocol_version: status.version,
             best_hash: status.best_hash,
             best_index: status.best_index,
-            request_timestamp: None,
-            block_request: None,
+            request_timestamp,
+            block_request,
             next_request_id,
         };
         self.peer_info.write().insert(peer, peer_info);
@@ -207,7 +234,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
             if reach_end {
                 break;
             }
-            id = BlockId::Number(block_index);
+            id = BlockId::Number(block_index + 1);
         }
         let response = message::BlockResponse { id: request.id, blocks };
         let message = Message::BlockResponse(response);
@@ -222,6 +249,14 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the blocks {:?}", e)),
         );
+    }
+
+    pub fn on_outgoing_block(&self, block: &B) {
+        let peers = self.peer_info.read();
+        for peer in peers.keys() {
+            let message = Message::BlockAnnounce(message::BlockAnnounce::Block(block.clone()));
+            self.send_message(*peer, message);
+        }
     }
 
     fn on_block_response(
@@ -239,7 +274,7 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
     }
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
-        let message: Message<B, Header, P> = Decode::decode(data)
+        let message: Message<B, Header, ChainPayload> = Decode::decode(data)
             .ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
@@ -264,14 +299,19 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                             .ok_or((peer, Severity::Bad("Unexpected response packet received from peer")))?
                 };
                 if request.id != response.id {
-                    trace!(target: "sync", "Ignoring mismatched response packet from {} (expected {} got {})", peer, request.id, response.id);
+                    trace!(
+                        target: "network",
+                        "Ignoring mismatched response packet from {} (expected {} got {})",
+                        peer,
+                        request.id,
+                        response.id
+                    );
                     return Ok(())
                 }
                 self.on_block_response(peer, response);
             },
             Message::BlockAnnounce(ann) => {
                 debug!(target: "network", "receive block announcement: {:?}", ann);
-                // header is actually block for now
                 match ann {
                     message::BlockAnnounce::Block(b) => {
                         self.on_incoming_block(b);
@@ -279,12 +319,14 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
                     _ => unimplemented!(),
                 }
             },
-            Message::Gossip(_) => {},
+            Message::Gossip(gossip) => {
+               self.on_gossip_message(gossip);
+            },
         }
         Ok(())
     }
 
-    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header, P>) {
+    pub fn send_message(&self, receiver_index: NodeIndex, message: Message<B, Header, ChainPayload>) {
         let copied_tx = self.message_sender.clone();
         tokio::spawn(
             copied_tx
@@ -312,81 +354,81 @@ impl<B: SignedBlock, Header: BlockHeader, P: Payload> Protocol<B, Header, P> {
         aborting
     }
 
-//    /// produce blocks
-//    /// some super fake logic: if the node has a specific key,
-//    /// then it produces and broadcasts the block
-//    pub fn prod_block(&self) {
-//        let special_secret = test_utils::special_secret();
-//        if special_secret == self.config.secret {
-//            let block = self.chain.write().prod_block();
-//            let block_announce = message::BlockAnnounce::Block(block.clone());
-//            let message: Message<_, Header> =
-//                Message::new(MessageBody::BlockAnnounce(block_announce));
-//            let peer_info = self.peer_info.read();
-//            for peer in peer_info.keys() {
-//                self.send_message(*peer, &message);
-//            }
-//            self.on_incoming_block(block);
-//        }
-//    }
+    pub fn set_authority_map(&self, authority_map: HashMap<UID, SelectedAuthority>) {
+        *self.authority_map.write() = authority_map
+            .into_iter()
+            .map(|(k, v)| (k, v.public_key))
+            .collect();
+    }
 }
 
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use client::test_utils::*;
-//    use primitives::hash::hash;
-//    use primitives::types::{SignedTransaction, TransactionBody};
-//    use test_utils::*;
-//    use primitives::signature::DEFAULT_SIGNATURE;
-//    use parking_lot::Mutex;
-//
-//    impl<B: Block, H: ProtocolHandler> Protocol<B, H> {
-//        fn _on_message(&self, data: &[u8]) -> Message<B, B::Header> {
-//            match Decode::decode(data) {
-//                Some(m) => m,
-//                _ => panic!("cannot decode message: {:?}", data),
-//            }
-//        }
-//    }
-//
-//    #[test]
-//    fn test_serialization() {
-//        let tx = SignedTransaction::empty();
-//        let message: Message<MockBlock, MockBlockHeader> =
-//            Message::new(MessageBody::Transaction(Box::new(tx)));
-//        let config = ProtocolConfig::default();
-//        let mock_client = Arc::new(RwLock::new(MockClient::default()));
-//        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-//        let decoded = protocol._on_message(&Encode::encode(&message).unwrap());
-//        assert_eq!(message, decoded);
-//    }
-//
-//    #[test]
-//    fn test_on_transaction_message() {
-//        let config = ProtocolConfig::default();
-//        let mock_client = Arc::new(RwLock::new(MockClient::default()));
-//        let protocol = Protocol::new(config, MockProtocolHandler::default(), mock_client);
-//        let tx = SignedTransaction::empty();
-//        protocol.on_transaction_message(tx);
-//    }
-//
-//    #[test]
-//    fn test_protocol_and_client() {
-//        let client = Arc::new(RwLock::new(generate_test_client()));
-//        let handler = MockHandler { client: client.clone() };
-//        let config = ProtocolConfig::new_with_default_id(special_secret());
-//        let protocol = Protocol::new(config, handler, client.clone());
-//        let network_service = Arc::new(Mutex::new(default_network_service()));
-//        protocol.on_transaction_message(SignedTransaction::new(
-//            DEFAULT_SIGNATURE,
-//            TransactionBody::new(1, hash(b"bob"), hash(b"alice"), 10, String::new(), vec![]),
-//        ));
-//        assert_eq!(client.read().num_transactions(), 1);
-//        assert_eq!(client.read().num_blocks_in_queue(), 0);
-//        protocol.prod_block::<MockBlockHeader>(&mut net_sync);
-//        assert_eq!(client.read().num_transactions(), 0);
-//        assert_eq!(client.read().num_blocks_in_queue(), 0);
-//        assert_eq!(client.read().best_index(), 1);
-//    }
-//}
+#[cfg(test)]
+mod tests {
+    extern crate storage;
+
+    use super::*;
+    use std::thread;
+    use std::time::Duration;
+    use primitives::traits::Encode;
+    use primitives::types::{SignedTransaction, ChainPayload};
+    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
+    use beacon::authority::Authority;
+    use test_utils::{get_test_protocol, get_test_authority_config};
+    use self::storage::test_utils::create_memory_db;
+    use futures::sync::mpsc::channel;
+    use futures::{Sink, Stream};
+
+    #[test]
+    fn test_serialization() {
+        let tx = SignedTransaction::empty();
+        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> =
+            Message::Transaction(Box::new(tx));
+        let encoded = Encode::encode(&message).unwrap();
+        let decoded = Decode::decode(&encoded).unwrap();
+        assert_eq!(message, decoded);
+    }
+
+    #[test]
+    fn test_authority_map() {
+        let storage = Arc::new(create_memory_db());
+        let genesis_block = SignedBeaconBlock::new(
+            0, CryptoHash::default(), vec![], CryptoHash::default()
+        );
+        // chain1
+        let beacon_chain = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage.clone()));
+        let authority_config = get_test_authority_config(1, 1, 1);
+        let authority = Authority::new(authority_config, &beacon_chain);
+        let (authority_tx, authority_rx) = channel(1024);
+        let protocol = Arc::new(get_test_protocol());
+
+        // get authorities for block 1
+        let authorities = authority.get_authorities(1).unwrap();
+        let authority_map: HashMap<UID, SelectedAuthority> = 
+            authorities.into_iter().enumerate().map(|(k, v)| (k as UID, v)).collect();
+        let authority_map1 = authority_map.clone().into_iter().map(|(k, v)| (k, v.public_key)).collect();
+        let protocol1 = protocol.clone();
+        let task = futures::lazy(move || {
+            tokio::spawn(
+                authority_rx.for_each(move |map| {
+                    protocol1.set_authority_map(map);
+                    Ok(())
+                })
+            );
+            tokio::spawn(
+                authority_tx
+                    .send(authority_map)
+                    .map(|_| ())
+                    .map_err(|_| ())
+            );
+            Ok(())
+        });
+
+        let handle = thread::spawn(move || {
+            tokio::run(task);
+        });
+        thread::sleep(Duration::from_secs(1));
+        let map = protocol.authority_map.read();
+        assert_eq!(*map, authority_map1);
+        std::mem::drop(handle);
+    }
+}

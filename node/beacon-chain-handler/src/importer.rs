@@ -1,11 +1,10 @@
 //! BeaconBlockImporter consumes blocks that we received from other peers and adds them to the
 //! chain.
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::{Future, future, Stream};
-use futures::sync::mpsc::Receiver;
+use futures::{Future, future, Stream, Sink};
+use futures::sync::mpsc::{Receiver, Sender};
 use parking_lot::RwLock;
 
 use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
@@ -21,16 +20,18 @@ pub fn spawn_block_importer(
     shard_chain: Arc<ShardBlockChain>,
     runtime: Arc<RwLock<Runtime>>,
     state_db: Arc<StateDb>,
-    receiver: Receiver<SignedBeaconBlock>
+    receiver: Receiver<SignedBeaconBlock>,
+    new_block_tx: Sender<SignedBeaconBlock>,
 ) {
-    let beacon_block_importer = RefCell::new(BlockImporter::new(
+    let beacon_block_importer = BlockImporter::new(
         beacon_chain,
         shard_chain,
         runtime,
         state_db,
-    ));
-    let task = receiver.fold(beacon_block_importer, |beacon_block_importer, body| {
-        beacon_block_importer.borrow_mut().import_beacon_block(body);
+        new_block_tx,
+    );
+    let task = receiver.fold(beacon_block_importer, |mut beacon_block_importer, body| {
+        beacon_block_importer.import_beacon_block(body);
         future::ok(beacon_block_importer)
     }).and_then(|_| Ok(()));
     tokio::spawn(task);
@@ -44,6 +45,7 @@ pub struct BlockImporter {
     /// Stores blocks that cannot be added yet.
     pending_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
     pending_shard_blocks: HashMap<CryptoHash, SignedShardBlock>,
+    new_block_tx: Sender<SignedBeaconBlock>,
 }
 
 impl BlockImporter {
@@ -52,6 +54,7 @@ impl BlockImporter {
         shard_chain: Arc<ShardBlockChain>,
         runtime: Arc<RwLock<Runtime>>,
         state_db: Arc<StateDb>,
+        new_block_tx: Sender<SignedBeaconBlock>,
     ) -> Self {
         Self {
             beacon_chain,
@@ -60,6 +63,7 @@ impl BlockImporter {
             state_db,
             pending_beacon_blocks: HashMap::new(),
             pending_shard_blocks: HashMap::new(),
+            new_block_tx,
         }
     }
 
@@ -76,7 +80,6 @@ impl BlockImporter {
     fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
-        let num_transactions = shard_block.body.transactions.len();
         // we can unwrap because parent is guaranteed to exist
         let prev_header = self.beacon_chain
             .get_header(&BlockId::Hash(parent_hash))
@@ -91,44 +94,46 @@ impl BlockImporter {
             parent_block_hash: parent_hash,
             shard_id: shard_block.body.header.shard_id,
         };
-        let mut apply_result = self.runtime.write().apply(
+        let apply_result = self.runtime.write().check(
             &apply_state,
             &prev_shard_block.body.new_receipts,
-            shard_block.body.transactions.clone()
+            &shard_block.body.transactions
         );
-        if apply_result.root != prev_shard_header.body.merkle_root_state {
-            info!(
-                "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
-                prev_shard_header.body.merkle_root_state,
-                apply_result.root,
-                beacon_block
-            );
-            return;
+        match apply_result {
+            Some((mut db_transaction, root)) => {
+                if root != prev_shard_header.body.merkle_root_state {
+                    info!(
+                        "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
+                        prev_shard_header.body.merkle_root_state,
+                        root,
+                        beacon_block
+                    );
+                    return;
+                }
+                self.state_db.commit(&mut db_transaction).ok();
+                self.shard_chain.insert_block(shard_block);
+                self.beacon_chain.insert_block(beacon_block);
+            }
+            None => {
+                info!(
+                    "Found incorrect transaction in block {:?}",
+                    beacon_block
+                );
+                return;
+            }
         }
-        if apply_result.filtered_transactions.len() != num_transactions {
-            info!(
-                "Imported block has transactions that were filtered out while merkle roots match in {:?}",
-                beacon_block
-            );
-            return;
-        }
-        self.state_db.commit(&mut apply_result.transaction).ok();
-        // TODO: figure out where to store apply_result.authority_change_set.
-        self.shard_chain.insert_block(shard_block);
-        self.beacon_chain.insert_block(beacon_block);
     }
 
-    fn blocks_to_process(&self, pending_beacon_blocks: &HashMap<CryptoHash, SignedBeaconBlock>) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
+    fn blocks_to_process(&mut self) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
         let mut part_add = vec![];
         let mut part_pending = HashMap::default();
-        // TODO: do this with drains and whatnot. For now, that doesn't work because self is both mutable and immutable.
-        for (hash, other) in pending_beacon_blocks.iter() {
+        for (hash, other) in self.pending_beacon_blocks.drain() {
             if self.beacon_chain.is_known(&other.body.header.parent_hash) && (
                 self.shard_chain.is_known(&other.body.header.shard_block_hash) ||
                     self.pending_shard_blocks.contains_key(&other.body.header.shard_block_hash)) {
-                part_add.push(other.clone());
+                part_add.push(other);
             } else {
-                part_pending.insert(hash.clone(), other.clone());
+                part_pending.insert(hash, other);
             }
         }
         (part_add, part_pending)
@@ -151,7 +156,7 @@ impl BlockImporter {
         loop {
             // Only keep those blocks in `pending_blocks` that are still pending.
             // Otherwise put it in `blocks_to_add`.
-            let (part_add, part_pending) = self.blocks_to_process(&self.pending_beacon_blocks);
+            let (part_add, part_pending) = self.blocks_to_process();
             blocks_to_add.extend(part_add);
             self.pending_beacon_blocks = part_pending;
 
@@ -163,7 +168,19 @@ impl BlockImporter {
             let hash = next_beacon_block.block_hash();
             if self.beacon_chain.is_known(&hash) { continue; }
 
-            let next_shard_block = self.pending_shard_blocks.remove(&next_beacon_block.body.header.shard_block_hash).expect("Expected to have shard block present when processing beacon block");
+            let next_shard_block = self.pending_shard_blocks
+                .remove(&next_beacon_block.body.header.shard_block_hash)
+                .expect("Expected to have shard block present when processing beacon block");
+
+            tokio::spawn({
+                let block_tx = self.new_block_tx.clone();
+                block_tx
+                    .send(next_beacon_block.clone())
+                    .map(|_| ())
+                    .map_err(|e| {
+                        error!("failed to send new block: {:?}", e);
+                    })
+            });
             self.add_block(next_beacon_block, next_shard_block);
         }
     }

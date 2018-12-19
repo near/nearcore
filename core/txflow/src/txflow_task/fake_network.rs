@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use super::TxFlowTask;
+use super::{TxFlowTask, Control, State};
 
 use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
@@ -8,6 +8,8 @@ use futures::sync::mpsc;
 use rand;
 use std::collections::HashSet;
 use chrono::Utc;
+use tokio::timer::Delay;
+use std::time::{Instant, Duration};
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::GossipBody;
@@ -84,7 +86,7 @@ impl Payload for FakePayload {
 /// Spawns several TxFlowTasks and mediates their communication channels.
 pub fn spawn_all(num_witnesses: u64) {
     let starting_epoch = 0;
-    let sample_size = (num_witnesses as f64)
+    let gossip_size = (num_witnesses as f64)
         .sqrt()
         .max(1.0 as f64)
         .min(num_witnesses as f64 - 1.0) as usize;
@@ -96,20 +98,41 @@ pub fn spawn_all(num_witnesses: u64) {
 
         // Spawn tasks
         for owner_uid in 0..num_witnesses {
-            let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1_024);
-            let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1_024);
-            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1_024);
-            let selector = FakeWitnessSelector::new(owner_uid, num_witnesses);
+            let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
+            let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1024);
+            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1024);
+            let (control_tx, control_rx) = mpsc::channel(1024);
+            let witness_selector = Box::new(FakeWitnessSelector::new(owner_uid, num_witnesses));
 
             inc_gossip_tx_vec.push(inc_gossip_tx);
             inc_payload_tx_vec.push(inc_payload_tx);
             out_gossip_rx_vec.push(_out_gossip_rx);
 
-            let task = TxFlowTask::<FakePayload, _>::new(
-                owner_uid, starting_epoch, sample_size,
-                inc_gossip_rx, inc_payload_rx, out_gossip_tx,
-                selector);
+            let task = TxFlowTask::<FakePayload, FakeWitnessSelector>::new(
+                inc_gossip_rx, inc_payload_rx, out_gossip_tx, control_rx);
             tokio::spawn(task.for_each(|_| Ok(())));
+
+            let control_tx1 = control_tx.clone();
+            let start_task = control_tx1.send(
+                Control::Reset(
+                    State {
+                        owner_uid,
+                        starting_epoch,
+                        gossip_size,
+                        witness_selector,
+                    })
+            )
+                .map(|_| ()).map_err(|e| println!("Error sending control {}", e));
+            tokio::spawn(start_task);
+
+            // Sends a stop signal to the clients, but most importantly it holds the input of the
+            // control channel, because as soon as the control channel is dropped TxFlow task stops.
+            let control_tx2 = control_tx.clone();
+            let stop_task = Delay::new(Instant::now() + Duration::from_secs(10)).then(|_|
+                control_tx2.send(Control::Stop)
+                    .map(|_| ()).map_err(|e| println!("Error sending control {}", e))
+            );
+            tokio::spawn(stop_task);
         }
 
         let mut tracker_added = false;
@@ -171,14 +194,11 @@ pub fn spawn_all(num_witnesses: u64) {
     }));
 }
 
-// Currently there is no stopping signal for TxFlow, so this is not added to tests because it would
-// hang.
-// TODO: Add stopping signal to TxFlow.
-//#[cfg(test)]
-//mod tests {
-//    use super::spawn_all;
-//    #[test]
-//    fn two_witnesses() {
-//        spawn_all(20);
-//    }
-//}
+#[cfg(test)]
+mod tests {
+    use super::spawn_all;
+    #[test]
+    fn two_witnesses() {
+        spawn_all(10);
+    }
+}

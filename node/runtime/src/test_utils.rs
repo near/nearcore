@@ -1,13 +1,15 @@
-use state_viewer::StateDbViewer;
+use std::sync::Arc;
+
+use byteorder::{ByteOrder, LittleEndian};
+
+use chain::BlockChain;
 use chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
 use primitives::types::Transaction;
-use std::sync::Arc;
+use shard::SignedShardBlock;
+use state_viewer::StateDbViewer;
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
-use shard::SignedShardBlock;
-use chain::BlockChain;
-use byteorder::{ByteOrder, LittleEndian};
 use super::{Runtime, ApplyResult, ApplyState};
 
 pub fn generate_test_chain_spec() -> ChainSpec {
@@ -19,7 +21,7 @@ pub fn generate_test_chain_spec() -> ChainSpec {
             ("bob".to_string(), public_keys[1].to_string(), 0),
             ("system".to_string(), public_keys[2].to_string(), 0),
         ],
-        initial_authorities: vec![(public_keys[0].to_string(), 50)],
+        initial_authorities: vec![("alice".to_string(), public_keys[0].to_string(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,

@@ -2,6 +2,7 @@ extern crate beacon;
 extern crate beacon_chain_handler;
 extern crate chain;
 extern crate clap;
+extern crate consensus;
 extern crate env_logger;
 extern crate futures;
 #[macro_use]
@@ -19,14 +20,15 @@ extern crate serde_json;
 extern crate shard;
 extern crate storage;
 extern crate tokio;
+extern crate txflow;
 
 use clap::{App, Arg};
 use std::path::PathBuf;
 use std::str::FromStr;
+use consensus::passthrough;
 
 pub mod chain_spec;
 pub mod service;
-pub mod test_utils;
 
 pub fn get_service_config() -> service::ServiceConfig {
     let default_p2p_port = service::DEFAULT_P2P_PORT.to_string();
@@ -95,7 +97,14 @@ pub fn get_service_config() -> service::ServiceConfig {
                 ])
                 .default_value(&default_log_level)
                 .takes_value(true),
-        ).get_matches();
+        ).arg(
+            Arg::with_name("account_name")
+            .value_name("ACCOUNT_NAME")
+            .help("Set the account name of the node")
+            .takes_value(true)
+            .default_value("alice")
+        )
+        .get_matches();
 
     let base_path = matches
         .value_of("base_path")
@@ -132,6 +141,11 @@ pub fn get_service_config() -> service::ServiceConfig {
         .map(String::from)
         .collect();
 
+    let account_name = matches
+        .value_of("account_name")
+        .map(String::from)
+        .unwrap();
+
     service::ServiceConfig {
         base_path,
         chain_spec_path,
@@ -140,6 +154,7 @@ pub fn get_service_config() -> service::ServiceConfig {
         rpc_port,
         boot_nodes,
         test_node_index,
+        account_name
     }
 }
 
@@ -147,6 +162,6 @@ pub fn run() {
     let config = get_service_config();
     service::start_service(
         config,
-        test_utils::spawn_pasthrough_consensus,
+        passthrough::spawn_consensus,
     );
 }

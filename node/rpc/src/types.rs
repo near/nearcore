@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use primitives::hash::{CryptoHash, bs58_format};
+
+use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{AccountId, Balance, TransactionBody};
 
@@ -88,6 +89,8 @@ pub struct ViewAccountResponse {
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionRequest {
     #[serde(with = "bs58_format")]
+    pub originator_id: AccountId,
+    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
@@ -95,13 +98,6 @@ pub struct CallViewFunctionRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionResponse {
-    #[serde(with = "bs58_format")]
-    pub account_id: AccountId,
-    pub amount: Balance,
-    pub stake: Balance,
-    pub nonce: u64,
-    #[serde(with = "bs58_format")]
-    pub code_hash: CryptoHash,
     pub result: Vec<u8>,
 }
 

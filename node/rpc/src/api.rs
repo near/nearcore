@@ -6,9 +6,9 @@ use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::utils::bs58_vec2str;
 use primitives::types::{
-    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
-    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
-    TransactionBody, ViewCall,
+    CreateAccountTransaction, DeployContractTransaction,
+    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
+    StakeTransaction, SwapKeyTransaction, TransactionBody,
 };
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
@@ -203,13 +203,7 @@ impl TransactionApi for RpcImpl {
 
     fn rpc_view_account(&self, r: ViewAccountRequest) -> JsonRpcResult<ViewAccountResponse> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
-        let call = ViewCall {
-            account: r.account_id,
-            method_name: String::new(),
-            args: Vec::new(),
-        };
-        let result = self.state_db_viewer.view(&call);
-        match result {
+        match self.state_db_viewer.view_account(r.account_id) {
             Ok(r) => {
                 Ok(ViewAccountResponse {
                     account_id: r.account,
@@ -232,23 +226,14 @@ impl TransactionApi for RpcImpl {
         r: CallViewFunctionRequest,
     ) -> JsonRpcResult<(CallViewFunctionResponse)> {
         debug!(target: "near-rpc", "Call view function {:?}{:?}", r.contract_account_id, r.method_name);
-        let call = ViewCall {
-            account: r.contract_account_id,
-            method_name: r.method_name,
-            args: r.args,
-        };
-        let result = self.state_db_viewer.view(&call);
-
-        match result {
-            Ok(r) => {
-                Ok(CallViewFunctionResponse {
-                    account_id: r.account,
-                    amount: r.amount,
-                    stake: r.stake,
-                    code_hash: r.code_hash,
-                    nonce: r.nonce,
-                    result: r.result,
-                })
+        match self.state_db_viewer.call_function(
+            r.originator_id,
+            r.contract_account_id,
+            &r.method_name,
+            &r.args,
+        ) {
+            Ok(result) => {
+                Ok(CallViewFunctionResponse { result })
             }
             Err(e) => {
                 let mut error = Error::new(ErrorCode::InvalidRequest);

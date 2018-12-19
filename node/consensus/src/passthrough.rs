@@ -1,25 +1,28 @@
-use beacon_chain_handler::producer::{ChainConsensusBlockBody, ShardChainPayload};
+use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{MessageDataBody, SignedMessageData, SignedTransaction, Transaction};
+use primitives::types::{MessageDataBody, SignedMessageData, ChainPayload, Gossip};
 use std::collections::HashSet;
 use tokio;
 
-pub fn spawn_pasthrough_consensus(
-    transactions_rx: Receiver<SignedTransaction>,
+#[allow(clippy::needless_pass_by_value)]
+pub fn spawn_consensus(
+    payload_rx: Receiver<ChainPayload>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
+    _inc_gossip_rx: Receiver<Gossip<ChainPayload>>,
+    _out_gossip_tx: Sender<Gossip<ChainPayload>>,
 ) {
-    let task = transactions_rx
-        .fold(consensus_tx, |consensus_tx, t| {
-            let message: SignedMessageData<ShardChainPayload> = SignedMessageData {
+    let task = payload_rx
+        .fold(consensus_tx, |consensus_tx, p| {
+            let message: SignedMessageData<ChainPayload> = SignedMessageData {
                 owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                 hash: 0,                      // Compute real hash
                 body: MessageDataBody {
                     owner_uid: 0,
                     parents: HashSet::new(),
                     epoch: 0,
-                    payload: vec![Transaction::SignedTransaction(t)],
+                    payload: p,
                     endorsements: vec![],
                 },
             };

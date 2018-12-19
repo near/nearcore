@@ -59,41 +59,13 @@ impl<'a> From<&'a ReadablePublicKey> for PublicKey {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
 pub enum BlockId {
     Number(u64),
     Hash(CryptoHash),
 }
 
-// 1. Transaction structs.
-
-/// Call view function in the contracts.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct ViewCall {
-    pub account: AccountId,
-    pub method_name: String,
-    pub args: Vec<u8>,
-}
-
-impl ViewCall {
-    pub fn balance(account: AccountId) -> Self {
-        ViewCall { account, method_name: String::new(), args: vec![] }
-    }
-    pub fn func_call(account: AccountId, method_name: String, args: Vec<u8>) -> Self {
-        ViewCall { account, method_name, args }
-    }
-}
-
-/// Result of view call.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct ViewCallResult {
-    pub account: AccountId,
-    pub nonce: u64,
-    pub amount: Balance,
-    pub stake: Balance,
-    pub code_hash: CryptoHash,
-    pub result: Vec<u8>,
-}
+// Transaction structs.
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
@@ -366,11 +338,11 @@ pub enum Transaction {
     Receipt(ReceiptTransaction),
 }
 
-// 4. TxFlow-specific structs.
+// TxFlow-specific structs.
 
 pub type TxFlowHash = u64;
 
-// 4.1 DAG-specific structs.
+// DAG-specific structs.
 
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
@@ -382,11 +354,11 @@ pub struct Endorsement {
 }
 
 #[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct BeaconChainPayload {
-    pub body: Vec<SignedTransaction>,
+pub struct ChainPayload {
+    pub body: Vec<Transaction>,
 }
 
-impl Payload for BeaconChainPayload {
+impl Payload for ChainPayload {
     fn verify(&self) -> Result<(), &'static str> {
         Ok(())
     }
@@ -488,7 +460,8 @@ pub struct ConsensusBlockBody<P> {
     pub messages: Vec<SignedMessageData<P>>,
 }
 
-// 4.2 Gossip-specific structs.
+// Gossip-specific structs.
+
 #[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GossipBody<P> {
     /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
