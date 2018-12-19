@@ -150,6 +150,7 @@ fn test_block_catch_up_from_start() {
 // this test is expensive to run. should be ignored when running
 // all tests
 #[test]
+#[ignore]
 fn test_block_catchup_from_network_interruption() {
     let storage1 = Arc::new(create_memory_db());
     let genesis_block = SignedBeaconBlock::new(
