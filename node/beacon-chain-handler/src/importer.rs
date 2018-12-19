@@ -172,16 +172,6 @@ impl BlockImporter {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
-            // send authorities through the channel
-            //tokio::spawn({
-            //    let authority_tx = self.authority_tx.clone();
-            //    authority_tx
-            //        .send(authorities)
-            //        .map(|_| ())
-            //        .map_err(|e| { 
-            //            error!("failed to send authorities: {:?}", e);
-            //        })
-            //});
             tokio::spawn({
                 let block_tx = self.new_block_tx.clone();
                 block_tx
