@@ -8,7 +8,7 @@ extern crate futures;
 #[macro_use]
 extern crate log;
 extern crate network;
-extern crate node_rpc;
+extern crate node_http;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
