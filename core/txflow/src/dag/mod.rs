@@ -8,7 +8,6 @@ use primitives::types::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use self::message::group::GroupsPerEpoch;
 use self::message::Message;
 pub use self::reporter::{
     DAGMisbehaviorReporter, MisbehaviorReporter, NoopMisbehaviorReporter, ViolationType,
@@ -36,8 +35,10 @@ pub struct DAG<
     /// Store last message from each participant in the DAG.
     /// In case of a fork only one is stored arbitrarely.
     recent_message: HashMap<UID, &'a Message<'a, P>>,
-    /// Stores representative messages that were already published.
-    published: HashMap<&'a Message<'a, P>, GroupsPerEpoch<'a, P>>,
+    /// All epochs that were already published.
+    published_epochs: HashSet<u64>,
+    /// All messages that were ever published.
+    published_messages: HashSet<&'a Message<'a, P>>,
 
     witness_selector: &'a W,
     starting_epoch: u64,
@@ -53,7 +54,8 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
             messages: HashSet::new(),
             roots: HashSet::new(),
             recent_message: HashMap::new(),
-            published: HashMap::new(),
+            published_epochs: HashSet::new(),
+            published_messages: HashSet::new(),
             witness_selector,
             starting_epoch,
             misbehavior: Box::new(RefCell::new(M::new())),
@@ -115,6 +117,46 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
         }
     }
 
+    // Does inefficient DFS collecting parents from under the given representative.
+    fn collect_parents(&mut self, message: &'a Message<'a, P>, parents: &mut Vec<&'a Message<'a, P>>) {
+        if self.published_messages.contains(message) {
+            return;
+        }
+        parents.push(message);
+        self.published_messages.insert(message);
+        for p in &message.parents {
+           self.collect_parents(p, parents);
+        }
+    }
+
+    /// Computes new consensus enabled by the given message.
+    fn publishable_to_consensus(&mut self, message: &Message<'a, P>) -> Vec<ConsensusBlockBody<P>> {
+        let mut publishable: Vec<_> =
+            (&message.computed_publishable_epochs.messages_by_epoch).iter().filter(|(epoch, _)|
+                // Check that we haven't published this epoch already.
+                !self.published_epochs.contains(epoch)
+            ).collect();
+        // Lowest epochs first.
+        publishable.sort_by(|(epoch1, _), (epoch2, _)| epoch1.cmp(epoch2));
+
+        // Returned consensuses. Lowest epoch first.
+        let mut res = vec![];
+        // TODO(#125) Currently this goes through without beacon chain consensus. Once we have a
+        // beacon chain consensus the epoch will be used.
+        for (epoch, group) in publishable {
+            let repr = group.messages_by_owner.values().next()
+                .expect("At least one message expected.")
+                .iter().next().expect("At least one message expected.");
+            let mut parents = vec![];
+            self.collect_parents(repr, &mut parents);
+            res.push(ConsensusBlockBody {
+                messages: parents.iter().map(|m| m.data.clone()).collect()
+            });
+            self.published_epochs.insert(*epoch);
+        }
+        res
+    }
+
     /// Verify correctness of this message regarding txflow protocol.
     /// Report all misbehavior as soon as they are detected.
     fn verify_message(&mut self, message: &Message<'a, P>) -> Result<(), &'static str> {
@@ -172,7 +214,10 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
         self.messages.insert(unsafe { &*message_ptr });
         self.roots.insert(unsafe { &*message_ptr });
         self.recent_message.insert(owner, unsafe { &*message_ptr });
-        Ok(vec![])
+
+        // Compute consensuses enabled by this message.
+        let consensuses = self.publishable_to_consensus(unsafe { &*message_ptr });
+        Ok(consensuses)
     }
 
     /// Creates a new message that points to all existing roots. Takes ownership of the payload and
@@ -202,7 +247,10 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
         self.messages.insert(unsafe { &*message_ptr });
         self.roots.clear();
         self.roots.insert(unsafe { &*message_ptr });
-        (unsafe { &*message_ptr }, vec![])
+
+        // Compute consensuses enabled by this message.
+        let consensuses = self.publishable_to_consensus(unsafe { &*message_ptr });
+        (unsafe { &*message_ptr }, consensuses)
     }
 }
 
@@ -352,7 +400,7 @@ mod tests {
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
         assert!(dag.add_existing_message((*a).clone()).is_ok());
-        let (message, _)= dag.create_root_message(::testing_utils::FakePayload {}, vec![]);
+        let (message, _) = dag.create_root_message(::testing_utils::FakePayload {}, vec![]);
         d = &message.data;
 
         simple_bare_messages!(data_arena, all_messages [[=> b; => d;] => 4, 5 => e;]);

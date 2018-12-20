@@ -43,7 +43,7 @@ pub struct Message<'a, P: 'a + Payload> {
     /// Computed epochs that became complete due to this message.
     computed_complete_epochs: GroupsPerEpoch<'a, P>,
     /// Computed epochs that correspond to representative messages that are now publishable.
-    computed_publishable_epochs: GroupsPerEpoch<'a, P>,
+    pub computed_publishable_epochs: GroupsPerEpoch<'a, P>,
 
     // The following are the approved messages, grouped by different criteria.
     /// Epoch -> messages that have that epoch.
@@ -396,7 +396,7 @@ impl<'a, P: Payload> Message<'a, P> {
     fn find_next_publishable_repr(
         &self,
         prev: &'a Message<'a, P>,
-    ) -> Option<(&'a u64, &'a Message<'a, P>)> {
+    ) -> Option<(&u64, &'a Message<'a, P>)> {
         // This is quite inefficient, but we are making changes to TxFlow algorithm anyway.
         (&prev.approved_representatives.messages_by_epoch)
             .into_iter()
