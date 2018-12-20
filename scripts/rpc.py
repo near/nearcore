@@ -257,6 +257,9 @@ class NearRPC(object):
     def view_latest_beacon_block(self):
         return self._call_rpc('view_latest_beacon_block')
 
+    def view_latest_shard_block(self):
+        return self._call_rpc('view_latest_shard_block')
+
     def create_account(
         self,
         sender,
@@ -338,6 +341,7 @@ stake                     {}
 create_account            {}
 swap_key                  {}
 view_latest_beacon_block  {}
+view_latest_shard_block   {}
             """.format(
                 self.call_view_function.__doc__,
                 self.deploy.__doc__,
@@ -349,6 +353,7 @@ view_latest_beacon_block  {}
                 self.create_account.__doc__,
                 self.swap_key.__doc__,
                 self.view_latest_beacon_block.__doc__,
+                self.view_latest_shard_block.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -583,6 +588,13 @@ view_latest_beacon_block  {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.view_latest_beacon_block()
+
+    def view_latest_shard_block(self):
+        """View latest shard block."""
+        parser = self._get_command_parser(self.view_state.__doc__)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.view_latest_shard_block()
 
 
 if __name__ == "__main__":

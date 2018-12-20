@@ -11,19 +11,20 @@ use primitives::types::{
     StakeTransaction, SwapKeyTransaction, TransactionBody,
 };
 use primitives::utils::bs58_vec2str;
+use shard::ShardBlockChain;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
-    SignedBeaconBlockResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
-    ViewAccountResponse, ViewStateRequest,
-    ViewStateResponse,
+    SignedBeaconBlockResponse, SignedShardBlockResponse, StakeRequest, SwapKeyRequest,
+    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
     submit_txn_sender: Sender<SignedTransaction>,
     beacon_chain: Arc<BeaconBlockChain>,
+    shard_chain: Arc<ShardBlockChain>,
 }
 
 impl HttpApi {
@@ -31,11 +32,13 @@ impl HttpApi {
         state_db_viewer: StateDbViewer,
         submit_txn_sender: Sender<SignedTransaction>,
         beacon_chain: Arc<BeaconBlockChain>,
+        shard_chain: Arc<ShardBlockChain>,
     ) -> HttpApi {
         HttpApi {
             state_db_viewer,
             submit_txn_sender,
             beacon_chain,
+            shard_chain,
         }
     }
 }
@@ -192,5 +195,9 @@ impl HttpApi {
 
     pub fn view_latest_beacon_block(&self) -> Result<SignedBeaconBlockResponse, ()> {
         Ok(self.beacon_chain.best_block().into())
+    }
+
+    pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
+        Ok(self.shard_chain.best_block().into())
     }
 }

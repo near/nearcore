@@ -4,7 +4,11 @@ use beacon::authority::AuthorityProposal;
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
-use primitives::types::{AccountId, AuthorityMask, Balance, TransactionBody};
+use primitives::types::{
+    AccountId, AuthorityMask, Balance, MerkleHash, ShardId, Transaction,
+    TransactionBody,
+};
+use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -197,6 +201,68 @@ impl From<SignedBeaconBlock> for SignedBeaconBlockResponse {
             hash: block.hash,
             signature,
             authority_mask: block.authority_mask,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ShardBlockHeaderResponse {
+    #[serde(with = "bs58_format")]
+    pub parent_hash: CryptoHash,
+    pub shard_id: ShardId,
+    pub index: u64,
+    #[serde(with = "bs58_format")]
+    pub merkle_root_state: MerkleHash,
+}
+
+impl From<ShardBlockHeader> for ShardBlockHeaderResponse {
+    fn from(header: ShardBlockHeader) -> Self {
+        ShardBlockHeaderResponse {
+            parent_hash: header.parent_hash,
+            shard_id: header.shard_id,
+            index: header.index,
+            merkle_root_state: header.merkle_root_state,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ShardBlockResponse {
+    pub header: ShardBlockHeaderResponse,
+    pub transactions: Vec<Transaction>,
+    pub new_receipts: Vec<Transaction>,
+}
+
+impl From<ShardBlock> for ShardBlockResponse {
+    fn from(block: ShardBlock) -> Self {
+        ShardBlockResponse {
+            header: block.header.into(),
+            transactions: block.transactions,
+            new_receipts: block.new_receipts,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedShardBlockResponse {
+    pub body: ShardBlockResponse,
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash,
+    pub authority_mask: AuthorityMask,
+    // TODO(#298): should have a format for MultiSignature
+    pub signature: Vec<String>,
+}
+
+impl From<SignedShardBlock> for SignedShardBlockResponse {
+    fn from(block: SignedShardBlock) -> Self {
+        let signature = block.signature.iter()
+            .map(String::from)
+            .collect();
+        SignedShardBlockResponse {
+            body: block.body.into(),
+            hash: block.hash,
+            authority_mask: block.authority_mask,
+            signature,
         }
     }
 }

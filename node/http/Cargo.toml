@@ -13,3 +13,4 @@ serde_json = "1.0"
 beacon = { path = "../../core/beacon" }
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
+shard = { path = "../../core/shard" }
