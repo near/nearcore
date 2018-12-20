@@ -1,15 +1,15 @@
 #![allow(dead_code)]
-use super::{TxFlowTask, Control, State};
+use super::{Control, State, TxFlowTask};
 
-use futures::{Future, Sink, Stream};
-use futures::future::{join_all, lazy};
+use chrono::Utc;
 use futures::future;
+use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
+use futures::{Future, Sink, Stream};
 use rand;
 use std::collections::HashSet;
-use chrono::Utc;
+use std::time::{Duration, Instant};
 use tokio::timer::Delay;
-use std::time::{Instant, Duration};
 
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::GossipBody;
@@ -23,11 +23,7 @@ struct FakeWitnessSelector {
 
 impl FakeWitnessSelector {
     pub fn new(owner_uid: u64, num_witnesses: u64) -> Self {
-        Self {
-            owner_uid,
-            num_witnesses,
-            all_witnesses: (0..num_witnesses).collect(),
-        }
+        Self { owner_uid, num_witnesses, all_witnesses: (0..num_witnesses).collect() }
     }
 }
 
@@ -86,10 +82,8 @@ impl Payload for FakePayload {
 /// Spawns several TxFlowTasks and mediates their communication channels.
 pub fn spawn_all(num_witnesses: u64) {
     let starting_epoch = 0;
-    let gossip_size = (num_witnesses as f64)
-        .sqrt()
-        .max(1.0 as f64)
-        .min(num_witnesses as f64 - 1.0) as usize;
+    let gossip_size =
+        (num_witnesses as f64).sqrt().max(1.0 as f64).min(num_witnesses as f64 - 1.0) as usize;
 
     tokio::run(lazy(move || {
         let mut inc_gossip_tx_vec = vec![];
@@ -102,6 +96,7 @@ pub fn spawn_all(num_witnesses: u64) {
             let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1024);
             let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1024);
             let (control_tx, control_rx) = mpsc::channel(1024);
+            let (consensus_tx, _consensus_rx) = mpsc::channel(1024);
             let witness_selector = Box::new(FakeWitnessSelector::new(owner_uid, num_witnesses));
 
             inc_gossip_tx_vec.push(inc_gossip_tx);
@@ -109,29 +104,35 @@ pub fn spawn_all(num_witnesses: u64) {
             out_gossip_rx_vec.push(_out_gossip_rx);
 
             let task = TxFlowTask::<FakePayload, FakeWitnessSelector>::new(
-                inc_gossip_rx, inc_payload_rx, out_gossip_tx, control_rx);
+                inc_gossip_rx,
+                inc_payload_rx,
+                out_gossip_tx,
+                control_rx,
+                consensus_tx,
+            );
             tokio::spawn(task.for_each(|_| Ok(())));
 
             let control_tx1 = control_tx.clone();
-            let start_task = control_tx1.send(
-                Control::Reset(
-                    State {
-                        owner_uid,
-                        starting_epoch,
-                        gossip_size,
-                        witness_selector,
-                    })
-            )
-                .map(|_| ()).map_err(|e| println!("Error sending control {}", e));
+            let start_task = control_tx1
+                .send(Control::Reset(State {
+                    owner_uid,
+                    starting_epoch,
+                    gossip_size,
+                    witness_selector,
+                }))
+                .map(|_| ())
+                .map_err(|e| println!("Error sending control {}", e));
             tokio::spawn(start_task);
 
             // Sends a stop signal to the clients, but most importantly it holds the input of the
             // control channel, because as soon as the control channel is dropped TxFlow task stops.
             let control_tx2 = control_tx.clone();
-            let stop_task = Delay::new(Instant::now() + Duration::from_secs(10)).then(|_|
-                control_tx2.send(Control::Stop)
-                    .map(|_| ()).map_err(|e| println!("Error sending control {}", e))
-            );
+            let stop_task = Delay::new(Instant::now() + Duration::from_secs(10)).then(|_| {
+                control_tx2
+                    .send(Control::Stop)
+                    .map(|_| ())
+                    .map_err(|e| println!("Error sending control {}", e))
+            });
             tokio::spawn(stop_task);
         }
 
@@ -147,32 +148,40 @@ pub fn spawn_all(num_witnesses: u64) {
                     None
                 };
                 let gossip_input = inc_gossip_tx_vec_cloned[receiver_uid as usize].clone();
-                tokio::spawn(gossip_input.send(gossip)
-                    .map(|_| ())
-                    .map_err(|e| println!("Error relaying gossip {:?}", e)));
+                tokio::spawn(
+                    gossip_input
+                        .send(gossip)
+                        .map(|_| ())
+                        .map_err(|e| println!("Error relaying gossip {:?}", e)),
+                );
                 epoch
             });
             if tracker_added {
                 tokio::spawn(f.for_each(|_| Ok(())));
             } else {
-                tokio::spawn(f.fold((0, 0), | (min_epoch, max_epoch), _epoch | {
-                    if let Some(epoch) = _epoch {
-                        let mut max_epoch = max_epoch;
-                        let mut min_epoch = min_epoch;
-                        if epoch > max_epoch {
-                            max_epoch = epoch;
-                            println!("{} [{:?}, {:?}]",
-                                     Utc::now().format("%H:%M:%S"),
-                                     min_epoch, max_epoch);
+                tokio::spawn(
+                    f.fold((0, 0), |(min_epoch, max_epoch), _epoch| {
+                        if let Some(epoch) = _epoch {
+                            let mut max_epoch = max_epoch;
+                            let mut min_epoch = min_epoch;
+                            if epoch > max_epoch {
+                                max_epoch = epoch;
+                                println!(
+                                    "{} [{:?}, {:?}]",
+                                    Utc::now().format("%H:%M:%S"),
+                                    min_epoch,
+                                    max_epoch
+                                );
+                            }
+                            if epoch < min_epoch {
+                                min_epoch = epoch;
+                            }
+                            future::ok((min_epoch, max_epoch))
+                        } else {
+                            future::ok((min_epoch, max_epoch))
                         }
-                        if epoch < min_epoch {
-                            min_epoch = epoch;
-                        }
-                        future::ok((min_epoch, max_epoch))
-                    } else {
-                        future::ok((min_epoch, max_epoch))
-                    }
-                }).map(|_| ())
+                    })
+                    .map(|_| ()),
                 );
             }
             tracker_added = true;
@@ -183,13 +192,17 @@ pub fn spawn_all(num_witnesses: u64) {
         for c in &inc_payload_tx_vec {
             let mut payload = FakePayload::new();
             payload.set_content(1);
-            fs.push(c.clone().send(payload)
-                .map(|_| println!("Sending payload"))
-                .map_err(|e| println!("Payload sending error {:?}", e))
+            fs.push(
+                c.clone()
+                    .send(payload)
+                    .map(|_| println!("Sending payload"))
+                    .map_err(|e| println!("Payload sending error {:?}", e)),
             );
         }
 
-        tokio::spawn(join_all(fs).map(|_|()).map_err(|e| println!("Payloads sending error {:?}", e)));
+        tokio::spawn(
+            join_all(fs).map(|_| ()).map_err(|e| println!("Payloads sending error {:?}", e)),
+        );
         Ok(())
     }));
 }
