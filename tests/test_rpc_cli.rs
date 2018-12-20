@@ -294,12 +294,7 @@ fn get_latest_shard_block() -> SignedShardBlockResponse {
 
 fn test_view_latest_shard_block_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let output = Command::new("./scripts/rpc.py")
-        .arg("view_latest_shard_block")
-        .output()
-        .expect("view_latest_shard_block command failed to process");
-    let result = check_result(output).unwrap();
-    let _: SignedShardBlockResponse = serde_json::from_str(&result).unwrap();
+    let _ = get_latest_shard_block();
 }
 
 test! { fn test_view_latest_shard_block() { test_view_latest_shard_block_inner() } }

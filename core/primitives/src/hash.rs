@@ -84,17 +84,10 @@ pub mod bs58_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        match bs58::decode(s).into_vec() {
-            Ok(vec) => {
-                let mut array = [0; 32];
-                if vec.len() == array.len() {
-                    let bytes = &vec[..array.len()];
-                    Ok(CryptoHash::new(bytes))
-                } else {
-                    Err(de::Error::custom("invalid byte array length"))
-                }
-            }
-            Err(_) => Err(de::Error::custom("invalid base58 string")),
+        let mut array = [0; 32];
+        match bs58::decode(s).into(&mut array) {
+            Ok(_) => Ok(CryptoHash::new(&array)),
+            Err(e) => Err(de::Error::custom(e.to_string()))
         }
     }
 }
@@ -143,6 +136,20 @@ mod tests {
         let s = Struct { hash };
         let encoded = serde_json::to_string(&s).unwrap();
         assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
+    }
+
+    #[test]
+    fn test_serialize_default() {
+        let s = Struct { hash: CryptoHash::default() };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
+    }
+
+    #[test]
+    fn test_deserialize_default() {
+        let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
+        let decoded: Struct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.hash, CryptoHash::default());
     }
 
     #[test]
