@@ -19,6 +19,8 @@ use types::{
     SignedBeaconBlockResponse, SignedShardBlockResponse, StakeRequest, SwapKeyRequest,
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
+use types::GetBeaconBlockByHashRequest;
+use primitives::types::BlockId;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -199,5 +201,15 @@ impl HttpApi {
 
     pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
         Ok(self.shard_chain.best_block().into())
+    }
+
+    pub fn get_beacon_block_by_hash(
+        &self,
+        r: &GetBeaconBlockByHashRequest,
+    ) -> Result<SignedBeaconBlockResponse, &str> {
+        match self.beacon_chain.get_block(&BlockId::Hash(r.hash)) {
+            Some(block) => Ok(block.into()),
+            None => Err("block not found"),
+        }
     }
 }

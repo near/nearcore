@@ -257,6 +257,10 @@ class NearRPC(object):
     def view_latest_beacon_block(self):
         return self._call_rpc('view_latest_beacon_block')
 
+    def get_beacon_block_by_hash(self, _hash):
+        params = {'hash': _hash}
+        return self._call_rpc('get_beacon_block_by_hash', params)
+
     def view_latest_shard_block(self):
         return self._call_rpc('view_latest_shard_block')
 
@@ -341,6 +345,7 @@ stake                     {}
 create_account            {}
 swap_key                  {}
 view_latest_beacon_block  {}
+get_beacon_block_by_hash  {}
 view_latest_shard_block   {}
             """.format(
                 self.call_view_function.__doc__,
@@ -353,6 +358,7 @@ view_latest_shard_block   {}
                 self.create_account.__doc__,
                 self.swap_key.__doc__,
                 self.view_latest_beacon_block.__doc__,
+                self.get_beacon_block_by_hash.__doc__,
                 self.view_latest_shard_block.__doc__,
             )
         )
@@ -578,9 +584,7 @@ view_latest_shard_block   {}
         parser.add_argument('contract_name', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
-        return client.view_state(
-            args.contract_name,
-        )
+        return client.view_state(args.contract_name)
 
     def view_latest_beacon_block(self):
         """View latest beacon block."""
@@ -588,6 +592,14 @@ view_latest_shard_block   {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.view_latest_beacon_block()
+
+    def get_beacon_block_by_hash(self):
+        """Get beacon block by hash."""
+        parser = self._get_command_parser(self.view_state.__doc__)
+        parser.add_argument('hash', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.get_beacon_block_by_hash(args.hash)
 
     def view_latest_shard_block(self):
         """View latest shard block."""
