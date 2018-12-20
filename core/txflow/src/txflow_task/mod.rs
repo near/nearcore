@@ -349,7 +349,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         if !self.pending_payload.is_empty() || self.dag_as_ref().is_root_not_updated() {
             // Drain the current payload.
             let payload = mem::replace(&mut self.pending_payload, P::new());
-            let new_message = self.dag_as_mut().create_root_message(payload, vec![]);
+            let (new_message, _) = self.dag_as_mut().create_root_message(payload, vec![]);
             new_gossip_body = Some(&new_message.data);
         } else if let Some(ref mut d) = self.forced_gossip_delay {
             // There are no payloads or dangling roots.

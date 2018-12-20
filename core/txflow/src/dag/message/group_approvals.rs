@@ -18,30 +18,21 @@ pub struct GroupApprovals<'a, P: 'a + Payload> {
 
 impl<'a, P: 'a + Payload> GroupApprovals<'a, P> {
     pub fn new() -> Self {
-        GroupApprovals {
-            approvals: HashMap::new(),
-        }
+        GroupApprovals { approvals: HashMap::new() }
     }
 
     pub fn approve_group(group: &'a Group<'a, P>, approver: &'a Message<'a, P>) -> Self {
         let mut result = Self::new();
         for messages in group.messages_by_owner.values() {
             for message in messages {
-                result
-                    .approvals
-                    .entry(message)
-                    .or_insert_with(Group::new)
-                    .insert(approver);
+                result.approvals.entry(message).or_insert_with(Group::new).insert(approver);
             }
         }
         result
     }
 
     pub fn insert(&mut self, message: &'a Message<'a, P>, approval: &'a Message<'a, P>) {
-        self.approvals
-            .entry(message)
-            .or_insert_with(Group::new)
-            .insert(approval);
+        self.approvals.entry(message).or_insert_with(Group::new).insert(approval);
     }
 
     pub fn union_update(&mut self, other: &Self) {
@@ -52,9 +43,7 @@ impl<'a, P: 'a + Payload> GroupApprovals<'a, P> {
     }
 
     fn contains_owner(&self, owner_uid: UID) -> bool {
-        (&self.approvals)
-            .values()
-            .any(|group| group.contains_owner(owner_uid))
+        (&self.approvals).values().any(|group| group.contains_owner(owner_uid))
     }
 }
 
@@ -66,9 +55,7 @@ pub struct GroupApprovalPerEpoch<'a, P: 'a + Payload> {
 
 impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
     pub fn new() -> Self {
-        GroupApprovalPerEpoch {
-            approvals_per_epoch: HashMap::new(),
-        }
+        GroupApprovalPerEpoch { approvals_per_epoch: HashMap::new() }
     }
 
     pub fn approve_groups_per_epoch(
@@ -139,7 +126,7 @@ impl<'a, P: 'a + Payload> GroupApprovalPerEpoch<'a, P> {
     /// Get messages that are superapproved.
     pub fn superapproved_messages<W>(&self, witness_selector: &W) -> GroupsPerEpoch<'a, P>
     where
-        W: WitnessSelector
+        W: WitnessSelector,
     {
         let mut result = GroupsPerEpoch::new();
         for (epoch, per_epoch) in &self.approvals_per_epoch {
