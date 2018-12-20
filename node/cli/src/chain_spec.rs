@@ -16,10 +16,16 @@ struct ChainSpecRef {
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
+    boot_nodes: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
 struct ChainSpecDeserializer(#[serde(with = "ChainSpecRef")] ChainSpec);
+
+pub fn serialize_chain_spec(chain_spec: ChainSpec) -> String {
+    serde_json::to_string(&ChainSpecDeserializer(chain_spec))
+        .expect("Error serializing the chain spec.")
+}
 
 pub fn deserialize_chain_spec(config: &str) -> ChainSpec {
     serde_json::from_str(config)
@@ -72,6 +78,7 @@ fn test_deserialize() {
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,
         "beacon_chain_num_seats_per_slot": 100,
+        "boot_nodes": [],
     });
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(

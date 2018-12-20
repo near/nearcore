@@ -344,7 +344,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
 
 pub fn spawn_server(http_api: HttpApi, addr: Option<SocketAddr>) {
     let addr = addr.unwrap_or_else(|| {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3030)
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030)
     });
 
     let http_api = Arc::new(http_api);

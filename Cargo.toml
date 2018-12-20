@@ -28,6 +28,7 @@ members = [
     "node/http",
     "node/runtime",
     "node/network",
+    "test-utils/chain-spec-builder",
     "test-utils/devnet",
     "test-utils/node",
     "test-utils/keygen"

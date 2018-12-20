@@ -1,0 +1,13 @@
+.dockerignore
+Dockerfile
+.git/
+.idea/
+
+docs/
+docker/
+ops/
+
+**/target
+storage/
+keystore/
+tmp/

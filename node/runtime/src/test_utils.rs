@@ -25,6 +25,7 @@ pub fn generate_test_chain_spec() -> ChainSpec {
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
+        boot_nodes: vec![],
     }
 }
 

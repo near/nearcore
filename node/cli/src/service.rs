@@ -55,7 +55,7 @@ fn spawn_rpc_server_task(
 ) {
     let state_db_viewer = StateDbViewer::new(shard_chain.clone(), state_db);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
-    let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port));
+    let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_port));
     let http_api = HttpApi::new(
         state_db_viewer,
         transactions_tx,
@@ -100,8 +100,9 @@ fn spawn_network_tasks(
     network_config.listen_addresses =
         vec![network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
 
-    network_config.use_secret =
-        test_network_key_seed.map(network::service::get_test_secret_from_node_index);
+    network_config.use_secret = test_network_key_seed.map(
+        network::service::get_test_secret_from_network_key_seed
+    );
 
     let network_service = network::service::new_network_service(&protocol_config, network_config);
     network::service::spawn_network_tasks(
@@ -179,11 +180,19 @@ where
         + Sync
         + 'static,
 {
-    configure_logging(config.log_level);
-
     // Create shared-state objects.
     let storage = get_storage(&config.base_path);
     let chain_spec = chain_spec::read_or_default_chain_spec(&config.chain_spec_path);
+    let boot_nodes = if chain_spec.boot_nodes.is_empty() {
+        config.boot_nodes.clone()
+    } else {
+        if !config.boot_nodes.is_empty() {
+            // TODO(#222): return an error here instead of panicking
+            panic!("boot nodes cannot be specified when chain spec has boot nodes");
+        } else {
+            chain_spec.boot_nodes.clone()
+        }
+    };
 
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
@@ -206,6 +215,7 @@ where
     let authority = Authority::new(authority_config, &beacon_chain);
     let authority_handler = AuthorityHandler::new(authority, account_id);
 
+    configure_logging(config.log_level);
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (transactions_tx, transactions_rx) = channel(1024);
@@ -259,7 +269,7 @@ where
             Some(signer.account_id()),
             &config.base_path,
             Some(config.p2p_port),
-            config.boot_nodes,
+            boot_nodes,
             config.test_network_key_seed,
             beacon_chain.clone(),
             beacon_block_tx.clone(),
