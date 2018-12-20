@@ -6,7 +6,7 @@ use beacon::types::BeaconBlockChain;
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::types::{
-    CreateAccountTransaction, DeployContractTransaction,
+    BlockId, CreateAccountTransaction, DeployContractTransaction,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
     StakeTransaction, SwapKeyTransaction, TransactionBody,
 };
@@ -14,13 +14,11 @@ use primitives::utils::bs58_vec2str;
 use shard::ShardBlockChain;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
-    CreateAccountRequest, DeployContractRequest,
+    CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
     SignedBeaconBlockResponse, SignedShardBlockResponse, StakeRequest, SwapKeyRequest,
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
-use types::GetBeaconBlockByHashRequest;
-use primitives::types::BlockId;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -199,15 +197,25 @@ impl HttpApi {
         Ok(self.beacon_chain.best_block().into())
     }
 
+    pub fn get_beacon_block_by_hash(
+        &self,
+        r: &GetBlockByHashRequest,
+    ) -> Result<SignedBeaconBlockResponse, &str> {
+        match self.beacon_chain.get_block(&BlockId::Hash(r.hash)) {
+            Some(block) => Ok(block.into()),
+            None => Err("block not found"),
+        }
+    }
+
     pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
         Ok(self.shard_chain.best_block().into())
     }
 
-    pub fn get_beacon_block_by_hash(
+    pub fn get_shard_block_by_hash(
         &self,
-        r: &GetBeaconBlockByHashRequest,
-    ) -> Result<SignedBeaconBlockResponse, &str> {
-        match self.beacon_chain.get_block(&BlockId::Hash(r.hash)) {
+        r: &GetBlockByHashRequest,
+    ) -> Result<SignedShardBlockResponse, &str> {
+        match self.shard_chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }

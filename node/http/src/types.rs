@@ -205,7 +205,7 @@ impl From<SignedBeaconBlock> for SignedBeaconBlockResponse {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ShardBlockHeaderResponse {
     #[serde(with = "bs58_format")]
     pub parent_hash: CryptoHash,
@@ -226,7 +226,7 @@ impl From<ShardBlockHeader> for ShardBlockHeaderResponse {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ShardBlockResponse {
     pub header: ShardBlockHeaderResponse,
     pub transactions: Vec<Transaction>,
@@ -243,7 +243,7 @@ impl From<ShardBlock> for ShardBlockResponse {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedShardBlockResponse {
     pub body: ShardBlockResponse,
     #[serde(with = "bs58_format")]
@@ -268,7 +268,7 @@ impl From<SignedShardBlock> for SignedShardBlockResponse {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GetBeaconBlockByHashRequest {
+pub struct GetBlockByHashRequest {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
 }

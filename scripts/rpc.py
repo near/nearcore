@@ -264,6 +264,10 @@ class NearRPC(object):
     def view_latest_shard_block(self):
         return self._call_rpc('view_latest_shard_block')
 
+    def get_shard_block_by_hash(self, _hash):
+        params = {'hash': _hash}
+        return self._call_rpc('get_shard_block_by_hash', params)
+
     def create_account(
         self,
         sender,
@@ -347,6 +351,7 @@ swap_key                  {}
 view_latest_beacon_block  {}
 get_beacon_block_by_hash  {}
 view_latest_shard_block   {}
+get_beacon_block_by_hash  {}
             """.format(
                 self.call_view_function.__doc__,
                 self.deploy.__doc__,
@@ -360,6 +365,7 @@ view_latest_shard_block   {}
                 self.view_latest_beacon_block.__doc__,
                 self.get_beacon_block_by_hash.__doc__,
                 self.view_latest_shard_block.__doc__,
+                self.get_shard_block_by_hash.__doc__,
             )
         )
         parser.add_argument('command', help='Command to run')
@@ -607,6 +613,14 @@ view_latest_shard_block   {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.view_latest_shard_block()
+
+    def get_shard_block_by_hash(self):
+        """Get shard block by hash."""
+        parser = self._get_command_parser(self.view_state.__doc__)
+        parser.add_argument('hash', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.get_shard_block_by_hash(args.hash)
 
 
 if __name__ == "__main__":
