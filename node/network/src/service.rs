@@ -150,9 +150,9 @@ pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
         .collect()
 }
 
-pub fn get_test_secret_from_node_index(test_node_index: u32) -> Secret {
+pub fn get_test_secret_from_network_key_seed(test_network_key_seed: u32) -> Secret {
     // 0 is an invalid secret so we increment all values by 1
-    let bytes: [u8; 4] = unsafe { mem::transmute(test_node_index + 1) };
+    let bytes: [u8; 4] = unsafe { mem::transmute(test_network_key_seed + 1) };
 
     let mut array = [0; 32];
     for (count, b) in bytes.iter().enumerate() {

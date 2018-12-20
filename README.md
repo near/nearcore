@@ -47,6 +47,15 @@ It will build the first time and then run:
 cargo run
 ```
 
+### Testing
+
+In order to run tests currently, you must setup the following:
+
+```bash
+# sudo may be required if you are not testing with a python virtual environment
+pip install bson
+```
+
 ### Logging
 
 For runnable apps (devnet, nearcore, etc.), you can use
@@ -102,10 +111,10 @@ Try submitting transactions or views via JSON RPC:
 ./scripts/rpc.py deploy test_contract tests/add.wasm
 
 # Call method 'run_test' for contract 'test_contract'
-./scripts/rpc.py schedule_function_call test_contract near_func_add '{"a": 10, "b": 20}'
+./scripts/rpc.py schedule_function_call test_contract near_func_add --args '{"a": 10, "b": 20}'
 
 # Call view function 'run_test' for contract 'test_contract'
-./scripts/rpc.py call_view_function test_contract near_func_add '{"a": 10, "b": 20}'
+./scripts/rpc.py call_view_function test_contract near_func_add --args '{"a": 10, "b": 20}'
 
 # View state for Bob's account
 ./scripts/rpc.py view_account -a bob
@@ -135,3 +144,11 @@ We currently use [clippy](https://github.com/rust-lang-nursery/rust-clippy) to e
 This check is run automatically during CI builds, and in a `pre-commit`
 hook. You can run do a clippy check with `./scripts/run_clippy.sh`.
 
+## Development cluster
+
+To spin multiple nodes, you must first spin up one node and then use it as boot node for all the rest:
+
+    cargo run -- --p2p_port 30333 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1
+
+    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK 
+ 

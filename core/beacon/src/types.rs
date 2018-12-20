@@ -132,7 +132,7 @@ mod tests {
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage.clone());
         let mut block1 = SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
-        let signer = InMemorySigner::new(CryptoHash::default());
+        let signer = InMemorySigner::default();
         let sig = block1.sign(&signer);
         block1.add_signature(sig);
         assert_eq!(bc.insert_block(block1.clone()), false);
@@ -163,7 +163,7 @@ mod tests {
 
     fn test_fork_choice_rule_helper(graph: Vec<(u32,u32,u32)>, expect: u32) {
         let storage = Arc::new(create_memory_db());
-        let signers = (0..100).map(|_| InMemorySigner::new(CryptoHash::default())).collect::<Vec<_>>();
+        let signers = (0..100).map(|_| InMemorySigner::default()).collect::<Vec<_>>();
 
         let genesis = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage);

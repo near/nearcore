@@ -5,19 +5,18 @@ use std::time;
 use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Secret, Severity};
+use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use chain::{SignedBlock, SignedHeader as BlockHeader, BlockChain};
+use beacon::authority::SelectedAuthority;
+use chain::{BlockChain, SignedBlock, SignedHeader as BlockHeader};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
+use primitives::signature::PublicKey;
 use primitives::traits::Decode;
 use primitives::types::{
-    BlockId, ReceiptTransaction, SignedTransaction, Gossip, ChainPayload,
+    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction,
     UID,
 };
-use primitives::signature::PublicKey;
-use beacon::authority::SelectedAuthority;
-use test_utils;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -30,32 +29,30 @@ pub(crate) const CURRENT_VERSION: u32 = 1;
 
 #[derive(Clone, Copy)]
 pub struct ProtocolConfig {
-    // config information goes here
+    /// Account id that runs on given machine.
+    pub account_id: Option<AccountId>,
+    /// Config information goes here.
     pub protocol_id: ProtocolId,
-    // This is hacky. Ideally we want public key here, but
-    // I haven't figured out how to get public key for a node
-    // from substrate libp2p
-    pub secret: Secret,
 }
 
 impl ProtocolConfig {
-    pub fn new(protocol_id: ProtocolId, secret: Secret) -> ProtocolConfig {
-        ProtocolConfig { protocol_id, secret }
+    pub fn new(account_id: Option<AccountId>, protocol_id: ProtocolId) -> ProtocolConfig {
+        ProtocolConfig { account_id, protocol_id }
     }
 
-    pub fn new_with_default_id(secret: Secret) -> ProtocolConfig {
-        ProtocolConfig { protocol_id: ProtocolId::default(), secret }
+    pub fn new_with_default_id(account_id: Option<AccountId>) -> ProtocolConfig {
+        ProtocolConfig { account_id, protocol_id: ProtocolId::default() }
     }
 }
 
 impl Default for ProtocolConfig {
     fn default() -> Self {
-        let secret = test_utils::create_secret();
-        ProtocolConfig::new(ProtocolId::default(), secret)
+        ProtocolConfig::new(None, ProtocolId::default())
     }
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub(crate) struct PeerInfo {
     /// Protocol version.
     protocol_version: u32,
@@ -69,6 +66,8 @@ pub(crate) struct PeerInfo {
     block_request: Option<message::BlockRequest>,
     /// Next request id.
     next_request_id: u64,
+    /// Optionally, Account id.
+    account_id: Option<AccountId>,
 }
 
 pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
@@ -78,6 +77,8 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
     /// Info about peers.
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    /// Info for authority peers.
+    peer_account_info: RwLock<HashMap<AccountId, NodeIndex>>,
     /// Chain info, for read-only access.
     chain: Arc<BlockChain<B>>,
     /// Channel into which the protocol sends the new blocks.
@@ -108,6 +109,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             config,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
+            peer_account_info: RwLock::new(HashMap::new()),
             chain,
             block_sender,
             transaction_sender,
@@ -118,6 +120,11 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         }
     }
 
+    pub fn get_node_by_account_id(&self, account_id: AccountId) -> Option<NodeIndex> {
+        let peer_account_info = self.peer_account_info.read();
+        peer_account_info.get(&account_id).cloned()
+    }
+
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         let best_block_header = self.chain.best_block().header();
@@ -126,12 +133,19 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
             genesis_hash: self.chain.genesis_hash,
+            account_id: self.config.account_id,
         };
+        debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
         let message = Message::Status(status);
         self.send_message(peer, message);
     }
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
+        if let Some(peer_info) = self.peer_info.read().get(&peer) {
+            if let Some(account_id) = peer_info.account_id {
+                self.peer_account_info.write().remove(&account_id);
+            }
+        }
         self.handshaking_peers.write().remove(&peer);
         self.peer_info.write().remove(&peer);
     }
@@ -171,6 +185,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         &self, peer: NodeIndex,
         status: &message::Status
     ) -> Result<(), (NodeIndex, Severity)> {
+        debug!(target: "network", "Status message received from {:?}: {:?}", peer, status);
         if status.version != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
@@ -204,7 +219,11 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             request_timestamp,
             block_request,
             next_request_id,
+            account_id: status.account_id,
         };
+        if let Some(account_id) = status.account_id {
+            self.peer_account_info.write().insert(account_id, peer);
+        }
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);
         Ok(())
@@ -261,10 +280,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
     fn on_block_response(
         &self,
-        _peer: NodeIndex,
+        peer_id: NodeIndex,
         response: message::BlockResponse<B>,
     ) {
         let copied_tx = self.block_sender.clone();
+        self.peer_info.write().entry(peer_id)
+            .and_modify(|e| e.request_timestamp = None);
         tokio::spawn(
             copied_tx
                 .send_all(stream::iter_ok(response.blocks))
@@ -332,7 +353,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             copied_tx
                 .send((receiver_index, message))
                 .map(|_| ())
-                .map_err(|e| error!("Failure to send the blocks {:?}", e)),
+                .map_err(|e| error!("Failure to send the message {:?}", e)),
         );
     }
 
@@ -366,17 +387,21 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 mod tests {
     extern crate storage;
 
-    use super::*;
     use std::thread;
     use std::time::Duration;
-    use primitives::traits::Encode;
-    use primitives::types::{SignedTransaction, ChainPayload};
-    use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
-    use beacon::authority::Authority;
-    use test_utils::{get_test_protocol, get_test_authority_config};
-    use self::storage::test_utils::create_memory_db;
-    use futures::sync::mpsc::channel;
+
     use futures::{Sink, Stream};
+    use futures::sync::mpsc::channel;
+
+    use beacon::authority::Authority;
+    use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
+    use primitives::traits::Encode;
+    use primitives::types::{ChainPayload, SignedTransaction};
+    use test_utils::{get_test_authority_config, get_test_protocol};
+
+    use super::*;
+
+    use self::storage::test_utils::create_memory_db;
 
     #[test]
     fn test_serialization() {

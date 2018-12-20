@@ -20,24 +20,25 @@ use beacon_chain_handler::authority_handler::{AuthorityHandler, spawn_authority_
 use chain::SignedBlock;
 use chain_spec;
 use consensus::adapters;
-use log;
-use network;
 use network::protocol::{Protocol, ProtocolConfig};
-use node_rpc;
+use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
+use primitives::traits::Signer;
 use primitives::types::{
     Gossip, ReceiptTransaction, SignedTransaction, ChainPayload,
-    UID, AccountId, AccountAlias,
+    UID, AccountId, AccountAlias
 };
 use shard::{ShardBlockChain, SignedShardBlock};
-use storage;
 use storage::{StateDb, Storage};
-use tokio;
+
+const STORAGE_PATH: &str = "storage/db";
+const NETWORK_CONFIG_PATH: &str = "storage";
+const KEY_STORE_PATH: &str = "storage/keystore";
 
 fn get_storage(base_path: &Path) -> Arc<Storage> {
     let mut storage_path = base_path.to_owned();
-    storage_path.push("storage/db");
+    storage_path.push(STORAGE_PATH);
     match fs::canonicalize(storage_path.clone()) {
         Ok(path) => info!("Opening storage database at {:?}", path),
         _ => info!("Could not resolve {:?} path", storage_path),
@@ -48,27 +49,28 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 fn spawn_rpc_server_task(
     transactions_tx: Sender<SignedTransaction>,
     rpc_port: Option<u16>,
-    shard_chain: Arc<ShardBlockChain>,
+    shard_chain: &Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
+    beacon_chain: Arc<BeaconBlockChain>,
 ) {
-    let state_db_viewer = StateDbViewer::new(shard_chain, state_db);
-    let rpc_impl = node_rpc::api::RpcImpl::new(state_db_viewer, transactions_tx);
-    let rpc_handler = node_rpc::api::get_handler(rpc_impl);
+    let state_db_viewer = StateDbViewer::new(shard_chain.clone(), state_db);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
-    let rpc_addr = Some(
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_port)
+    let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_port));
+    let http_api = HttpApi::new(
+        state_db_viewer,
+        transactions_tx,
+        beacon_chain,
+        shard_chain.clone(),
     );
-    let server = node_rpc::server::get_server(rpc_handler, rpc_addr);
-    tokio::spawn(future::lazy(|| {
-        server.wait();
-        Ok(())
-    }));
+    node_http::server::spawn_server(http_api, http_addr);
 }
 
 fn spawn_network_tasks(
+    account_id: Option<AccountId>,
+    base_path: &Path,
     p2p_port: Option<u16>,
     boot_nodes: Vec<String>,
-    test_node_index: Option<u32>,
+    test_network_key_seed: Option<u32>,
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
@@ -79,7 +81,7 @@ fn spawn_network_tasks(
     authority_rx: Receiver<HashMap<UID, SelectedAuthority>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
-    let protocol_config = ProtocolConfig::default();
+    let protocol_config = ProtocolConfig::new_with_default_id(account_id);
     let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
         protocol_config,
         beacon_chain,
@@ -90,13 +92,17 @@ fn spawn_network_tasks(
         gossip_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
+    let mut network_config_path = base_path.to_owned();
+    network_config_path.push(NETWORK_CONFIG_PATH);
+    network_config.net_config_path = Some(network_config_path.to_string_lossy().to_string());
     network_config.boot_nodes = boot_nodes;
     let p2p_port = p2p_port.unwrap_or(DEFAULT_P2P_PORT);
     network_config.listen_addresses =
         vec![network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
 
-    network_config.use_secret =
-        test_node_index.map(network::service::get_test_secret_from_node_index);
+    network_config.use_secret = test_network_key_seed.map(
+        network::service::get_test_secret_from_network_key_seed
+    );
 
     let network_service = network::service::new_network_service(&protocol_config, network_config);
     network::service::spawn_network_tasks(
@@ -134,6 +140,8 @@ pub const DEFAULT_RPC_PORT: u16 = 3030;
 
 pub struct ServiceConfig {
     pub base_path: PathBuf,
+    pub account_id: AccountAlias,
+    pub public_key: Option<String>,
     pub chain_spec_path: Option<PathBuf>,
     pub log_level: log::LevelFilter,
     pub rpc_port: u16,
@@ -141,22 +149,21 @@ pub struct ServiceConfig {
     // Network configuration
     pub p2p_port: u16,
     pub boot_nodes: Vec<String>,
-    pub test_node_index: Option<u32>,
-
-    pub account_name: AccountAlias,
+    pub test_network_key_seed: Option<u32>,
 }
 
 impl Default for ServiceConfig {
     fn default() -> ServiceConfig {
         ServiceConfig {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
+            account_id: String::from("alice"),
+            public_key: None,
             chain_spec_path: None,
             log_level: DEFAULT_LOG_LEVEL,
             rpc_port: DEFAULT_RPC_PORT,
             p2p_port: DEFAULT_P2P_PORT,
             boot_nodes: vec![],
-            test_node_index: None,
-            account_name: "alice".to_string()
+            test_network_key_seed: None,
         }
     }
 }
@@ -199,8 +206,11 @@ where
     let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
     let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
     let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
-    let account_id = AccountId::from(&config.account_name);
-    let signer = Arc::new(InMemorySigner::new(account_id));
+
+    let account_id = AccountId::from(&config.account_id);
+    let mut key_file_path = config.base_path.to_path_buf();
+    key_file_path.push(KEY_STORE_PATH);
+    let signer = Arc::new(InMemorySigner::from_key_file(account_id, key_file_path.as_path(), config.public_key.clone()));
     let authority_config = chain_spec::get_authority_config(&chain_spec);
     let authority = Authority::new(authority_config, &beacon_chain);
     let authority_handler = AuthorityHandler::new(authority, account_id);
@@ -212,8 +222,9 @@ where
         spawn_rpc_server_task(
             transactions_tx.clone(),
             Some(config.rpc_port),
-            shard_chain.clone(),
+            &shard_chain.clone(),
             state_db.clone(),
+            beacon_chain.clone(),
         );
 
         // Create a task that receives new blocks from importer/producer
@@ -255,9 +266,11 @@ where
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
+            Some(signer.account_id()),
+            &config.base_path,
             Some(config.p2p_port),
             boot_nodes,
-            config.test_node_index,
+            config.test_network_key_seed,
             beacon_chain.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),
