@@ -1,5 +1,5 @@
-extern crate chain;
 extern crate parking_lot;
+extern crate chain;
 extern crate primitives;
 extern crate rand;
 #[macro_use]

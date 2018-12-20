@@ -252,6 +252,84 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                 }
             }))
         }
+        (&Method::POST, "/view_latest_beacon_block") => {
+            Box::new(future::ok(
+                match http_api.view_latest_beacon_block() {
+                    Ok(response) => {
+                        Response::builder()
+                            .body(Body::from(serde_json::to_string(&response).unwrap()))
+                            .unwrap()
+                    }
+                    Err(_) => unreachable!()
+                }
+            ))
+        }
+        (&Method::POST, "/get_beacon_block_by_hash") => {
+            Box::new(req.into_body().concat2().map(move |chunk| {
+                match serde_json::from_slice(&chunk) {
+                    Ok(data) => {
+                        match http_api.get_beacon_block_by_hash(&data) {
+                            Ok(response) => {
+                                Response::builder()
+                                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                                    .unwrap()
+                            }
+                            Err(e) => {
+                                Response::builder()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Body::from(e.to_string()))
+                                    .unwrap()
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()
+                    }
+                }
+            }))
+        }
+        (&Method::POST, "/view_latest_shard_block") => {
+            Box::new(future::ok(
+                match http_api.view_latest_shard_block() {
+                    Ok(response) => {
+                        Response::builder()
+                            .body(Body::from(serde_json::to_string(&response).unwrap()))
+                            .unwrap()
+                    }
+                    Err(_) => unreachable!()
+                }
+            ))
+        }
+        (&Method::POST, "/get_shard_block_by_hash") => {
+            Box::new(req.into_body().concat2().map(move |chunk| {
+                match serde_json::from_slice(&chunk) {
+                    Ok(data) => {
+                        match http_api.get_shard_block_by_hash(&data) {
+                            Ok(response) => {
+                                Response::builder()
+                                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                                    .unwrap()
+                            }
+                            Err(e) => {
+                                Response::builder()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Body::from(e.to_string()))
+                                    .unwrap()
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()
+                    }
+                }
+            }))
+        }
 
         _ => {
             Box::new(future::ok(

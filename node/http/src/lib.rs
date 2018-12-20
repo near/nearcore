@@ -1,3 +1,4 @@
+extern crate beacon;
 extern crate hyper;
 extern crate futures;
 #[macro_use]
@@ -8,6 +9,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate shard;
 
 pub mod api;
 pub mod server;

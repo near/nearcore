@@ -20,7 +20,8 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_http::types::{
-    CallViewFunctionResponse, ViewAccountResponse, ViewStateResponse
+    CallViewFunctionResponse, SignedBeaconBlockResponse, SignedShardBlockResponse,
+    ViewAccountResponse, ViewStateResponse,
 };
 use primitives::signer::write_key_file;
 
@@ -250,3 +251,65 @@ fn test_swap_key_inner() {
 }
 
 test! { fn test_swap_key() { test_swap_key_inner() } }
+
+fn get_latest_beacon_block() -> SignedBeaconBlockResponse {
+    let output = Command::new("./scripts/rpc.py")
+        .arg("view_latest_beacon_block")
+        .output()
+        .expect("view_latest_shard_block command failed to process");
+    let result = check_result(output).unwrap();
+    serde_json::from_str(&result).unwrap()
+}
+
+fn test_view_latest_beacon_block_inner() {
+    if !*DEVNET_STARTED { panic!() }
+    let _ = get_latest_beacon_block();
+}
+
+test! { fn test_view_latest_beacon_block() { test_view_latest_beacon_block_inner() } }
+
+fn test_get_beacon_block_by_hash_inner() {
+    if !*DEVNET_STARTED { panic!() }
+    let latest_block = get_latest_beacon_block();
+    let output = Command::new("./scripts/rpc.py")
+        .arg("get_beacon_block_by_hash")
+        .arg(String::from(&latest_block.hash))
+        .output()
+        .expect("view_latest_shard_block command failed to process");
+    let result = check_result(output).unwrap();
+    let block: SignedBeaconBlockResponse = serde_json::from_str(&result).unwrap();
+    assert_eq!(latest_block, block);
+}
+
+test! { fn test_get_beacon_block_by_hash() { test_get_beacon_block_by_hash_inner() } }
+
+fn get_latest_shard_block() -> SignedShardBlockResponse {
+    let output = Command::new("./scripts/rpc.py")
+        .arg("view_latest_shard_block")
+        .output()
+        .expect("view_latest_shard_block command failed to process");
+    let result = check_result(output).unwrap();
+    serde_json::from_str(&result).unwrap()
+}
+
+fn test_view_latest_shard_block_inner() {
+    if !*DEVNET_STARTED { panic!() }
+    let _ = get_latest_shard_block();
+}
+
+test! { fn test_view_latest_shard_block() { test_view_latest_shard_block_inner() } }
+
+fn test_get_shard_block_by_hash_inner() {
+    if !*DEVNET_STARTED { panic!() }
+    let latest_block = get_latest_shard_block();
+    let output = Command::new("./scripts/rpc.py")
+        .arg("get_shard_block_by_hash")
+        .arg(String::from(&latest_block.hash))
+        .output()
+        .expect("view_latest_shard_block command failed to process");
+    let result = check_result(output).unwrap();
+    let block: SignedShardBlockResponse = serde_json::from_str(&result).unwrap();
+    assert_eq!(latest_block, block);
+}
+
+test! { fn test_get_shard_block_by_hash() { test_get_shard_block_by_hash_inner() } }

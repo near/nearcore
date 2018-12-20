@@ -12,14 +12,15 @@ pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
 
-pub use signature::sodiumoxide::crypto::sign::ed25519::Signature;
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub struct Signature(pub sodiumoxide::crypto::sign::ed25519::Signature);
 
 pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
-    sodiumoxide::crypto::sign::ed25519::sign_detached(data, &secret_key.0)
+    Signature(sodiumoxide::crypto::sign::ed25519::sign_detached(data, &secret_key.0))
 }
 
 pub fn verify(data: &[u8], signature: &Signature, public_key: &PublicKey) -> bool {
-    sodiumoxide::crypto::sign::ed25519::verify_detached(signature, data, &public_key.0)
+    sodiumoxide::crypto::sign::ed25519::verify_detached(&signature.0, data, &public_key.0)
 }
 
 pub fn get_keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
@@ -33,13 +34,13 @@ pub fn get_keypair() -> (PublicKey, SecretKey) {
 }
 
 pub fn verify_signature(signature: &Signature, hash: &hash::CryptoHash, pubkey: &PublicKey) -> bool {
-    sodiumoxide::crypto::sign::ed25519::verify_detached(signature, hash.as_ref(), &pubkey.0)
+    sodiumoxide::crypto::sign::ed25519::verify_detached(&signature.0, hash.as_ref(), &pubkey.0)
 }
 
 const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
     [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
 
-pub const DEFAULT_SIGNATURE: Signature = sodiumoxide::crypto::sign::ed25519::Signature(SIG);
+pub const DEFAULT_SIGNATURE: Signature = Signature(sodiumoxide::crypto::sign::ed25519::Signature(SIG));
 
 impl PublicKey {
     pub fn from(s: &str) -> PublicKey {
@@ -62,6 +63,18 @@ impl SecretKey {
         array.copy_from_slice(bytes_arr);
         let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
         SecretKey(secret_key)
+    }
+}
+
+impl Signature {
+    pub fn from(s: &str) -> Signature {
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        let bytes = bs58::decode(s).into_vec().expect("Failed to convert signature from base58");
+        assert_eq!(bytes.len(), array.len(), "decoded {} is not long enough for signature", s);
+        let bytes_arr = &bytes[..array.len()];
+        array.copy_from_slice(bytes_arr);
+        let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
+        Signature(signature)
     }
 }
 
@@ -95,6 +108,12 @@ impl<'a> From<&'a SecretKey> for String {
     }
 }
 
+impl std::convert::AsRef<[u8]> for Signature {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
 impl fmt::Debug for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", String::from(self))
@@ -102,6 +121,24 @@ impl fmt::Debug for SecretKey {
 }
 
 impl fmt::Display for SecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from(self))
+    }
+}
+
+impl<'a> From<&'a Signature> for String {
+    fn from(h: &'a Signature) -> Self {
+        bs58::encode(h).into_string()
+    }
+}
+
+impl fmt::Debug for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from(self))
+    }
+}
+
+impl fmt::Display for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", String::from(self))
     }
@@ -144,6 +181,26 @@ pub mod bs58_secret_key_format {
     {
         let s = String::deserialize(deserializer)?;
         Ok(SecretKey::from(&s))
+    }
+}
+
+pub mod bs58_signature_format {
+    use super::Signature;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        serializer.serialize_str(String::from(signature).as_str())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Signature::from(&s))
     }
 }
 
