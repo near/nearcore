@@ -486,7 +486,7 @@ impl<'a, P: Payload> Message<'a, P> {
         // All representatives that now have enough endorsements are publishable.
         self.computed_publishable_epochs.union_update(&self.computed_complete_epochs);
         let mut more_publishable_epochs = GroupsPerEpoch::new();
-        for (z_epoch, z_repr) in &(&self.computed_publishable_epochs).messages_by_epoch {
+        for (z_epoch, z_repr) in &self.computed_publishable_epochs.messages_by_epoch {
             assert_eq!(
                 z_repr.messages_by_owner.len(),
                 1,

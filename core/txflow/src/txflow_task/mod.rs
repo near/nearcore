@@ -4,7 +4,7 @@ use std::mem;
 use std::time::{Duration, Instant};
 
 use futures::sync::mpsc;
-use futures::{Async, Future, Poll, Sink, Stream};
+use futures::{stream, Async, Future, Poll, Sink, Stream};
 use tokio::timer::Delay;
 
 use dag::DAG;
@@ -47,7 +47,7 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: WitnessSelector> {
     payload_receiver: mpsc::Receiver<P>,
     messages_sender: mpsc::Sender<Gossip<P>>,
     control_receiver: mpsc::Receiver<Control<W>>,
-    _consensus_sender: mpsc::Sender<ConsensusBlockBody<P>>,
+    consensus_sender: mpsc::Sender<ConsensusBlockBody<P>>,
 
     /// Received messages that we cannot yet add to DAG, because we are missing parents.
     /// message -> hashes that we are missing.
@@ -89,7 +89,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             payload_receiver,
             messages_sender,
             control_receiver,
-            _consensus_sender: consensus_sender,
+            consensus_sender,
             blocked_messages: HashMap::new(),
             blocking_hashes: HashMap::new(),
             blocked_replies: HashMap::new(),
@@ -141,14 +141,22 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         }));
     }
 
+    fn send_consensuses(&self, consensuses: Vec<ConsensusBlockBody<P>>) {
+        let copied_tx = self.consensus_sender.clone();
+        tokio::spawn(copied_tx.send_all(stream::iter_ok(consensuses)).map(|_| ()).map_err(|e| {
+            error!("Failure in the sub-task {:?}", e);
+        }));
+    }
+
     /// Adds a message to the DAG, and if it unblocks other pending messages then recursively add
     /// them, too. Assumes that the provided message is not in the tracking containers, i.e. it is
     /// either a new message with all parents or it became unblocked just now.
     fn add_message(&mut self, message: SignedMessageData<P>) {
         let hash = message.hash;
-        if let Err(e) = self.dag_as_mut().add_existing_message(message) {
-            panic!("Attempted to add invalid message to the DAG {}", e)
-        }
+        match self.dag_as_mut().add_existing_message(message) {
+            Ok(consensuses) => self.send_consensuses(consensuses),
+            Err(e) => panic!("Attempted to add invalid message to the DAG {}", e),
+        };
         // Get messages that were blocked by this one.
         // Also start removing it from the collections `pending_messages` and `unknown_hashes` that
         // keep track of the blockers.
@@ -369,7 +377,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         if !self.pending_payload.is_empty() || self.dag_as_ref().is_root_not_updated() {
             // Drain the current payload.
             let payload = mem::replace(&mut self.pending_payload, P::new());
-            let (new_message, _consensuses) = self.dag_as_mut().create_root_message(payload, vec![]);
+            let (new_message, consensuses) = self.dag_as_mut().create_root_message(payload, vec![]);
+            self.send_consensuses(consensuses);
             new_gossip_body = Some(&new_message.data);
         } else if let Some(ref mut d) = self.forced_gossip_delay {
             // There are no payloads or dangling roots.
