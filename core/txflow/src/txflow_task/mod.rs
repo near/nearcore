@@ -1,22 +1,25 @@
-use std::borrow::{BorrowMut, Borrow};
-use std::collections::{HashSet, HashMap};
+use std::borrow::{Borrow, BorrowMut};
+use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
-use futures::{Future, Poll, Async, Stream, Sink};
 use futures::sync::mpsc;
+use futures::{stream, Async, Future, Poll, Sink, Stream};
 use tokio::timer::Delay;
 
-use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{UID, Gossip, GossipBody, SignedMessageData, TxFlowHash};
-use primitives::traits::{Payload, WitnessSelector};
 use dag::DAG;
+use primitives::signature::DEFAULT_SIGNATURE;
+use primitives::traits::{Payload, WitnessSelector};
+use primitives::types::{
+    ConsensusBlockBody, Gossip, GossipBody, SignedMessageData, TxFlowHash, UID,
+};
 
 pub mod beacon_witness_selector;
 
 static UNINITIALIZED_DAG_ERR: &'static str = "The DAG structure was not initialized yet.";
 static UNINITIALIZED_STATE_ERR: &'static str = "The state was not initialized yet.";
-static CANDIDATES_OUT_OF_SYNC_ERR: &'static str = "The structures that are used for candidates tracking are ouf ot sync.";
+static CANDIDATES_OUT_OF_SYNC_ERR: &'static str =
+    "The structures that are used for candidates tracking are ouf ot sync.";
 const COOLDOWN_MS: u64 = 1;
 const FORCED_GOSSIP_MS: u64 = 1000;
 
@@ -44,6 +47,7 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: WitnessSelector> {
     payload_receiver: mpsc::Receiver<P>,
     messages_sender: mpsc::Sender<Gossip<P>>,
     control_receiver: mpsc::Receiver<Control<W>>,
+    consensus_sender: mpsc::Sender<ConsensusBlockBody<P>>,
 
     /// Received messages that we cannot yet add to DAG, because we are missing parents.
     /// message -> hashes that we are missing.
@@ -71,10 +75,13 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: WitnessSelector> {
 }
 
 impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
-    pub fn new(messages_receiver: mpsc::Receiver<Gossip<P>>,
-               payload_receiver: mpsc::Receiver<P>,
-               messages_sender: mpsc::Sender<Gossip<P>>,
-               control_receiver: mpsc::Receiver<Control<W>>) -> Self {
+    pub fn new(
+        messages_receiver: mpsc::Receiver<Gossip<P>>,
+        payload_receiver: mpsc::Receiver<P>,
+        messages_sender: mpsc::Sender<Gossip<P>>,
+        control_receiver: mpsc::Receiver<Control<W>>,
+        consensus_sender: mpsc::Sender<ConsensusBlockBody<P>>,
+    ) -> Self {
         Self {
             state: None,
             dag: None,
@@ -82,6 +89,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             payload_receiver,
             messages_sender,
             control_receiver,
+            consensus_sender,
             blocked_messages: HashMap::new(),
             blocking_hashes: HashMap::new(),
             blocked_replies: HashMap::new(),
@@ -95,13 +103,13 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 
     /// Mutable reference to the DAG.
     #[inline]
-    fn dag_as_mut(&mut self) -> &mut DAG<'a, P, W>{
+    fn dag_as_mut(&mut self) -> &mut DAG<'a, P, W> {
         self.dag.as_mut().expect(UNINITIALIZED_DAG_ERR).borrow_mut()
     }
 
     /// Immutable reference to the DAG.
     #[inline]
-    fn dag_as_ref(&self) -> &DAG<'a, P, W>{
+    fn dag_as_ref(&self) -> &DAG<'a, P, W> {
         self.dag.as_ref().expect(UNINITIALIZED_DAG_ERR).borrow()
     }
 
@@ -129,7 +137,14 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     fn send_gossip(&self, gossip: Gossip<P>) {
         let copied_tx = self.messages_sender.clone();
         tokio::spawn(copied_tx.send(gossip).map(|_| ()).map_err(|e| {
-           error!("Failure in the sub-task {:?}", e);
+            error!("Failure in the sub-task {:?}", e);
+        }));
+    }
+
+    fn send_consensuses(&self, consensuses: Vec<ConsensusBlockBody<P>>) {
+        let copied_tx = self.consensus_sender.clone();
+        tokio::spawn(copied_tx.send_all(stream::iter_ok(consensuses)).map(|_| ()).map_err(|e| {
+            error!("Failure in the sub-task {:?}", e);
         }));
     }
 
@@ -137,10 +152,11 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     /// them, too. Assumes that the provided message is not in the tracking containers, i.e. it is
     /// either a new message with all parents or it became unblocked just now.
     fn add_message(&mut self, message: SignedMessageData<P>) {
-        let hash =  message.hash;
-        if let Err(e) = self.dag_as_mut().add_existing_message(message) {
-            panic!("Attempted to add invalid message to the DAG {}", e)
-        }
+        let hash = message.hash;
+        match self.dag_as_mut().add_existing_message(message) {
+            Ok(consensuses) => self.send_consensuses(consensuses),
+            Err(e) => panic!("Attempted to add invalid message to the DAG {}", e),
+        };
         // Get messages that were blocked by this one.
         // Also start removing it from the collections `pending_messages` and `unknown_hashes` that
         // keep track of the blockers.
@@ -152,16 +168,19 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         // Iterate over each of them and check whether now it is completely unblocked.
         for blocked_message_hash in blocked_messages {
             let is_unblocked = {
-                let unknown_parents = self.blocked_messages
+                let unknown_parents = self
+                    .blocked_messages
                     .get_mut(&blocked_message_hash)
                     .expect(CANDIDATES_OUT_OF_SYNC_ERR);
-                unknown_parents.remove(&hash);  // Now this message is not blocked `message`.
+                unknown_parents.remove(&hash); // Now this message is not blocked `message`.
                 unknown_parents.is_empty()
             };
 
             if is_unblocked {
                 // If it is unblocked then add it to the DAG.
-                let (blocked_message, _) = self.blocked_messages.remove_entry(&blocked_message_hash)
+                let (blocked_message, _) = self
+                    .blocked_messages
+                    .remove_entry(&blocked_message_hash)
                     .expect(CANDIDATES_OUT_OF_SYNC_ERR);
                 // If this message also blocked some reply make then it pending.
                 if let Some(reply_to_uid) = self.blocked_replies.remove(&blocked_message_hash) {
@@ -173,18 +192,23 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     }
 
     /// Processes the incoming message.
-    fn process_incoming_message(&mut self, message: SignedMessageData<P>, message_sender: UID, requires_reply: bool) {
+    fn process_incoming_message(
+        &mut self,
+        message: SignedMessageData<P>,
+        message_sender: UID,
+        requires_reply: bool,
+    ) {
         // Check one of the optimistic scenarios when we already know this message.
         if self.dag_as_ref().contains_message(message.hash)
-            || self.blocked_messages.contains_key(&message.hash) {
+            || self.blocked_messages.contains_key(&message.hash)
+        {
             return;
         }
 
-        let unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents).iter().filter_map(
-            |h| if self.dag_as_ref().contains_message(*h) {
-                None } else {
-                Some(*h)
-            } ).collect();
+        let unknown_hashes: HashSet<TxFlowHash> = (&message.body.parents)
+            .iter()
+            .filter_map(|h| if self.dag_as_ref().contains_message(*h) { None } else { Some(*h) })
+            .collect();
 
         if unknown_hashes.is_empty() {
             // We can go ahead and add this message to DAG.
@@ -200,12 +224,13 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                 self.blocked_replies.insert(message.hash, message_sender);
             }
             for h in &unknown_hashes {
-                self.blocking_hashes.entry(*h).or_insert_with(HashSet::new)
-                    .insert(message.hash);
+                self.blocking_hashes.entry(*h).or_insert_with(HashSet::new).insert(message.hash);
             }
 
             // Record that we need to fetch these hashes.
-            self.pending_fetches.entry(message_sender).or_insert_with(HashSet::new)
+            self.pending_fetches
+                .entry(message_sender)
+                .or_insert_with(HashSet::new)
                 .extend(unknown_hashes.iter().cloned());
 
             // Finally, take ownership of this message and record that it is blocked.
@@ -220,26 +245,28 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
             GossipBody::Unsolicited(message) => {
                 self.pending_replies.insert(sender_uid);
                 self.process_incoming_message(message, sender_uid, true);
-            },
-            GossipBody::UnsolicitedReply(message) => self.process_incoming_message(message, sender_uid, false),
+            }
+            GossipBody::UnsolicitedReply(message) => {
+                self.process_incoming_message(message, sender_uid, false)
+            }
             GossipBody::Fetch(ref mut hashes) => {
-                let reply_messages: Vec<_> =
-                hashes.drain(..).filter_map(
-                    |h| self.dag_as_ref()
-                        .copy_message_data_by_hash(h)).collect();
+                let reply_messages: Vec<_> = hashes
+                    .drain(..)
+                    .filter_map(|h| self.dag_as_ref().copy_message_data_by_hash(h))
+                    .collect();
                 let reply = Gossip {
                     sender_uid: self.owner_uid(),
                     receiver_uid: gossip.sender_uid,
-                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
-                    body: GossipBody::FetchReply(reply_messages)
+                    sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
+                    body: GossipBody::FetchReply(reply_messages),
                 };
                 self.send_gossip(reply);
-            },
+            }
             GossipBody::FetchReply(ref mut messages) => {
                 for m in messages.drain(..) {
                     self.process_incoming_message(m, sender_uid, false);
                 }
-            },
+            }
         }
     }
 
@@ -247,8 +274,9 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         let witness_ptr = self.witness_selector() as *const W;
         // Since we are controlling the creation of the DAG by encapsulating it here
         // this code is safe.
-        self.dag = Some(Box::new(
-            DAG::new(self.owner_uid(), self.starting_epoch(), unsafe {&*witness_ptr})));
+        self.dag = Some(Box::new(DAG::new(self.owner_uid(), self.starting_epoch(), unsafe {
+            &*witness_ptr
+        })));
     }
 }
 
@@ -264,7 +292,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             Ok(Async::Ready(Some(Control::Reset(state)))) => {
                 self.state = Some(state);
                 self.init_dag();
-            },
+            }
             // Stop command received.
             Ok(Async::Ready(Some(Control::Stop))) => {
                 if self.state.is_some() {
@@ -276,19 +304,19 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 } else {
                     panic!("TxFlow task received stop command, but it is already stopped");
                 }
-            },
+            }
             // The input to control channel was dropped. We terminate TxFlow entirely.
             Ok(Async::Ready(None)) => {
                 println!("Control channel was dropped");
                 return Ok(Async::Ready(None));
-            },
+            }
             Ok(Async::NotReady) => {
                 // If there is not state then we cannot proceed, we return NotReady which will park
                 // the task and wait until we get the state over the control channel.
                 if self.state.is_none() {
                     return Ok(Async::NotReady);
                 }
-            },
+            }
             Err(err) => error!("Failed to read from the control channel {:?}", err),
         };
 
@@ -301,11 +329,11 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the gossips.
                     end_of_gossips = true;
-                    break
-                },
+                    break;
+                }
                 Err(err) => error!("Failed to receive a gossip {:?}", err),
             }
-        };
+        }
 
         // Collect new payloads
         let mut end_of_payloads = false;
@@ -316,8 +344,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the payloads.
                     end_of_payloads = true;
-                    break
-                },
+                    break;
+                }
                 Err(err) => error!("Failed to receive a payload {:?}", err),
             }
         }
@@ -330,8 +358,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             let reply = Gossip {
                 sender_uid: owner_uid,
                 receiver_uid,
-                sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
-                body: GossipBody::Fetch(hashes.drain().collect())
+                sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
+                body: GossipBody::Fetch(hashes.drain().collect()),
             };
             gossips_to_send.push(reply);
         }
@@ -349,7 +377,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         if !self.pending_payload.is_empty() || self.dag_as_ref().is_root_not_updated() {
             // Drain the current payload.
             let payload = mem::replace(&mut self.pending_payload, P::new());
-            let new_message = self.dag_as_mut().create_root_message(payload, vec![]);
+            let (new_message, consensuses) = self.dag_as_mut().create_root_message(payload, vec![]);
+            self.send_consensuses(consensuses);
             new_gossip_body = Some(&new_message.data);
         } else if let Some(ref mut d) = self.forced_gossip_delay {
             // There are no payloads or dangling roots.
@@ -361,7 +390,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 // In rare cases, like in unit tests that run TxFlowTask in async mode
                 // the input streams are dropped even before the task that runs TxFlowTask
                 // is spawned. This if-clause covers it.
-                Ok(Async::Ready(None)) } else {
+                Ok(Async::Ready(None))
+            } else {
                 // It is important that this line executes only when at least one of the sub-futures
                 // returns NotReady, because it would break the executor notification system, and
                 // this future would hung indefinitely.
@@ -378,18 +408,18 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             let gossip_body = new_gossip_body.unwrap_or_else(||
                 // There are no new payloads or dangling roots, but we are forced to gossip.
                 // So we are gossiping the current root.
-                self.dag_as_ref().current_root_data().expect("Expected only one root")
-            );
+                self.dag_as_ref().current_root_data().expect("Expected only one root"));
 
             // First send gossip to random witnesses.
-            let random_witnesses = self.witness_selector().random_witnesses(
-                gossip_body.body.epoch, self.gossip_size());
+            let random_witnesses = self
+                .witness_selector()
+                .random_witnesses(gossip_body.body.epoch, self.gossip_size());
             for w in &random_witnesses {
                 let gossip = Gossip {
                     sender_uid: owner_uid,
                     receiver_uid: *w,
-                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
-                    body: GossipBody::Unsolicited(gossip_body.clone())
+                    sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
+                    body: GossipBody::Unsolicited(gossip_body.clone()),
                 };
                 self.send_gossip(gossip)
             }
@@ -399,8 +429,8 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 let gossip = Gossip {
                     sender_uid: owner_uid,
                     receiver_uid: w,
-                    sender_sig: DEFAULT_SIGNATURE,  // TODO: Sign it.
-                    body: GossipBody::UnsolicitedReply(gossip_body.clone())
+                    sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
+                    body: GossipBody::UnsolicitedReply(gossip_body.clone()),
                 };
                 self.send_gossip(gossip)
             }
@@ -415,8 +445,10 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         // If the gossip stream and the payload stream are closed then we are done.
         // This is very useful for unit tests that start TxFlowTask through spawn.
         if end_of_gossips && end_of_payloads {
-            Ok(Async::Ready(None)) } else {
-            Ok(Async::Ready(Some(()))) }
+            Ok(Async::Ready(None))
+        } else {
+            Ok(Async::Ready(Some(())))
+        }
     }
 }
 
@@ -426,16 +458,16 @@ mod fake_network;
 #[cfg(test)]
 mod tests {
     use super::TxFlowTask;
-    use std::collections::HashSet;
     use futures::future::*;
-    use futures::Stream;
     use futures::sync::mpsc;
+    use futures::Stream;
+    use std::collections::HashSet;
 
-    use primitives::types::UID;
     use primitives::traits::WitnessSelector;
+    use primitives::types::UID;
     use testing_utils::FakePayload;
 
-    struct FakeWitnessSelector { }
+    struct FakeWitnessSelector {}
 
     impl WitnessSelector for FakeWitnessSelector {
         fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<UID> {
@@ -459,8 +491,14 @@ mod tests {
             let (_inc_payload_tx, inc_payload_rx) = mpsc::channel(1024);
             let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1024);
             let (_control_tx, control_rx) = mpsc::channel(1024);
-            let task = TxFlowTask::<FakePayload, FakeWitnessSelector>::new(inc_gossip_rx,
-                inc_payload_rx, out_gossip_tx, control_rx);
+            let (consensus_tx, _consensus_rx) = mpsc::channel(1024);
+            let task = TxFlowTask::<FakePayload, FakeWitnessSelector>::new(
+                inc_gossip_rx,
+                inc_payload_rx,
+                out_gossip_tx,
+                control_rx,
+                consensus_tx,
+            );
             tokio::spawn(task.for_each(|_| Ok(())));
             Ok(())
         }));

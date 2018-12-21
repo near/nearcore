@@ -1,7 +1,7 @@
 use primitives::traits::WitnessSelector;
 use primitives::types::UID;
-use rand::thread_rng;
 use rand::prelude::IteratorRandom;
+use rand::thread_rng;
 use std::collections::HashSet;
 
 /// Witness selector used by the beacon chain where each new block index has a new set of witnesses.
@@ -14,20 +14,14 @@ pub struct BeaconWitnessSelector {
 
 impl BeaconWitnessSelector {
     pub fn new(witnesses: HashSet<UID>, owner_uid: UID) -> Self {
-        let mut witnesses_ordered : Vec<_> = (&witnesses).into_iter().cloned().collect();
+        let mut witnesses_ordered: Vec<_> = (&witnesses).into_iter().cloned().collect();
         witnesses_ordered.sort();
-        let other_witnesses : Vec<_> = (&witnesses).into_iter().filter_map(|w|
-                if w == &owner_uid {
-                    None } else {
-                    Some(*w)
-                }
-            ).collect();
+        let other_witnesses: Vec<_> = (&witnesses)
+            .into_iter()
+            .filter_map(|w| if w == &owner_uid { None } else { Some(*w) })
+            .collect();
 
-        Self {
-            witnesses,
-            witnesses_ordered,
-            other_witnesses,
-        }
+        Self { witnesses, witnesses_ordered, other_witnesses }
     }
 
     #[inline]

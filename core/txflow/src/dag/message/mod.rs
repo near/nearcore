@@ -1,4 +1,4 @@
-mod group;
+pub mod group;
 mod group_approvals;
 
 use std::borrow::Borrow;
@@ -42,6 +42,8 @@ pub struct Message<'a, P: 'a + Payload> {
     computed_promises: GroupsPerEpoch<'a, P>,
     /// Computed epochs that became complete due to this message.
     computed_complete_epochs: GroupsPerEpoch<'a, P>,
+    /// Computed epochs that correspond to representative messages that are now publishable.
+    pub computed_publishable_epochs: GroupsPerEpoch<'a, P>,
 
     // The following are the approved messages, grouped by different criteria.
     /// Epoch -> messages that have that epoch.
@@ -59,6 +61,8 @@ pub struct Message<'a, P: 'a + Payload> {
     /// TODO: Rework the design so that the restriction is inherent, this also should improve the
     /// performance.
     approved_complete_epochs: GroupsPerEpoch<'a, P>,
+    /// Epoch -> representative message that is publishable.
+    approved_publishable_epochs: GroupsPerEpoch<'a, P>,
     // NOTE, a single message can be simultaneously:
     // a) a representative message of epoch X;
     // b) an endorsement of a representative message of epoch Y, Y<X;
@@ -124,6 +128,7 @@ impl<'a, P: Payload> Message<'a, P> {
             computed_endorsements: GroupsPerEpoch::new(),
             computed_promises: GroupsPerEpoch::new(),
             computed_complete_epochs: GroupsPerEpoch::new(),
+            computed_publishable_epochs: GroupsPerEpoch::new(),
 
             approved_epochs: GroupsPerEpoch::new(),
             approved_representatives: GroupsPerEpoch::new(),
@@ -131,6 +136,7 @@ impl<'a, P: Payload> Message<'a, P> {
             approved_endorsements: GroupApprovalPerEpoch::new(),
             approved_promises: GroupApprovalPerEpoch::new(),
             approved_complete_epochs: GroupsPerEpoch::new(),
+            approved_publishable_epochs: GroupsPerEpoch::new(),
         }
     }
 
@@ -151,8 +157,8 @@ impl<'a, P: Payload> Message<'a, P> {
 
     /// Computes the aggregated data from the parents and updates the message.
     pub fn aggregate_parents<W>(&mut self, witness_selector: &W)
-        where
-        W: WitnessSelector
+    where
+        W: WitnessSelector,
     {
         for p in &self.parents {
             if !p.is_initialized {
@@ -162,8 +168,7 @@ impl<'a, P: Payload> Message<'a, P> {
             self.approved_epochs.union_update(&p.approved_epochs);
             self.approved_epochs.insert(p.computed_epoch, *p);
 
-            self.approved_representatives
-                .union_update(&p.approved_representatives);
+            self.approved_representatives.union_update(&p.approved_representatives);
             if let Some(epoch) = p.computed_is_representative {
                 self.approved_representatives.insert(epoch, *p);
                 // Representative message endorses itself.
@@ -177,27 +182,30 @@ impl<'a, P: Payload> Message<'a, P> {
                 self.approved_promises.insert(p.computed_epoch - 1, *p, *p);
             }
 
-            self.approved_endorsements
-                .union_update(&p.approved_endorsements);
+            self.approved_endorsements.union_update(&p.approved_endorsements);
             self.approved_endorsements.union_update(
                 &GroupApprovalPerEpoch::approve_groups_per_epoch(&p.computed_endorsements, p),
             );
 
             self.approved_promises.union_update(&p.approved_promises);
-            self.approved_promises
-                .union_update(&GroupApprovalPerEpoch::approve_groups_per_epoch(
-                    &p.computed_promises,
-                    p,
-                ));
+            self.approved_promises.union_update(&GroupApprovalPerEpoch::approve_groups_per_epoch(
+                &p.computed_promises,
+                p,
+            ));
 
             self.approved_complete_epochs.union_update(&p.approved_complete_epochs);
             self.approved_complete_epochs.union_update(&p.computed_complete_epochs);
+
+            self.approved_publishable_epochs.union_update(&p.approved_publishable_epochs);
+            self.approved_publishable_epochs.union_update(&p.computed_publishable_epochs);
         }
-        self.approved_complete_epochs.union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
-        self.approved_complete_epochs.union_update(&self.approved_promises.superapproved_messages(witness_selector));
+        self.approved_complete_epochs
+            .union_update(&self.approved_endorsements.superapproved_messages(witness_selector));
+        self.approved_complete_epochs
+            .union_update(&self.approved_promises.superapproved_messages(witness_selector));
     }
 
-    pub fn approve(&self, message: &Message<'a, P>) -> bool{
+    pub fn approve(&self, message: &Message<'a, P>) -> bool {
         self.approved_epochs.contains_message(message)
     }
 
@@ -205,10 +213,7 @@ impl<'a, P: Payload> Message<'a, P> {
     fn prev_epoch(&'a self) -> Option<&'a u64> {
         // Iterate over past messages that were created by the current owner and return their max
         // epoch.
-        self.approved_epochs
-            .filter_by_owner(self.data.body.owner_uid)
-            .map(|(epoch, _)| epoch)
-            .max()
+        self.approved_epochs.filter_by_owner(self.data.body.owner_uid).map(|(epoch, _)| epoch).max()
     }
 
     /// Determines whether the epoch of the current message should increase.
@@ -245,7 +250,8 @@ impl<'a, P: Payload> Message<'a, P> {
     {
         // Skip if we already approved representative or kickout for this epoch.
         if self.approved_representatives.contains_epoch(self.computed_epoch)
-            || self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            || self.approved_kickouts.contains_epoch(self.computed_epoch)
+        {
             return None;
         }
         if self.computed_is_epoch_leader {
@@ -264,19 +270,20 @@ impl<'a, P: Payload> Message<'a, P> {
             let owner_uid = self.data.body.owner_uid;
 
             for prev_epoch in (0..self.computed_epoch).rev() {
-                if let Some(group) = self.approved_complete_epochs.messages_by_epoch
-                    .get(&prev_epoch)
+                if let Some(group) =
+                    self.approved_complete_epochs.messages_by_epoch.get(&prev_epoch)
                 {
                     if let Some(messages) = group.messages_by_owner.get(&owner_uid) {
-                       if let Some(message) =  messages.iter().next() {
-                           if message.computed_is_kickout
+                        if let Some(message) = messages.iter().next() {
+                            if message.computed_is_kickout
                                // Check that we haven't created representative for this case yet.
-                               && !self.approved_representatives.contains_epoch(prev_epoch + 1) {
-                               return Some(prev_epoch + 1)
-                           }
-                       } else {
-                           panic!("Should contain at least one element");
-                       }
+                               && !self.approved_representatives.contains_epoch(prev_epoch + 1)
+                            {
+                                return Some(prev_epoch + 1);
+                            }
+                        } else {
+                            panic!("Should contain at least one element");
+                        }
                     }
                 }
             }
@@ -292,9 +299,7 @@ impl<'a, P: Payload> Message<'a, P> {
         W: WitnessSelector,
     {
         self.computed_epoch > 0
-            && !self
-                .approved_representatives
-                .contains_epoch(self.computed_epoch - 1)
+            && !self.approved_representatives.contains_epoch(self.computed_epoch - 1)
     }
 
     /// Determines whether this message serves as an endorsement to some representatives.
@@ -325,26 +330,17 @@ impl<'a, P: Payload> Message<'a, P> {
                 continue;
             };
             // Check if we gave a promise to a kickout in this epoch.
-            if self
-                .approved_promises
-                .contains_any_approval(*epoch, *owner_uid)
-            {
+            if self.approved_promises.contains_any_approval(*epoch, *owner_uid) {
                 continue;
             };
             // Check if we endorsed representative with higher epoch.
-            if self
-                .approved_endorsements
-                .contains_any_future_approvals(*epoch, *owner_uid)
-            {
+            if self.approved_endorsements.contains_any_future_approvals(*epoch, *owner_uid) {
                 continue;
             };
             for owner_repr in reprs.messages_by_owner.values() {
                 for repr in owner_repr {
                     // Check if we already gave an endorsement to exactly the same representative.
-                    if !self
-                        .approved_endorsements
-                        .contains_approval(*epoch, *owner_uid, repr)
-                    {
+                    if !self.approved_endorsements.contains_approval(*epoch, *owner_uid, repr) {
                         result.insert(*epoch, repr);
                     }
                 }
@@ -377,9 +373,7 @@ impl<'a, P: Payload> Message<'a, P> {
                 continue;
             };
             // Check if we endorsed this epoch.
-            if self
-                .approved_endorsements
-                .contains_any_approval(*epoch, *owner_uid)
+            if self.approved_endorsements.contains_any_approval(*epoch, *owner_uid)
                 || self.computed_endorsements.contains_epoch(*epoch)
             {
                 continue;
@@ -387,10 +381,7 @@ impl<'a, P: Payload> Message<'a, P> {
             for owner_kickout in kickouts.messages_by_owner.values() {
                 for kickout in owner_kickout {
                     // Check if we already gave a promise to exactly the same kickout.
-                    if !self
-                        .approved_promises
-                        .contains_approval(*epoch, *owner_uid, kickout)
-                    {
+                    if !self.approved_promises.contains_approval(*epoch, *owner_uid, kickout) {
                         result.insert(*epoch, kickout);
                     }
                 }
@@ -399,11 +390,47 @@ impl<'a, P: Payload> Message<'a, P> {
         result
     }
 
+    /// Given the previous publishable representative finds the next one.
+    /// * Examines the approved representative messages of `prev`;
+    /// * Takes the one that represents the largest epoch that was not published yet.
+    fn find_next_publishable_repr(
+        &self,
+        prev: &'a Message<'a, P>,
+    ) -> Option<(&u64, &'a Message<'a, P>)> {
+        // This is quite inefficient, but we are making changes to TxFlow algorithm anyway.
+        (&prev.approved_representatives.messages_by_epoch)
+            .into_iter()
+            // Filter out representatives that are already publishable.
+            .filter_map(|(epoch, repr_group)| {
+                if self.approved_publishable_epochs.contains_epoch(*epoch) {
+                    None
+                } else {
+                    let (_, representatives) = repr_group
+                        .messages_by_owner
+                        .iter()
+                        .next()
+                        .expect("Expected at least one representative owner.");
+                    let repr = representatives
+                        .iter()
+                        .next()
+                        .expect("Expected at least one representative.");
+                    Some((epoch, *repr))
+                }
+            })
+            // Find the one with the max epoch.
+            .max_by(|a, b| a.0.cmp(&b.0))
+    }
+
     /// Computes epoch, is_representative, is_kickout using parents' information.
     /// If recompute_epoch = false then the epoch is not recomputed but taken from data, it is
     /// useful when the message is retrieved from a block on the beacon chain.
-    pub fn init<W>(&mut self, recompute_epoch: bool, recompute_hash: bool, starting_epoch: u64, witness_selector: &W)
-    where
+    pub fn init<W>(
+        &mut self,
+        recompute_epoch: bool,
+        recompute_hash: bool,
+        starting_epoch: u64,
+        witness_selector: &W,
+    ) where
         W: WitnessSelector,
     {
         let owner_uid = self.data.body.owner_uid;
@@ -441,7 +468,8 @@ impl<'a, P: Payload> Message<'a, P> {
             // Check if we have already approved representative or kickout message for the same
             // epoch.
             && !self.approved_representatives.contains_epoch(self.computed_epoch)
-            && !self.approved_kickouts.contains_epoch(self.computed_epoch) {
+            && !self.approved_kickouts.contains_epoch(self.computed_epoch)
+        {
             self.computed_is_kickout = self.is_kickout(witness_selector);
         }
 
@@ -449,11 +477,39 @@ impl<'a, P: Payload> Message<'a, P> {
         self.computed_promises = self.compute_promises(witness_selector);
 
         // Record the epochs that will be complete once we apply the new endorsements and promises.
+        // First, record representatives.
         self.computed_complete_epochs = self.approved_endorsements.new_superapproved_messages(
             &self.computed_endorsements,
             self.data.body.owner_uid,
             witness_selector,
         );
+        // All representatives that now have enough endorsements are publishable.
+        self.computed_publishable_epochs.union_update(&self.computed_complete_epochs);
+        let mut more_publishable_epochs = GroupsPerEpoch::new();
+        for (z_epoch, z_repr) in &self.computed_publishable_epochs.messages_by_epoch {
+            assert_eq!(
+                z_repr.messages_by_owner.len(),
+                1,
+                "Only one sufficiently endorsed message per epoch is expected"
+            );
+            if !self.approved_publishable_epochs.contains_epoch(*z_epoch) {
+                let mut z_repr = *z_repr
+                    .messages_by_owner
+                    .values()
+                    .next()
+                    .expect("Expected at least one message")
+                    .iter()
+                    .next()
+                    .expect("Expected at least one message");
+                while let Some((next_epoch, next_repr)) = self.find_next_publishable_repr(z_repr) {
+                    more_publishable_epochs.insert(*next_epoch, next_repr);
+                    z_repr = next_repr;
+                }
+            }
+        }
+        self.computed_publishable_epochs.union_update(&more_publishable_epochs);
+
+        // Second, record kickouts.
         self.computed_complete_epochs.union_update(
             &self.approved_promises.new_superapproved_messages(
                 &self.computed_promises,
@@ -485,7 +541,7 @@ mod tests {
     impl FakeWitnessSelector {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
-                schedule: map!{
+                schedule: map! {
                 0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
                 2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
             }

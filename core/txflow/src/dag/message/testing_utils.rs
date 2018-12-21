@@ -114,8 +114,8 @@ macro_rules! simple_messages {
 
 #[cfg(test)]
 mod tests {
-    use primitives::types::UID;
     use primitives::traits::WitnessSelector;
+    use primitives::types::UID;
     use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;
 
@@ -126,7 +126,7 @@ mod tests {
     impl FakeWitnessSelector {
         fn new() -> FakeWitnessSelector {
             FakeWitnessSelector {
-                schedule: map!{
+                schedule: map! {
                 0 => set!{0, 1, 2, 3}, 1 => set!{1, 2, 3, 4},
                 2 => set!{2, 3, 4, 5}, 3 => set!{3, 4, 5, 6}},
             }

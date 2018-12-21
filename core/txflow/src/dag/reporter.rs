@@ -12,7 +12,7 @@ pub struct DAGMisbehaviorReporter {
     pub violations: Vec<ViolationType>,
 }
 
-impl MisbehaviorReporter for DAGMisbehaviorReporter{
+impl MisbehaviorReporter for DAGMisbehaviorReporter {
     fn new() -> Self {
         DAGMisbehaviorReporter { violations: vec![] }
     }
@@ -23,18 +23,15 @@ impl MisbehaviorReporter for DAGMisbehaviorReporter{
     }
 }
 
-
 /// MisbehaviorReporter that ignore all information stored
-pub struct NoopMisbehaviorReporter{
-}
+pub struct NoopMisbehaviorReporter {}
 
-impl MisbehaviorReporter for NoopMisbehaviorReporter{
-    fn new() -> Self{
+impl MisbehaviorReporter for NoopMisbehaviorReporter {
+    fn new() -> Self {
         Self {}
     }
 
-    fn report(&mut self, _violation: ViolationType) {
-    }
+    fn report(&mut self, _violation: ViolationType) {}
 }
 
 /// Enumeration of all TxFlow protocol violations.
