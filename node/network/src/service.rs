@@ -147,13 +147,12 @@ pub fn spawn_network_tasks<B, Header>(
     );
 
     let protocol3 = protocol.clone();
-    let network_service2 = network_service.clone();
     let gossip_sender = gossip_rx
         .for_each(move |g| {
             if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
                 let m = Message::Gossip::<B, Header, _>(g);
                 let data = Encode::encode(&m).expect("Error encoding message.");
-                network_service2.lock().send_custom_message(node_index, protocol_id, data);
+                network_service.lock().send_custom_message(node_index, protocol_id, data);
             } else {
                 error!("Node Index not found for UID: {}", g.receiver_uid);
             }

@@ -383,7 +383,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             .into_iter()
             .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id) } else { None })
             .and_then(|account_id| {
-                self.peer_account_info.read().get(&account_id).map(|node_index| *node_index)
+                self.peer_account_info.read().get(&account_id).cloned()
             })
     }
 }
