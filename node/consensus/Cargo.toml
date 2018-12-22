@@ -9,6 +9,7 @@ beacon = { path = "../../core/beacon" }
 primitives = { path = "../../core/primitives" }
 substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
 beacon-chain-handler = { path = "../beacon-chain-handler" }
+txflow = { path = "../../core/txflow" }
 typed-arena = "1.4.1"
 futures = "0.1.25"
 tokio = "0.1"

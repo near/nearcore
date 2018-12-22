@@ -24,17 +24,39 @@ const COOLDOWN_MS: u64 = 1;
 const FORCED_GOSSIP_MS: u64 = 1000;
 
 pub struct State<W: WitnessSelector> {
-    owner_uid: UID,
-    starting_epoch: u64,
+    pub owner_uid: UID,
+    pub starting_epoch: u64,
     /// The size of the random sample of witnesses that we draw every time we gossip.
-    gossip_size: usize,
-    witness_selector: Box<W>,
+    pub gossip_size: usize,
+    pub witness_selector: Box<W>,
 }
 
 /// An enum that we use to start and stop the TxFlow task.
 pub enum Control<W: WitnessSelector> {
     Reset(State<W>),
     Stop,
+}
+
+/// Spawns `TxFlowTask` as a tokio task.
+pub fn spawn_task<
+    'a,
+    P: 'a + Payload + Send + Sync + 'static,
+    W: WitnessSelector + Send + Sync + 'static,
+>(
+    messages_receiver: mpsc::Receiver<Gossip<P>>,
+    payload_receiver: mpsc::Receiver<P>,
+    messages_sender: mpsc::Sender<Gossip<P>>,
+    control_receiver: mpsc::Receiver<Control<W>>,
+    consensus_sender: mpsc::Sender<ConsensusBlockBody<P>>,
+) {
+    let task = TxFlowTask::new(
+        messages_receiver,
+        payload_receiver,
+        messages_sender,
+        control_receiver,
+        consensus_sender,
+    );
+    tokio::spawn(task.for_each(|_| Ok(())));
 }
 
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate

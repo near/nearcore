@@ -9,6 +9,7 @@ extern crate primitives;
 extern crate shard;
 extern crate storage;
 extern crate tokio;
+extern crate txflow;
 
 pub mod producer;
 pub mod importer;

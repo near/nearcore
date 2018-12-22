@@ -20,7 +20,7 @@ use substrate_network_libp2p::Secret;
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
 use primitives::traits::Encode;
-use primitives::types::{ChainPayload, UID};
+use primitives::types::{ChainPayload, UID, Gossip};
 use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -38,6 +38,7 @@ pub fn spawn_network_tasks<B, Header>(
     message_receiver: Receiver<(NodeIndex, Message<B, Header, ChainPayload>)>,
     block_receiver: Receiver<B>,
     authority_receiver: Receiver<HashMap<UID, SelectedAuthority>>,
+    gossip_rx: Receiver<Gossip<ChainPayload>>,
 ) where
     B: SignedBlock,
     Header: BlockHeader,
@@ -117,9 +118,10 @@ pub fn spawn_network_tasks<B, Header>(
 
     // Handles messages going into the network.
     let protocol_id = protocol.config.protocol_id;
+    let network_service1 = network_service.clone();
     let messages_handler = message_receiver.for_each(move |(node_index, m)| {
         let data = Encode::encode(&m).expect("Error encoding message.");
-        network_service.lock().send_custom_message(node_index, protocol_id, data);
+        network_service1.lock().send_custom_message(node_index, protocol_id, data);
         Ok(())
     }).map(|_| ()).map_err(|_|());
 
@@ -134,14 +136,29 @@ pub fn spawn_network_tasks<B, Header>(
         Ok(())
     }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)));
 
+    let protocol2 = protocol.clone();
     tokio::spawn(messages_handler);
     tokio::spawn(block_announce_handler);
     tokio::spawn(
         authority_receiver.for_each(move |map| {
-            protocol.set_authority_map(map);
+            protocol2.set_authority_map(map);
             Ok(())
         })
     );
+
+    let protocol3 = protocol.clone();
+    let gossip_sender = gossip_rx
+        .for_each(move |g| {
+            if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
+                let m = Message::Gossip::<B, Header, _>(g);
+                let data = Encode::encode(&m).expect("Error encoding message.");
+                network_service.lock().send_custom_message(node_index, protocol_id, data);
+            } else {
+                error!("Node Index not found for UID: {}", g.receiver_uid);
+            }
+            Ok(())
+        });
+    tokio::spawn(gossip_sender);
 }
 
 pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
