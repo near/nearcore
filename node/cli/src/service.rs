@@ -75,8 +75,8 @@ fn spawn_network_tasks(
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<SignedTransaction>,
     receipts_tx: Sender<ReceiptTransaction>,
-    gossip_tx: Sender<Gossip<ChainPayload>>,
-    gossip_rx: Receiver<Gossip<ChainPayload>>,
+    inc_gossip_tx: Sender<Gossip<ChainPayload>>,
+    out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     beacon_block_rx: Receiver<SignedBeaconBlock>,
     authority_rx: Receiver<HashMap<UID, SelectedAuthority>>,
 ) {
@@ -89,7 +89,7 @@ fn spawn_network_tasks(
         transactions_tx,
         receipts_tx,
         net_messages_tx.clone(),
-        gossip_tx,
+        inc_gossip_tx,
     );
     let mut network_config = network::service::NetworkConfiguration::new();
     let mut network_config_path = base_path.to_owned();
@@ -111,10 +111,8 @@ fn spawn_network_tasks(
         net_messages_rx,
         beacon_block_rx,
         authority_rx,
+        out_gossip_rx,
     );
-
-    // Spawn task sending gossips to the network.
-    adapters::gossip_to_network_message::spawn_task(gossip_rx, net_messages_tx.clone());
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
