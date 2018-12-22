@@ -25,7 +25,8 @@ extern crate txflow;
 use clap::{App, Arg};
 use std::path::PathBuf;
 use std::str::FromStr;
-use consensus::passthrough;
+use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
+use primitives::types::ChainPayload;
 
 pub mod chain_spec;
 pub mod service;
@@ -175,6 +176,6 @@ pub fn run() {
     let config = get_service_config();
     service::start_service(
         config,
-        passthrough::spawn_consensus,
+        txflow::txflow_task::spawn_task::<ChainPayload, BeaconWitnessSelector>
     );
 }

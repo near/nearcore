@@ -13,5 +13,6 @@ extern crate network;
 extern crate beacon;
 extern crate beacon_chain_handler;
 extern crate substrate_network_libp2p;
+extern crate txflow;
 pub mod adapters;
 pub mod passthrough;

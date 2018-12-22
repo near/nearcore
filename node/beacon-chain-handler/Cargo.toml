@@ -14,3 +14,4 @@ storage = { path = "../../core/storage" }
 parking_lot = "0.6"
 futures = "0.1.25"
 tokio = "0.1.11"
+txflow = { path = "../../core/txflow" }

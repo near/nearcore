@@ -1,22 +1,22 @@
 use std::cmp;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::collections::HashMap;
 
 use env_logger::Builder;
 use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
 use parking_lot::{Mutex, RwLock};
 
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon::authority::{Authority, SelectedAuthority};
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
+use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
-use beacon_chain_handler::authority_handler::{AuthorityHandler, spawn_authority_task};
 use chain::SignedBlock;
 use chain_spec;
 use consensus::adapters;
@@ -26,11 +26,12 @@ use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
 use primitives::types::{
-    Gossip, ReceiptTransaction, SignedTransaction, ChainPayload,
-    UID, AccountId, AccountAlias
+    AccountAlias, AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
 };
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
+use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
+use txflow::txflow_task::Control;
 
 const STORAGE_PATH: &str = "storage/db";
 const NETWORK_CONFIG_PATH: &str = "storage";
@@ -56,12 +57,8 @@ fn spawn_rpc_server_task(
     let state_db_viewer = StateDbViewer::new(shard_chain.clone(), state_db);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_port));
-    let http_api = HttpApi::new(
-        state_db_viewer,
-        transactions_tx,
-        beacon_chain,
-        shard_chain.clone(),
-    );
+    let http_api =
+        HttpApi::new(state_db_viewer, transactions_tx, beacon_chain, shard_chain.clone());
     node_http::server::spawn_server(http_api, http_addr);
 }
 
@@ -100,9 +97,8 @@ fn spawn_network_tasks(
     network_config.listen_addresses =
         vec![network::service::get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
 
-    network_config.use_secret = test_network_key_seed.map(
-        network::service::get_test_secret_from_network_key_seed
-    );
+    network_config.use_secret =
+        test_network_key_seed.map(network::service::get_test_secret_from_network_key_seed);
 
     let network_service = network::service::new_network_service(&protocol_config, network_config);
     network::service::spawn_network_tasks(
@@ -169,10 +165,11 @@ impl Default for ServiceConfig {
 pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
 where
     S: Fn(
-            Receiver<ChainPayload>,
-            Sender<ChainConsensusBlockBody>,
             Receiver<Gossip<ChainPayload>>,
+            Receiver<ChainPayload>,
             Sender<Gossip<ChainPayload>>,
+            Receiver<Control<BeaconWitnessSelector>>,
+            Sender<ChainConsensusBlockBody>,
         ) -> ()
         + Send
         + Sync
@@ -208,7 +205,11 @@ where
     let account_id = AccountId::from(&config.account_id);
     let mut key_file_path = config.base_path.to_path_buf();
     key_file_path.push(KEY_STORE_PATH);
-    let signer = Arc::new(InMemorySigner::from_key_file(account_id, key_file_path.as_path(), config.public_key.clone()));
+    let signer = Arc::new(InMemorySigner::from_key_file(
+        account_id,
+        key_file_path.as_path(),
+        config.public_key.clone(),
+    ));
     let authority_config = chain_spec::get_authority_config(&chain_spec);
     let authority = Authority::new(authority_config, &beacon_chain);
     let authority_handler = AuthorityHandler::new(authority, account_id);
@@ -229,7 +230,8 @@ where
         // and send the authority information to consensus
         let (new_block_tx, new_block_rx) = channel(1024);
         let (authority_tx, authority_rx) = channel(1024);
-        spawn_authority_task(authority_handler, new_block_rx, authority_tx);
+        let (consensus_control_tx, consensus_control_rx) = channel(1024);
+        spawn_authority_task(authority_handler, new_block_rx, authority_tx, consensus_control_tx);
 
         // Create a task that consumes the consensuses
         // and produces the beacon chain blocks.
@@ -276,7 +278,7 @@ where
             inc_gossip_tx.clone(),
             out_gossip_rx,
             beacon_block_announce_rx,
-            authority_rx
+            authority_rx,
         );
 
         // Spawn consensus tasks.
@@ -285,10 +287,11 @@ where
         adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
 
         spawn_consensus_task_fn(
-            payload_rx,
-            beacon_block_consensus_body_tx,
             inc_gossip_rx,
+            payload_rx,
             out_gossip_tx,
+            consensus_control_rx,
+            beacon_block_consensus_body_tx,
         );
         Ok(())
     }));
