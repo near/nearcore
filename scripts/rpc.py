@@ -70,8 +70,7 @@ def b58encode(v):
 
 
 def _get_account_id(account_alias):
-    digest = hashlib.sha256(account_alias.encode('utf-8')).digest()
-    return b58encode(digest).decode('utf-8')
+    return account_alias
 
 
 def _json_to_bson_bytes(args):
@@ -407,7 +406,7 @@ get_beacon_block_by_hash  {}
             '-s',
             '--sender',
             type=str,
-            default='alice',
+            default='alice.near',
             help='account alias of sender',
         )
         parser.add_argument(
@@ -562,7 +561,7 @@ get_beacon_block_by_hash  {}
             '-a',
             '--account',
             type=str,
-            default='alice',
+            default='alice.near',
             help='alias of account to view',
         )
         args = self._get_command_args(parser)

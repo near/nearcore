@@ -9,7 +9,7 @@ pub fn index_to_bytes(index: u64) -> Vec<u8> {
 }
 
 #[allow(unused)]
-pub fn account_to_shard_id(account_id: AccountId) -> ShardId {
+pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
     // TODO: change to real sharding
     0
 }

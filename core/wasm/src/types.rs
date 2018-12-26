@@ -260,8 +260,8 @@ pub struct RuntimeContext {
     pub initial_balance: Balance,
     /// The amount sent by the Sender.
     pub received_amount: Balance,
-    /// Sender's Account ID.
-    pub sender_id: AccountId,
+    /// Originator's Account ID.
+    pub originator_id: AccountId,
     /// Current Account ID.
     pub account_id: AccountId,
     /// Available mana for the execution by this contract.
@@ -272,15 +272,15 @@ impl RuntimeContext {
     pub fn new(
         initial_balance: Balance,
         received_amount: Balance,
-        sender_id: AccountId,
-        account_id: AccountId,
+        sender_id: &AccountId,
+        account_id: &AccountId,
         mana: Mana,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
             received_amount,
-            sender_id,
-            account_id,
+            originator_id: sender_id.clone(),
+            account_id: account_id.clone(),
             mana,
         }
     }

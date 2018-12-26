@@ -49,8 +49,8 @@ impl External for MyExt {
         _amount: Balance,
     ) -> ExtResult<PromiseId> {
         match self.num_receipts {
-            0 => assert_eq!(&account_id, &AccountId::from(&"test1".to_string())),
-            1 => assert_eq!(&account_id, &AccountId::from(&"test2".to_string())),
+            0 => assert_eq!(&account_id, &"test1".to_string()),
+            1 => assert_eq!(&account_id, &"test2".to_string()),
             _ => (),
         };
         self.num_receipts += 1;
@@ -130,8 +130,8 @@ mod tests {
         RuntimeContext::new(
             balance,
             amount,
-            AccountId::from(&"alice".to_string()),
-            AccountId::from(&"bob".to_string()),
+            &"alice".to_string(),
+            &"bob".to_string(),
             mana
         )
     }

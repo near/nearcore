@@ -39,8 +39,6 @@ extern "C" {
     fn return_value(value: *const u8);
     fn return_promise(promise_index: u32);
 
-    // Alias is standard length prefix buffer, but ID is always 32 bytes.
-    fn account_alias_to_id(account_alias: *const u8, account_id: *mut u8);
     // Sender's account id. Writes 32 bytes.
     fn sender_id(account_id: *mut u8);
     // Current account id. Writes 32 bytes.
@@ -123,16 +121,6 @@ fn serialize(buf: &[u8]) -> Vec<u8> {
     return vec
 }
 
-fn to_account_id(buf: &[u8]) -> Vec<u8> {
-    let mut vec = vec![0u8; 32];
-    unsafe {
-        account_alias_to_id(
-            serialize(buf).as_ptr(),
-            vec.as_mut_ptr());
-    }
-    vec
-}
-
 #[no_mangle]
 fn key_to_str(key: u32) -> [u8; 19] {
     let mut str_key = [0u8; 19];
@@ -209,14 +197,14 @@ pub fn sum_with_multiple_results() {
 pub fn create_promises_and_join() {
     unsafe {
         let promise1 = promise_create(
-            to_account_id(b"test1").as_ptr(),
+            serialize(b"test1").as_ptr(),
             serialize(b"run1").as_ptr(),
             serialize(b"args1").as_ptr(),
             0,
             0,
         );
         let promise2 = promise_create(
-            to_account_id(b"test2").as_ptr(),
+            serialize(b"test2").as_ptr(),
             serialize(b"run2").as_ptr(),
             serialize(b"args2").as_ptr(),
             0,
@@ -242,7 +230,7 @@ pub fn answer_to_life() {
 pub fn transfer_to_bob() {
     unsafe {
         let promise1 = promise_create(
-            to_account_id(b"bob").as_ptr(),
+            serialize(b"bob").as_ptr(),
             serialize(b"deposit").as_ptr(),
             serialize(b"").as_ptr(),
             0,

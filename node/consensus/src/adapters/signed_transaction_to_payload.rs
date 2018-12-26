@@ -36,12 +36,12 @@ mod tests {
             for i in 0..10 {
                 let t = SendMoneyTransaction {
                     nonce: i,
-                    sender: CryptoHash::default(),
-                    receiver: CryptoHash::default(),
+                    originator: "alice".to_string(),
+                    receiver: "bob".to_string(),
                     amount: i,
                 };
                 let t = TransactionBody::SendMoney(t);
-                let t = SignedTransaction { sender_sig: DEFAULT_SIGNATURE, body: t };
+                let t = SignedTransaction { signature: DEFAULT_SIGNATURE, body: t };
                 transactions.push(t);
             }
 

@@ -130,10 +130,9 @@ pub fn get_test_authority_config(
         num_seats_per_slot: u64,
 ) -> AuthorityConfig {
     let mut initial_authorities = vec![];
-    for _ in 0..num_authorities {
+    for i in 0..num_authorities {
         let (public_key, _) = get_keypair();
-        let account_id = hash_struct(&public_key);
-        initial_authorities.push(AuthorityProposal { account_id, public_key, amount: 100 });
+        initial_authorities.push(AuthorityProposal { account_id: i.to_string(), public_key, amount: 100 });
     }
     AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
 }
