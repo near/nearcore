@@ -192,7 +192,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
             'public_key': self._get_public_key(),
@@ -205,7 +205,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'receiver_account_id': _get_account_id(receiver),
             'amount': amount,
         }
@@ -217,7 +217,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'staker_account_id': sender,
+            'originator': sender,
             'amount': amount,
         }
         self._update_nonce(sender)
@@ -239,7 +239,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'originator_account_id': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'method_name': method_name,
             'args': args,
@@ -280,7 +280,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'new_account_id': _get_account_id(account_alias),
             'amount': amount,
             'public_key': account_public_key,
@@ -324,7 +324,7 @@ class NearRPC(object):
         args = _json_to_bson_bytes(args)
 
         params = {
-            'originator_id': _get_account_id(originator),
+            'originator': _get_account_id(originator),
             'contract_account_id': _get_account_id(contract_name),
             'method_name': function_name,
             'args': args,

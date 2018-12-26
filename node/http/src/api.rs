@@ -50,7 +50,7 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: r.nonce,
-            originator: r.sender.clone(),
+            originator: r.originator.clone(),
             new_account_id: r.new_account_id.clone(),
             amount: r.amount,
             public_key: r.public_key.encode().unwrap(),
@@ -65,7 +65,7 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: r.nonce,
-            originator: r.sender_account_id.clone(),
+            originator: r.originator.clone(),
             contract_id: r.contract_account_id.clone(),
             wasm_byte_array: r.wasm_byte_array,
             public_key: r.public_key.encode().unwrap(),
@@ -94,12 +94,12 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: r.nonce,
-            originator: r.sender_account_id.clone(),
+            originator: r.originator.clone(),
             receiver: r.receiver_account_id.clone(),
             amount: r.amount,
         });
         debug!(target: "near-rpc", "Send money transaction {:?}->{:?}, amount: {:?}",
-               r.sender_account_id, r.receiver_account_id, r.amount);
+               r.originator, r.receiver_account_id, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -109,11 +109,11 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::Stake(StakeTransaction {
             nonce: r.nonce,
-            originator: r.staker_account_id.clone(),
+            originator: r.originator.clone(),
             amount: r.amount,
         });
         debug!(target: "near-rpc", "Stake money transaction {:?}, amount: {:?}",
-               r.staker_account_id, r.amount);
+               r.originator, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -125,7 +125,7 @@ impl HttpApi {
                r.contract_account_id, r.method_name);
         let body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: r.nonce,
-            originator: r.originator_account_id.clone(),
+            originator: r.originator.clone(),
             contract_id: r.contract_account_id.clone(),
             method_name: r.method_name.into_bytes(),
             args: r.args,
@@ -164,7 +164,7 @@ impl HttpApi {
             r.method_name,
         );
         match self.state_db_viewer.call_function(
-            &r.originator_id,
+            &r.originator,
             &r.contract_account_id,
             &r.method_name,
             &r.args,
