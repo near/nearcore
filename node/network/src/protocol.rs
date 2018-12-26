@@ -118,9 +118,9 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         }
     }
 
-    pub fn get_node_by_account_id(&self, account_id: AccountId) -> Option<NodeIndex> {
+    pub fn get_node_by_account_id(&self, account_id: &AccountId) -> Option<NodeIndex> {
         let peer_account_info = self.peer_account_info.read();
-        peer_account_info.get(&account_id).cloned()
+        peer_account_info.get(account_id).cloned()
     }
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {

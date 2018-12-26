@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::fmt;
 
 use ::traits::Payload;
-use hash::{CryptoHash, hash, hash_struct};
+use hash::{CryptoHash, hash_struct};
 use signature::{PublicKey, Signature};
 use signature::DEFAULT_SIGNATURE;
 
