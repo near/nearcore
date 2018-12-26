@@ -28,7 +28,7 @@ use primitives::types::{
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
     SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
-    FunctionCallTransaction, Gas, Mana,
+    FunctionCallTransaction, AccountingInfo, ManaAccounting,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
@@ -141,7 +141,11 @@ impl Runtime {
                     b"deposit".to_vec(),
                     vec![],
                     transaction.amount,
-                    1,
+                    0,
+                    AccountingInfo {
+                        originator: transaction.sender,
+                        contract_id: Some(transaction.receiver),
+                    },
                 ))
             );
             Ok(vec![Transaction::Receipt(receipt)])
@@ -216,7 +220,11 @@ impl Runtime {
                     b"create_account".to_vec(),
                     body.public_key.clone(),
                     body.amount,
-                    0
+                    0,
+                    AccountingInfo {
+                        originator: body.sender,
+                        contract_id: None,
+                    },
                 ))
             );
             Ok(vec![Transaction::Receipt(receipt)])
@@ -278,7 +286,11 @@ impl Runtime {
                 b"deploy".to_vec(),
                 args,
                 0,
-                0
+                0,
+                AccountingInfo {
+                    originator: body.sender,
+                    contract_id: Some(body.contract_id),
+                },
             ))
         );
         Ok(vec![Transaction::Receipt(receipt)])
@@ -303,6 +315,10 @@ impl Runtime {
                     transaction.args.clone(),
                     transaction.amount,
                     DEFAULT_MANA_LIMIT,
+                    AccountingInfo {
+                        originator: transaction.originator,
+                        contract_id: Some(transaction.contract_id),
+                    },
                 ))
             );
             Ok(vec![Transaction::Receipt(receipt)])
@@ -542,17 +558,18 @@ impl Runtime {
         receiver_id: &AccountId,
         nonce: &[u8],
         receiver: &mut Account,
-        mana_refund: &mut Mana,
-        gas_used: &mut Gas,
+        mana_accounting: &mut ManaAccounting,
     ) -> Result<Vec<Transaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("cannot find contract code for account {}", receiver_id.clone()))?;
-        *gas_used = 0;
-        *mana_refund = async_call.mana;
+        mana_accounting.gas_used = 0;
+        mana_accounting.mana_refund = async_call.mana;
+        mana_accounting.accounting_info = async_call.accounting_info.clone();
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
                 receiver_id,
+                async_call.accounting_info.clone(),
                 nonce,
             );
             let wasm_res = executor::execute(
@@ -570,8 +587,8 @@ impl Runtime {
                     async_call.mana,
                 ),
             ).map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
-            *gas_used = wasm_res.gas_used;
-            *mana_refund = wasm_res.mana_left;
+            mana_accounting.gas_used = wasm_res.gas_used;
+            mana_accounting.mana_refund = wasm_res.mana_left;
             let balance = wasm_res.balance;
             let return_data = wasm_res.return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
@@ -602,16 +619,15 @@ impl Runtime {
         receiver_id: &AccountId,
         nonce: &[u8],
         receiver: &mut Account,
-        mana_refund: &mut Mana,
-        gas_used: &mut Gas,
+        mana_accounting: &mut ManaAccounting,
     ) -> Result<Vec<Transaction>, String> {
         let mut needs_removal = false;
         let callback: Option<Callback> = 
                 get(state_update, &callback_id_to_bytes(&callback_res.info.id));
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("account {} does not have contract code", receiver_id.clone()))?;
-        *mana_refund = 0;
-        *gas_used = 0;
+        mana_accounting.gas_used = 0;
+        mana_accounting.mana_refund = 0;
         let receipts = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -625,7 +641,15 @@ impl Runtime {
                     callback.result_counter += 1;
                     // if we have gathered all results, execute the callback
                     if callback.result_counter == callback.results.len() {
-                        *mana_refund = callback.mana;
+                        let mut runtime_ext = RuntimeExt::new(
+                            state_update,
+                            receiver_id,
+                            callback.accounting_info.clone(),
+                            nonce,
+                        );
+
+                        mana_accounting.accounting_info = callback.accounting_info.clone();
+                        mana_accounting.mana_refund = callback.mana;
                         needs_removal = true;
                         let wasm_res = executor::execute(
                             &code,
@@ -642,8 +666,8 @@ impl Runtime {
                                 callback.mana,
                             ),
                         ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
-                        *gas_used = wasm_res.gas_used;
-                        *mana_refund = wasm_res.mana_left;
+                        mana_accounting.gas_used = wasm_res.gas_used;
+                        mana_accounting.mana_refund = wasm_res.mana_left;
                         let balance = wasm_res.balance;
                         let return_data = wasm_res.return_data
                             .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))?;
@@ -690,8 +714,7 @@ impl Runtime {
         let mut amount = 0;
         let mut callback_info = None;
         let mut receiver_exists = true;
-        let mut mana_refund: Mana = 0;
-        let mut gas_used: Gas = 0;
+        let mut mana_accounting = ManaAccounting::default();
         let result = match receiver {
             Some(mut receiver) => {
                 match &receipt.body {
@@ -745,8 +768,7 @@ impl Runtime {
                                 &receipt.receiver,
                                 &receipt.nonce,
                                 &mut receiver,
-                                &mut mana_refund,
-                                &mut gas_used,
+                                &mut mana_accounting,
                             )
                         }
                     },
@@ -759,8 +781,7 @@ impl Runtime {
                             &receipt.receiver,
                             &receipt.nonce,
                             &mut receiver,
-                            &mut mana_refund,
-                            &mut gas_used,
+                            &mut mana_accounting,
                         )
                     }
                     ReceiptBody::Refund(amount) => {
@@ -770,6 +791,10 @@ impl Runtime {
                             &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver),
                             &receiver,
                         );
+                        Ok(vec![])
+                    },
+                    ReceiptBody::ManaAccounting(_mana_accounting) => {
+                        // TODO(#259): Refund mana and charge gas
                         Ok(vec![])
                     }
                 }
@@ -799,8 +824,7 @@ impl Runtime {
                 }
             }
         };
-        // TODO(#259): Create mana and gas receipt.
-        match result {
+        let res = match result {
             Ok(mut receipts) => {
                 new_receipts.append(&mut receipts);
                 Ok(())
@@ -815,7 +839,7 @@ impl Runtime {
                     let new_receipt = ReceiptTransaction::new(
                         receiver,
                         receipt.originator.clone(),
-                        create_nonce_with_nonce(&receipt.nonce, 0),
+                        create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                         ReceiptBody::Refund(amount)
                     );
                     new_receipts.push(Transaction::Receipt(new_receipt));
@@ -824,7 +848,7 @@ impl Runtime {
                     let new_receipt = ReceiptTransaction::new(
                         receipt.receiver.clone(),
                         callback_info.receiver.clone(),
-                        create_nonce_with_nonce(&receipt.nonce, 1),
+                        create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                         ReceiptBody::Callback(CallbackResult::new(
                             callback_info,
                             None,
@@ -834,7 +858,17 @@ impl Runtime {
                 }
                 Err(s)
             }
+        };
+        if mana_accounting.mana_refund > 0 || mana_accounting.gas_used > 0 {
+            let new_receipt = ReceiptTransaction::new(
+                mana_accounting.accounting_info.originator,
+                receipt.receiver.clone(),
+                create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
+                ReceiptBody::ManaAccounting(mana_accounting),
+            );
+            new_receipts.push(Transaction::Receipt(new_receipt));
         }
+        res
     }
 
     fn filter_transaction(
@@ -1569,6 +1603,10 @@ mod tests {
                 vec![],
                 0,
                 0,
+                AccountingInfo {
+                    originator: hash(b"alice"),
+                    contract_id: Some(hash(b"bob")),
+                },
             ))
         );
         let apply_state = ApplyState {
@@ -1590,10 +1628,25 @@ mod tests {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
-        let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
+        let accounting_info = AccountingInfo {
+            originator: hash(b"alice"),
+            contract_id: Some(hash(b"bob")),
+        };
+        let mut callback = Callback::new(
+            b"sum_with_input".to_vec(),
+            args,
+            0,
+            accounting_info.clone(),
+        );
         callback.results.resize(1, None);
         let callback_id = [0; 32].to_vec();
-        let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, 0);
+        let mut async_call = AsyncCall::new(
+            b"run_test".to_vec(),
+            vec![],
+            0,
+            0,
+            accounting_info,
+        );
         let callback_info = CallbackInfo::new(callback_id.clone(), 0, alice_account());
         async_call.callback = Some(callback_info.clone());
         let receipt = ReceiptTransaction::new(
@@ -1624,7 +1677,15 @@ mod tests {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
-        let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0);
+        let mut callback = Callback::new(
+            b"sum_with_input".to_vec(),
+            args,
+            0,
+            AccountingInfo {
+                originator: hash(b"alice"),
+                contract_id: Some(hash(b"bob")),
+            },
+        );
         callback.results.resize(1, None);
         let callback_id = [0; 32].to_vec();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
