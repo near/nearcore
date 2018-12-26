@@ -13,11 +13,13 @@ pub fn spawn_consensus(
     _inc_gossip_rx: Receiver<Gossip<ChainPayload>>,
     payload_rx: Receiver<ChainPayload>,
     _out_gossip_tx: Sender<Gossip<ChainPayload>>,
-    _control_rx: Receiver<Control<BeaconWitnessSelector>>,
+    control_rx: Receiver<Control<BeaconWitnessSelector>>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
 ) {
+    // Even though we are not using control_rx we have to keep it alive for the duration of the
+    // passthrough consensus.
     let task = payload_rx
-        .fold(consensus_tx, |consensus_tx, p| {
+        .fold((consensus_tx, control_rx), |(consensus_tx, control_rx), p| {
             let message: SignedMessageData<ChainPayload> = SignedMessageData {
                 owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                 hash: 0,                      // Compute real hash
@@ -33,7 +35,7 @@ pub fn spawn_consensus(
             tokio::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {
                 error!("Failure sending pass-through consensus {:?}", e);
             }));
-            future::ok(consensus_tx)
+            future::ok((consensus_tx, control_rx))
         })
         .map(|_| ())
         .map_err(|_| ());
