@@ -19,7 +19,7 @@
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "//": "TODO: imeplement a real healthcheck as opposed to using a local near-contract-helper",
+    "//": "Once we imeplement a real healthcheck, we can stop using a local near-contract-helper to check server-aliveness",
     "start": "cargo run --release --package=devnet",
     "start-server": "npm start",
     "test": "jest test",
