@@ -20,7 +20,6 @@ mod tests {
     use super::*;
     use futures::sync::mpsc::channel;
     use futures::{lazy, stream};
-    use primitives::hash::CryptoHash;
     use primitives::signature::DEFAULT_SIGNATURE;
     use primitives::types::{
         SendMoneyTransaction, SignedTransaction, Transaction, TransactionBody,
@@ -36,12 +35,12 @@ mod tests {
             for i in 0..10 {
                 let t = SendMoneyTransaction {
                     nonce: i,
-                    sender: CryptoHash::default(),
-                    receiver: CryptoHash::default(),
+                    originator: "alice".to_string(),
+                    receiver: "bob".to_string(),
                     amount: i,
                 };
                 let t = TransactionBody::SendMoney(t);
-                let t = SignedTransaction { sender_sig: DEFAULT_SIGNATURE, body: t };
+                let t = SignedTransaction { signature: DEFAULT_SIGNATURE, body: t };
                 transactions.push(t);
             }
 

@@ -4,18 +4,16 @@ use std::hash::{Hash, Hasher};
 use std::fmt;
 
 use ::traits::Payload;
-use hash::{CryptoHash, hash, hash_struct};
+use hash::{CryptoHash, hash_struct};
 use signature::{PublicKey, Signature};
 use signature::DEFAULT_SIGNATURE;
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
-/// Account alias. Can be an easily identifiable string, when hashed creates the AccountId.
-pub type AccountAlias = String;
 /// Public key alias. Used to human readable public key.
 pub type ReadablePublicKey = String;
 /// Account identifier. Provides access to user's state.
-pub type AccountId = CryptoHash;
+pub type AccountId = String;
 // TODO: Separate cryptographic hash from the hashmap hash.
 /// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
 /// confused with the multisig.
@@ -47,12 +45,6 @@ pub enum PromiseId {
 
 pub type ShardId = u32;
 
-impl<'a> From<&'a AccountAlias> for AccountId {
-    fn from(alias: &AccountAlias) -> Self {
-        hash(alias.as_bytes())
-    }
-}
-
 impl<'a> From<&'a ReadablePublicKey> for PublicKey {
     fn from(alias: &ReadablePublicKey) -> Self {
         PublicKey::from(alias)
@@ -70,14 +62,14 @@ pub enum BlockId {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
     pub nonce: u64,
-    pub staker: AccountId,
+    pub originator: AccountId,
     pub amount: Balance,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SendMoneyTransaction {
     pub nonce: u64,
-    pub sender: AccountId,
+    pub originator: AccountId,
     pub receiver: AccountId,
     pub amount: Balance,
 }
@@ -85,7 +77,7 @@ pub struct SendMoneyTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
-    pub sender: AccountId,
+    pub originator: AccountId,
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
     pub public_key: Vec<u8>,
@@ -93,7 +85,7 @@ pub struct DeployContractTransaction {
 
 impl fmt::Debug for DeployContractTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DeployContractTransaction {{ nonce: {}, sender: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.sender, self.contract_id)
+        write!(f, "DeployContractTransaction {{ nonce: {}, originator: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.originator, self.contract_id)
     }
 }
 
@@ -116,7 +108,7 @@ impl fmt::Debug for FunctionCallTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct CreateAccountTransaction {
     pub nonce: u64,
-    pub sender: AccountId,
+    pub originator: AccountId,
     pub new_account_id: AccountId,
     pub amount: u64,
     pub public_key: Vec<u8>,
@@ -125,9 +117,9 @@ pub struct CreateAccountTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SwapKeyTransaction {
     pub nonce: u64,
-    pub sender: AccountId,
+    pub originator: AccountId,
     // current key to the account.
-    // sender must sign the transaction with this key
+    // originator must sign the transaction with this key
     pub cur_key: Vec<u8>,
     pub new_key: Vec<u8>,
 }
@@ -155,14 +147,14 @@ impl TransactionBody {
         }
     }
 
-    pub fn get_sender(&self) -> AccountId {
+    pub fn get_originator(&self) -> AccountId {
         match self {
-            TransactionBody::Stake(t) => t.staker,
-            TransactionBody::SendMoney(t) => t.sender,
-            TransactionBody::DeployContract(t) => t.sender,
-            TransactionBody::FunctionCall(t) => t.originator,
-            TransactionBody::CreateAccount(t) => t.sender,
-            TransactionBody::SwapKey(t) => t.sender,
+            TransactionBody::Stake(t) => t.originator.clone(),
+            TransactionBody::SendMoney(t) => t.originator.clone(),
+            TransactionBody::DeployContract(t) => t.originator.clone(),
+            TransactionBody::FunctionCall(t) => t.originator.clone(),
+            TransactionBody::CreateAccount(t) => t.originator.clone(),
+            TransactionBody::SwapKey(t) => t.originator.clone(),
         }
     }
 }
@@ -170,16 +162,16 @@ impl TransactionBody {
 #[derive(Serialize, Deserialize, Eq, Debug, Clone)]
 pub struct SignedTransaction {
     pub body: TransactionBody,
-    pub sender_sig: StructSignature,
+    pub signature: StructSignature,
 }
 
 impl SignedTransaction {
     pub fn new(
-        sender_sig: StructSignature,
+        signature: StructSignature,
         body: TransactionBody,
     ) -> SignedTransaction {
         SignedTransaction {
-            sender_sig,
+            signature,
             body,
         }
     }
@@ -188,11 +180,11 @@ impl SignedTransaction {
     pub fn empty() -> SignedTransaction {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
-            sender: AccountId::default(),
+            originator: AccountId::default(),
             receiver: AccountId::default(),
             amount: 0,
         });
-        SignedTransaction { sender_sig: DEFAULT_SIGNATURE, body }
+        SignedTransaction { signature: DEFAULT_SIGNATURE, body }
     }
 
     pub fn transaction_hash(&self) -> CryptoHash {
@@ -209,7 +201,7 @@ impl Hash for SignedTransaction {
 
 impl PartialEq for SignedTransaction {
     fn eq(&self, other: &SignedTransaction) -> bool {
-        self.body == other.body && self.sender_sig == other.sender_sig
+        self.body == other.body && self.signature == other.signature
     }
 }
 
@@ -309,7 +301,7 @@ impl CallbackResult {
 #[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
-    pub sender: AccountId,
+    pub originator: AccountId,
     pub receiver: AccountId,
     // nonce will be a hash
     pub nonce: Vec<u8>,
@@ -318,13 +310,13 @@ pub struct ReceiptTransaction {
 
 impl ReceiptTransaction {
     pub fn new(
-        sender: AccountId,
+        originator: AccountId,
         receiver: AccountId,
         nonce: Vec<u8>,
         body: ReceiptBody,
     ) -> Self {
         ReceiptTransaction {
-            sender,
+            originator,
             receiver,
             nonce,
             body,

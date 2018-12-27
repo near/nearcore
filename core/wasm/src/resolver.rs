@@ -108,10 +108,6 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32][..], None),
                 ids::ACCOUNT_ID_FUNC,
             ),
-            "account_alias_to_id" => FuncInstance::alloc_host(
-                Signature::new(&[ValueType::I32, ValueType::I32][..], None),
-                ids::ACCOUNT_ALIAS_TO_ID_FUNC,
-            ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             },

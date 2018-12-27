@@ -70,8 +70,7 @@ def b58encode(v):
 
 
 def _get_account_id(account_alias):
-    digest = hashlib.sha256(account_alias.encode('utf-8')).digest()
-    return b58encode(digest).decode('utf-8')
+    return account_alias
 
 
 def _json_to_bson_bytes(args):
@@ -193,7 +192,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'wasm_byte_array': wasm_byte_array,
             'public_key': self._get_public_key(),
@@ -206,7 +205,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender_account_id': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'receiver_account_id': _get_account_id(receiver),
             'amount': amount,
         }
@@ -218,7 +217,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'staker_account_id': sender,
+            'originator': sender,
             'amount': amount,
         }
         self._update_nonce(sender)
@@ -240,7 +239,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'originator_account_id': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'contract_account_id': _get_account_id(contract_name),
             'method_name': method_name,
             'args': args,
@@ -281,7 +280,7 @@ class NearRPC(object):
         nonce = self._get_nonce(sender)
         params = {
             'nonce': nonce,
-            'sender': _get_account_id(sender),
+            'originator': _get_account_id(sender),
             'new_account_id': _get_account_id(account_alias),
             'amount': amount,
             'public_key': account_public_key,
@@ -325,7 +324,7 @@ class NearRPC(object):
         args = _json_to_bson_bytes(args)
 
         params = {
-            'originator_id': _get_account_id(originator),
+            'originator': _get_account_id(originator),
             'contract_account_id': _get_account_id(contract_name),
             'method_name': function_name,
             'args': args,
@@ -407,7 +406,7 @@ get_beacon_block_by_hash  {}
             '-s',
             '--sender',
             type=str,
-            default='alice',
+            default='alice.near',
             help='account alias of sender',
         )
         parser.add_argument(
@@ -562,7 +561,7 @@ get_beacon_block_by_hash  {}
             '-a',
             '--account',
             type=str,
-            default='alice',
+            default='alice.near',
             help='alias of account to view',
         )
         args = self._get_command_args(parser)

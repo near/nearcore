@@ -25,7 +25,7 @@ const MAX_BLOCK_DATA_RESPONSE: u64 = 128;
 /// current version of the protocol
 pub(crate) const CURRENT_VERSION: u32 = 1;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ProtocolConfig {
     /// Account id that runs on given machine.
     pub account_id: Option<AccountId>,
@@ -118,9 +118,9 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         }
     }
 
-    pub fn get_node_by_account_id(&self, account_id: AccountId) -> Option<NodeIndex> {
+    pub fn get_node_by_account_id(&self, account_id: &AccountId) -> Option<NodeIndex> {
         let peer_account_info = self.peer_account_info.read();
-        peer_account_info.get(&account_id).cloned()
+        peer_account_info.get(account_id).cloned()
     }
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
@@ -131,7 +131,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
             genesis_hash: self.chain.genesis_hash,
-            account_id: self.config.account_id,
+            account_id: self.config.account_id.clone(),
         };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
         let message = Message::Status(status);
@@ -140,7 +140,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
         if let Some(peer_info) = self.peer_info.read().get(&peer) {
-            if let Some(account_id) = peer_info.account_id {
+            if let Some(account_id) = peer_info.account_id.clone() {
                 self.peer_account_info.write().remove(&account_id);
             }
         }
@@ -218,9 +218,9 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             request_timestamp,
             block_request,
             next_request_id,
-            account_id: status.account_id,
+            account_id: status.account_id.clone(),
         };
-        if let Some(account_id) = status.account_id {
+        if let Some(account_id) = status.account_id.clone() {
             self.peer_account_info.write().insert(account_id, peer);
         }
         self.peer_info.write().insert(peer, peer_info);
@@ -380,7 +380,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         let auth_map = &*self.authority_map.read();
         auth_map
             .into_iter()
-            .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id) } else { None })
+            .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None })
             .and_then(|account_id| {
                 self.peer_account_info.read().get(&account_id).cloned()
             })
