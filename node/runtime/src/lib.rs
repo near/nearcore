@@ -12,7 +12,6 @@ extern crate serde_derive;
 extern crate shard;
 extern crate storage;
 extern crate wasm;
-extern crate regex;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,12 +31,11 @@ use primitives::types::{
     FunctionCallTransaction,
 };
 use primitives::utils::{
-    account_to_shard_id, index_to_bytes
+    account_to_shard_id, index_to_bytes, is_valid_account_id
 };
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
-use regex::Regex;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -95,11 +93,6 @@ fn create_nonce_with_nonce(base: &[u8], salt: u64) -> Vec<u8> {
     let mut nonce: Vec<u8> = base.to_owned();
     nonce.append(&mut index_to_bytes(salt));
     hash(&nonce).into()
-}
-
-fn valid_account_id(account_id: &AccountId) -> bool {
-    let re = Regex::new(r"^[a-z0-9._\-]{5,32}$").unwrap();
-    re.is_match(account_id)
 }
 
 pub struct ApplyState {
@@ -214,7 +207,7 @@ impl Runtime {
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
     ) -> Result<Vec<Transaction>, String> {
-        if !valid_account_id(&body.new_account_id) {
+        if !is_valid_account_id(&body.new_account_id) {
             return Err(format!("Account {} does not match requirements", body.new_account_id));
         }
         let staked = runtime_data.get_stake_for_account(&body.originator);
@@ -447,7 +440,7 @@ impl Runtime {
         call: &AsyncCall,
         account_id: &AccountId,
     ) -> Result<Vec<Transaction>, String> {
-        if !valid_account_id(account_id) {
+        if !is_valid_account_id(account_id) {
             return Err(format!("Account {} does not match requirements", account_id));
         }
         let account_id_bytes = account_id_to_bytes(&account_id);
@@ -721,7 +714,7 @@ impl Runtime {
                             );
                             let receipt = ReceiptTransaction::new(
                                 system_account(),
-                                receipt.sender.clone(),
+                                receipt.originator.clone(),
                                 create_nonce_with_nonce(&receipt.nonce, 0),
                                 ReceiptBody::Refund(async_call.amount)
                             );
@@ -746,7 +739,7 @@ impl Runtime {
                                 state_update,
                                 &runtime_data,
                                 &async_call,
-                                &receipt.sender,
+                                &receipt.originator,
                                 &receipt.receiver,
                                 &receipt.nonce,
                                 &mut receiver,
@@ -759,7 +752,7 @@ impl Runtime {
                             state_update,
                             &mut runtime_data,
                             &callback_res,
-                            &receipt.sender,
+                            &receipt.originator,
                             &receipt.receiver,
                             &receipt.nonce,
                             &mut receiver,
@@ -815,7 +808,7 @@ impl Runtime {
                     };
                     let new_receipt = ReceiptTransaction::new(
                         receiver,
-                        receipt.sender.clone(),
+                        receipt.originator.clone(),
                         create_nonce_with_nonce(&receipt.nonce, 0),
                         ReceiptBody::Refund(amount)
                     );
@@ -1407,36 +1400,44 @@ mod tests {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let (pub_key, _) = get_keypair();
-        let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
-            nonce: 1,
-            originator: alice_account(),
-            new_account_id: "eve".to_string(),
-            amount: 10,
-            public_key: pub_key.encode().unwrap()
-        });
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState {
-            root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0
-        };
-        let apply_result = runtime.apply_all(
-            apply_state, vec![Transaction::SignedTransaction(transaction)]
-        );
-        // Transaction failed, roots are the same and nonce on the account is 0.
-        assert_eq!(root, apply_result.root);
-        let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
-        assert_eq!(
-            result1.unwrap(),
-            AccountViewCallResult {
-                nonce: 0,
-                account: alice_account(),
-                amount: 100,
-                stake: 50,
-                code_hash: default_code_hash(),
-            }
-        );
+        for invalid_account_name in vec![
+                "eve", // too short
+                "Alice.near", // capital letter
+                "alice(near)", // brackets are invalid
+                "long_of_the_name_for_real_is_hard", // too long
+                "qq@qq*qq" // * is invalid
+        ] {
+            let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
+                nonce: 1,
+                originator: alice_account(),
+                new_account_id: invalid_account_name.to_string(),
+                amount: 10,
+                public_key: pub_key.encode().unwrap()
+            });
+            let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+            let apply_state = ApplyState {
+                root,
+                shard_id: 0,
+                parent_block_hash: CryptoHash::default(),
+                block_index: 0
+            };
+            let apply_result = runtime.apply_all(
+                apply_state, vec![Transaction::SignedTransaction(transaction)]
+            );
+            // Transaction failed, roots are the same and nonce on the account is 0.
+            assert_eq!(root, apply_result.root);
+            let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+            assert_eq!(
+                result1.unwrap(),
+                AccountViewCallResult {
+                    nonce: 0,
+                    account: alice_account(),
+                    amount: 100,
+                    stake: 50,
+                    code_hash: default_code_hash(),
+                }
+            );
+        }
     }
 
     #[test]
@@ -1592,7 +1593,7 @@ mod tests {
         runtime.apply_receipt(&mut state_update, &receipt, &mut new_receipts).unwrap();
         assert_eq!(new_receipts.len(), 1);
         if let Transaction::Receipt(new_receipt) = &new_receipts[0] {
-            assert_eq!(new_receipt.sender, bob_account());
+            assert_eq!(new_receipt.originator, bob_account());
             assert_eq!(new_receipt.receiver, alice_account());
             let callback_res = CallbackResult::new(
                 callback_info.clone(), Some(encode_int(20).to_vec())

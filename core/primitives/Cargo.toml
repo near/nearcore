@@ -4,6 +4,7 @@ version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
+regex = "1"
 bincode = "1.0.0"
 bs58 = "0.2.0"
 byteorder = "1.2"

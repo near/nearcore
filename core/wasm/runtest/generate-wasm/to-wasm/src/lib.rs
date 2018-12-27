@@ -39,9 +39,10 @@ extern "C" {
     fn return_value(value: *const u8);
     fn return_promise(promise_index: u32);
 
-    // Sender's account id. Writes 32 bytes.
+    // TODO(#316): Fix sender_id/account_id to work with dynamic length of the account id.
+    // Sender's account id.
     fn sender_id(account_id: *mut u8);
-    // Current account id. Writes 32 bytes.
+    // Current account id.
     fn account_id(account_id: *mut u8);
 
     // AccountID is just 32 bytes without the prefix length.

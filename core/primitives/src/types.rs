@@ -85,7 +85,7 @@ pub struct DeployContractTransaction {
 
 impl fmt::Debug for DeployContractTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DeployContractTransaction {{ nonce: {}, sender: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.originator, self.contract_id)
+        write!(f, "DeployContractTransaction {{ nonce: {}, originator: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.originator, self.contract_id)
     }
 }
 
@@ -301,7 +301,7 @@ impl CallbackResult {
 #[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
-    pub sender: AccountId,
+    pub originator: AccountId,
     pub receiver: AccountId,
     // nonce will be a hash
     pub nonce: Vec<u8>,
@@ -310,13 +310,13 @@ pub struct ReceiptTransaction {
 
 impl ReceiptTransaction {
     pub fn new(
-        sender: AccountId,
+        originator: AccountId,
         receiver: AccountId,
         nonce: Vec<u8>,
         body: ReceiptBody,
     ) -> Self {
         ReceiptTransaction {
-            sender,
+            originator,
             receiver,
             nonce,
             body,
