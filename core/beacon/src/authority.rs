@@ -56,36 +56,30 @@ pub struct Authority {
     accepted_proposals: HashMap<u64, Vec<AuthorityProposal>>,
 }
 
-/// Finds threshold for given proposals and number of seats.
-fn find_threshold(proposed: &[u64], num_seats: u64) -> Result<u64, String> {
-    let sum = proposed.iter().sum();
-    for item in proposed.iter() {
-        if *item < num_seats {
-            return Err(format!(
-                "Proposed {} must be higher then number of seats {}",
-                item, num_seats
-            ));
-        }
+fn find_threshold(stakes: &[u64], num_seats: u64) -> Result<u64, String> {
+    let stakes_sum: u64 = stakes.iter().sum();
+    if stakes_sum < num_seats {
+        return Err(format!(
+            "Total stake {} must be higher than the number of seats {}",
+            stakes_sum, num_seats
+        ));
     }
-    let (mut left, mut right, mut result) = (2, sum, 1);
-    while left <= right {
+    let (mut left, mut right) = (1u64, stakes_sum + 1);
+    'outer: loop {
+        if left == right - 1 {
+            break Ok(left);
+        }
         let mid = (left + right) / 2;
-        let (mut current_sum, mut ok) = (0, false);
-        for item in proposed.iter() {
+        let mut current_sum = 0u64;
+        for item in stakes.iter() {
             current_sum += item / mid;
             if current_sum >= num_seats {
-                ok = true;
-                break;
+                left = mid;
+                continue 'outer;
             }
         }
-        if !ok {
-            right = mid - 1;
-        } else {
-            result = mid;
-            left = mid + 1;
-        }
+        right = mid;
     }
-    Ok(result)
 }
 
 /// Keeps track and selects authorities for given blockchain.
@@ -163,16 +157,17 @@ impl Authority {
                     .get(&self.current_epoch)
                     .expect("Missing threshold for current epoch")
                     as i64;
-                let recorded_proposal = self.proposals
-                    .entry(header_authorities[i].account_id)
-                    .or_insert(RecordedProposal {
-                        public_key: header_authorities[i].public_key,
-                        stake: 0,
-                    });
+                let recorded_proposal =
+                    self.proposals.entry(header_authorities[i].account_id).or_insert(
+                        RecordedProposal { public_key: header_authorities[i].public_key, stake: 0 },
+                    );
                 recorded_proposal.stake -= threshold;
             }
         }
-        let next_epoch = header.body.index / self.authority_config.epoch_length;
+        // What is the epoch of the next block.
+        let next_epoch = ((header.body.index + 1) - 1) / self.authority_config.epoch_length;
+        // Check if epoch of the next block is not current epoch, recalculate authorities for
+        // current_epoch + 2.
         if next_epoch != self.current_epoch {
             let mut new_proposals: Vec<AuthorityProposal> = self
                 .proposals
