@@ -13,7 +13,7 @@ test('returns 1', () => {
     expect(account.returnOne()).toBe(1);
 });
 
-test('view account', () => {
-    account.viewAccount("alice.near").then(
-        (result) =>  expect(result).toEqual(aliceAccount));
+test('view account', async () => {
+    const viewAccountResponse = await account.viewAccount("alice.near");
+    expect(viewAccountResponse).toEqual(aliceAccount);
 });
