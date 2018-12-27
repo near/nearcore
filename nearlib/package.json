@@ -9,8 +9,6 @@
   "homepage": "https://github.com/nearprotocol/nearcore",
   "main": "near.js",
   "dependencies": {
-    "bs58": "^4.0.1",
-    "crypto": "^1.0.1",
     "superagent": "^4.1.0",
     "superagent-logger": "^1.1.0"
   },
@@ -25,7 +23,7 @@
     "start": "cargo run --release --package=devnet",
     "start-server": "npm start",
     "test": "jest test",
-    "ci": "start-server-and-test start-server http://localhost:3000/account/bob test"
+    "ci": "start-server-and-test start-server http://localhost:3000/account/alice.near test"
   },
   "author": "Evguenia Degtiareva"
 }

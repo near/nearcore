@@ -1,7 +1,7 @@
 const account = require('../account');
 
 const aliceAccount = {
-    account_id: '3x9az88Dkbxa6tkKByxqEn7jBTJCJCD4dVvou49L24ET',
+    account_id: 'alice.near',
     amount: 100,
     stake: 0,
     nonce: 0,
@@ -14,7 +14,6 @@ test('returns 1', () => {
 });
 
 test('view account', () => {
-    account.viewAccount("alice").then(
-        (result) =>  expect(result).toEqual(aliceAccount));//expect(result.toBe(aliceAccount)));
-   // expect(viewAccountResponse.toBe({}));
+    account.viewAccount("alice.near").then(
+        (result) =>  expect(result).toEqual(aliceAccount));
 });
