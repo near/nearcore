@@ -287,7 +287,7 @@ mod test {
     use std::sync::Arc;
 
     use chain::{SignedBlock, SignedHeader};
-    use primitives::hash::{hash_struct, CryptoHash};
+    use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use storage::test_utils::MemoryStorage;
 

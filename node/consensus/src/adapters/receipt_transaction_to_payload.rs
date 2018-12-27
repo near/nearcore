@@ -20,7 +20,6 @@ mod tests {
     use futures::{lazy, stream};
     use futures::sync::mpsc::channel;
     use primitives::types::{Transaction, ReceiptTransaction, ReceiptBody};
-    use primitives::hash::CryptoHash;
 
     #[test]
     fn pass_through() {

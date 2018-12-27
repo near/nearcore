@@ -20,7 +20,6 @@ mod tests {
     use super::*;
     use futures::sync::mpsc::channel;
     use futures::{lazy, stream};
-    use primitives::hash::CryptoHash;
     use primitives::signature::DEFAULT_SIGNATURE;
     use primitives::types::{
         SendMoneyTransaction, SignedTransaction, Transaction, TransactionBody,
