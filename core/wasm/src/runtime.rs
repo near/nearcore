@@ -4,7 +4,7 @@ use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
 use types::{RuntimeError as Error, ReturnData, RuntimeContext};
 
-use primitives::types::{AccountAlias, AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
+use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
 use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -84,9 +84,9 @@ impl<'a> Runtime<'a> {
         Ok(self.promise_ids.get(promise_index as usize).ok_or(Error::InvalidPromiseIndex)?.clone())
     }
 
-    fn read_and_parse_account_alias(&self, offset: u32) -> Result<AccountAlias> {
+    fn read_and_parse_account_id(&self, offset: u32) -> Result<AccountId> {
         let buf = self.read_buffer(offset)?;
-        AccountAlias::from_utf8(buf).map_err(|_| Error::BadUtf8)
+        AccountId::from_utf8(buf).map_err(|_| Error::BadUtf8)
     }
 
     fn charge_gas(&mut self, gas_amount: Gas) -> bool {
@@ -191,8 +191,7 @@ impl<'a> Runtime<'a> {
         let mana: u32 = args.nth_checked(3)?;
         let amount: u64 = args.nth_checked(4)?;
 
-        let account_id_buf = self.read_buffer_with_size(account_id_ptr, 32)?;
-        let account_id: AccountId = AccountId::from(account_id_buf);
+        let account_id = self.read_and_parse_account_id(account_id_ptr)?;
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
 
@@ -415,7 +414,7 @@ impl<'a> Runtime<'a> {
         let val_ptr: u32 = args.nth_checked(0)?;
 
         self.memory
-            .set(val_ptr, self.context.sender_id.as_ref())
+            .set(val_ptr, self.context.originator_id.as_ref())
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
     }
@@ -425,19 +424,6 @@ impl<'a> Runtime<'a> {
 
         self.memory
             .set(val_ptr, self.context.account_id.as_ref())
-            .map_err(|_| Error::MemoryAccessViolation)?;
-        Ok(())
-    }
-
-    fn account_alias_to_id(&self, args: &RuntimeArgs) -> Result<()> {
-        let account_alias_ptr: u32 = args.nth_checked(0)?;
-        let val_ptr: u32 = args.nth_checked(1)?;
-
-        let account_alias = self.read_and_parse_account_alias(account_alias_ptr)?;
-        let account_id = AccountId::from(&account_alias);
-
-        self.memory
-            .set(val_ptr, account_id.as_ref())
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
     }
@@ -490,7 +476,6 @@ mod ext_impl {
                 ABORT_FUNC => void!(self.abort(&args)),
                 SENDER_ID_FUNC => void!(self.sender_id(&args)),
                 ACCOUNT_ID_FUNC => void!(self.account_id(&args)),
-                ACCOUNT_ALIAS_TO_ID_FUNC => void!(self.account_alias_to_id(&args)),
                 LOG_FUNC => void!(self.log(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }

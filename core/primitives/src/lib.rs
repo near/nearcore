@@ -3,6 +3,7 @@ extern crate bs58;
 extern crate byteorder;
 extern crate exonum_sodiumoxide;
 extern crate heapsize;
+extern crate regex;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

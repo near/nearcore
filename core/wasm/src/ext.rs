@@ -33,9 +33,6 @@ pub mod ids {
     pub const PROMISE_THEN_FUNC: usize = 410;
     /// Joins 2 given promises together and returns a new promise.
     pub const PROMISE_AND_FUNC: usize = 420;
-    /// Converts a given account alias to the AccountId.
-    /// AccountID size is exactly 32 bytes.
-    pub const ACCOUNT_ALIAS_TO_ID_FUNC: usize = 430;
 
     /// Returns total byte length of the arguments.
     pub const INPUT_READ_LEN_FUNC: usize = 500;

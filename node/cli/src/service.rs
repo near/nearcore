@@ -26,7 +26,7 @@ use node_runtime::{state_viewer::StateDbViewer, Runtime};
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
 use primitives::types::{
-    AccountAlias, AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
 };
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
@@ -80,7 +80,7 @@ fn spawn_network_tasks(
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::new_with_default_id(account_id);
     let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
-        protocol_config,
+        protocol_config.clone(),
         beacon_chain,
         beacon_block_tx,
         transactions_tx,
@@ -134,7 +134,7 @@ pub const DEFAULT_RPC_PORT: u16 = 3030;
 
 pub struct ServiceConfig {
     pub base_path: PathBuf,
-    pub account_id: AccountAlias,
+    pub account_id: AccountId,
     pub public_key: Option<String>,
     pub chain_spec_path: Option<PathBuf>,
     pub log_level: log::LevelFilter,
@@ -202,17 +202,16 @@ where
     let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
     let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
 
-    let account_id = AccountId::from(&config.account_id);
     let mut key_file_path = config.base_path.to_path_buf();
     key_file_path.push(KEY_STORE_PATH);
     let signer = Arc::new(InMemorySigner::from_key_file(
-        account_id,
+        config.account_id.clone(),
         key_file_path.as_path(),
         config.public_key.clone(),
     ));
     let authority_config = chain_spec::get_authority_config(&chain_spec);
     let authority = Authority::new(authority_config, &beacon_chain);
-    let authority_handler = AuthorityHandler::new(authority, account_id);
+    let authority_handler = AuthorityHandler::new(authority, config.account_id.clone());
 
     configure_logging(config.log_level);
     tokio::run(future::lazy(move || {

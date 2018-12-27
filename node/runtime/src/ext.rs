@@ -22,7 +22,7 @@ pub struct RuntimeExt<'a, 'b: 'a> {
 impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     pub fn new(
         state_db_update: &'a mut StateDbUpdate<'b>,
-        account_id: AccountId,
+        account_id: &AccountId,
         transaction_hash: &'a [u8]
     ) -> Self {
         let mut prefix = account_id_to_bytes(account_id);
@@ -32,7 +32,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
             storage_prefix: prefix,
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
-            account_id,
+            account_id: account_id.clone(),
             nonce: 0,
             transaction_hash,
         }
@@ -78,7 +78,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
     ) -> ExtResult<PromiseId> {
         let nonce = self.create_nonce();
         let receipt = ReceiptTransaction::new(
-            self.account_id,
+            self.account_id.clone(),
             account_id,
             nonce.clone(),
             ReceiptBody::NewCall(AsyncCall::new(
@@ -115,7 +115,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             };
             match receipt.body {
                 ReceiptBody::NewCall(ref mut async_call) => {
-                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id);
+                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id.clone());
                     match async_call.callback {
                         Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
                         None => {

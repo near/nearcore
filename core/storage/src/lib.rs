@@ -6,7 +6,6 @@ extern crate kvdb_rocksdb;
 extern crate primitives;
 extern crate serde;
 extern crate substrate_state_machine;
-extern crate wasm;
 
 #[cfg(test)]
 extern crate hex_literal;

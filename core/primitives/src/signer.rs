@@ -81,7 +81,7 @@ impl InMemorySigner {
 impl Default for InMemorySigner {
     fn default() -> Self {
         let (public_key, secret_key) = signature::get_keypair();
-        InMemorySigner { account_id: hash::CryptoHash::default(), public_key, secret_key }
+        InMemorySigner { account_id: "alice".to_string(), public_key, secret_key }
     }
 }
 
@@ -97,6 +97,6 @@ impl traits::Signer for InMemorySigner {
 
     #[inline]
     fn account_id(&self) -> types::AccountId {
-        self.account_id
+        self.account_id.clone()
     }
 }

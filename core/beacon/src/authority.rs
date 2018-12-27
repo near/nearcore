@@ -147,7 +147,7 @@ impl Authority {
         }
         for authority_proposal in header.body.authority_proposal.iter() {
             self.proposals.insert(
-                authority_proposal.account_id,
+                authority_proposal.account_id.clone(),
                 RecordedProposal {
                     public_key: authority_proposal.public_key,
                     stake: authority_proposal.amount as i64,
@@ -164,7 +164,7 @@ impl Authority {
                     .expect("Missing threshold for current epoch")
                     as i64;
                 let recorded_proposal = self.proposals
-                    .entry(header_authorities[i].account_id)
+                    .entry(header_authorities[i].account_id.clone())
                     .or_insert(RecordedProposal {
                         public_key: header_authorities[i].public_key,
                         stake: 0,
@@ -180,7 +180,7 @@ impl Authority {
                 .filter_map(|(account_id, recorded_proposal)| {
                     if recorded_proposal.stake > 0 {
                         Some(AuthorityProposal {
-                            account_id: *account_id,
+                            account_id: account_id.clone(),
                             public_key: recorded_proposal.public_key,
                             amount: recorded_proposal.stake as u64,
                         })
@@ -233,7 +233,7 @@ impl Authority {
             if item.amount >= threshold {
                 for _ in 0..item.amount / threshold {
                     dup_proposals.push(SelectedAuthority {
-                        account_id: item.account_id,
+                        account_id: item.account_id.clone(),
                         public_key: item.public_key,
                     });
                 }
@@ -287,7 +287,7 @@ mod test {
     use std::sync::Arc;
 
     use chain::{SignedBlock, SignedHeader};
-    use primitives::hash::{hash_struct, CryptoHash};
+    use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use storage::test_utils::MemoryStorage;
 
@@ -299,10 +299,9 @@ mod test {
         num_seats_per_slot: u64,
     ) -> AuthorityConfig {
         let mut initial_authorities = vec![];
-        for _ in 0..num_authorities {
+        for i in 0..num_authorities {
             let (public_key, _) = get_keypair();
-            let account_id = hash_struct(&public_key);
-            initial_authorities.push(AuthorityProposal { account_id, public_key, amount: 100 });
+            initial_authorities.push(AuthorityProposal { account_id: i.to_string(), public_key, amount: 100 });
         }
         AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
     }
@@ -327,7 +326,7 @@ mod test {
         let initial_authorities: Vec<SelectedAuthority> = authority_config
             .initial_authorities
             .iter()
-            .map(|a| SelectedAuthority { account_id: a.account_id, public_key: a.public_key })
+            .map(|a| SelectedAuthority { account_id: a.account_id.clone(), public_key: a.public_key })
             .collect();
         let bc = test_blockchain(0);
         let mut authority = Authority::new(authority_config, &bc);

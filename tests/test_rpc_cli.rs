@@ -216,7 +216,7 @@ test! { fn test_view_state() { test_view_state_inner() } }
 
 fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let output = create_account("eve");
+    let output = create_account("eve.near");
     let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
@@ -224,7 +224,7 @@ fn test_create_account_inner() {
     let output = Command::new("./scripts/rpc.py")
         .arg("view_account")
         .arg("--account")
-        .arg("eve")
+        .arg("eve.near")
         .output()
         .expect("view_account command failed to process");
     let result = check_result(output).unwrap();
