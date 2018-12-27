@@ -18,5 +18,8 @@ shard = { path = "../../core/shard" }
 storage = { path = "../../core/storage" }
 wasm = { path = "../../core/wasm" }
 
+[dev-dependencies]
+serde_json = "1.0"
+
 [features]
 test-utils = []

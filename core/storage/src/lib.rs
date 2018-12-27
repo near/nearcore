@@ -7,6 +7,7 @@ extern crate primitives;
 extern crate serde;
 extern crate substrate_state_machine;
 extern crate wasm;
+extern crate bs58;
 
 #[cfg(test)]
 extern crate hex_literal;
@@ -57,9 +58,11 @@ impl<'a> StateDbUpdate<'a> {
         self.ext.storage(key).map(|v| DBValue::from_slice(&v))
     }
     pub fn set(&mut self, key: &[u8], value: &DBValue) {
+        println!("Set {:?} = {:?}", bs58::encode(key).into_string(), value.len());
         self.ext.place_storage(key.to_vec(), Some(value.to_vec()));
     }
     pub fn delete(&mut self, key: &[u8]) {
+        println!("Delete {:?}", bs58::encode(key).into_string());
         self.ext.clear_storage(key);
     }
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], f: F) {
@@ -101,12 +104,14 @@ impl StateDb {
     pub fn commit(&self, transaction: &mut TrieBackendTransaction) -> std::io::Result<()> {
         let mut db_transaction = self.storage.transaction();
         for (k, (v, rc)) in transaction.drain() {
+            print!("{}: {}, ", k, rc);
             if rc > 0 {
                 db_transaction.put(COL_STATE, k.as_ref(), &v.to_vec());
             } else if rc < 0 {
                 db_transaction.delete(COL_STATE, k.as_ref());
             }
         }
+        println!();
         self.storage.write(db_transaction)
     }
 }
