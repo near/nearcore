@@ -20,7 +20,6 @@
   "scripts": {
     "preintegrationtest": "cargo run --release --package=devnet &",
     "integrationtest": "echo 'waiting for server to start';  ./test/waitonserver.sh; jest test",
-    "postintegrationtest": "kill -9 `pgrep -f devnet`",
     "test": "jest test"
   },
   "author": "Evguenia Degtiareva"
