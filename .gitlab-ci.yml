@@ -17,3 +17,15 @@ test:cargo:
     - rustc --version && cargo --version
     - ./scripts/run_clippy.sh
     - cargo test --all --verbose
+
+test:nearlib:
+    stage: test
+    before_script:
+    - rustup component add clippy-preview
+    # TODO(#289): remove this
+    - pip install bson
+    script:
+    - rustc --version && cargo --version
+    - cargo run --release --package=devnet &
+    - ./scripts/waitonserver.sh
+    - cd nearlib; npm install; npm test; cd ..

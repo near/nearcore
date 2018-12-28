@@ -330,6 +330,19 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                 }
             }))
         }
+        (&Method::GET, "/healthz") => {
+            // Assume that, if we can get a latest block, things are healthy
+            Box::new(future::ok(
+                match http_api.view_latest_beacon_block() {
+                    Ok(_) => {
+                        Response::builder()
+                            .body(Body::from(""))
+                            .unwrap()
+                    }
+                    Err(_) => unreachable!()
+                }
+            ))
+        }
 
         _ => {
             Box::new(future::ok(
