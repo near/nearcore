@@ -18,7 +18,3 @@ test:cargo:
     - ./scripts/run_clippy.sh
     - cargo test --all --verbose
     - cd nearlib; npm install; npm test; cd ..
-
-
-test:nearlib:
-    - cd nearlib; npm test; cd ..
