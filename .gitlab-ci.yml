@@ -26,5 +26,4 @@ test:nearlib:
     - pip install bson
     script:
     - rustc --version && cargo --version
-    - ./scripts/run_clippy.sh
     - cd nearlib; npm install; npm run integrationtest; cd ..

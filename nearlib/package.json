@@ -18,7 +18,7 @@
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "preintegrationtest": "cargo run --release --package=devnet &",
+    "preintegrationtest": "cargo run --package=devnet &",
     "integrationtest": "echo 'waiting for server to start';  ./test/waitonserver.sh; jest test",
     "test": "jest test"
   },
