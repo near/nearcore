@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use rand::{Rng, SeedableRng, StdRng};
+use std::mem;
 
 use chain::{BlockChain, SignedBlock};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
-use primitives::types::{AccountId, BlockId};
+use primitives::types::{AccountId, BlockId, AuthorityMask};
 use types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -20,8 +21,8 @@ pub struct AuthorityProposal {
 
 /// Configure the authority rotation.
 pub struct AuthorityConfig {
-    /// List of initial authorities at genesis block.
-    pub initial_authorities: Vec<AuthorityProposal>,
+    /// List of initial proposals at genesis block.
+    pub initial_proposals: Vec<AuthorityProposal>,
     /// Authority epoch length.
     pub epoch_length: u64,
     /// Number of seats per slot.
@@ -41,19 +42,20 @@ struct RecordedProposal {
     pub stake: i64,
 }
 
+type Epoch = u64;
+type Slot = u64;
+
 pub struct Authority {
     /// Authority configuration.
     authority_config: AuthorityConfig,
-    /// Current epoch that is cached.
-    current_epoch: u64,
-    /// Cache of current authorities for given index.
-    current: HashMap<u64, Vec<SelectedAuthority>>,
-    /// Cache of current threshold.
-    current_threshold: HashMap<u64, u64>,
-    /// Proposals in the given epoch.
-    proposals: HashMap<AccountId, RecordedProposal>,
-    /// Proposals per epoch.
-    accepted_proposals: HashMap<u64, Vec<AuthorityProposal>>,
+    /// Proposals per slot in which they occur.
+    proposals: HashMap<Slot, Vec<AuthorityProposal>>,
+    /// Participation of authorities per slot in which they have happened.
+    participation: HashMap<Slot, AuthorityMask>,
+    /// Computed thresholds for each epoch.
+    thresholds: HashMap<Epoch, u64>,
+    /// Authorities that were accepted for the given slots.
+    accepted_authorities: HashMap<Slot, Vec<AuthorityProposal>>,
 }
 
 fn find_threshold(stakes: &[u64], num_seats: u64) -> Result<u64, String> {
@@ -84,6 +86,13 @@ fn find_threshold(stakes: &[u64], num_seats: u64) -> Result<u64, String> {
 
 /// Keeps track and selects authorities for given blockchain.
 impl Authority {
+    #[inline]
+    fn slot_to_epoch(&self, slot: Slot) -> Epoch {
+        // The genesis block has slot 0 and is not a part of any epoch. So slots are shifted by 1
+        // with respect to epochs.
+        (slot - 1) % self.authority_config.epoch_length
+    }
+
     // TODO: figure out a way to generalize Authority selection process, by providing AuthoritySelector.
 
     /// Builds authority for given valid blockchain.
@@ -95,17 +104,16 @@ impl Authority {
         let mut authority = Authority {
             authority_config,
             current: HashMap::default(),
-            current_threshold: HashMap::default(),
+            thresholds: HashMap::default(),
             proposals: HashMap::default(),
             current_epoch: 0,
             accepted_proposals: HashMap::default(),
         };
 
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
-        let (initial_authority, threshold) = authority.proposals_to_authority(
+        let (initial_authorities, threshold) = authority.get_epoch_authorities(
             &CryptoHash::default(),
-            &authority.authority_config.initial_authorities,
-            0,
+            &authority.authority_config.initial_proposals,
         );
         // Initial authorities operate for first two epochs.
         for (index, value) in initial_authority.iter() {
@@ -114,14 +122,14 @@ impl Authority {
                 .current
                 .insert(*index + authority.authority_config.epoch_length, value.clone());
         }
-        authority.current_threshold.insert(0, threshold);
-        authority.current_threshold.insert(1, threshold);
+        authority.thresholds.insert(0, threshold);
+        authority.thresholds.insert(1, threshold);
         authority
             .accepted_proposals
-            .insert(0, authority.authority_config.initial_authorities.clone());
+            .insert(0, authority.authority_config.initial_proposals.clone());
         authority
             .accepted_proposals
-            .insert(1, authority.authority_config.initial_authorities.clone());
+            .insert(1, authority.authority_config.initial_proposals.clone());
 
         let last_index = blockchain.best_block().header().body.index;
         for index in 1..last_index {
@@ -153,7 +161,7 @@ impl Authority {
         for (i, participated) in header.authority_mask.iter().enumerate() {
             if !participated {
                 let threshold = *self
-                    .current_threshold
+                    .thresholds
                     .get(&self.current_epoch)
                     .expect("Missing threshold for current epoch")
                     as i64;
@@ -202,7 +210,7 @@ impl Authority {
             let (authorities, threshold) =
                 self.proposals_to_authority(&CryptoHash::default(), &new_proposals, 2);
             self.current.extend(authorities);
-            self.current_threshold.insert(next_epoch, threshold);
+            self.thresholds.insert(next_epoch, threshold);
             self.current_epoch = next_epoch;
             self.proposals = HashMap::default();
             self.accepted_proposals.insert(next_epoch, new_proposals);
@@ -210,16 +218,15 @@ impl Authority {
         }
     }
 
-    fn proposals_to_authority(
+    /// Computes vector of authorities for each slot in an epoch.
+    fn get_epoch_authorities(
         &self,
         seed: &CryptoHash,
         proposals: &[AuthorityProposal],
-        epoch_offset: u64,
-    ) -> (HashMap<u64, Vec<SelectedAuthority>>, u64) {
+    ) -> (Vec<Vec<SelectedAuthority>>, u64) {
         let num_seats =
             self.authority_config.num_seats_per_slot * self.authority_config.epoch_length;
-        let mut result = HashMap::default();
-        let proposal_amounts: Vec<u64> = proposals.iter().map(|p| p.amount).collect();
+        let proposal_amounts: Vec<_> = proposals.iter().map(|p| p.amount).collect();
         let threshold = find_threshold(proposal_amounts.as_slice(), num_seats)
             .expect("Threshold is not found for given proposals.");
 
@@ -246,14 +253,15 @@ impl Authority {
         let mut rng: StdRng = SeedableRng::from_seed(seed.as_ref());
         rng.shuffle(&mut dup_proposals);
 
-        // Distribute proposals into slots.
-        for i in 0..self.authority_config.epoch_length {
-            let start = (i * self.authority_config.num_seats_per_slot) as usize;
-            let end = ((i + 1) * self.authority_config.num_seats_per_slot) as usize;
-            result.insert(
-                (self.current_epoch + epoch_offset) * self.authority_config.epoch_length + i + 1,
-                dup_proposals[start..end].to_vec(),
-            );
+        // Truncate excessive seats.
+        dup_proposals.truncate(num_seats as usize);
+        let mut result = vec![];
+        let mut curr = vec![];
+        for proposal in dup_proposals {
+            curr.push(proposal);
+            if curr.len() == self.authority_config.num_seats_per_slot {
+                result.push(mem::replace(&mut curr, vec![]));
+            }
         }
         (result, threshold)
     }
@@ -299,7 +307,7 @@ mod test {
             let account_id = hash_struct(&public_key);
             initial_authorities.push(AuthorityProposal { account_id, public_key, amount: 100 });
         }
-        AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
+        AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }
 
     fn test_blockchain(num_blocks: u64) -> BlockChain<SignedBeaconBlock> {
@@ -320,7 +328,7 @@ mod test {
     fn test_authority_genesis() {
         let authority_config = get_test_config(4, 2, 2);
         let initial_authorities: Vec<SelectedAuthority> = authority_config
-            .initial_authorities
+            .initial_proposals
             .iter()
             .map(|a| SelectedAuthority { account_id: a.account_id, public_key: a.public_key })
             .collect();

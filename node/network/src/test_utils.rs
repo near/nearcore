@@ -135,5 +135,5 @@ pub fn get_test_authority_config(
         let account_id = hash_struct(&public_key);
         initial_authorities.push(AuthorityProposal { account_id, public_key, amount: 100 });
     }
-    AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
+    AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
 }

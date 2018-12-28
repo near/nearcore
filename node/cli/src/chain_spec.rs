@@ -64,7 +64,7 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
         })
         .collect();
     AuthorityConfig {
-        initial_authorities,
+        initial_proposals: initial_authorities,
         epoch_length: chain_spec.beacon_chain_epoch_length,
         num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
     }
