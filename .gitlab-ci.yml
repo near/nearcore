@@ -17,3 +17,4 @@ test:cargo:
     - rustc --version && cargo --version
     - ./scripts/run_clippy.sh
     - cargo test --all --verbose
+    - cd nearlib; npm run integrationtest; cd ..

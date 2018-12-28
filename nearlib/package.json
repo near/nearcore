@@ -13,17 +13,15 @@
     "superagent-logger": "^1.1.0"
   },
   "devDependencies": {
-    "jest": "^23.6.0",
-    "start-server-and-test": "^1.7.11"
+    "jest": "^23.6.0"
   },
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "//": "Once we imeplement a real healthcheck, we can stop using a local near-contract-helper to check server-aliveness",
-    "start": "cargo run --release --package=devnet",
-    "start-server": "npm start",
-    "test": "jest test",
-    "ci": "start-server-and-test start-server http://localhost:3000/account/alice.near test"
+    "preintegrationtest": "cargo run --release --package=devnet &",
+    "integrationtest": "echo 'waiting for server to start';  ./test/waitonserver.sh; jest test",
+    "postintegrationtest": "kill -9 `pgrep -f devnet`",
+    "test": "jest test"
   },
   "author": "Evguenia Degtiareva"
 }
