@@ -150,5 +150,14 @@ To spin multiple nodes, you must first spin up one node and then use it as boot 
 
     cargo run -- --p2p_port 30333 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1
 
-    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK 
+Observe the printed local node address, e.g.:
+
+    Local node address is: /ip4/0.0.0.0/tcp/30333/p2p/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK
+
+ Start the second node using the observed key. Note that we are using `127.0.0.1` instead of `0.0.0.0`.
+
+    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/p2p/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK 
  
+If everything works correctly, both nodes will print:
+    
+    New external node address ...
