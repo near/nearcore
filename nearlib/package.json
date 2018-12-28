@@ -18,8 +18,9 @@
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "preintegrationtest": "cargo run --package=devnet &",
+    "preintegrationtest": "cargo run --release --package=devnet &",
     "integrationtest": "echo 'waiting for server to start';  ./test/waitonserver.sh; jest test",
+    "postintegrationtest": "./test/cleanupdevnet.sh",
     "test": "jest test"
   },
   "author": "Evguenia Degtiareva"
