@@ -58,6 +58,8 @@ pub struct RuntimeData {
     pub stake: HashMap<AccountId, u64>,
     /// scheduled callbacks
     pub callbacks: HashMap<CallbackId, Callback>,
+    /// contract code for accounts
+    pub code: HashMap<AccountId, Vec<u8>>,
 }
 
 impl RuntimeData {
@@ -76,12 +78,11 @@ pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: u64,
     pub amount: u64,
-    pub code: Vec<u8>,
 }
 
 impl Account {
-    pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code: Vec<u8>) -> Self {
-        Account { public_keys, nonce: 0, amount, code }
+    pub fn new(public_keys: Vec<PublicKey>, amount: Balance) -> Self {
+        Account { public_keys, nonce: 0, amount }
     }
 }
 
@@ -444,13 +445,8 @@ impl Runtime {
             return Err(format!("Account {} does not match requirements", account_id));
         }
         let account_id_bytes = account_id_to_bytes(&account_id);
-       
         let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
-        let new_account = Account::new(
-            vec![public_key],
-            call.amount,
-            vec![]
-        );
+        let new_account = Account::new(vec![public_key], call.amount);
         set(
             state_update,
             &account_id_bytes,
@@ -462,21 +458,24 @@ impl Runtime {
     fn system_deploy(
         &self,
         state_update: &mut StateDbUpdate,
+        runtime_data: &mut RuntimeData,
         call: &AsyncCall,
         account_id: &AccountId,
     ) -> Result<Vec<Transaction>, String> {
         let account_id_bytes = account_id_to_bytes(&account_id);
         let (public_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&call.args).ok_or("cannot decode public key")?;
         let public_key = Decode::decode(&public_key).ok_or("cannot decode public key")?;
-        let new_account = Account::new(
-            vec![public_key],
-            call.amount,
-            code,
-        );
+        let new_account = Account::new(vec![public_key], call.amount);
         set(
             state_update,
             &account_id_bytes,
             &new_account
+        );
+        runtime_data.code.insert(account_id.to_string(), code);
+        set(
+            state_update,
+            RUNTIME_DATA,
+            runtime_data
         );
         Ok(vec![])
     }
@@ -560,6 +559,7 @@ impl Runtime {
     ) -> Result<Vec<Transaction>, String> {
         let staked = runtime_data.get_stake_for_account(receiver_id);
         assert!(receiver.amount >= staked);
+        let code = runtime_data.code.get(receiver_id).ok_or("account does not have code")?;
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -567,7 +567,7 @@ impl Runtime {
                 nonce,
             );
             let wasm_res = executor::execute(
-                &receiver.code,
+                code,
                 &async_call.method_name,
                 &async_call.args,
                 &[],
@@ -620,6 +620,7 @@ impl Runtime {
                 receiver_id,
                 nonce,
             );
+            let code = runtime_data.code.get(receiver_id).ok_or("account does not have code")?;
         
             match runtime_data.callbacks.get_mut(&callback_res.info.id) {
                 Some(callback) => {
@@ -628,7 +629,7 @@ impl Runtime {
                     // if we have gathered all results, execute the callback
                     if callback.result_counter == callback.results.len() {
                         let wasm_res = executor::execute(
-                            &receiver.code,
+                            &code,
                             &callback.method_name,
                             &callback.args,
                             &callback.results,
@@ -723,11 +724,11 @@ impl Runtime {
                             let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).ok_or("cannot decode args")?;
                             let pub_key = Decode::decode(&pub_key).ok_or("cannot decode public key")?;
                             if receiver.public_keys.contains(&pub_key) {
-                                receiver.code = code;
+                                runtime_data.code.insert(receipt.receiver.clone(), code);
                                 set(
                                     state_update,
-                                    &receiver_id,
-                                    &receiver,
+                                    RUNTIME_DATA,
+                                    &runtime_data,
                                 );
                                 Ok(vec![])
                             } else {
@@ -783,6 +784,7 @@ impl Runtime {
                     } else if call.method_name == b"deploy".to_vec() {
                         self.system_deploy(
                             state_update,
+                            &mut runtime_data,
                             &call,
                             &receipt.receiver,
                         )
@@ -970,7 +972,6 @@ impl Runtime {
                     public_keys: vec![PublicKey::from(public_key)],
                     amount: *balance,
                     nonce: 0,
-                    code: wasm_binary.to_vec(),
                 },
             );
         });
@@ -983,10 +984,14 @@ impl Runtime {
             .iter()
             .map(|(_, pk, amount)| (pk_to_acc_id.get(pk).expect("Missing account for public key").clone(), *amount))
             .collect();
-        let runtime_data = RuntimeData {
+        let mut runtime_data = RuntimeData {
             stake,
             callbacks: HashMap::new(),
+            code: HashMap::new(),
         };
+        for (account_id, _, _) in balances {
+            runtime_data.code.insert(account_id.to_string(), wasm_binary.to_vec());
+        }
         set(&mut state_db_update, RUNTIME_DATA, &runtime_data);
         let (mut transaction, genesis_root) = state_db_update.finalize();
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
@@ -1063,7 +1068,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let state_db = Arc::new(create_state_db());
         let mut state_update = StateDbUpdate::new(state_db, MerkleHash::default());
-        let test_account = Account { public_keys: vec![], nonce: 0, amount: 10, code: vec![] };
+        let test_account = Account { public_keys: vec![], nonce: 0, amount: 10 };
         let account_id = bob_account();
         set(&mut state_update, &account_id_to_bytes(&account_id), &test_account);
         let get_res = get(&mut state_update, &account_id_to_bytes(&account_id)).unwrap();
@@ -1075,7 +1080,7 @@ mod tests {
         let state_db = Arc::new(create_state_db());
         let root = MerkleHash::default();
         let mut state_update = StateDbUpdate::new(state_db.clone(), root);
-        let test_account = Account::new(vec![], 10, vec![]);
+        let test_account = Account::new(vec![], 10);
         let account_id = bob_account();
         set(&mut state_update, &account_id_to_bytes(&account_id), &test_account);
         let (mut transaction, new_root) = state_update.finalize();
@@ -1167,11 +1172,9 @@ mod tests {
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
-        let new_account: Account = get(
-            &mut new_state_update,
-            &account_id_to_bytes(&eve_account())
-        ).unwrap();
-        assert_eq!(new_account.code, wasm_binary.to_vec());
+        let runtime_data: RuntimeData = get(&mut new_state_update, RUNTIME_DATA).unwrap();
+        let code = runtime_data.code.get(&eve_account()).unwrap().clone();
+        assert_eq!(code, wasm_binary.to_vec());
     }
 
     #[test]
@@ -1206,11 +1209,9 @@ mod tests {
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
-        let new_account: Account = get(
-            &mut new_state_update,
-            &account_id_to_bytes(&bob_account())
-        ).unwrap();
-        assert_eq!(new_account.code, test_binary.to_vec())
+        let runtime_data: RuntimeData = get(&mut new_state_update, RUNTIME_DATA).unwrap();
+        let code = runtime_data.code.get(&bob_account()).unwrap().clone();
+        assert_eq!(code, test_binary.to_vec())
     }
 
     #[test]
@@ -1641,11 +1642,11 @@ mod tests {
         let mut apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::Receipt(receipt)]
         );
+        assert_ne!(root, apply_result.root);
         runtime.state_db.commit(&mut apply_result.transaction).unwrap();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).unwrap();
         assert_eq!(runtime_data.callbacks.len(), 0);
-        assert_eq!(root, apply_result.root);
     }
 
     #[test]

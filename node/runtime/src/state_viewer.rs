@@ -51,15 +51,23 @@ impl StateDbViewer {
     ) -> Result<AccountViewCallResult, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA)
-            .expect("Runtime data is missing");
+            .ok_or("Runtime data is missing")?;
+        let code = runtime_data.code.get(account_id);
         match get::<Account>(&mut state_update, &account_id_to_bytes(account_id)) {
             Some(account) => {
+                let code_hash = {
+                    if let Some(code) = code {
+                        hash(code)
+                    } else {
+                        hash(&[])
+                    }
+                };
                 Ok(AccountViewCallResult {
                     account: account_id.clone(),
                     nonce: account.nonce,
                     amount: account.amount,
                     stake: runtime_data.get_stake_for_account(account_id),
-                    code_hash: hash(&account.code),
+                    code_hash,
                 })
             },
             _ => Err(format!("account {} does not exist while viewing", account_id)),
@@ -99,6 +107,7 @@ impl StateDbViewer {
         root: MerkleHash,
     ) -> Result<Vec<u8>, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA).ok_or("runtime data does not exist")?;
         match get::<Account>(&mut state_update, &account_id_to_bytes(contract_id)) {
             Some(account) => {
                 let mut result = vec![];
@@ -107,8 +116,9 @@ impl StateDbViewer {
                     contract_id,
                     &[],
                 );
+                let code = runtime_data.code.get(contract_id).ok_or("account does not have code")?;
                 let wasm_res = executor::execute(
-                    &account.code,
+                    &code,
                     method_name.as_bytes(),
                     &args.to_owned(),
                     &[],
