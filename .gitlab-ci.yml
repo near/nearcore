@@ -29,3 +29,4 @@ test:nearlib:
     - cargo run --release --package=devnet &
     - ./scripts/waitonserver.sh
     - cd nearlib; npm install; npm test; cd ..
+    - ./scripts/kill_devnet.sh
