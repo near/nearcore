@@ -1,8 +1,7 @@
 const account = require('../account');
-const uuidV4 = require('uuid/v4');
 
 const aliceAccountName = 'alice.near';
-const MAX_RETRIES = 3;
+const TEST_MAX_RETRIES = 3;
 
 test('view pre-defined account works and returns correct name', async () => {
     // We do not want to check the other properties of this account since we create other accounts
@@ -17,7 +16,7 @@ test('create account and then view account returns the created account', async (
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
 
     // try to read the account a few times to wait for the transaction to go through
-    for (var viewAttempt = 0; viewAttempt < 1; viewAttempt++) {
+    for (var viewAttempt = 0; viewAttempt < TEST_MAX_RETRIES; viewAttempt++) {
         try {
             const viewAccountResponse = await account.viewAccount(newAccountName);
             const expctedAccount = {
