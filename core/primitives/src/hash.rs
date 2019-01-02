@@ -14,6 +14,14 @@ impl CryptoHash {
         d.copy_from_slice(data);
         CryptoHash(Digest(d))
     }
+
+    pub fn from_bs58(s: &str) -> Result<Self, String> {
+        let mut array = [0; 32];
+        match bs58::decode(s.as_bytes()).into(&mut array) {
+            Ok(_) => Ok(CryptoHash::new(&array)),
+            Err(e) => Err(e.to_string())
+        }
+    }
 }
 
 impl<'a> From<&'a CryptoHash> for String {

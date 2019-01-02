@@ -36,6 +36,7 @@ use primitives::utils::{
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
+use std::fmt;
 
 pub mod chain_spec;
 pub mod test_utils;
@@ -52,7 +53,7 @@ fn system_account() -> AccountId {
 
 /// Runtime data that is stored in the state.
 /// TODO: Look into how to store this not in a single element of the StateDb.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 pub struct RuntimeData {
     /// Currently staked money.
     pub stake: HashMap<AccountId, u64>,
@@ -115,7 +116,8 @@ fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Opt
     state_update.get(key).and_then(|data| Decode::decode(&data))
 }
 
-fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
+fn set<T: Serialize + fmt::Debug>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
+    // println!("{:?}", value);
     value
         .encode()
         .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
@@ -587,6 +589,7 @@ impl Runtime {
             }
             result
         };
+        println!("Account code size = {}", receiver.code.len());
         set(
             state_update,
             &account_id_to_bytes(receiver_id),
@@ -1659,6 +1662,10 @@ mod tests {
         root = apply_transaction(&mut runtime, root, tx_body);
         println!("Init state {}", root);
         for nonce in 2..30 {
+            let mut state_db_update = StateDbUpdate::new(runtime.state_db.clone(), root);
+            let another_key = [131, 129, 26, 91, 252, 192, 78, 246, 253, 210, 17, 154, 124, 82, 20, 63, 176, 26, 163, 159, 165, 166, 38, 119, 130, 34, 2, 176, 185, 188, 1, 249, 44, 115, 116, 97, 116, 101, 58, 58, 51, 48, 58, 58, 115, 116, 97, 116, 101, 49, 50];
+            println!("{:?}", state_db_update.get(&another_key));
+
             let tx_body: TransactionBody = serde_json::from_str(
                 &format!("{{\"FunctionCall\":{{\"nonce\":{},\"originator\":[129,182,55,216,252,210,198,218,99,89,230,150,49,19,161,23,13,231,149,228,183,37,184,77,30,11,76,253,158,197,140,233],\"contract_id\":[131,129,26,91,252,192,78,246,253,210,17,154,124,82,20,63,176,26,163,159,165,166,38,119,130,34,2,176,185,188,1,249],\"method_name\":[110,101,97,114,95,102,117,110,99,95,97,100,118,97,110,99,101,83,116,97,116,101],\"args\":[27,0,0,0,2,115,116,97,116,101,95,105,100,0,8,0,0,0,115,116,97,116,101,49,50,0,0],\"amount\":0}}}}", nonce)).unwrap();
                root = apply_transaction(&mut runtime, root, tx_body);
