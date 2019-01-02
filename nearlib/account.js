@@ -3,6 +3,17 @@ const ed25519 = require('ed25519');
 const bs58 = require('bs58');
 
 const MAX_RETRIES = 3;
+var keyStore;
+
+
+/**
+ * Builder method to specify a keystore.
+ */
+exports.withKeystore = keyStore => {
+    this.keyStore = keyStore;
+    return this;
+}
+
 
 /**
  * Creates a new account with a given name and key,
@@ -26,6 +37,7 @@ exports.viewAccount = async account_id => {
     return await viewAccount(account_id);
 };
 
+
 const submitTransaction = async (method, args) => {
     // TODO: Make sender param names consistent
     // TODO: https://github.com/nearprotocol/nearcore/issues/287
@@ -35,7 +47,7 @@ const submitTransaction = async (method, args) => {
     for (let i = 0; i < MAX_RETRIES; i++) {
         const response = await request(method, Object.assign({}, args, { nonce }));
         const transaction = response.body;
-        const signedTransaction = await signTransaction(transaction);
+        const signedTransaction = await signTransaction(transaction, sender);
         const submitResponse = await request('submit_transaction', signedTransaction);
     }
     return { nonce: nonce };
@@ -52,11 +64,11 @@ const viewAccount = async account_id => {
     return viewAccountResponse;
 }
 
-const signTransaction = async (transaction) => {
+const signTransaction = async (transaction, sender) => {
     const stringifiedTxn = JSON.stringify(transaction);
-    // How do we want to pass in real signatures?
-    const hardcodedKey = bs58.decode("2hoLMP9X2Vsvib2t4F1fkZHpFd6fHLr5q7eqGroRoNqdBKcPja2jCrmxW9uGBLXdTnbtZYibWe4NoFtB4Bk7LWg6");
-    const signature = [...ed25519.Sign(new Buffer(stringifiedTxn, 'utf8'), hardcodedKey)];
+    const encodedKey = this.keyStore.getKey(sender).secret_key;
+    const key = bs58.decode(encodedKey);
+    const signature = [...ed25519.Sign(new Buffer(stringifiedTxn, 'utf8'), key)];
     const response = { 
         body: transaction,
         signature: signature

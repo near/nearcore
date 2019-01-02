@@ -1,7 +1,16 @@
-const account = require('../account');
+const test_key_store = require('../test-tools/in_memory_key_store.js');
+const account = require('../account').withKeystore(test_key_store);
 
 const aliceAccountName = 'alice.near';
+const aliceKey = {
+    public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE",
+    secret_key: "2hoLMP9X2Vsvib2t4F1fkZHpFd6fHLr5q7eqGroRoNqdBKcPja2jCrmxW9uGBLXdTnbtZYibWe4NoFtB4Bk7LWg6"
+};
 const TEST_MAX_RETRIES = 3;
+
+beforeEach(() => {
+    test_key_store.setKey(aliceAccountName, aliceKey);
+});
 
 test('view pre-defined account works and returns correct name', async () => {
     // We do not want to check the other properties of this account since we create other accounts
