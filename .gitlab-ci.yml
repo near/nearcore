@@ -1,4 +1,8 @@
-image: "parity/rust:nightly"
+image: registry.gitlab.com/nearprotocol/nearcore/builder:0.1
+
+cache:
+  paths:
+    - target
 
 variables:
     CI_SERVER_NAME:  "GitLab CI"
