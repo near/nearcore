@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use beacon::authority::AuthorityProposal;
+use beacon::authority::AuthorityStake;
 use ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
@@ -106,7 +106,7 @@ pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
     pub transaction: storage::TrieBackendTransaction,
-    pub authority_proposals: Vec<AuthorityProposal>,
+    pub authority_proposals: Vec<AuthorityStake>,
     pub filtered_transactions: Vec<Transaction>,
     pub new_receipts: Vec<Transaction>,
 }
@@ -175,11 +175,11 @@ impl Runtime {
         sender_account_id: &AccountId,
         sender: &mut Account,
         runtime_data: &mut RuntimeData,
-        authority_proposals: &mut Vec<AuthorityProposal>,
+        authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<Transaction>, String>{
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
             runtime_data.put_stake_for_account(body.staker, body.amount);
-            authority_proposals.push(AuthorityProposal {
+            authority_proposals.push(AuthorityStake {
                 account_id: *sender_account_id,
                 public_key: sender.public_keys[0],
                 amount: body.amount,
@@ -335,7 +335,7 @@ impl Runtime {
         &mut self,
         state_update: &mut StateDbUpdate,
         transaction: &SignedTransaction,
-        authority_proposals: &mut Vec<AuthorityProposal>,
+        authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<Transaction>, String> {
         let runtime_data: Option<RuntimeData> = get(state_update, RUNTIME_DATA);
         let sender_account_id = transaction.body.get_sender();
@@ -831,7 +831,7 @@ impl Runtime {
         shard_id: ShardId,
         transaction: &Transaction,
         new_receipts: &mut Vec<Transaction>,
-        authority_proposals: &mut Vec<AuthorityProposal>,
+        authority_proposals: &mut Vec<AuthorityStake>,
     ) -> bool {
         match transaction {
             Transaction::SignedTransaction(ref tx) => {

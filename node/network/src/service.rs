@@ -5,7 +5,7 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use beacon::authority::SelectedAuthority;
+use beacon::authority::AuthorityStake;
 use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
 use parking_lot::Mutex;
@@ -37,7 +37,7 @@ pub fn spawn_network_tasks<B, Header>(
     protocol_: Protocol<B, Header>,
     message_receiver: Receiver<(NodeIndex, Message<B, Header, ChainPayload>)>,
     block_receiver: Receiver<B>,
-    authority_receiver: Receiver<HashMap<UID, SelectedAuthority>>,
+    authority_receiver: Receiver<HashMap<UID, AuthorityStake>>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
 ) where
     B: SignedBlock,

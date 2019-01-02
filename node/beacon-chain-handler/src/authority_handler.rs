@@ -1,4 +1,4 @@
-use beacon::authority::{Authority, SelectedAuthority};
+use beacon::authority::{Authority, AuthorityStake};
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use futures::sync::mpsc::{Receiver, Sender};
@@ -11,7 +11,7 @@ use txflow::txflow_task::{Control, State};
 pub fn spawn_authority_task(
     mut authority_handler: AuthorityHandler,
     new_block_rx: Receiver<SignedBeaconBlock>,
-    authority_tx: Sender<HashMap<UID, SelectedAuthority>>,
+    authority_tx: Sender<HashMap<UID, AuthorityStake>>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
     let task = new_block_rx

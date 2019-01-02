@@ -7,7 +7,7 @@ use futures::{stream, Future, Sink};
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use beacon::authority::SelectedAuthority;
+use beacon::authority::AuthorityStake;
 use chain::{BlockChain, SignedBlock, SignedHeader as BlockHeader};
 use message::{self, Message};
 use primitives::hash::CryptoHash;
@@ -90,7 +90,7 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
     gossip_sender: Sender<Gossip<ChainPayload>>,
     /// map between authority uid and account id + public key.
-    authority_map: RwLock<HashMap<UID, SelectedAuthority>>,
+    authority_map: RwLock<HashMap<UID, AuthorityStake>>,
 }
 
 impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
@@ -372,7 +372,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         aborting
     }
 
-    pub fn set_authority_map(&self, authority_map: HashMap<UID, SelectedAuthority>) {
+    pub fn set_authority_map(&self, authority_map: HashMap<UID, AuthorityStake>) {
         *self.authority_map.write() = authority_map;
     }
 
@@ -431,7 +431,7 @@ mod tests {
 
         // get authorities for block 1
         let authorities = authority.get_authorities(1).unwrap();
-        let authority_map: HashMap<UID, SelectedAuthority> =
+        let authority_map: HashMap<UID, AuthorityStake> =
             authorities.into_iter().enumerate().map(|(k, v)| (k as UID, v)).collect();
         let authority_map1 = authority_map.clone();
         let protocol1 = protocol.clone();
