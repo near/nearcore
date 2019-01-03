@@ -9,6 +9,8 @@
   "homepage": "https://github.com/nearprotocol/nearcore",
   "main": "near.js",
   "dependencies": {
+    "bs58": "^4.0.1",
+    "ed25519": "0.0.4",
     "superagent": "^4.1.0",
     "superagent-logger": "^1.1.0"
   },
