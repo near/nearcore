@@ -26,9 +26,7 @@ test:nearlib:
     - pip install bson
     script:
     - rustc --version && cargo --version
-    - cargo run -p keystore -- keygen -p keystore/
     - cargo run --release --package=devnet &
     - ./scripts/waitonserver.sh
-    - ./scripts/rpc.py deploy test_contract tests/hello.wasm 
     - cd nearlib; npm install; npm test; cd ..
     - ./scripts/kill_devnet.sh

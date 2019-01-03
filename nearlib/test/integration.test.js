@@ -2,6 +2,9 @@ const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
 const LocalNodeConnection = require('../local_node_connection')
 const Account = require('../account');
 const Near = require('../near');
+const fs = require('fs');
+
+
 const aliceAccountName = 'alice.near';
 const aliceKey = {
     public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE",
@@ -12,7 +15,7 @@ test_key_store.setKey(aliceAccountName, aliceKey);
 const localNodeConnection = new LocalNodeConnection();
 const account = new Account(test_key_store, localNodeConnection);
 const nearjs = new Near(test_key_store, localNodeConnection);
-const TEST_MAX_RETRIES = parseInt(process.env.TEST_MAX_RETRIES || "5");
+const TEST_MAX_RETRIES = 10;
 
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -46,14 +49,36 @@ test('create account and then view account returns the created account', async (
     fail('exceeded number of retries for viewing account');
 });
 
-test('call view function on an existing contract', async () => {
-    // Right now, the test setup deploys the contract
+test('deploy contract and make function calls', async () => {
+    var data = [...fs.readFileSync('../tests/hello.wasm')];  
+    const initialAccount = await account.viewAccount(aliceAccountName);
+    var deployResult = await nearjs.deployContract(
+        aliceAccountName,
+        "test_contract",
+        data,
+        "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
+    waitForNonceToIncrease(initialAccount);
     const args = {
         "name": "trex"
     };
-    var viewFunctionResult = await nearjs.callViewFunction(aliceAccountName, "test_contract", "near_func_hello", args);
+    var viewFunctionResult = await nearjs.callViewFunction(
+        aliceAccountName,
+        "test_contract",
+        "near_func_hello", // this is the function defined in hello.wasm file that we are calling
+        args);
     expect(viewFunctionResult).toEqual("hello trex");
 });
+
+const waitForNonceToIncrease = async (initialAccount) => {
+    for (i = 0; i < TEST_MAX_RETRIES; i++) {
+        try {
+            const viewAccountResponse = await account.viewAccount(initialAccount['account_id']);
+            //console.log(viewAccountResponse);
+            if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return; }
+        } catch (_) {}
+    }
+    fail('exceeded number of retries for viewing account ' + i);
+}
 
 const generateUniqueAccountId = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);

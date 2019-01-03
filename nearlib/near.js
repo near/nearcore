@@ -1,12 +1,13 @@
 const BSON = require('bsonfy').BSON;
+const NearBase = require('./nearbase');
 
 /*
  * This is javascript library for interacting with blockchain.
  */
-class Near {
+class Near extends NearBase {
     constructor(keyStore, nearConnection) {
+        super(keyStore, nearConnection);
         this.nearConnection = nearConnection;
-        this.keyStore = keyStore;
     }
 
     /**
@@ -27,6 +28,18 @@ class Near {
         const bson = BSON.deserialize(array);
         return bson.result;
     };
+
+    /**
+     * Deploys a contract.
+     */
+    async deployContract(senderAccountId, contractAccountId, wasmArray, publicKey) {
+        await this.submitTransaction('deploy_contract', {
+            originator: senderAccountId,
+            contract_account_id: contractAccountId,
+            wasm_byte_array: wasmArray,
+            public_key: publicKey
+        });
+    }
 };
 
 module.exports = Near; 
