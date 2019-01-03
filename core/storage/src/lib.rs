@@ -6,6 +6,8 @@ extern crate kvdb_rocksdb;
 extern crate primitives;
 extern crate serde;
 extern crate substrate_state_machine;
+#[macro_use]
+extern crate serde_derive;
 
 #[cfg(test)]
 extern crate hex_literal;
@@ -21,6 +23,7 @@ use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt,
 pub use substrate_storage::TrieBackendTransaction;
 
 mod substrate_storage;
+mod trie;
 pub mod test_utils;
 
 pub const COL_STATE: Option<u32> = Some(0);
