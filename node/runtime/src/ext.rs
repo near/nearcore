@@ -7,7 +7,7 @@ use primitives::types::{
 };
 use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
-use super::{account_id_to_bytes, create_nonce_with_nonce};
+use super::{account_id_to_bytes, create_nonce_with_nonce, COL_ACCOUNT};
 
 pub struct RuntimeExt<'a, 'b: 'a> {
     state_db_update: &'a mut StateDbUpdate<'b>,
@@ -25,7 +25,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
         account_id: &AccountId,
         transaction_hash: &'a [u8]
     ) -> Self {
-        let mut prefix = account_id_to_bytes(account_id);
+        let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
         RuntimeExt { 
             state_db_update,
