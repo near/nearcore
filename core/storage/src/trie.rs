@@ -67,7 +67,8 @@ pub struct Trie {
     null_node: CryptoHash,
 }
 
-pub type TrieChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
+// pub type TrieChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
+pub type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 pub type DBChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
 
 /// Converts array of bytes to array of half-bytes (e.g. values 0-15).
@@ -119,7 +120,7 @@ impl Trie {
             TrieNode::Empty => Ok(None),
             TrieNode::Branch(branch) => {
                 // If the key ends at the given branch, return it's value.
-                if nibbles.len() == position + 1 {
+                if nibbles.len() == position {
                     Ok(branch.value.clone())
                 } else {
                     let key = branch.children[nibbles[position] as usize];
@@ -202,14 +203,24 @@ impl Trie {
                 }
                 // Check if given key has common prefix with this leaf.
                 let mut prefix = 0;
-                while leaf.key[prefix] == nibbles[position + prefix] && prefix + 1 < leaf.key.len() && prefix + position + 1 < nibbles.len() {
+                while prefix < leaf.key.len() && prefix + position < nibbles.len() && leaf.key[prefix] == nibbles[position + prefix] {
                     prefix += 1;
                 }
-                let mut branch_node = TrieBranch { children: [None; 16], value: None };
-                let prev_leaf = TrieNode::Leaf(TrieLeaf { key: leaf.key[prefix + 1..].to_vec(), value: leaf.value.clone() });
-                let new_leaf = TrieNode::Leaf(TrieLeaf { key: nibbles[position + prefix + 1..].to_vec(), value: value.to_vec()});
-                branch_node.children[leaf.key[prefix] as usize] = Some(node_storage.add(prev_leaf));
-                branch_node.children[nibbles[position + prefix] as usize] = Some(node_storage.add(new_leaf));
+                let mut branch_value = None;
+                if prefix + position == nibbles.len() {
+                    branch_value = Some(value.to_vec());
+                } else if prefix == leaf.key.len() {
+                    branch_value = Some(leaf.value.clone());
+                }
+                let mut branch_node = TrieBranch { children: [None; 16], value: branch_value };
+                if prefix < leaf.key.len() {
+                    let prev_leaf = TrieNode::Leaf(TrieLeaf { key: leaf.key[prefix + 1..].to_vec(), value: leaf.value.clone() });
+                    branch_node.children[leaf.key[prefix] as usize] = Some(node_storage.add(prev_leaf));
+                }
+                if prefix + position < nibbles.len() {
+                    let new_leaf = TrieNode::Leaf(TrieLeaf { key: nibbles[position + prefix + 1..].to_vec(), value: value.to_vec()});
+                    branch_node.children[nibbles[position + prefix] as usize] = Some(node_storage.add(new_leaf));
+                }
                 node_storage.delete(node);
                 let branch_hash = node_storage.add(TrieNode::Branch(branch_node));
                 if prefix > 0 {
@@ -221,18 +232,30 @@ impl Trie {
             },
             TrieNode::Extension(ext) => {
                 let mut prefix = 0;
-                while ext.key[prefix] == nibbles[position + prefix] && prefix + 1 < ext.key.len() && prefix + position + 1 < nibbles.len() {
+                while prefix < ext.key.len() && prefix + position < nibbles.len() && ext.key[prefix] == nibbles[position + prefix] {
                     prefix += 1;
                 }
                 if prefix == ext.key.len() {
                     let child_node = self.node_by_hash(&node_storage, &ext.child)?;
-                    self.insert(node_storage, &child_node, nibbles, position + ext.key.len(), value)
+                    let new_hash = self.insert(node_storage, &child_node, nibbles, position + ext.key.len(), value)?;
+                    node_storage.delete(node);
+                    Ok(node_storage.add(TrieNode::Extension(TrieExtension { key: ext.key.clone(), child: new_hash })))
                 } else {
-                    let mut branch_node = TrieBranch { children: [None; 16], value: None };
-                    let prev_ext = TrieNode::Extension(TrieExtension { key: ext.key[prefix + 1..].to_vec(), child: ext.child });
-                    let new_leaf = TrieNode::Leaf(TrieLeaf { key: nibbles[position + prefix + 1..].to_vec(), value: value.to_vec()});
-                    branch_node.children[ext.key[prefix] as usize] = Some(node_storage.add(prev_ext));
-                    branch_node.children[nibbles[position + prefix] as usize] = Some(node_storage.add(new_leaf));
+                    let mut branch_value = None;
+                    if nibbles.len() == position + prefix {
+                        branch_value = Some(value.to_vec());
+                    }
+                    let mut branch_node = TrieBranch { children: [None; 16], value: branch_value };
+                    if ext.key.len() > prefix {
+                        let prev_ext = TrieNode::Extension(TrieExtension { key: ext.key[prefix + 1..].to_vec(), child: ext.child });
+                        branch_node.children[ext.key[prefix] as usize] = Some(node_storage.add(prev_ext));
+                    } else {
+                        branch_node.children[ext.key[prefix] as usize] = Some(ext.child);
+                    }
+                    if nibbles.len() > position + prefix {
+                        let new_leaf = TrieNode::Leaf(TrieLeaf { key: nibbles[position + prefix + 1..].to_vec(), value: value.to_vec()});
+                        branch_node.children[nibbles[position + prefix] as usize] = Some(node_storage.add(new_leaf));
+                    }
                     node_storage.delete(node);
                     let branch_hash = node_storage.add(TrieNode::Branch(branch_node));
                     if prefix > 0 {
@@ -275,7 +298,7 @@ impl Trie {
         for (key, value) in changes {
             let mut root_node = self.node_by_hash(&node_storage, &last_root).expect("Failed to find root");
             let nibbles = vec_to_nibbles(&key);
-            println!("Inserting {:?}, nibbles = {:?}", key, nibbles);
+            println!("\nInserting {:?}, nibbles = {:?}", key, nibbles);
             match value {
                 Some(arr) => {
                     last_root = self.insert(&mut node_storage, &root_node, &nibbles, 0, &arr).expect("Failed to insert");
@@ -299,7 +322,7 @@ impl Trie {
     }
 }
 
-fn apply_changes(storage: Arc<KeyValueDB>, col: Option<u32>, changes: DBChanges) -> std::io::Result<()> {
+fn apply_changes(storage: &Arc<KeyValueDB>, col: Option<u32>, changes: DBChanges) -> std::io::Result<()> {
     let mut db_transaction = storage.transaction();
     for (key, value) in changes {
         println!("{:?} {:?}", key, value);
@@ -316,18 +339,41 @@ mod tests {
     use super::*;
     use test_utils::create_memory_db;
 
+    fn test_populate_trie(storage: &Arc<KeyValueDB>, trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
+        let (root, db_changes) = trie.update(root, changes.clone());
+        apply_changes(storage, Some(0), db_changes).is_ok();
+        for (key, value) in changes {
+            assert_eq!(trie.get(&root, &key), value);
+        }
+        root
+    }
+
+    fn test_clear_trie(storage: &Arc<KeyValueDB>, trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
+        let delete_changes: TrieChanges = changes.iter().map(|(key, _)| (key.clone(), None)).collect();
+        let (root, db_changes) = trie.update(root, delete_changes.clone());
+        apply_changes(storage, Some(0), db_changes).is_ok();
+        for (key, _) in delete_changes {
+//            println!("Get {:?} {:?}", key, vec_to_nibbles(&key));
+            assert_eq!(trie.get(&root, &key), None);
+        }
+        root
+    }
+
     #[test]
-    fn test_trie() {
-        let storage = Arc::new(create_memory_db());
+    fn test_basic_trie() {
+        let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
         let trie = Trie::new(storage.clone(), Some(0));
         let empty_root = Trie::empty_root();
-        println!("Empty root: {:?}", empty_root);
         assert_eq!(trie.get(&empty_root, &[122]), None);
-        let changes = vec![
-            (b"do".to_vec(), Some(b"verb".to_vec())), (b"dog".to_vec(), Some(b"puppy".to_vec())), (b"doge".to_vec(), Some(b"coin".to_vec())), (b"horse".to_vec(), Some(b"stallion".to_vec()))].iter().cloned().collect();
-        let (root, db_changes) = trie.update(&empty_root, changes);
-        println!("New root: {:?}", root);
-        apply_changes(storage, Some(0), db_changes).is_ok();
-        assert_eq!(trie.get(&root, &b"do".to_vec()), Some(b"verb".to_vec()));
+        let changes: TrieChanges = vec![
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+            (b"do".to_vec(), Some(b"verb".to_vec())),
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"horse".to_vec(), Some(b"stallion".to_vec())),
+        ]; //.iter().cloned().collect();
+        let root = test_populate_trie(&storage, &trie, &empty_root, changes.clone());
+//        let new_root = test_clear_trie(&storage, &trie, &root, changes);
+//        assert_eq!(new_root, empty_root)
     }
 }
