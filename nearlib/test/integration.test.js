@@ -1,5 +1,3 @@
-//import Account from '../account';
-
 const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
 const Account = require('../account');
 const aliceAccountName = 'alice.near';
