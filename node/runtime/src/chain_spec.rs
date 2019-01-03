@@ -1,6 +1,7 @@
 use primitives::types::{AccountAlias, ReadablePublicKey};
 
 /// Specification of the blockchain in general.
+#[derive(Debug)]
 pub struct ChainSpec {
     /// Genesis state accounts.
     pub accounts: Vec<(AccountAlias, ReadablePublicKey, u64)>,

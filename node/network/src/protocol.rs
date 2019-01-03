@@ -14,6 +14,7 @@ use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
     AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    GossipBody,
 };
 
 /// time to wait (secs) for a request
@@ -171,6 +172,27 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
     pub fn on_gossip_message(&self, gossip: Gossip<ChainPayload>) {
         let copied_tx = self.gossip_sender.clone();
+        let content = match &gossip.body {
+            GossipBody::Unsolicited(u) => format!(
+                "Unsolicited. hash: {:?} num transactions: {:?}",
+                u.hash, u.body.payload.body.len()
+            ),
+            GossipBody::UnsolicitedReply(r) => format!(
+                "Unsolicited reply. hash: {:?} num transactions: {:?}",
+                r.hash, r.body.payload.body.len()
+            ),
+            GossipBody::Fetch(f) => format!("Fetch. hashes: {:?} ", f),
+            GossipBody::FetchReply(r) => {
+                let hashes: Vec<_> = r.iter().map(|f| f.hash).collect();
+                format!("Fetch reply: {:?}", hashes)
+            }
+        };
+        println!("Received gossip. [{:?}] {:?}->{:?}; {:?}",
+                 gossip.block_index,
+                 gossip.sender_uid,
+                 gossip.receiver_uid,
+                 content
+        );
         tokio::spawn(
             copied_tx
                 .send(gossip)
@@ -189,6 +211,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
         if status.genesis_hash != self.chain.genesis_hash {
+            println!("GENESIS HASH {:?} {:?}", status.genesis_hash, self.chain.genesis_hash);
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
@@ -373,15 +396,22 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     }
 
     pub fn set_authority_map(&self, authority_map: HashMap<UID, AuthorityStake>) {
+//        println!("Received authority map: {:?}", authority_map);
         *self.authority_map.write() = authority_map;
     }
 
     pub fn get_node_index_by_uid(&self, uid: UID) -> Option<NodeIndex> {
         let auth_map = &*self.authority_map.read();
+        let peer_account_info = self.peer_account_info.read().clone();
+//        println!("Trying to resolve UID to NodeIndex.\nauth_map: {:?}\npeer_account_info: {:?}",
+//            auth_map,
+//            peer_account_info
+//        );
         auth_map
             .into_iter()
             .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id) } else { None })
             .and_then(|account_id| {
+                println!("UID resolved");
                 self.peer_account_info.read().get(&account_id).cloned()
             })
     }

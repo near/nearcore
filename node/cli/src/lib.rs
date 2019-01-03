@@ -100,6 +100,7 @@ pub fn get_service_config() -> service::ServiceConfig {
                 .takes_value(true),
         ).arg(
             Arg::with_name("account_id")
+                .long("account-id")
             .value_name("ACCOUNT_ID")
             .help("Set the account id of the node")
             .takes_value(true)

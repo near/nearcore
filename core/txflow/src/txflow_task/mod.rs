@@ -23,15 +23,18 @@ static CANDIDATES_OUT_OF_SYNC_ERR: &'static str =
 const COOLDOWN_MS: u64 = 1;
 const FORCED_GOSSIP_MS: u64 = 1000;
 
+#[derive(Debug)]
 pub struct State<W: WitnessSelector> {
     pub owner_uid: UID,
     pub starting_epoch: u64,
     /// The size of the random sample of witnesses that we draw every time we gossip.
     pub gossip_size: usize,
     pub witness_selector: Box<W>,
+    pub block_index: u64,
 }
 
 /// An enum that we use to start and stop the TxFlow task.
+#[derive(Debug)]
 pub enum Control<W: WitnessSelector> {
     Reset(State<W>),
     Stop,
@@ -262,6 +265,10 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 
     /// Take care of the gossip received from the network. Partially destroys the gossip.
     fn process_gossip(&mut self, mut gossip: Gossip<P>) {
+        if gossip.block_index != self.state.as_ref().unwrap().block_index {
+            return
+        }
+        println!("TXFLOW Gossip procesed");
         let sender_uid = gossip.sender_uid;
         match gossip.body {
             GossipBody::Unsolicited(message) => {
@@ -281,6 +288,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
                     receiver_uid: gossip.sender_uid,
                     sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     body: GossipBody::FetchReply(reply_messages),
+                    block_index: self.state.as_ref().unwrap().block_index,
                 };
                 self.send_gossip(reply);
             }
@@ -313,13 +321,19 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             // reset the state and the dag.
             Ok(Async::Ready(Some(Control::Reset(state)))) => {
                 self.state = Some(state);
+                self.cooldown_delay = None;
+                self.forced_gossip_delay = None;
                 self.init_dag();
+                println!("TXFLOW IS RUNNING UID: {}", self.state.as_ref().unwrap().owner_uid);
             }
             // Stop command received.
             Ok(Async::Ready(Some(Control::Stop))) => {
                 if self.state.is_some() {
                     self.state = None;
                     self.dag = None;
+                    self.cooldown_delay = None;
+                    self.forced_gossip_delay = None;
+                    println!("TXFLOW STOPPED");
                     // On the next call of poll if we still don't have the state this task will be
                     // parked because we will return NotReady.
                     return Ok(Async::Ready(Some(())));
@@ -382,6 +396,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 receiver_uid,
                 sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                 body: GossipBody::Fetch(hashes.drain().collect()),
+                block_index: self.state.as_ref().unwrap().block_index,
             };
             gossips_to_send.push(reply);
         }
@@ -430,7 +445,12 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             let gossip_body = new_gossip_body.unwrap_or_else(||
                 // There are no new payloads or dangling roots, but we are forced to gossip.
                 // So we are gossiping the current root.
-                self.dag_as_ref().current_root_data().expect("Expected only one root"));
+                {
+                    if self.dag_as_ref().roots.len() != 1 {
+                        println!("EXPECTED ONE DAG ROOT: {:?}", self.dag_as_ref().roots);
+                    }
+                    self.dag_as_ref().current_root_data().expect("Expected only one root")
+                });
 
             // First send gossip to random witnesses.
             let random_witnesses = self
@@ -442,6 +462,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                     receiver_uid: *w,
                     sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     body: GossipBody::Unsolicited(gossip_body.clone()),
+                    block_index: self.state.as_ref().unwrap().block_index,
                 };
                 self.send_gossip(gossip)
             }
@@ -453,6 +474,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                     receiver_uid: w,
                     sender_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     body: GossipBody::UnsolicitedReply(gossip_body.clone()),
+                    block_index: self.state.as_ref().unwrap().block_index,
                 };
                 self.send_gossip(gossip)
             }

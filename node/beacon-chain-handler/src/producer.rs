@@ -78,6 +78,7 @@ impl BlockProducer {
 
     pub fn produce_block(&self, body: ChainConsensusBlockBody) {
         // TODO: verify signature
+        println!("CONSENSUS RECEIVED");
         let mut transactions = body.messages.into_iter()
             .flat_map(|message| message.body.payload.body)
             .collect();
@@ -141,6 +142,8 @@ impl BlockProducer {
             });
             if shard_block.body.new_receipts.is_empty() {
                 break;
+            } else {
+                println!("NEW RECEIPTS: {:?}", shard_block.body.new_receipts);
             }
             apply_state = ApplyState {
                 root: shard_block.body.header.merkle_root_state,

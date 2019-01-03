@@ -20,7 +20,7 @@ use substrate_network_libp2p::Secret;
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use message::Message;
 use primitives::traits::Encode;
-use primitives::types::{ChainPayload, UID, Gossip};
+use primitives::types::{ChainPayload, UID, Gossip, GossipBody};
 use protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -149,10 +149,31 @@ pub fn spawn_network_tasks<B, Header>(
     let protocol3 = protocol.clone();
     let gossip_sender = gossip_rx
         .for_each(move |g| {
-            println!("About to send gossip {:?}", g);
+            let content = match &g.body {
+                GossipBody::Unsolicited(u) => format!(
+                    "Unsolicited. hash: {:?} num transactions: {:?}",
+                    u.hash, u.body.payload.body.len()
+                ),
+                GossipBody::UnsolicitedReply(r) => format!(
+                    "Unsolicited reply. hash: {:?} num transactions: {:?}",
+                    r.hash, r.body.payload.body.len()
+                ),
+                GossipBody::Fetch(f) => format!("Fetch. hashes: {:?} ", f),
+                GossipBody::FetchReply(r) => {
+                    let hashes: Vec<_> = r.iter().map(|f| f.hash).collect();
+                    format!("Fetch reply: {:?}", hashes)
+                }
+            };
+            println!("About to send gossip. [{:?}] {:?}->{:?}; {:?}",
+                g.block_index,
+                g.sender_uid,
+                g.receiver_uid,
+                content
+            );
             if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
                 let m = Message::Gossip::<B, Header, _>(g);
                 let data = Encode::encode(&m).expect("Error encoding message.");
+//                println!("SENDING CUSTOM MESSAGE");
                 network_service.lock().send_custom_message(node_index, protocol_id, data);
             } else {
                 error!("Node Index not found for UID: {}", g.receiver_uid);

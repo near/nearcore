@@ -481,4 +481,5 @@ pub struct Gossip<P> {
     pub receiver_uid: UID,
     pub sender_sig: StructSignature,
     pub body: GossipBody<P>,
+    pub block_index: u64,
 }

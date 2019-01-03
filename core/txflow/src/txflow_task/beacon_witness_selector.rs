@@ -5,6 +5,7 @@ use rand::thread_rng;
 use std::collections::HashSet;
 
 /// Witness selector used by the beacon chain where each new block index has a new set of witnesses.
+#[derive(Debug)]
 pub struct BeaconWitnessSelector {
     witnesses: HashSet<UID>,
     witnesses_ordered: Vec<UID>,

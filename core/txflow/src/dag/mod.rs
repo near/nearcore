@@ -31,7 +31,7 @@ pub struct DAG<
     /// Stores all messages known to the current root.
     messages: HashSet<&'a Message<'a, P>>,
     /// Stores all current roots.
-    roots: HashSet<&'a Message<'a, P>>,
+    pub roots: HashSet<&'a Message<'a, P>>,
     /// Store last message from each participant in the DAG.
     /// In case of a fork only one is stored arbitrarely.
     recent_message: HashMap<UID, &'a Message<'a, P>>,
@@ -71,7 +71,10 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
     /// and at least one of these roots is not by the current owner.
     pub fn is_root_not_updated(&self) -> bool {
         !self.roots.is_empty()
-            && (&self.roots).iter().any(|m| m.data.body.owner_uid != self.owner_uid)
+            && (&self.roots).iter().any(|m| {
+//            println!("Root owner_uid: {}; our owner_uid: {}", m.data.body.owner_uid, self.owner_uid);
+            m.data.body.owner_uid != self.owner_uid
+        })
     }
 
     /// Return true if there are several roots.

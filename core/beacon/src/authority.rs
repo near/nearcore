@@ -122,6 +122,7 @@ impl Authority {
             thresholds: HashMap::new(),
             accepted_authorities: HashMap::new(),
         };
+        println!("Initial authorities {:?}", result.authority_config.initial_proposals.to_vec());
         // Initial authorities operate for the first two epochs.
         let (accepted_authorities, threshold) = result.compute_threshold_accepted(
             &CryptoHash::default(),
@@ -133,6 +134,7 @@ impl Authority {
             result.thresholds.insert(epoch, threshold);
             for slot_auth in &accepted_authorities {
                 slot += 1;
+                //println!("ASSIGNING SLOT {:?} AUTHORITIES {:?}", slot, slot_auth);
                 result.accepted_authorities.insert(slot, slot_auth.to_vec());
             }
         }
@@ -140,6 +142,7 @@ impl Authority {
         // are iterating.
         // TODO: Take care of the fork being changed while we are iterating.
         let mut index = 1;
+        println!("Blockchain best block index: {}", blockchain.best_block().header().body.index);
         while index <= blockchain.best_block().header().body.index {
             let header = blockchain
                 .get_header(&BlockId::Number(index))
@@ -229,9 +232,14 @@ impl Authority {
             let mut indices = HashMap::new();
             let mut penalties = HashMap::new();
             for s in self.epoch_to_slots(epoch - 2) {
-                let accepted = self.accepted_authorities[&s].iter();
-                let participation = self.participation[&s].iter();
-                for (acc, participated) in accepted.zip(participation) {
+                let accepted = self.accepted_authorities[&s].to_vec();
+                let mut participation = self.participation[&s].to_vec();
+                // TODO(#334) Temporary hack, since we are not recording participating authorities,
+                // yet.
+                while participation.len() < accepted.len() {
+                    participation.push(true);
+                }
+                for (acc, participated) in accepted.iter().zip(participation.iter()) {
                     if *participated {
                         match indices.entry(acc.account_id) {
                             Entry::Occupied(mut e) => {
@@ -285,6 +293,9 @@ impl Authority {
         // Skip genesis block or if this block was already recorded.
         let slot = header.body.index;
         if slot > 0 && !self.proposals.contains_key(&slot) {
+            println!("PROCESSING BLOCK HEADER FOR SLOT {}", slot);
+            println!("proposals: {:?}", header.body.authority_proposal.to_vec());
+            println!("participation: {:?}", header.authority_mask.to_vec());
             self.proposals.insert(slot, header.body.authority_proposal.to_vec());
             self.participation.insert(slot, header.authority_mask.to_vec());
 
