@@ -4,8 +4,9 @@ const bs58 = require('bs58');
 const MAX_RETRIES = 3;
 
 class Account {
-    constructor(keyStore) {
+    constructor(keyStore, nearConnection) {
         this.keyStore = keyStore;
+        this.nearConnection = nearConnection;
     }
 
     /**
@@ -65,12 +66,7 @@ class Account {
     };
 
     async request (methodName, params) {
-        // TODO: (issue 320) make this configurable and testable
-        const response = await superagent
-            .post(`http://localhost:3030/${methodName}`)
-            .use(require('superagent-logger'))
-            .send(params);
-        return JSON.parse(response.text);
+        return await this.nearConnection.request(methodName, params);
     };
 };
 module.exports = Account;

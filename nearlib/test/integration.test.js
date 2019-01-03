@@ -1,5 +1,7 @@
 const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
+const LocalNodeConnection = require('../local_node_connection')
 const Account = require('../account');
+const Near = require('../near');
 const aliceAccountName = 'alice.near';
 const aliceKey = {
     public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE",
@@ -7,8 +9,10 @@ const aliceKey = {
 };
 const test_key_store = new InMemoryKeyStore();
 test_key_store.setKey(aliceAccountName, aliceKey);
-const account = new Account(test_key_store);
-const TEST_MAX_RETRIES = 5;
+const localNodeConnection = new LocalNodeConnection();
+const account = new Account(test_key_store, localNodeConnection);
+const nearjs = new Near(test_key_store, localNodeConnection);
+const TEST_MAX_RETRIES = parseInt(process.env.TEST_MAX_RETRIES || "5");
 
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -22,25 +26,33 @@ test('create account and then view account returns the created account', async (
     const newAccountName = await generateUniqueAccountId("create.account.test");
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+    const expctedAccount = {
+        nonce: 0,
+        account_id: newAccountName,
+        amount: 1,
+        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        stake: 0,
+    };
 
     // try to read the account a few times to wait for the transaction to go through
     for (var viewAttempt = 0; viewAttempt < TEST_MAX_RETRIES; viewAttempt++) {
         try {
             const viewAccountResponse = await account.viewAccount(newAccountName);
-            const expctedAccount = {
-                nonce: 0,
-                account_id: newAccountName,
-                amount: 1,
-                code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
-                stake: 0,
-            };
-
             expect(viewAccountResponse).toEqual(expctedAccount);
             return; // success!
         } catch (_) {}
     }
     // exceeded retries. fail. 
     fail('exceeded number of retries for viewing account');
+});
+
+test('call view function on an existing contract', async () => {
+    // Right now, the test setup deploys the contract
+    const args = {
+        "name": "trex"
+    };
+    var viewFunctionResult = await nearjs.callViewFunction(aliceAccountName, "test_contract", "near_func_hello", args);
+    expect(viewFunctionResult).toEqual("hello trex");
 });
 
 const generateUniqueAccountId = async (prefix) => {
