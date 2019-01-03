@@ -7,9 +7,17 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 name = "nearcore"
 path = "node/src/main.rs"
 
+[lib]
+name = "nearlib"
+crate-type = ["staticlib"]
+path = "node/src/lib.rs"
+
 [dependencies]
+log = "0.4"
 node-cli = { path = "./node/cli" }
 node-runtime = { path = "./node/runtime" }
+primitives = { path = "./core/primitives" }
+txflow = { path = "./core/txflow" }
 
 [workspace]
 members = [
