@@ -35,12 +35,12 @@ class Account {
             account_id: account_id,
         });
         return viewAccountResponse;
-    }
+    };
 
     async signTransaction (transaction, sender) {
         const stringifiedTxn = JSON.stringify(transaction);
-        const encodedKey = this.keyStore.getKey(sender).secret_key;
-        const key = bs58.decode(encodedKey);
+        const encodedKey = await this.keyStore.getKey(sender);
+        const key = bs58.decode(encodedKey.secret_key);
         const signature = [...ed25519.Sign(new Buffer(stringifiedTxn, 'utf8'), key)];
         const response = {
             body: transaction,
@@ -50,36 +50,27 @@ class Account {
     };
 
     async submitTransaction (method, args) {
-        // TODO: Make sender param names consistent
-        // TODO: https://github.com/nearprotocol/nearcore/issues/287
-        const senderKeys = ['sender_account_id', 'originator_account_id', 'originator_id', 'sender', 'originator'];
-        const sender = senderKeys.map(key => args[key]).find(it => !!it)
+        const senderKey = 'originator';
+        const sender = args[senderKey];
         const nonce = await this.getNonce(sender);
-        for (let i = 0; i < MAX_RETRIES; i++) {
-            const response = await this.request(method, Object.assign({}, args, { nonce }));
-            const transaction = response.body;
-            const signedTransaction = await this.signTransaction(transaction, sender);
-            const submitResponse = await this.request('submit_transaction', signedTransaction);
-        }
+        const response = await this.request(method, Object.assign({}, args, { nonce }));
+        const transaction = response.body;
+        const signedTransaction = await this.signTransaction(transaction, sender);
+        const submitResponse = await this.request('submit_transaction', signedTransaction);
         return { nonce: nonce };
-    }
+    };
 
     async getNonce (account_id) {
         return (await this.viewAccount(account_id)).nonce + 1;
-    }
+    };
 
     async request (methodName, params) {
-        try {
-            // TODO: (issue 320) make this configurable and testable
-            const response = await superagent
-                .post(`http://localhost:3030/${methodName}`)
-                .use(require('superagent-logger'))
-                .send(params);
-            return JSON.parse(response.text);
-        } catch(e) {
-            console.error("error calling rpc ", e);
-            throw e;
-        }
+        // TODO: (issue 320) make this configurable and testable
+        const response = await superagent
+            .post(`http://localhost:3030/${methodName}`)
+            .use(require('superagent-logger'))
+            .send(params);
+        return JSON.parse(response.text);
     };
-}
+};
 module.exports = Account;

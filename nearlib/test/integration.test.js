@@ -1,15 +1,16 @@
 //import Account from '../account';
 
-const test_key_store = require('../test-tools/in_memory_key_store.js');
+const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
 const Account = require('../account');
 const aliceAccountName = 'alice.near';
 const aliceKey = {
     public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE",
     secret_key: "2hoLMP9X2Vsvib2t4F1fkZHpFd6fHLr5q7eqGroRoNqdBKcPja2jCrmxW9uGBLXdTnbtZYibWe4NoFtB4Bk7LWg6"
 };
+const test_key_store = new InMemoryKeyStore();
 test_key_store.setKey(aliceAccountName, aliceKey);
 const account = new Account(test_key_store);
-const TEST_MAX_RETRIES = 3;
+const TEST_MAX_RETRIES = 5;
 
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -39,9 +40,9 @@ test('create account and then view account returns the created account', async (
             expect(viewAccountResponse).toEqual(expctedAccount);
             return; // success!
         } catch (_) {}
-        // exceeded retries. fail.
-        fail('exceeded number of retries for viewing account');
     }
+    // exceeded retries. fail. 
+    fail('exceeded number of retries for viewing account');
 });
 
 const generateUniqueAccountId = async (prefix) => {

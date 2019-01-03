@@ -1,12 +1,20 @@
 /**
  * Simple in-memory keystore for testing purposes.
  */
-var keys = {};
 
-exports.setKey = (account_id, key) => {
-    keys[account_id] = key;
-}
+class InMemoryKeyStore {
 
-exports.getKey = account_id => {
-    return keys[account_id];
-}
+    constructor() {
+        this.keys = {};
+    }
+
+    async setKey(accontId, key) {
+        this.keys[accontId] = key;
+    }
+
+    async getKey(accontId) {
+        return this.keys[accontId];
+    }
+};
+
+module.exports = InMemoryKeyStore;
