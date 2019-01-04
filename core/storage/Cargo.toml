@@ -19,6 +19,12 @@ primitives = { path = "../primitives" }
 
 [dev-dependencies]
 hex-literal = "0.1.1"
+bencher = "0.1.5"
+rand = "0.6.3"
 
 [features]
 test-utils = []
+
+[[bench]]
+name = "trie_bench"
+harness = false

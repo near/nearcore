@@ -23,7 +23,7 @@ fn runtime_send_money(bench: &mut Bencher) {
     bench.iter(|| {
         for _ in 0..10 {
             let mut transactions = vec![];
-            for i in 0..1000 {
+            for i in 0..100 {
                 transactions.push(Transaction::SignedTransaction(SignedTransaction::new(
                     DEFAULT_SIGNATURE,
                     TransactionBody::SendMoney(SendMoneyTransaction {
