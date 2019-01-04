@@ -123,7 +123,7 @@ fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
 }
 
 pub struct Runtime {
-    state_db: Arc<StateDb>,
+    pub state_db: Arc<StateDb>,
 }
 
 impl Runtime {
