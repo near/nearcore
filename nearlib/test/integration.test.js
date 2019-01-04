@@ -76,7 +76,9 @@ const waitForNonceToIncrease = async (initialAccount) => {
         try {
             const viewAccountResponse = await account.viewAccount(initialAccount['account_id']);
             if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return; }
-        } catch (_) {}
+        } catch (_) {
+            // Errors are expected, not logging to avoid spam
+        }
     }
     fail('exceeded number of retries for viewing account ' + i);
 }
