@@ -43,9 +43,9 @@ pub mod state_viewer;
 mod ext;
 
 const DEFAULT_MANA_LIMIT: u32 = 20;
-const COL_ACCOUNT: &[u8] = b"0";
-const COL_CALLBACK: &[u8] = b"1";
-const COL_CODE: &[u8] = b"2";
+const COL_ACCOUNT: &[u8] = &[0];
+const COL_CALLBACK: &[u8] = &[1];
+const COL_CODE: &[u8] = &[2];
 
 // const does not allow function call, so have to resort to this
 fn system_account() -> AccountId {
