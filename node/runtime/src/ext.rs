@@ -35,8 +35,8 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
             storage_prefix: prefix,
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
-            account_id.clone(),
-            accounting_info,
+            account_id: account_id.clone(),
+            accounting_info: accounting_info.clone(),
             nonce: 0,
             transaction_hash,
         }

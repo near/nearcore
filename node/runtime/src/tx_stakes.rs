@@ -8,12 +8,11 @@ use super::account_id_to_bytes;
 /// Key for the Transaction Staking. Can be just "account_id" or "account_id::contract_id"
 pub type TxStakeKey = Vec<u8>;
 
-pub fn get_tx_stake_key(account_id: AccountId, contract_id: Option<AccountId>) -> TxStakeKey {
-    let mut key = account_id_to_bytes(account_id);
-    if let Some(contract_id) = contract_id {
+pub fn get_tx_stake_key(account_id: &AccountId, contract_id: &Option<AccountId>) -> TxStakeKey {
+    let mut key = account_id_to_bytes(&account_id);
+    if let Some(ref contract_id) = contract_id {
         key.push(b',');
-        let mut contract_bytes = account_id_to_bytes(contract_id);
-        key.append(&mut contract_bytes);
+        key.append(&mut account_id_to_bytes(contract_id));
     }
     key
 }

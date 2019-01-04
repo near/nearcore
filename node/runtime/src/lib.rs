@@ -55,29 +55,30 @@ fn system_account() -> AccountId {
 }
 
 pub fn try_charge_mana(
-    account_id: AccountId,
-    contract_id: Option<AccountId>,
+    &mut self,
+    account_id: &AccountId,
+    contract_id: &Option<AccountId>,
     mana: Mana,
 ) -> Option<AccountingInfo> {
     let block_number = 1000;
     let config = TxStakeConfig::default();
     let mut acc_info_options = Vec::new();
     // Trying to use contract specific quota first
-    if let Some(contract_id) = contract_id {
+    if let Some(ref contract_id) = contract_id {
         acc_info_options.push(AccountingInfo{
-            originator: account_id,
-            contract_id: Some(contract_id),
+            originator: account_id.clone(),
+            contract_id: Some(contract_id.clone()),
         });
     }
     // Trying to use global quota
     acc_info_options.push(AccountingInfo{
-        originator: account_id,
+        originator: account_id.clone(),
         contract_id: None,
     });
     for accounting_info in acc_info_options {
         let key = get_tx_stake_key(
-            accounting_info.originator,
-            accounting_info.contract_id,
+            &accounting_info.originator,
+            &accounting_info.contract_id,
         );
         if let Some(tx_total_stake) = self.tx_stake.get_mut(&key) {
             tx_total_stake.update(block_number, &config);
@@ -181,8 +182,8 @@ impl Runtime {
                     transaction.amount,
                     0,
                     AccountingInfo {
-                        originator: transaction.sender,
-                        contract_id: Some(transaction.receiver),
+                        originator: transaction.originator.clone(),
+                        contract_id: Some(transaction.receiver.clone()),
                     },
                 ))
             );
@@ -260,7 +261,7 @@ impl Runtime {
                     body.amount,
                     0,
                     AccountingInfo {
-                        originator: body.sender,
+                        originator: body.originator.clone(),
                         contract_id: None,
                     },
                 ))
@@ -326,8 +327,8 @@ impl Runtime {
                 0,
                 0,
                 AccountingInfo {
-                    originator: body.sender,
-                    contract_id: Some(body.contract_id),
+                    originator: body.originator.clone(),
+                    contract_id: Some(body.contract_id.clone()),
                 },
             ))
         );
@@ -354,8 +355,8 @@ impl Runtime {
                     transaction.amount,
                     DEFAULT_MANA_LIMIT,
                     AccountingInfo {
-                        originator: transaction.originator,
-                        contract_id: Some(transaction.contract_id),
+                        originator: transaction.originator.clone(),
+                        contract_id: Some(transaction.contract_id.clone()),
                     },
                 ))
             );
@@ -607,7 +608,7 @@ impl Runtime {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
                 receiver_id,
-                async_call.accounting_info.clone(),
+                &async_call.accounting_info,
                 nonce,
             );
             let wasm_res = executor::execute(
@@ -682,7 +683,7 @@ impl Runtime {
                         let mut runtime_ext = RuntimeExt::new(
                             state_update,
                             receiver_id,
-                            callback.accounting_info.clone(),
+                            &callback.accounting_info,
                             nonce,
                         );
 
@@ -899,7 +900,7 @@ impl Runtime {
         };
         if mana_accounting.mana_refund > 0 || mana_accounting.gas_used > 0 {
             let new_receipt = ReceiptTransaction::new(
-                mana_accounting.accounting_info.originator,
+                mana_accounting.accounting_info.originator.clone(),
                 receipt.receiver.clone(),
                 create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                 ReceiptBody::ManaAccounting(mana_accounting),
@@ -1642,8 +1643,8 @@ mod tests {
                 0,
                 0,
                 AccountingInfo {
-                    originator: hash(b"alice"),
-                    contract_id: Some(hash(b"bob")),
+                    originator: alice_account(),
+                    contract_id: Some(bob_account()),
                 },
             ))
         );
@@ -1667,8 +1668,8 @@ mod tests {
         let root = viewer.get_root();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let accounting_info = AccountingInfo {
-            originator: hash(b"alice"),
-            contract_id: Some(hash(b"bob")),
+            originator: alice_account(),
+            contract_id: Some(bob_account()),
         };
         let mut callback = Callback::new(
             b"sum_with_input".to_vec(),
@@ -1720,8 +1721,8 @@ mod tests {
             args,
             0,
             AccountingInfo {
-                originator: hash(b"alice"),
-                contract_id: Some(hash(b"bob")),
+                originator: alice_account(),
+                contract_id: Some(bob_account()),
             },
         );
         callback.results.resize(1, None);

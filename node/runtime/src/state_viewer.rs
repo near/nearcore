@@ -106,9 +106,9 @@ impl StateDbViewer {
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
-                    AccountingInfo {
-                        originator: originator_id,
-                        contract_id: Some(contract_id),
+                    &AccountingInfo {
+                        originator: originator_id.clone(),
+                        contract_id: Some(contract_id.clone()),
                     },
                     &[],
                 );
