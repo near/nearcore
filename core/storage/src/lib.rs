@@ -1,33 +1,25 @@
-extern crate hash256_std_hasher;
-extern crate hash_db;
+#[cfg(test)]
+extern crate hex_literal;
 extern crate kvdb;
 extern crate kvdb_memorydb;
 extern crate kvdb_rocksdb;
 extern crate primitives;
 extern crate serde;
-extern crate substrate_state_machine;
 #[macro_use]
 extern crate serde_derive;
 
-#[cfg(test)]
-extern crate hex_literal;
-#[cfg(test)]
-extern crate memory_db;
-
 use std::collections::HashMap;
+use std::sync::Arc;
+
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
+
 use primitives::hash::CryptoHash;
 use primitives::types::MerkleHash;
-use std::sync::Arc;
-use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend, Backend};
-pub use substrate_storage::TrieBackendTransaction;
+pub use trie::DBChanges;
 
-mod substrate_storage;
 mod trie;
 pub mod test_utils;
-
-pub use trie::DBChanges;
 
 pub const COL_STATE: Option<u32> = Some(0);
 pub const COL_EXTRA: Option<u32> = Some(1);
@@ -71,7 +63,7 @@ impl StateDbUpdate {
         self.prospective.insert(key.to_vec(), None);
     }
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], f: F) {
-        // TODO
+        // TODO: iterate over keys.
     }
     pub fn commit(&mut self) {
         if self.committed.is_empty() {
@@ -123,8 +115,9 @@ pub fn open_database(storage_path: &str) -> Database {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use test_utils::create_state_db;
+
+    use super::*;
 
     #[test]
     fn state_db() {
