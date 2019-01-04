@@ -36,6 +36,8 @@ pub type Gas = u64;
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
 
+pub type BlockNumber = u64;
+
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum PromiseId {
     Receipt(ReceiptId),
@@ -53,7 +55,7 @@ impl<'a> From<&'a ReadablePublicKey> for PublicKey {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
 pub enum BlockId {
-    Number(u64),
+    Number(BlockNumber),
     Hash(CryptoHash),
 }
 

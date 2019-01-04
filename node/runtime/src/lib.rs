@@ -28,7 +28,7 @@ use primitives::types::{
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
     SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
-    FunctionCallTransaction, AccountingInfo, ManaAccounting,
+    FunctionCallTransaction, AccountingInfo, ManaAccounting, Mana,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
@@ -40,6 +40,8 @@ use wasm::types::{RuntimeContext, ReturnData};
 pub mod chain_spec;
 pub mod test_utils;
 pub mod state_viewer;
+mod tx_stakes;
+use tx_stakes::{TxStakeConfig, TxStakeKey, TxTotalStake, get_tx_stake_key};
 mod ext;
 
 const DEFAULT_MANA_LIMIT: u32 = 20;
@@ -50,6 +52,42 @@ const COL_CODE: &[u8] = &[2];
 // const does not allow function call, so have to resort to this
 fn system_account() -> AccountId {
     "system".to_string()
+}
+
+pub fn try_charge_mana(
+    account_id: AccountId,
+    contract_id: Option<AccountId>,
+    mana: Mana,
+) -> Option<AccountingInfo> {
+    let block_number = 1000;
+    let config = TxStakeConfig::default();
+    let mut acc_info_options = Vec::new();
+    // Trying to use contract specific quota first
+    if let Some(contract_id) = contract_id {
+        acc_info_options.push(AccountingInfo{
+            originator: account_id,
+            contract_id: Some(contract_id),
+        });
+    }
+    // Trying to use global quota
+    acc_info_options.push(AccountingInfo{
+        originator: account_id,
+        contract_id: None,
+    });
+    for accounting_info in acc_info_options {
+        let key = get_tx_stake_key(
+            accounting_info.originator,
+            accounting_info.contract_id,
+        );
+        if let Some(tx_total_stake) = self.tx_stake.get_mut(&key) {
+            tx_total_stake.update(block_number, &config);
+            if tx_total_stake.available_mana(&config) >= mana {
+                tx_total_stake.charge_mana(mana, &config);
+                return Some(accounting_info)
+            }
+        }
+    }
+    None
 }
 
 /// Per account information stored in the state.
