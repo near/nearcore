@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::str;
 
-use primitives::hash::{CryptoHash, hash};
+use primitives::hash::CryptoHash;
 use primitives::types::{AccountId, Balance, MerkleHash};
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
@@ -10,7 +10,8 @@ use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use super::{
-    Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, RuntimeExt,
+    Account, account_id_to_bytes, get, RuntimeExt,
+    COL_ACCOUNT, COL_CODE,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -50,16 +51,15 @@ impl StateDbViewer {
         root: MerkleHash,
     ) -> Result<AccountViewCallResult, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA)
-            .expect("Runtime data is missing");
-        match get::<Account>(&mut state_update, &account_id_to_bytes(account_id)) {
+
+        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => {
                 Ok(AccountViewCallResult {
                     account: account_id.clone(),
                     nonce: account.nonce,
                     amount: account.amount,
-                    stake: runtime_data.get_stake_for_account(account_id),
-                    code_hash: hash(&account.code),
+                    stake: account.staked,
+                    code_hash: account.code_hash
                 })
             },
             _ => Err(format!("account {} does not exist while viewing", account_id)),
@@ -78,7 +78,7 @@ impl StateDbViewer {
         let root = self.get_root();
         let mut values = HashMap::default();
         let state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        let mut prefix = account_id_to_bytes(account_id);
+        let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
@@ -99,7 +99,9 @@ impl StateDbViewer {
         root: MerkleHash,
     ) -> Result<Vec<u8>, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        match get::<Account>(&mut state_update, &account_id_to_bytes(contract_id)) {
+        let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
+            .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
+        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
             Some(account) => {
                 let mut result = vec![];
                 let mut runtime_ext = RuntimeExt::new(
@@ -107,8 +109,9 @@ impl StateDbViewer {
                     contract_id,
                     &[],
                 );
+                
                 let wasm_res = executor::execute(
-                    &account.code,
+                    &code,
                     method_name.as_bytes(),
                     &args.to_owned(),
                     &[],
