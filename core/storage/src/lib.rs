@@ -14,7 +14,6 @@ use std::sync::Arc;
 pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
 
-use primitives::hash::CryptoHash;
 use primitives::types::MerkleHash;
 pub use trie::DBChanges;
 
@@ -62,7 +61,7 @@ impl StateDbUpdate {
     pub fn delete(&mut self, key: &[u8]) {
         self.prospective.insert(key.to_vec(), None);
     }
-    pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], f: F) {
+    pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, _prefix: &[u8], _f: F) {
         // TODO: iterate over keys.
     }
     pub fn commit(&mut self) {
@@ -90,7 +89,6 @@ pub type Storage = KeyValueDB;
 pub type DiskStorageConfig = DatabaseConfig;
 pub type DiskStorage = Database;
 
-#[allow(dead_code)]
 pub struct StateDb {
     trie: trie::Trie,
     storage: Arc<KeyValueDB>,
@@ -122,7 +120,7 @@ mod tests {
     #[test]
     fn state_db() {
         let state_db = Arc::new(create_state_db());
-        let root = CryptoHash::default();
+        let root = MerkleHash::default();
         let mut state_db_update = StateDbUpdate::new(state_db.clone(), root);
         state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));

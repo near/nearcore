@@ -72,18 +72,13 @@ impl TrieNodeStorage {
 
     fn delete(&mut self, node: &TrieNode) {
         let hash = hash_struct(node);
-        match self.get(&hash) {
-            Some(node) => {
-                // Is there better way to do this lines?
-                self.nodes.entry(hash).and_modify(|e| {
-                    e.rc -= 1;
-                });
-                if self.nodes.get(&hash).expect("Just modified").rc == 0 {
-                    self.remove_nodes.insert(hash);
-                }
-            },
-            None => {
-                // Nothing to remove.
+        // Is there better way to implement this?
+        if self.get(&hash).is_some() {
+            self.nodes.entry(hash).and_modify(|e| {
+                e.rc -= 1;
+            });
+            if self.nodes.get(&hash).expect("Just modified").rc == 0 {
+                self.remove_nodes.insert(hash);
             }
         }
     }
@@ -390,6 +385,7 @@ impl Trie {
         }
     }
 
+    #[allow(dead_code)]
     fn print_node(&self, node_storage: &mut TrieNodeStorage, node: &TrieNode) {
         println!("{:?}: {:?}", hash_struct(&node), node);
         match node.data {
@@ -412,6 +408,7 @@ impl Trie {
         }
     }
 
+    #[allow(dead_code)]
     fn present(&self, node_storage: &mut TrieNodeStorage, root: CryptoHash) {
         let root_node = node_storage.get(&root).expect("Printing node failed");
         self.print_node(node_storage, &root_node);

@@ -29,7 +29,7 @@ pub fn generate_test_chain_spec() -> ChainSpec {
     }
 }
 
-pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: ChainSpec) -> (Runtime, StateDbViewer) {
+pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, StateDbViewer) {
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Runtime::new(state_db.clone());
@@ -51,7 +51,7 @@ pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: ChainSpec) ->
 
 pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
     let chain_spec = generate_test_chain_spec();
-    get_runtime_and_state_db_viewer_from_chain_spec(chain_spec)
+    get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec)
 }
 
 pub fn get_test_state_db_viewer() -> StateDbViewer {

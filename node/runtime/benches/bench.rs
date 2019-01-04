@@ -18,7 +18,7 @@ fn runtime_send_money(bench: &mut Bencher) {
     for i in 0..100 {
         chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000));
     }
-    let (mut runtime, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(chain_spec);
+    let (mut runtime, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
     let mut root = viewer.get_root();
     bench.iter(|| {
         for _ in 0..10 {
