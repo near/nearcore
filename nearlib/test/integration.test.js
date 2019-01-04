@@ -1,5 +1,6 @@
 const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
 const LocalNodeConnection = require('../local_node_connection')
+const NearClient = require('../nearclient');
 const Account = require('../account');
 const Near = require('../near');
 const fs = require('fs');
@@ -13,8 +14,9 @@ const aliceKey = {
 const test_key_store = new InMemoryKeyStore();
 test_key_store.setKey(aliceAccountName, aliceKey);
 const localNodeConnection = new LocalNodeConnection();
-const account = new Account(test_key_store, localNodeConnection);
-const nearjs = new Near(test_key_store, localNodeConnection);
+const nearClient = new NearClient(test_key_store, localNodeConnection);
+const account = new Account(nearClient);
+const nearjs = new Near(nearClient);
 const TEST_MAX_RETRIES = 10;
 
 
@@ -50,9 +52,9 @@ test('create account and then view account returns the created account', async (
 });
 
 test('deploy contract and make function calls', async () => {
-    var data = [...fs.readFileSync('../tests/hello.wasm')];  
+    const data = [...fs.readFileSync('../tests/hello.wasm')];  
     const initialAccount = await account.viewAccount(aliceAccountName);
-    var deployResult = await nearjs.deployContract(
+    const deployResult = await nearjs.deployContract(
         aliceAccountName,
         "test_contract",
         data,
@@ -61,7 +63,7 @@ test('deploy contract and make function calls', async () => {
     const args = {
         "name": "trex"
     };
-    var viewFunctionResult = await nearjs.callViewFunction(
+    const viewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
         "test_contract",
         "near_func_hello", // this is the function defined in hello.wasm file that we are calling
@@ -70,10 +72,9 @@ test('deploy contract and make function calls', async () => {
 });
 
 const waitForNonceToIncrease = async (initialAccount) => {
-    for (i = 0; i < TEST_MAX_RETRIES; i++) {
+    for (let i = 0; i < TEST_MAX_RETRIES; i++) {
         try {
             const viewAccountResponse = await account.viewAccount(initialAccount['account_id']);
-            //console.log(viewAccountResponse);
             if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return; }
         } catch (_) {}
     }

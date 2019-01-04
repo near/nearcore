@@ -2,9 +2,9 @@ const ed25519 = require('ed25519');
 const bs58 = require('bs58');
 
 /**
- * Base class for near libraries. Contains common functionality for communicating with near. 
+ * Client for communicating with near blockchain. 
  */
-class NearBase {
+class NearClient {
     constructor(keyStore, nearConnection) {
         this.keyStore = keyStore;
         this.nearConnection = nearConnection;
@@ -49,4 +49,4 @@ class NearBase {
     };
 }
 
-module.exports = NearBase;
+module.exports = NearClient;
