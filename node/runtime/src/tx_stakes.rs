@@ -1,18 +1,16 @@
-use std::collections::HashMap;
 use std::cmp::{min, max};
 
-use primitives::types::{BlockNumber, Balance, Gas, Mana, AccountId};
+use primitives::types::{BlockIndex, Balance, Gas, Mana, AccountId};
 
-use super::account_id_to_bytes;
+use super::{account_id_to_bytes, COL_TX_STAKE, COL_TX_STAKE_SEPARATOR};
 
 /// Key for the Transaction Staking. Can be just "account_id" or "account_id::contract_id"
 pub type TxStakeKey = Vec<u8>;
 
 pub fn get_tx_stake_key(account_id: &AccountId, contract_id: &Option<AccountId>) -> TxStakeKey {
-    let mut key = account_id_to_bytes(&account_id);
+    let mut key = account_id_to_bytes(COL_TX_STAKE, &account_id);
     if let Some(ref contract_id) = contract_id {
-        key.push(b',');
-        key.append(&mut account_id_to_bytes(contract_id));
+        key.append(&mut account_id_to_bytes(COL_TX_STAKE_SEPARATOR, contract_id));
     }
     key
 }
@@ -59,44 +57,45 @@ pub struct TxTotalStake {
     mana_used_num: u64,
     /// Total amount of gas used. Without denumerator
     gas_used: Gas,
-    /// Last update block number is used for mana and gas regeneration.
+    /// Last update block index is used for mana and gas regeneration.
     /// Whenever we touch TxTotalStake we should use difference between the 
-    /// current and the last update block numbers to recalculate and update
+    /// current and the last update block indices to recalculate and update
     /// mana_used and gas_used counters based on the current total_stake and
     /// the number of blocks from the last update.
-    /// TODO(#314): Requires BlockNumber to be available.
-    last_update_block_number: BlockNumber,
+    last_update_block_index: BlockIndex,
     total_active_stake: Balance,
     total_stake: Balance,
-    active_stakes: HashMap<AccountId, Balance>,
+}
+
+/*
+ active_stakes: HashMap<AccountId, Balance>,
     /// This is likely a redundant structure, since stake withdrawals
     /// should be handled using scheduled receipts.
     /// TODO(#315): Remove after scheduled receipts.
     stakes_awaiting_withdrawal: HashMap<AccountId, Balance>,
-}
+*/
 
+#[allow(unused)]
 impl TxTotalStake {
-    pub fn new(block_number: BlockNumber) -> TxTotalStake {
+    pub fn new(block_index: BlockIndex) -> TxTotalStake {
         TxTotalStake {
             mana_used_num: 0,
             gas_used: 0,
-            last_update_block_number: block_number,
+            last_update_block_index: block_index,
             total_active_stake: 0,
             total_stake: 0,
-            active_stakes: HashMap::new(),
-            stakes_awaiting_withdrawal: HashMap::new(),
         }
     }
 
-    /// Updates usage numbers and regenerates used mana and gas.
+    /// Updates usage values and regenerates used mana and gas.
     /// Should always be called before modifying the stakes. 
-    pub fn update(&mut self, block_number: BlockNumber, config: &TxStakeConfig) {
-        assert!(self.last_update_block_number <= block_number);
-        if self.last_update_block_number == block_number {
+    pub fn update(&mut self, block_index: BlockIndex, config: &TxStakeConfig) {
+        assert!(self.last_update_block_index <= block_index);
+        if self.last_update_block_index == block_index {
             return;
         }
-        let mut blocks_difference = block_number - self.last_update_block_number;
-        self.last_update_block_number = block_number;
+        let mut blocks_difference = block_index - self.last_update_block_index;
+        self.last_update_block_index = block_index;
         if self.total_stake == 0 {
             return;
         }
@@ -118,7 +117,7 @@ impl TxTotalStake {
     }
     
     /// Returns the available mana using the data from the last update.
-    /// Make sure to update using the latest block number before calling it.
+    /// Make sure to update using the latest block index before calling it.
     pub fn available_mana(&self, config: &TxStakeConfig) -> Mana {
         // NEED to know the current block ID to add regeneration
         let mut mana_num = self.total_active_stake * config.mana_per_coin_num;

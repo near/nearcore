@@ -28,7 +28,7 @@ use primitives::types::{
     ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
     PromiseId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
     SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
-    FunctionCallTransaction, AccountingInfo, ManaAccounting, Mana,
+    FunctionCallTransaction, AccountingInfo, ManaAccounting, Mana, BlockIndex,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
@@ -41,54 +41,19 @@ pub mod chain_spec;
 pub mod test_utils;
 pub mod state_viewer;
 mod tx_stakes;
-use tx_stakes::{TxStakeConfig, TxStakeKey, TxTotalStake, get_tx_stake_key};
+use tx_stakes::{TxStakeConfig, TxTotalStake, get_tx_stake_key};
 mod ext;
 
 const DEFAULT_MANA_LIMIT: u32 = 20;
 const COL_ACCOUNT: &[u8] = &[0];
 const COL_CALLBACK: &[u8] = &[1];
 const COL_CODE: &[u8] = &[2];
+const COL_TX_STAKE: &[u8] = &[3];
+const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 
 // const does not allow function call, so have to resort to this
 fn system_account() -> AccountId {
     "system".to_string()
-}
-
-pub fn try_charge_mana(
-    &mut self,
-    account_id: &AccountId,
-    contract_id: &Option<AccountId>,
-    mana: Mana,
-) -> Option<AccountingInfo> {
-    let block_number = 1000;
-    let config = TxStakeConfig::default();
-    let mut acc_info_options = Vec::new();
-    // Trying to use contract specific quota first
-    if let Some(ref contract_id) = contract_id {
-        acc_info_options.push(AccountingInfo{
-            originator: account_id.clone(),
-            contract_id: Some(contract_id.clone()),
-        });
-    }
-    // Trying to use global quota
-    acc_info_options.push(AccountingInfo{
-        originator: account_id.clone(),
-        contract_id: None,
-    });
-    for accounting_info in acc_info_options {
-        let key = get_tx_stake_key(
-            &accounting_info.originator,
-            &accounting_info.contract_id,
-        );
-        if let Some(tx_total_stake) = self.tx_stake.get_mut(&key) {
-            tx_total_stake.update(block_number, &config);
-            if tx_total_stake.available_mana(&config) >= mana {
-                tx_total_stake.charge_mana(mana, &config);
-                return Some(accounting_info)
-            }
-        }
-    }
-    None
 }
 
 /// Per account information stored in the state.
@@ -160,6 +125,47 @@ pub struct Runtime {
 impl Runtime {
     pub fn new(state_db: Arc<StateDb>) -> Self {
         Runtime { state_db }
+    }
+
+    #[allow(unused)]
+    fn try_charge_mana(
+        &self,
+        state_update: &mut StateDbUpdate,
+        block_index: BlockIndex,
+        account_id: &AccountId,
+        contract_id: &Option<AccountId>,
+        mana: Mana,
+    ) -> Option<AccountingInfo> {
+        let config = TxStakeConfig::default();
+        let mut acc_info_options = Vec::new();
+        // Trying to use contract specific quota first
+        if let Some(ref contract_id) = contract_id {
+            acc_info_options.push(AccountingInfo{
+                originator: account_id.clone(),
+                contract_id: Some(contract_id.clone()),
+            });
+        }
+        // Trying to use global quota
+        acc_info_options.push(AccountingInfo{
+            originator: account_id.clone(),
+            contract_id: None,
+        });
+        for accounting_info in acc_info_options {
+            let key = get_tx_stake_key(
+                &accounting_info.originator,
+                &accounting_info.contract_id,
+            );
+            let tx_total_stake: Option<TxTotalStake> = get(state_update, &key);
+            if let Some(mut tx_total_stake) = tx_total_stake {
+                tx_total_stake.update(block_index, &config);
+                if tx_total_stake.available_mana(&config) >= mana {
+                    tx_total_stake.charge_mana(mana, &config);
+                    set(state_update, &key, &tx_total_stake);
+                    return Some(accounting_info)
+                }
+            }
+        }
+        None
     }
 
     fn send_money(
@@ -638,7 +644,7 @@ impl Runtime {
                 sender_id,
                 receiver_id,
             ).and_then(|receipts| {
-                receiver.amount = wasm_res.balance;
+                receiver.amount = balance;
                 Ok(receipts)
             })
         };
@@ -667,67 +673,59 @@ impl Runtime {
             .ok_or_else(|| format!("account {} does not have contract code", receiver_id.clone()))?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
-        let receipts = {
-            let mut runtime_ext = RuntimeExt::new(
-                state_update,
-                receiver_id,
-                nonce,
-            );
-        
-            match callback {
-                Some(mut callback) => {
-                    callback.results[callback_res.info.result_index] = callback_res.result.clone();
-                    callback.result_counter += 1;
-                    // if we have gathered all results, execute the callback
-                    if callback.result_counter == callback.results.len() {
-                        let mut runtime_ext = RuntimeExt::new(
-                            state_update,
-                            receiver_id,
-                            &callback.accounting_info,
-                            nonce,
-                        );
+        let receipts = match callback {
+            Some(mut callback) => {
+                callback.results[callback_res.info.result_index] = callback_res.result.clone();
+                callback.result_counter += 1;
+                // if we have gathered all results, execute the callback
+                if callback.result_counter == callback.results.len() {
+                    let mut runtime_ext = RuntimeExt::new(
+                        state_update,
+                        receiver_id,
+                        &callback.accounting_info,
+                        nonce,
+                    );
 
-                        mana_accounting.accounting_info = callback.accounting_info.clone();
-                        mana_accounting.mana_refund = callback.mana;
-                        needs_removal = true;
-                        let wasm_res = executor::execute(
-                            &code,
-                            &callback.method_name,
-                            &callback.args,
-                            &callback.results,
-                            &mut runtime_ext,
-                            &wasm::types::Config::default(),
-                            &RuntimeContext::new(
-                                receiver.amount,
-                                0,
-                                sender_id,
-                                receiver_id,
-                                callback.mana,
-                            ),
-                        ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
-                        mana_accounting.gas_used = wasm_res.gas_used;
-                        mana_accounting.mana_refund = wasm_res.mana_left;
-                        let balance = wasm_res.balance;
-                        let return_data = wasm_res.return_data
-                            .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))?;
-                        Self::return_data_to_receipts(
-                            &mut runtime_ext,
-                            return_data,
-                            &callback.callback,
+                    mana_accounting.accounting_info = callback.accounting_info.clone();
+                    mana_accounting.mana_refund = callback.mana;
+                    needs_removal = true;
+                    let wasm_res = executor::execute(
+                        &code,
+                        &callback.method_name,
+                        &callback.args,
+                        &callback.results,
+                        &mut runtime_ext,
+                        &wasm::types::Config::default(),
+                        &RuntimeContext::new(
+                            receiver.amount,
+                            0,
                             sender_id,
                             receiver_id,
-                        ).and_then(|receipts| {
-                            receiver.amount = balance;
-                            Ok(receipts)
-                        })?
-                    } else {
-                        // otherwise no receipt is generated
-                        vec![]
-                    }
-                },
-                _ => {
-                    return Err(format!("callback id: {:?} not found", callback_res.info.id));
+                            callback.mana,
+                        ),
+                    ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
+                    mana_accounting.gas_used = wasm_res.gas_used;
+                    mana_accounting.mana_refund = wasm_res.mana_left;
+                    let balance = wasm_res.balance;
+                    let return_data = wasm_res.return_data
+                        .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))?;
+                    Self::return_data_to_receipts(
+                        &mut runtime_ext,
+                        return_data,
+                        &callback.callback,
+                        sender_id,
+                        receiver_id,
+                    ).and_then(|receipts| {
+                        receiver.amount = balance;
+                        Ok(receipts)
+                    })?
+                } else {
+                    // otherwise no receipt is generated
+                    vec![]
                 }
+            },
+            _ => {
+                return Err(format!("callback id: {:?} not found", callback_res.info.id));
             }
         };
         
