@@ -67,8 +67,6 @@ pub struct Trie {
     null_node: CryptoHash,
 }
 
-// pub type TrieChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
-pub type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 pub type DBChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
 
 /// Converts array of bytes to array of half-bytes (e.g. values 0-15).
@@ -91,7 +89,7 @@ impl Trie {
     }
 
     pub fn empty_root() -> CryptoHash {
-        hash_struct(&TrieNode::Empty)
+        CryptoHash::default()
     }
 
     fn node_by_hash(&self, node_storage: &TrieNodeStorage, hash: &CryptoHash) -> Result<TrieNode, String> {
@@ -170,7 +168,6 @@ impl Trie {
                 Ok(node_storage.add(leaf_node))
             },
             TrieNode::Branch(branch) => {
-                let hash = branch.children[nibbles[position] as usize];
                 // If the key ends here, store the value in branch's value.
                 if position == nibbles.len() {
                     let mut branch_node = TrieBranch { children: [None; 16], value: Some(value.to_vec()) };
@@ -178,6 +175,7 @@ impl Trie {
                     node_storage.delete(node);
                     Ok(node_storage.add(TrieNode::Branch(branch_node)))
                 } else {
+                    let hash = branch.children[nibbles[position] as usize];
                     let new_hash = match hash {
                         Some(hash) => {
                             let child_node = self.node_by_hash(&node_storage, &hash)?;
@@ -360,24 +358,26 @@ impl Trie {
         self.print_node(node_storage, &root_node);
     }
 
-    pub fn update(&self, root: &CryptoHash, changes: TrieChanges) -> (CryptoHash, DBChanges) {
+    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> (DBChanges, CryptoHash)
+            where I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>{
         let mut node_storage = TrieNodeStorage::new();
         let mut last_root = *root;
         for (key, value) in changes {
             let mut root_node = self.node_by_hash(&node_storage, &last_root).expect("Failed to find root");
             let nibbles = vec_to_nibbles(&key);
-            println!("\nInserting {:?}, nibbles = {:?}", key, nibbles);
             match value {
                 Some(arr) => {
+//                    println!("\nInserting {:?}, nibbles = {:?}", key, nibbles);
                     last_root = self.insert(&mut node_storage, &root_node, &nibbles, 0, &arr).expect("Failed to insert");
-                    self.present(&node_storage, last_root);
+//                    self.present(&node_storage, last_root);
                 },
                 None => {
+                    // println!("\nDeleting {:?}, nibbles = {:?}", key, nibbles);
                     last_root = match self.delete(&mut node_storage, &root_node, &nibbles, 0).expect("Failed to delete") {
                         Some(value) => value,
                         None => self.null_node
                     };
-                    self.present(&node_storage, last_root);
+//                    self.present(&node_storage, last_root);
                 }
             }
         }
@@ -390,14 +390,14 @@ impl Trie {
         for hash in node_storage.remove_nodes {
             db_changes.insert(hash.as_ref().to_vec(), None);
         }
-        (last_root, db_changes)
+        (db_changes, last_root)
     }
 }
 
-fn apply_changes(storage: &Arc<KeyValueDB>, col: Option<u32>, changes: DBChanges) -> std::io::Result<()> {
+pub fn apply_changes(storage: &Arc<KeyValueDB>, col: Option<u32>, changes: DBChanges) -> std::io::Result<()> {
     let mut db_transaction = storage.transaction();
     for (key, value) in changes {
-        println!("{:?} {:?}", key, value);
+//        println!("{:?} {:?}", key, value);
         match value {
             Some(arr) => db_transaction.put(col, key.as_ref(), &arr),
             None => db_transaction.delete(col, key.as_ref())
@@ -411,8 +411,11 @@ mod tests {
     use super::*;
     use test_utils::create_memory_db;
 
+    type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
+
     fn test_populate_trie(storage: &Arc<KeyValueDB>, trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
-        let (root, db_changes) = trie.update(root, changes.clone());
+        let mut other_changes = changes.clone();
+        let (db_changes, root) = trie.update(root, other_changes.drain(..));
         apply_changes(storage, Some(0), db_changes).is_ok();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
@@ -422,7 +425,8 @@ mod tests {
 
     fn test_clear_trie(storage: &Arc<KeyValueDB>, trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
         let delete_changes: TrieChanges = changes.iter().map(|(key, _)| (key.clone(), None)).collect();
-        let (root, db_changes) = trie.update(root, delete_changes.clone());
+        let mut other_delete_changes = delete_changes.clone();
+        let (db_changes, root) = trie.update(root, other_delete_changes.drain(..));
         apply_changes(storage, Some(0), db_changes).is_ok();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
@@ -436,13 +440,13 @@ mod tests {
         let trie = Trie::new(storage.clone(), Some(0));
         let empty_root = Trie::empty_root();
         assert_eq!(trie.get(&empty_root, &[122]), None);
-        let changes: TrieChanges = vec![
+        let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
             (b"do".to_vec(), Some(b"verb".to_vec())),
             (b"horse".to_vec(), Some(b"stallion".to_vec())),
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
-        ]; //.iter().cloned().collect();
+        ];
         let root = test_populate_trie(&storage, &trie, &empty_root, changes.clone());
         let new_root = test_clear_trie(&storage, &trie, &root, changes);
         assert_eq!(new_root, empty_root);
@@ -452,7 +456,7 @@ mod tests {
     fn test_trie_same_node() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
         let trie = Trie::new(storage.clone(), Some(0));
-        let changes: TrieChanges = vec![
+        let changes = vec![
             (b"dogaa".to_vec(), Some(b"puppy".to_vec())),
             (b"dogbb".to_vec(), Some(b"puppy".to_vec())),
             (b"cataa".to_vec(), Some(b"puppy".to_vec())),

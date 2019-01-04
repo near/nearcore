@@ -39,10 +39,10 @@ fn runtime_send_money(bench: &mut Bencher) {
                 parent_block_hash: CryptoHash::default(),
                 block_index: 0
             };
-            let mut apply_result = runtime.apply_all(
+            let apply_result = runtime.apply_all(
                 apply_state, transactions
             );
-            runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+            runtime.state_db.commit(apply_result.transaction).unwrap();
             root = apply_result.root;
         }
     })

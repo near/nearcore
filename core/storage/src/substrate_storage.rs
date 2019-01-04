@@ -61,57 +61,57 @@ mod tests {
         (storage_transaction, root_after)
     }
 
-    #[test]
-    fn externalities() {
-        let kvdb = kvdb_memorydb::create(1 /*numColumns*/);
-        let root = CryptoHash::default();
-        let storage_db = Arc::new(StateDb::new(Arc::new(kvdb)));
-        let storage_db_copy = Arc::clone(&storage_db);
-
-        let backend: TrieBackend = TrieBackend::new(storage_db_copy, root);
-        let mut overlay = Default::default();
-
-        assert!(backend.storage(&b"dog".to_vec()).unwrap().is_none());
-        // transaction to apply to db with changes for the block
-        let (mut storage_transaction, root_after) = state_transition(&backend, &mut overlay);
-        overlay.commit_prospective();
-
-        // TODO: test rollback:
-        // overlay.discard_prospective() and don't apply transaction
-        assert!(backend.storage(&b"dog".to_vec()).unwrap().is_none());
-
-        // Apply changes to the storage
-
-        let mdb = storage_db.deref().storage.deref();
-
-        let mut transaction = mdb.transaction();
-
-        for x in mdb.iter(COL_STATE) {
-            println!("Entry in db before: {:?}", x);
-        }
-
-        for (k, (v, rc)) in storage_transaction.drain() {
-            if rc > 0 {
-                transaction.put(COL_STATE, k.as_ref(), &v.to_vec());
-            } else if rc < 0 {
-                transaction.delete(COL_STATE, k.as_ref());
-            }
-        }
-
-        for (k, v) in overlay.into_committed() {
-            println!("overlay entry: {:?} {:?}", k, v);
-        }
-
-        mdb.write(transaction).expect("write to db");
-        for x in mdb.iter(COL_STATE) {
-            println!("Entry in db after: {:?}", x);
-        }
-
-        let storage_db_copy = Arc::clone(&storage_db);
-        let backend: TrieBackend = TrieBackend::new(storage_db_copy, root_after);
-
-        let puppy =
-            backend.storage(&b"dog3".to_vec()).unwrap().expect("the key should be in the backend");
-        assert_eq!(b"puppy3".to_vec(), puppy);
-    }
+//    #[test]
+//    fn externalities() {
+//        let kvdb = kvdb_memorydb::create(1 /*numColumns*/);
+//        let root = CryptoHash::default();
+//        let storage_db = Arc::new(StateDb::new(Arc::new(kvdb)));
+//        let storage_db_copy = Arc::clone(&storage_db);
+//
+//        let backend: TrieBackend = TrieBackend::new(storage_db_copy, root);
+//        let mut overlay = Default::default();
+//
+//        assert!(backend.storage(&b"dog".to_vec()).unwrap().is_none());
+//        // transaction to apply to db with changes for the block
+//        let (mut storage_transaction, root_after) = state_transition(&backend, &mut overlay);
+//        overlay.commit_prospective();
+//
+//        // TODO: test rollback:
+//        // overlay.discard_prospective() and don't apply transaction
+//        assert!(backend.storage(&b"dog".to_vec()).unwrap().is_none());
+//
+//        // Apply changes to the storage
+//
+//        let mdb = storage_db.deref().storage.deref();
+//
+//        let mut transaction = mdb.transaction();
+//
+//        for x in mdb.iter(COL_STATE) {
+//            println!("Entry in db before: {:?}", x);
+//        }
+//
+//        for (k, (v, rc)) in storage_transaction.drain() {
+//            if rc > 0 {
+//                transaction.put(COL_STATE, k.as_ref(), &v.to_vec());
+//            } else if rc < 0 {
+//                transaction.delete(COL_STATE, k.as_ref());
+//            }
+//        }
+//
+//        for (k, v) in overlay.into_committed() {
+//            println!("overlay entry: {:?} {:?}", k, v);
+//        }
+//
+//        mdb.write(transaction).expect("write to db");
+//        for x in mdb.iter(COL_STATE) {
+//            println!("Entry in db after: {:?}", x);
+//        }
+//
+//        let storage_db_copy = Arc::clone(&storage_db);
+//        let backend: TrieBackend = TrieBackend::new(storage_db_copy, root_after);
+//
+//        let puppy =
+//            backend.storage(&b"dog3".to_vec()).unwrap().expect("the key should be in the backend");
+//        assert_eq!(b"puppy3".to_vec(), puppy);
+//    }
 }

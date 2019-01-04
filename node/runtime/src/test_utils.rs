@@ -74,11 +74,11 @@ impl Runtime {
         let mut cur_apply_state = apply_state;
         let mut cur_transactions = transactions;
         loop {
-            let mut apply_result = self.apply(&cur_apply_state, &[], cur_transactions);
+            let apply_result = self.apply(&cur_apply_state, &[], cur_transactions);
             if apply_result.new_receipts.is_empty() {
                 return apply_result;
             }
-            self.state_db.commit(&mut apply_result.transaction).unwrap();
+            self.state_db.commit(apply_result.transaction).unwrap();
             cur_apply_state = ApplyState {
                 root: apply_result.root,
                 shard_id: cur_apply_state.shard_id,

@@ -9,8 +9,8 @@ use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 use super::{account_id_to_bytes, create_nonce_with_nonce};
 
-pub struct RuntimeExt<'a, 'b: 'a> {
-    state_db_update: &'a mut StateDbUpdate<'b>,
+pub struct RuntimeExt<'a> {
+    state_db_update: &'a mut StateDbUpdate,
     storage_prefix: Vec<u8>,
     pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
     pub callbacks: HashMap<CallbackId, Callback>,
@@ -19,9 +19,9 @@ pub struct RuntimeExt<'a, 'b: 'a> {
     transaction_hash: &'a [u8],
 }
 
-impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
+impl<'a> RuntimeExt<'a> {
     pub fn new(
-        state_db_update: &'a mut StateDbUpdate<'b>,
+        state_db_update: &'a mut StateDbUpdate,
         account_id: &AccountId,
         transaction_hash: &'a [u8]
     ) -> Self {
@@ -55,7 +55,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     }
 }
 
-impl<'a, 'b> External for RuntimeExt<'a, 'b> {
+impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
