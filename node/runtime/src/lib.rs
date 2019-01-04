@@ -43,34 +43,14 @@ pub mod state_viewer;
 mod ext;
 
 const DEFAULT_MANA_LIMIT: u32 = 20;
-const COL_ACCOUNT: &[u8] = b"ACCOUNT";
-const COL_CALLBACK: &[u8] = b"CALLBACK";
-const COL_CODE: &[u8] = b"CODE";
+const COL_ACCOUNT: &[u8] = b"0";
+const COL_CALLBACK: &[u8] = b"1";
+const COL_CODE: &[u8] = b"2";
 
 // const does not allow function call, so have to resort to this
 fn system_account() -> AccountId {
     "system".to_string()
 }
-
-/// Runtime data that is stored in the state.
-/// TODO: Look into how to store this not in a single element of the StateDb.
-//#[derive(Default, Serialize, Deserialize)]
-//pub struct RuntimeData {
-//    /// Currently staked money.
-//    pub stake: HashMap<AccountId, u64>,
-//    /// scheduled callbacks
-//    pub callbacks: HashMap<CallbackId, Callback>,
-//}
-//
-//impl RuntimeData {
-//    pub fn get_stake_for_account(&self, account_id: &AccountId) -> u64 {
-//        self.stake.get(account_id).cloned().unwrap_or(0)
-//    }
-//
-//    pub fn put_stake_for_account(&mut self, account_id: &AccountId, amount: u64) {
-//        self.stake.insert(account_id.clone(), amount);
-//    }
-//}
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
