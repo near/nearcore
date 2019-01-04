@@ -172,7 +172,7 @@ impl Trie {
             TrieNode::Branch(branch) => {
                 let hash = branch.children[nibbles[position] as usize];
                 // If the key ends here, store the value in branch's value.
-                if position + 1 == nibbles.len() {
+                if position == nibbles.len() {
                     let mut branch_node = TrieBranch { children: [None; 16], value: Some(value.to_vec()) };
                     branch_node.children.clone_from_slice(&branch.children);
                     node_storage.delete(node);
@@ -246,7 +246,7 @@ impl Trie {
                         branch_value = Some(value.to_vec());
                     }
                     let mut branch_node = TrieBranch { children: [None; 16], value: branch_value };
-                    if ext.key.len() > prefix {
+                    if ext.key.len() > prefix + 1 {
                         let prev_ext = TrieNode::Extension(TrieExtension { key: ext.key[prefix + 1..].to_vec(), child: ext.child });
                         branch_node.children[ext.key[prefix] as usize] = Some(node_storage.add(prev_ext));
                     } else {
@@ -269,8 +269,76 @@ impl Trie {
         }
     }
 
+    fn delete(&self, node_storage: &mut TrieNodeStorage, node: &TrieNode, nibbles: &[u8], position: usize) -> Result<Option<CryptoHash>, String> {
+        match node {
+            TrieNode::Empty => {
+                Err("Removing empty node".to_string())
+            },
+            TrieNode::Leaf(leaf) => {
+                if *leaf.key == nibbles[position..] {
+                    node_storage.delete(node);
+                    Ok(None)
+                } else {
+                    Err("Deleting missing leaf node".to_string())
+                }
+            },
+            TrieNode::Branch(branch) => {
+                if position == nibbles.len() {
+                    node_storage.delete(node);
+                    let mut branch_node = TrieBranch { children: [None; 16], value: None };
+                    branch_node.children.clone_from_slice(&branch.children);
+                    if branch_node.children.iter().filter(|x| x.is_some()).count() == 0 {
+                        Ok(None)
+                    } else {
+                        Ok(Some(node_storage.add(TrieNode::Branch(branch_node))))
+                    }
+                } else {
+                    let hash = branch.children[nibbles[position] as usize];
+                    match hash {
+                        Some(hash) => {
+                            let sub_node = self.node_by_hash(&node_storage, &hash)?;
+                            match self.delete(node_storage, &sub_node, nibbles, position + 1) {
+                                Ok(new_value) => {
+                                    let mut branch_node = TrieBranch { children: [None; 16], value: branch.value.clone() };
+                                    branch_node.children.clone_from_slice(&branch.children);
+                                    branch_node.children[nibbles[position] as usize] = new_value;
+                                    if branch_node.children.iter().filter(|x| x.is_some()).count() == 0 && branch_node.value.is_none() {
+                                        Ok(None)
+                                    } else {
+                                        Ok(Some(node_storage.add(TrieNode::Branch(branch_node))))
+                                    }
+                                },
+                                Err(e) => Err(e)
+                            }
+                        },
+                        _ => Err("Deleting missing leaf node".to_string())
+                    }
+                }
+            },
+            TrieNode::Extension(ext) => {
+                let mut prefix = 0;
+                while prefix < ext.key.len() && prefix + position < nibbles.len() && ext.key[prefix] == nibbles[prefix + position] {
+                    prefix += 1;
+                }
+                if prefix == ext.key.len() {
+                    let sub_node = self.node_by_hash(&node_storage, &ext.child)?;
+                    match self.delete(node_storage, &sub_node, nibbles, position + ext.key.len()) {
+                        Ok(Some(new_value)) => {
+                            let ext_node = TrieNode::Extension(TrieExtension { key: ext.key.clone(), child: new_value });
+                            Ok(Some(node_storage.add(ext_node)))
+                        },
+                        Ok(None) => Ok(None),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    Err("No node".to_string())
+                }
+            }
+        }
+    }
+
     fn print_node(&self, node_storage: &TrieNodeStorage, node: &TrieNode) {
-        println!("{:?}", node);
+        println!("{:?}: {:?}", hash_struct(&node), node);
         match node {
             TrieNode::Branch(branch) => {
                 for child in branch.children.iter() {
@@ -294,7 +362,7 @@ impl Trie {
 
     pub fn update(&self, root: &CryptoHash, changes: TrieChanges) -> (CryptoHash, DBChanges) {
         let mut node_storage = TrieNodeStorage::new();
-        let mut last_root = root.clone();
+        let mut last_root = *root;
         for (key, value) in changes {
             let mut root_node = self.node_by_hash(&node_storage, &last_root).expect("Failed to find root");
             let nibbles = vec_to_nibbles(&key);
@@ -305,7 +373,11 @@ impl Trie {
                     self.present(&node_storage, last_root);
                 },
                 None => {
-                    // last_root = self.delete(&mut node_)
+                    last_root = match self.delete(&mut node_storage, &root_node, &nibbles, 0).expect("Failed to delete") {
+                        Some(value) => value,
+                        None => self.null_node
+                    };
+                    self.present(&node_storage, last_root);
                 }
             }
         }
@@ -353,7 +425,6 @@ mod tests {
         let (root, db_changes) = trie.update(root, delete_changes.clone());
         apply_changes(storage, Some(0), db_changes).is_ok();
         for (key, _) in delete_changes {
-//            println!("Get {:?} {:?}", key, vec_to_nibbles(&key));
             assert_eq!(trie.get(&root, &key), None);
         }
         root
@@ -366,14 +437,28 @@ mod tests {
         let empty_root = Trie::empty_root();
         assert_eq!(trie.get(&empty_root, &[122]), None);
         let changes: TrieChanges = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
             (b"do".to_vec(), Some(b"verb".to_vec())),
-            (b"dog".to_vec(), Some(b"puppy".to_vec())),
-            (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"horse".to_vec(), Some(b"stallion".to_vec())),
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
         ]; //.iter().cloned().collect();
         let root = test_populate_trie(&storage, &trie, &empty_root, changes.clone());
-//        let new_root = test_clear_trie(&storage, &trie, &root, changes);
-//        assert_eq!(new_root, empty_root)
+        let new_root = test_clear_trie(&storage, &trie, &root, changes);
+        assert_eq!(new_root, empty_root);
+    }
+
+    #[test]
+    fn test_trie_same_node() {
+        let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
+        let trie = Trie::new(storage.clone(), Some(0));
+        let changes: TrieChanges = vec![
+            (b"dogaa".to_vec(), Some(b"puppy".to_vec())),
+            (b"dogbb".to_vec(), Some(b"puppy".to_vec())),
+            (b"cataa".to_vec(), Some(b"puppy".to_vec())),
+            (b"catbb".to_vec(), Some(b"puppy".to_vec())),
+            (b"dogax".to_vec(), Some(b"puppy".to_vec())),
+        ];
+        test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
     }
 }
