@@ -1,0 +1,130 @@
+/// Creates HashMap.
+/// # Examples:
+///
+/// ```
+/// let m = map!{0 => 1, 2 => 3};
+/// assert_eq!(m.len(), 2);
+/// ```
+#[allow(unused_macros)]
+macro_rules! map(
+        { $($key:expr => $value:expr),+ } => {
+            {
+                let mut m = ::std::collections::HashMap::new();
+                $(
+                    m.insert($key, $value);
+                )+
+                m
+            }
+        };
+    );
+
+/// Creates HashSet.
+/// # Examples:
+///
+/// ```
+/// let s = set!{2, 1};
+/// assert_eq!(s.len(), 2);
+/// ```
+#[allow(unused_macros)]
+macro_rules! set(
+        { $($el:expr),+ } => {
+            {
+                let mut s = ::std::collections::HashSet::new();
+                $(
+                    s.insert($el);
+                )+
+                s
+            }
+        };
+    );
+
+/// Binds a tuple to a vector.
+/// # Examples:
+///
+/// ```
+/// let v = vec![1,2,3];
+/// tuplet!((a,b,c) = v);
+/// assert_eq!(a, &1);
+/// assert_eq!(b, &2);
+/// assert_eq!(c, &3);
+/// ```
+#[allow(unused_macros)]
+macro_rules! tuplet {
+    { ($y:ident $(, $x:ident)*) = $v:expr } => {
+        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]) );
+    };
+    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*) } => {
+        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]) )
+    };
+    { $v:expr ; $j:expr ; () ; $accu:expr } => {
+        $accu
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use primitives::traits::{Payload, WitnessSelector};
+    use primitives::types::UID;
+    use std::collections::HashSet;
+    use typed_arena::Arena;
+    use dag::message::Message;
+
+    struct FakeNonContinuousWitnessSelector {
+        num_users: u64,
+        users: HashSet<UID>,
+    }
+
+    impl FakeNonContinuousWitnessSelector {
+        fn new(num_users: u64) -> Self {
+            let mut users = set!{0};
+            for i in 1..num_users {
+                users.insert(i);
+            }
+            Self { num_users, users }
+        }
+    }
+
+    impl WitnessSelector for FakeNonContinuousWitnessSelector {
+        fn epoch_witnesses(&self, _epoch: u64) -> &HashSet<UID> {
+            &self.users
+        }
+        fn epoch_leader(&self, epoch: u64) -> UID {
+            epoch % self.num_users
+        }
+        fn random_witnesses(&self, _epoch: u64, _sample_size: usize) -> HashSet<UID> {
+            unimplemented!()
+        }
+    }
+
+    fn make_assertions<P: Payload>(messages: &[Option<&Message<P>>], assertions: &[(u64, Option<u64>, bool, u64)]) {
+        for it in messages.iter().zip(assertions.iter()) {
+            let (msg, a) = it;
+            if let Some(msg) = msg.as_ref() {
+                // If this assert triggers, the last element of tuples indicates the node uid
+                assert_eq!((a.0, a.1, a.2, a.3), (msg.computed_epoch, msg.computed_is_representative, msg.computed_is_kickout, a.3));
+            }
+        }
+    }
+
+    fn epoch_representative_approved_by<P: Payload>(message: &Message<P>, epoch: u64, owner: u64) -> bool {
+       message.approved_endorsements.contains_any_approval(epoch, owner) ||
+           (owner == message.data.body.owner_uid && message.computed_endorsements.contains_epoch(epoch)) ||
+           (owner == message.data.body.owner_uid && Some(epoch) == message.computed_is_representative)
+    }
+
+    fn test_endorsements<P: Payload>(message: &Message<P>, endorsements: &[Vec<u64>], num_users: u64) {
+        for epoch in 0..endorsements.len() {
+            let who = &endorsements[epoch];
+            let mut lst = 0;
+
+            for i in 0..num_users {
+                if lst < who.len() && who[lst] == i {
+                    assert!(epoch_representative_approved_by(message, epoch as u64, i), "epoch: {}, i: {}, {:?}", epoch, i, message.computed_endorsements);
+                    lst += 1;
+                }
+                else {
+                    assert!(!epoch_representative_approved_by(message, epoch as u64, i), "epoch: {}, i: {}", epoch, i);
+                }
+            }
+        }
+    }

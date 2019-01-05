@@ -564,5 +564,8 @@ var gen_rust = function(graph, num_users, fn_name, comment, serialized) {
 if (typeof module !== 'undefined') {
     module.exports.deserialize_txflow = deserialize_txflow;
     module.exports.gen_rust = gen_rust;
+    module.exports.create_node = create_node;
+    module.exports.compute_annotations = compute_annotations;
+    module.exports.toposort = toposort;
 }
 
