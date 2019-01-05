@@ -1037,16 +1037,6 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.call_function(
-            &alice_account(),
-            &alice_account(),
-            "run_test",
-            &vec![],
-        );
-        assert_eq!(
-            result2.unwrap(),
-            vec![20, 0, 0, 0],
-        );
     }
 
     #[test]
@@ -1558,7 +1548,7 @@ mod tests {
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_ne!(root, apply_result.root);
+        assert_eq!(root, apply_result.root);
     }
 
     #[test]
@@ -1586,7 +1576,7 @@ mod tests {
             assert_eq!(new_receipt.originator, bob_account());
             assert_eq!(new_receipt.receiver, alice_account());
             let callback_res = CallbackResult::new(
-                callback_info.clone(), Some(encode_int(20).to_vec())
+                callback_info.clone(), Some(encode_int(10).to_vec())
             );
             assert_eq!(new_receipt.body, ReceiptBody::Callback(callback_res));
         } else {

@@ -149,7 +149,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(20)),
+            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(10)),
             _ => assert!(false, "Expected returned value"),
         };
     }

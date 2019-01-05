@@ -158,6 +158,11 @@ pub fn get_int(key: u32) -> i32 {
 
 #[no_mangle]
 pub fn run_test() {
+    return_i32(10)
+}
+
+#[no_mangle]
+pub fn run_test_with_storage_change() {
     put_int(10, 20);
     put_int(50, 150);
     let res = get_int(10);
