@@ -101,47 +101,51 @@ impl StateDbViewer {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
             .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
-        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
-            Some(account) => {
-                let mut result = vec![];
-                let mut runtime_ext = RuntimeExt::new(
-                    &mut state_update,
-                    contract_id,
-                    &[],
-                );
-                
-                let wasm_res = executor::execute(
-                    &code,
-                    method_name.as_bytes(),
-                    &args.to_owned(),
-                    &[],
-                    &mut runtime_ext,
-                    &wasm::types::Config::default(),
-                    &RuntimeContext::new(
-                        account.amount,
-                        0,
-                        originator_id,
+        let wasm_res = {
+            match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
+                Some(account) => {
+                    let mut runtime_ext = RuntimeExt::new(
+                        &mut state_update,
                         contract_id,
-                        0,
-                    ),
-                );
-                match wasm_res {
-                    Ok(res) => {
-                        debug!(target: "runtime", "result of execution: {:?}", res);
-                        // TODO: Handle other ExecutionOutcome results
-                        if let ReturnData::Value(buf) = res.return_data {
-                            result.extend(&buf);
-                        }
-                        Ok(result)
-                    }
-                    Err(e) => {
-                        let message = format!("wasm execution failed with error: {:?}", e);
-                        debug!(target: "runtime", "{}", message);
-                        Err(message)
-                    }
+                        &[],
+                    );
+                    executor::execute(
+                        &code,
+                        method_name.as_bytes(),
+                        &args.to_owned(),
+                        &[],
+                        &mut runtime_ext,
+                        &wasm::types::Config::default(),
+                        &RuntimeContext::new(
+                            account.amount,
+                            0,
+                            originator_id,
+                            contract_id,
+                            0,
+                        ),
+                    )
                 }
+                None => return Err(format!("contract {} does not exist", contract_id))
             }
-            None => Err(format!("contract {} does not exist", contract_id))
+        };
+        match wasm_res {
+            Ok(res) => {
+                debug!(target: "runtime", "result of execution: {:?}", res);
+                let (_, root_after) = state_update.finalize();
+                if root_after != root {
+                    return Err("function call for viewing tried to change storage".to_string());
+                }
+                let mut result = vec![];
+                if let ReturnData::Value(buf) = res.return_data {
+                    result.extend(&buf);
+                }
+                Ok(result)
+            }
+            Err(e) => {
+                let message = format!("wasm execution failed with error: {:?}", e);
+                debug!(target: "runtime", "{}", message);
+                Err(message)
+            }
         }
     }
 
@@ -177,13 +181,28 @@ mod tests {
     fn test_view_call() {
         let viewer = get_test_state_db_viewer();
 
-        let view_call_result = viewer.call_function(
+        let result = viewer.call_function(
             &alice_account(),
             &alice_account(),
             "run_test",
             &vec![]
         );
-        assert_eq!(view_call_result.unwrap(), encode_int(20).to_vec());
+
+        assert_eq!(result.unwrap(), encode_int(10));
+    }
+
+    #[test]
+    fn test_view_call_try_changing_storage() {
+        let viewer = get_test_state_db_viewer();
+
+        let result = viewer.call_function(
+            &alice_account(),
+            &alice_account(),
+            "run_test_with_storage_change",
+            &vec![]
+        );
+        // run_test tries to change storage, so it should fail
+        assert!(result.is_err());
     }
 
     #[test]
