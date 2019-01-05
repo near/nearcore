@@ -133,7 +133,7 @@ impl StateDbViewer {
                 debug!(target: "runtime", "result of execution: {:?}", res);
                 let (_, root_after) = state_update.finalize();
                 if root_after != root {
-                    return Err("function call tried to change storage".to_string());
+                    return Err("function call for viewing tried to change storage".to_string());
                 }
                 let mut result = vec![];
                 if let ReturnData::Value(buf) = res.return_data {
