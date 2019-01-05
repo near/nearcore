@@ -7,6 +7,7 @@ extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate elastic_array;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,7 +18,8 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use primitives::types::MerkleHash;
 pub use trie::DBChanges;
 
-mod trie;
+mod nibble_slice;
+pub mod trie;
 pub mod test_utils;
 
 pub const COL_STATE: Option<u32> = Some(0);
