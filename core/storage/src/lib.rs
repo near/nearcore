@@ -1,13 +1,15 @@
+extern crate elastic_array;
 #[cfg(test)]
 extern crate hex_literal;
 extern crate kvdb;
 extern crate kvdb_memorydb;
 extern crate kvdb_rocksdb;
+#[macro_use]
+extern crate log;
 extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate elastic_array;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -63,8 +65,23 @@ impl StateDbUpdate {
     pub fn delete(&mut self, key: &[u8]) {
         self.prospective.insert(key.to_vec(), None);
     }
-    pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, _prefix: &[u8], _f: F) {
-        // TODO: iterate over keys.
+    pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
+        // TODO: join with iterating over committed / perspective overlay here.
+        let mut iter = move || -> Result<(), String> {
+            let mut iter  = self.state_db.trie.iter(&self.root)?;
+            iter.seek(prefix)?;
+            for x in iter {
+                let (key, _) = x?;
+                if !key.starts_with(prefix) {
+                    break;
+                }
+                f(&key);
+            }
+            Ok(())
+        };
+        if let Err(e) = iter() {
+            debug!(target: "trie", "Error while iterating by prefix: {}", e);
+        }
     }
     pub fn commit(&mut self) {
         if self.committed.is_empty() {

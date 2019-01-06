@@ -38,7 +38,7 @@ enum TrieNodeData {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct TrieNode {
     data: TrieNodeData,
-    rc: u32,
+    rc: i32,
 }
 
 struct TrieNodeStorage {
@@ -46,7 +46,7 @@ struct TrieNodeStorage {
     column: Option<u32>,
     null_node: CryptoHash,
     nodes: HashMap<CryptoHash, TrieNode>,
-    remove_nodes: HashSet<CryptoHash>,
+    hashes: u32,
 }
 
 impl TrieNodeStorage {
@@ -56,12 +56,13 @@ impl TrieNodeStorage {
             column,
             null_node,
             nodes: HashMap::new(),
-            remove_nodes: HashSet::new(),
+            hashes: 0,
         }
     }
 
     fn add(&mut self, node: TrieNodeData) -> CryptoHash {
         let hash = hash_struct(&node);
+        self.hashes += 1;
         match self.get(&hash) {
             Some(_) => {
                 self.nodes.entry(hash).and_modify(|e| e.rc += 1);
@@ -74,13 +75,11 @@ impl TrieNodeStorage {
     }
 
     fn delete(&mut self, node: &TrieNode) {
-        let hash = hash_struct(node);
-        // Is there better way to implement this?
+        let hash = hash_struct(&node.data);
+        self.hashes += 1;
         if let Some(node) = self.nodes.get_mut(&hash) {
+            assert!(node.rc > 0, format!("{:?}", node));
             node.rc -= 1;
-            if node.rc == 0 {
-                self.remove_nodes.insert(hash);
-            }
         }
     }
 
@@ -191,10 +190,10 @@ impl Trie {
         }
     }
 
-    fn insert(&self, node_storage: &mut TrieNodeStorage, node: &TrieNode, partial: NibbleSlice, value: &[u8]) -> Result<CryptoHash, String> {
+    fn insert(&self, node_storage: &mut TrieNodeStorage, node: &TrieNode, partial: NibbleSlice, value: Vec<u8>) -> Result<CryptoHash, String> {
         match node.data {
             TrieNodeData::Empty => {
-                let leaf_node = TrieNodeData::Leaf(TrieLeaf { key: partial.encoded(true).into_vec(), value: value.to_vec() });
+                let leaf_node = TrieNodeData::Leaf(TrieLeaf { key: partial.encoded(true).into_vec(), value });
                 Ok(node_storage.add(leaf_node))
             },
             TrieNodeData::Branch(ref branch) => {
@@ -215,7 +214,7 @@ impl Trie {
                             }?
                         },
                         _ => {
-                            let leaf_node = TrieNodeData::Leaf(TrieLeaf { key: partial.encoded(true).into_vec(), value: value.to_vec() });
+                            let leaf_node = TrieNodeData::Leaf(TrieLeaf { key: partial.encoded(true).into_vec(), value });
                             node_storage.add(leaf_node)
                         }
                     };
@@ -252,7 +251,7 @@ impl Trie {
                     let low = TrieNodeData::Leaf(TrieLeaf { key: existing_key.mid(common_prefix).encoded(true).into_vec(), value: leaf.value.clone()});
                     let low = node_storage.emplace(node, low);
                     let child = self.insert(node_storage, &low, partial.mid(common_prefix), value)?;
-                    Ok(node_storage.replace(&low, TrieNodeData::Extension(
+                    Ok(node_storage.add(TrieNodeData::Extension(
                         TrieExtension { key: partial.encoded_leftmost(common_prefix, false).into_vec(), child })))
                 }
             },
@@ -283,7 +282,7 @@ impl Trie {
                     let low = TrieNodeData::Extension(TrieExtension { key: existing_key.mid(common_prefix).encoded(false).into_vec(), child: ext.child});
                     let low = node_storage.emplace(node, low);
                     let child = self.insert(node_storage, &low, partial.mid(common_prefix), value)?;
-                    Ok(node_storage.replace(&low, TrieNodeData::Extension(TrieExtension { key: existing_key.encoded_leftmost(common_prefix, false).into_vec(), child })))
+                    Ok(node_storage.add(TrieNodeData::Extension(TrieExtension { key: existing_key.encoded_leftmost(common_prefix, false).into_vec(), child })))
                 }
             }
         }
@@ -341,6 +340,7 @@ impl Trie {
                     (existing_key.common_prefix(&partial), existing_key.len())
                 };
                 if common_prefix == existing_len {
+                    node_storage.delete(node);
                     match node_storage.get(&ext.child) {
                         Some(sub_node) => {
                             match self.delete(node_storage, &sub_node, partial.mid(common_prefix)) {
@@ -400,36 +400,183 @@ impl Trie {
             match value {
                 Some(arr) => {
 //                    println!("\nInserting {:?}", key);
-                    last_root = self.insert(&mut node_storage, &root_node, key, &arr).expect("Failed to insert");
+                    last_root = self.insert(&mut node_storage, &root_node, key, arr).expect("Failed to insert");
 //                    self.present(&mut node_storage, last_root);
                 },
                 None => {
-                    // println!("\nDeleting {:?}, nibbles = {:?}", key, nibbles);
+//                    println!("\nDeleting {:?}", key);
                     last_root = match self.delete(&mut node_storage, &root_node, key).expect("Failed to delete") {
                         Some(value) => value,
                         None => self.null_node
                     };
-//                    self.present(&node_storage, last_root);
+//                    self.present(&mut node_storage, last_root);
                 }
             }
         }
         let mut db_changes = HashMap::default();
         for (hash, node) in node_storage.nodes {
-            if !node_storage.remove_nodes.contains(&hash) && node.rc > 0 {
+            if node.rc > 0 {
                 db_changes.insert(hash.as_ref().to_vec(), node.encode());
+            } else {
+                db_changes.insert(hash.as_ref().to_vec(), None);
             }
         }
-        for hash in node_storage.remove_nodes {
-            db_changes.insert(hash.as_ref().to_vec(), None);
-        }
+        // println!("Hashes: {}", node_storage.hashes);
         (db_changes, last_root)
+    }
+
+    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<Box<TrieIterator<'a>>, String> {
+        TrieIterator::new(self, root).map(|iter| Box::new(iter) as Box<_>)
+    }
+}
+
+pub type TrieItem<'a> = Result<(Vec<u8>, DBValue), String>;
+
+enum CrumbStatus {
+    Entering,
+    At,
+    AtChild(usize),
+    Exiting,
+}
+
+struct Crumb {
+    node: TrieNode,
+    status: CrumbStatus,
+}
+
+pub struct TrieIterator<'a> {
+    db: &'a Trie,
+    trail: Vec<Crumb>,
+    key_nibbles: Vec<u8>,
+    root: CryptoHash,
+    node_storage: TrieNodeStorage,
+}
+
+impl<'a> TrieIterator<'a> {
+    /// Create a new iterator.
+    pub fn new(db: &'a Trie, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
+        let mut r = TrieIterator {
+            db,
+            trail: Vec::with_capacity(8),
+            key_nibbles: Vec::with_capacity(64),
+            root: *root,
+            node_storage: TrieNodeStorage::new(db.storage.clone(), db.column, db.null_node)
+        };
+        if let Some(node) = r.node_storage.get(root) {
+            r.trail.push(Crumb {node, status: CrumbStatus::At});
+            return Ok(r);
+        }
+        Err(format!("Root hash {} not found", root))
+    }
+
+    /// Position the iterator on the first element with key => `key`.
+    pub fn seek(&mut self, key: &[u8]) -> Result<(), String> {
+        self.trail.clear();
+        self.key_nibbles.clear();
+        let mut hash = self.root;
+        let mut key = NibbleSlice::new(key);
+        loop {
+           if let Some(node) = self.node_storage.get(&hash) {
+               match node.data {
+                   TrieNodeData::Empty => return Ok(()),
+                   TrieNodeData::Leaf(ref leaf) => {
+                       let existing_key = NibbleSlice::from_encoded(&leaf.key).0;
+                        self.trail.push(Crumb {
+                            status: if existing_key >= key { CrumbStatus::Entering } else { CrumbStatus::Exiting },
+                            node: node.clone(),
+                        });
+                       self.key_nibbles.extend(existing_key.iter());
+                       return Ok(())
+                   },
+                   TrieNodeData::Branch(ref branch) => {
+                       if key.is_empty() {
+                           self.trail.push(Crumb {
+                               status: CrumbStatus::Entering,
+                               node: node.clone()
+                           });
+                           return Ok(())
+                       } else {
+                           let idx = key.at(0) as usize;
+                           self.trail.push(Crumb {
+                              status: CrumbStatus::AtChild(idx as usize),
+                               node: node.clone()
+                           });
+                           self.key_nibbles.push(key.at(0));
+                           if let Some(ref child) = branch.children[idx] {
+                               hash = *child;
+                               key = key.mid(1);
+                           } else {
+                               return Ok(());
+                           }
+                       }
+                   },
+                   TrieNodeData::Extension(ref ext) => {
+                       let existing_key = NibbleSlice::from_encoded(&ext.key).0;
+                       if key.starts_with(&existing_key) {
+                           self.trail.push(Crumb {
+                              status: CrumbStatus::At,
+                               node: node.clone()
+                           });
+                           self.key_nibbles.extend(existing_key.iter());
+                           hash = ext.child;
+                           key = key.mid(existing_key.len());
+                       } else {
+                           // ???
+                           return Ok(());
+                       }
+                   }
+               }
+           } else {
+               return Err(format!("Node {} not found", hash));
+           }
+        }
+    }
+
+    fn descend_into_node(&mut self, node: &TrieNode) {
+        self.trail.push(Crumb {
+           status: CrumbStatus::Entering, node: node.clone()
+        });
+//        match &self.trail.last().expect("Just pushed item").node.data {
+//            TrieNodeData::
+//        }
+    }
+}
+
+impl<'a> Iterator for TrieIterator<'a> {
+    type Item = TrieItem<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(Ok((vec![], DBValue::from_slice(b"test"))))
+//        enum IterStep<'b> {
+//            Continue,
+//            PopTrail,
+//            Descend(Result<Cow<'b, DBValue>, String>),
+//        }
+//        loop {
+//            let iter_step = {
+//
+//            };
+//
+//            match iter_step {
+//                IterStep::PopTrail => {
+//                    self.trail.pop();
+//                },
+//                IterStep::Descend(Ok(d)) => {
+//                    let node =
+//                },
+//                IterStep::Descend(Err(r)) => {
+//                    return Some(Err(e))
+//                },
+//                IterStep::Continue => {},
+//            }
+//        }
     }
 }
 
 pub fn apply_changes(storage: &Arc<KeyValueDB>, col: Option<u32>, changes: DBChanges) -> std::io::Result<()> {
     let mut db_transaction = storage.transaction();
     for (key, value) in changes {
-//        println!("{:?} {:?}", key, value);
+        // println!("{:?} {:?}", CryptoHash::new(&key), value.is_some());
         match value {
             Some(arr) => db_transaction.put(col, key.as_ref(), &arr),
             None => db_transaction.delete(col, key.as_ref())
@@ -483,6 +630,29 @@ mod tests {
         let root = test_populate_trie(&storage, &trie, &empty_root, changes.clone());
         let new_root = test_clear_trie(&storage, &trie, &root, changes);
         assert_eq!(new_root, empty_root);
+        assert_eq!(storage.iter(Some(0)).fold(0, |acc, _| acc + 1), 0);
+    }
+
+    #[test]
+    fn test_trie_iter() {
+        let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
+        let trie = Trie::new(storage.clone(), Some(0));
+        let pairs = vec![
+            (b"a".to_vec(), Some(b"111".to_vec())),
+            (b"b".to_vec(), Some(b"222".to_vec())),
+            (b"x".to_vec(), Some(b"333".to_vec())),
+            (b"y".to_vec(), Some(b"444".to_vec()))];
+        let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), pairs.clone());
+//        let mut iter_pairs = vec![];
+//        for pair in trie.iter(&root).unwrap() {
+//            let (key, value) = pair.unwrap();
+//            iter_pairs.push((key, Some(value.to_vec())));
+//        }
+//        assert_eq!(pairs, iter_pairs);
+
+        let mut other_iter = trie.iter(&root).unwrap();
+        other_iter.seek(b"r").unwrap();
+        assert_eq!(other_iter.next().unwrap().unwrap().0, b"x".to_vec());
     }
 
     #[test]

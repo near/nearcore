@@ -11,6 +11,7 @@ bincode = "1.0.0"
 parking_lot = "0.6"
 byteorder = "1.2"
 elastic-array = { version = "0.10" }
+log = "0.4"
 
 kvdb = "0.1"
 kvdb-rocksdb = "0.1.3"
