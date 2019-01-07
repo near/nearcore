@@ -1,8 +1,45 @@
-/*
- * This is the javascript library for using near blockchain.
- * This is a placeholder for now.
- */
+const BSON = require('bsonfy').BSON;
+const NearClient = require('./nearclient');
 
-exports.sampleFunction = function() {
-    console.log("This is a message from nearlib");
-}
+/*
+ * This is javascript library for interacting with blockchain.
+ */
+class Near {
+    constructor(nearClient) {
+        this.nearClient = nearClient;
+    }
+
+    /**
+     * Calls a view function. Returns the same value that the function returns.
+     */
+    async callViewFunction(sender, contractAccountId, methodName, args) {
+        if (!args) {
+            args = {};
+        }
+        const serializedArgs =  Array.from(BSON.serialize(args));
+        const response = await this.nearClient.request('call_view_function', {
+            originator: sender,
+            contract_account_id: contractAccountId,
+            method_name: methodName,
+            args: serializedArgs
+        });
+        const array = Uint8Array.from(response.result);
+        const bson = BSON.deserialize(array);
+        return bson.result;
+    };
+
+    /**
+     * Deploys a contract.
+     */
+    async deployContract(senderAccountId, contractAccountId, wasmArray, publicKey) {
+        await this.nearClient.submitTransaction('deploy_contract', {
+            originator: senderAccountId,
+            contract_account_id: contractAccountId,
+            wasm_byte_array: wasmArray,
+            public_key: publicKey
+        });
+    }
+};
+
+module.exports = Near; 
+
