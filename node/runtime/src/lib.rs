@@ -1158,6 +1158,8 @@ mod tests {
         hash(genesis_wasm)
     }
 
+    // TODO(#348): Add tests for TX staking, mana charging and regeneration
+
     #[test]
     fn test_genesis_state() {
         let viewer = get_test_state_db_viewer();
