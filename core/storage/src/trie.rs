@@ -1,18 +1,19 @@
 use std::sync::Arc;
 use std::collections::HashMap;
-use primitives::hash::{CryptoHash, hash_struct};
-use primitives::traits::{Encode, Decode};
+use std::io::{Cursor, Read, Write};
+use primitives::hash::{CryptoHash, hash};
 pub use kvdb::{DBValue, KeyValueDB};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use nibble_slice::NibbleSlice;
 
-#[derive(Serialize, Deserialize, Clone, Hash, Debug)]
+#[derive(Clone, Hash, Debug)]
 enum NodeHandle {
     InMemory(Box<TrieNode>),
     Hash(CryptoHash),
 }
 
-#[derive(Serialize, Deserialize, Clone, Hash, Debug)]
+#[derive(Clone, Hash, Debug)]
 enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
     Empty,
@@ -25,8 +26,8 @@ enum TrieNode {
 }
 
 impl TrieNode {
-    fn new(rc_node: RcTrieNode) -> TrieNode {
-        match rc_node.data {
+    fn new(rc_node: RawTrieNode) -> TrieNode {
+        match rc_node {
             RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, value),
             RawTrieNode::Branch(children, value) => {
                 let mut new_children: [Option<NodeHandle>; 16] = Default::default();
@@ -40,17 +41,131 @@ impl TrieNode {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum RawTrieNode {
     Leaf(Vec<u8>, Vec<u8>),
     Branch([Option<CryptoHash>; 16], Option<Vec<u8>>),
     Extension(Vec<u8>, CryptoHash),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+const LEAF_NODE: u8 = 0;
+const BRANCH_NODE_NO_VALUE: u8 = 1;
+const BRANCH_NODE_WITH_VALUE: u8 = 2;
+const EXTENSION_NODE: u8 = 3;
+
+#[derive(Debug, Eq, PartialEq)]
 struct RcTrieNode {
     data: RawTrieNode,
     rc: u32,
+}
+
+fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
+    let mut children: [Option<CryptoHash>; 16] = Default::default();
+    let bitmap = cursor.read_u16::<LittleEndian>()?;
+    let mut pos = 1;
+    for child in &mut children {
+        if bitmap & pos != 0 {
+            let mut arr = vec![0; 32];
+            cursor.read_exact(&mut arr)?;
+            *child = Some(CryptoHash::new(&arr));
+        }
+        pos <<= 1;
+    }
+    Ok(children)
+}
+
+impl RawTrieNode {
+    fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut cursor = Cursor::new(Vec::new());
+        match &self {
+            RawTrieNode::Leaf(key, value) => {
+                cursor.write_u8(LEAF_NODE)?;
+                cursor.write_u32::<LittleEndian>(key.len() as u32)?;
+                cursor.write_all(&key)?;
+                cursor.write_u32::<LittleEndian>(value.len() as u32)?;
+                cursor.write_all(&value)?;
+            },
+            RawTrieNode::Branch(children, value) => {
+                if let Some(bytes) = value {
+                    cursor.write_u8(BRANCH_NODE_WITH_VALUE)?;
+                    cursor.write_u32::<LittleEndian>(bytes.len() as u32)?;
+                    cursor.write_all(&bytes)?;
+                } else {
+                    cursor.write_u8(BRANCH_NODE_NO_VALUE)?;
+                }
+                let mut bitmap: u16 = 0;
+                let mut pos: u16 = 1;
+                for child in children.iter() {
+                    if child.is_some() { bitmap |= pos }
+                    pos <<= 1;
+                }
+                cursor.write_u16::<LittleEndian>(bitmap)?;
+                for child in children.iter() {
+                    if let Some(hash) = child {
+                        cursor.write_all(hash.as_ref())?;
+                    }
+                }
+            },
+            RawTrieNode::Extension(key, child) => {
+                cursor.write_u8(EXTENSION_NODE)?;
+                cursor.write_u32::<LittleEndian>(key.len() as u32)?;
+                cursor.write_all(&key)?;
+                cursor.write_all(child.as_ref())?;
+            }
+        }
+        Ok(cursor.into_inner())
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+        let mut cursor = Cursor::new(bytes);
+        match cursor.read_u8()? {
+            LEAF_NODE => {
+                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let mut key = vec![0; key_length as usize];
+                cursor.read_exact(&mut key)?;
+                let value_length = cursor.read_u32::<LittleEndian>()?;
+                let mut value = vec![0; value_length as usize];
+                cursor.read_exact(&mut value)?;
+                Ok(RawTrieNode::Leaf(key, value))
+            },
+            BRANCH_NODE_NO_VALUE => {
+                let children = decode_children(&mut cursor)?;
+                Ok(RawTrieNode::Branch(children, None))
+            },
+            BRANCH_NODE_WITH_VALUE => {
+                let value_length = cursor.read_u32::<LittleEndian>()?;
+                let mut value = vec![0; value_length as usize];
+                cursor.read_exact(&mut value)?;
+                let children = decode_children(&mut cursor)?;
+                Ok(RawTrieNode::Branch(children, Some(value)))
+            },
+            EXTENSION_NODE => {
+                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let mut key = vec![0; key_length as usize];
+                cursor.read_exact(&mut key)?;
+                let mut child = vec![0; 32];
+                cursor.read_exact(&mut child)?;
+                Ok(RawTrieNode::Extension(key, CryptoHash::new(&child)))
+            },
+            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"))
+        }
+    }
+}
+
+impl RcTrieNode {
+    fn encode(data: &Vec<u8>, rc: u32) -> Result<Vec<u8>, std::io::Error> {
+        let mut cursor = Cursor::new(Vec::new());
+        cursor.write_all(data)?;
+        cursor.write_u32::<LittleEndian>(rc)?;
+        Ok(cursor.into_inner())
+    }
+
+    fn decode(bytes: &Vec<u8>) -> Result<(RawTrieNode, u32), std::io::Error> {
+        let node = RawTrieNode::decode(&bytes[..bytes.len() - 4])?;
+        let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
+        let rc = cursor.read_u32::<LittleEndian>()?;
+        Ok((node, rc))
+    }
 }
 
 pub struct Trie {
@@ -79,9 +194,9 @@ impl Trie {
             return Ok(TrieNode::Empty);
         }
         if let Ok(Some(bytes)) =  self.storage.get(self.column, hash.as_ref()) {
-            match RcTrieNode::decode(&bytes) {
-                Some(value) => Ok(TrieNode::new(value)),
-                None => Err(format!("Failed to decode node {}", hash))
+            match RcTrieNode::decode(&bytes.to_vec()) {
+                Ok((value, _)) => Ok(TrieNode::new(value)),
+                Err(_) => Err(format!("Failed to decode node {}", hash))
             }
         } else {
             Err(format!("Node {} not found in storage", hash))
@@ -91,21 +206,21 @@ impl Trie {
     fn lookup(&self, root: &CryptoHash, mut key: NibbleSlice) -> Result<Option<Vec<u8>>, String> {
         let mut hash = *root;
 
-        for _ in 0.. {
+        loop {
             if hash == self.null_node {
                 return Ok(None);
             }
             let node = match self.storage.get(self.column, hash.as_ref()) {
-                Ok(Some(bytes)) => RcTrieNode::decode(&bytes)
-                    .map(|trie_node| trie_node.data),
+                Ok(Some(bytes)) => RcTrieNode::decode(&bytes.to_vec())
+                    .map(|trie_node| trie_node.0).map_err(|_| "Failed to decode node".to_string())?,
                 _ => return Err(format!("Node {} not found in storage", hash))
             };
 
             match node {
-                Some(RawTrieNode::Leaf(existing_key, value)) => {
+                RawTrieNode::Leaf(existing_key, value) => {
                     return Ok(if NibbleSlice::from_encoded(&existing_key).0 == key { Some(value) } else { None });
                 },
-                Some(RawTrieNode::Extension(existing_key, child)) => {
+                RawTrieNode::Extension(existing_key, child) => {
                     let existing_key = NibbleSlice::from_encoded(&existing_key).0;
                     if key.starts_with(&existing_key) {
                         hash = child;
@@ -114,7 +229,7 @@ impl Trie {
                         return Ok(None);
                     }
                 },
-                Some(RawTrieNode::Branch(mut children, value)) => if key.is_empty() {
+                RawTrieNode::Branch(mut children, value) => if key.is_empty() {
                     return Ok(value);
                 } else {
                     match children[key.at(0) as usize].take() {
@@ -125,10 +240,8 @@ impl Trie {
                         None => return Ok(None),
                     }
                 },
-                _ => return Err(format!("Node {} not found in storage.", hash))
             };
         }
-        Ok(None)
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Option<Vec<u8>> {
@@ -184,7 +297,10 @@ impl Trie {
                     self.insert(branch_node, partial, value)
                 } else if common_prefix == existing_key.len() {
                     let branch_node = TrieNode::Branch(Default::default(), Some(existing_value));
-                    self.insert(branch_node, partial.mid(common_prefix), value)
+                    let child = self.insert(branch_node, partial.mid(common_prefix), value)?;
+                    Ok(TrieNode::Extension(
+                        existing_key.encoded(false).into_vec(),
+                        NodeHandle::InMemory(Box::new(child))))
                 } else {
                     // Partially shared prefix: convert to leaf and call recursively to add a branch.
                     let low = TrieNode::Leaf(existing_key.mid(common_prefix).encoded(true).into_vec(), existing_value);
@@ -297,7 +413,7 @@ impl Trie {
         }
     }
 
-    fn flatten_nodes(&self, node: TrieNode, nodes: &mut HashMap<CryptoHash, RcTrieNode>) -> CryptoHash {
+    fn flatten_nodes(&self, node: TrieNode, nodes: &mut HashMap<CryptoHash, (Vec<u8>, u32)>) -> CryptoHash {
         let rc_node = match node {
             TrieNode::Empty => return self.null_node,
             TrieNode::Branch(mut children, value) => {
@@ -309,23 +425,24 @@ impl Trie {
                         _ => None,
                     }
                 };
-                RcTrieNode { data: RawTrieNode::Branch(new_children, value), rc: 0 }
+                RawTrieNode::Branch(new_children, value)
             },
             TrieNode::Extension(key, child) => {
                 let child = match child {
                     NodeHandle::InMemory(child) => self.flatten_nodes(*child, nodes),
                     NodeHandle::Hash(hash) => hash,
                 };
-                RcTrieNode { data: RawTrieNode::Extension(key, child), rc: 0 }
+                RawTrieNode::Extension(key, child)
             }
             TrieNode::Leaf(key, value) => {
-                RcTrieNode { data: RawTrieNode::Leaf(key, value), rc: 0 }
+                RawTrieNode::Leaf(key, value)
             },
         };
-        let hash = hash_struct(&rc_node.data);
-        let entry = nodes.entry(hash).or_insert(rc_node);
-        entry.rc += 1;
-        hash
+        let data = rc_node.encode().expect("Failed to serialize");
+        let key = hash(&data);
+        let entry = nodes.entry(key).or_insert((data, 0));
+        entry.1 += 1;
+        key
     }
 
     pub fn update<I>(&self, root: &CryptoHash, changes: I) -> (DBChanges, CryptoHash)
@@ -355,8 +472,9 @@ impl Trie {
         // TODO: The reference counting doesn't account for the number of existing nodes in
         // storage that were not touched by this update.
         let new_root = self.flatten_nodes(root_node, &mut nodes);
-        for (key, value) in nodes.iter() {
-            db_changes.insert(key.as_ref().to_vec(), value.encode());
+        for (key, (value, rc)) in nodes.drain() {
+            let bytes = RcTrieNode::encode(&value, rc).expect("Failed to serialize");
+            db_changes.insert(key.as_ref().to_vec(), Some(bytes));
         }
         for (hash, _) in death_row {
             db_changes.insert(hash.as_ref().to_vec(), None);
@@ -524,11 +642,11 @@ impl<'a> Iterator for TrieIterator<'a> {
                 match (b.status.clone(), &b.node) {
                     (CrumbStatus::Exiting, n) => {
                         match n {
-                            &TrieNode::Extension(ref key, _) => {
+                            TrieNode::Extension(ref key, _) => {
                                 let l = self.key_nibbles.len();
                                 self.key_nibbles.truncate(l - key.len());
                             },
-                            &TrieNode::Branch(_, _) => { self.key_nibbles.pop(); },
+                            TrieNode::Branch(_, _) => { self.key_nibbles.pop(); },
                             _ => {}
                         }
                         IterStep::PopTrail
@@ -624,6 +742,26 @@ mod tests {
     }
 
     #[test]
+    fn test_encode_decode() {
+        let node = RawTrieNode::Leaf(vec![1, 2, 3], vec![123, 245, 255]);
+        let buf = node.encode().expect("Failed to serialize");
+        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
+        assert_eq!(node, new_node);
+
+        let mut children: [Option<CryptoHash>; 16] = Default::default();
+        children[3] = Some(CryptoHash::default());
+        let node = RawTrieNode::Branch(children, Some(vec![123, 245, 255]));
+        let buf = node.encode().expect("Failed to serialize");
+        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
+        assert_eq!(node, new_node);
+
+        let node = RawTrieNode::Extension(vec![123, 245, 255], CryptoHash::default());
+        let buf = node.encode().expect("Failed to serialize");
+        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
+        assert_eq!(node, new_node);
+    }
+
+    #[test]
     fn test_basic_trie() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
         let trie = Trie::new(storage.clone(), Some(0));
@@ -663,6 +801,18 @@ mod tests {
         let mut other_iter = trie.iter(&root).unwrap();
         other_iter.seek(b"r").unwrap();
         assert_eq!(other_iter.next().unwrap().unwrap().0, b"x".to_vec());
+    }
+
+    #[test]
+    fn test_trie_leaf_into_branch() {
+        let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
+        let trie = Trie::new(storage.clone(), Some(0));
+        let changes = vec![
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
+            (b"dog2".to_vec(), Some(b"puppy".to_vec())),
+            (b"xxx".to_vec(), Some(b"puppy".to_vec())),
+        ];
+        test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
     }
 
     #[test]

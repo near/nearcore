@@ -21,7 +21,7 @@ fn runtime_send_money(bench: &mut Bencher) {
     let (mut runtime, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
     let mut root = viewer.get_root();
     bench.iter(|| {
-        for _ in 0..10 {
+        for _ in 0..100 {
             let mut transactions = vec![];
             for i in 0..100 {
                 transactions.push(Transaction::SignedTransaction(SignedTransaction::new(

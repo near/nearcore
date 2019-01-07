@@ -53,7 +53,7 @@ fn trie_update(bench: &mut Bencher) {
     });
 }
 
-// benchmark_group!(benches, trie_lookup, trie_update);
+ benchmark_group!(benches, trie_lookup, trie_update);
 // benchmark_group!(benches, trie_update);
-benchmark_group!(benches, trie_lookup);
+//benchmark_group!(benches, trie_lookup);
 benchmark_main!(benches);

@@ -8,8 +8,7 @@ extern crate kvdb_rocksdb;
 extern crate log;
 extern crate primitives;
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
+extern crate byteorder;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -145,6 +144,9 @@ mod tests {
         state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
         let (transaction, new_root) = state_db_update.finalize();
+        for (key, value) in &transaction {
+            println!("{:?} {:?}", key, value);
+        }
         state_db.commit(transaction).ok();
         let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
         assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
