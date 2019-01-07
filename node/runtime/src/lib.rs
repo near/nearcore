@@ -44,7 +44,6 @@ mod tx_stakes;
 use tx_stakes::{TxStakeConfig, TxTotalStake, get_tx_stake_key};
 mod ext;
 
-const DEFAULT_MANA_LIMIT: u32 = 20;
 const COL_ACCOUNT: &[u8] = &[0];
 const COL_CALLBACK: &[u8] = &[1];
 const COL_CODE: &[u8] = &[2];
@@ -127,12 +126,11 @@ impl Runtime {
         Runtime { state_db }
     }
 
-    #[allow(unused)]
     fn try_charge_mana(
         &self,
         state_update: &mut StateDbUpdate,
         block_index: BlockIndex,
-        account_id: &AccountId,
+        originator: &AccountId,
         contract_id: &Option<AccountId>,
         mana: Mana,
     ) -> Option<AccountingInfo> {
@@ -141,13 +139,13 @@ impl Runtime {
         // Trying to use contract specific quota first
         if let Some(ref contract_id) = contract_id {
             acc_info_options.push(AccountingInfo{
-                originator: account_id.clone(),
+                originator: originator.clone(),
                 contract_id: Some(contract_id.clone()),
             });
         }
         // Trying to use global quota
         acc_info_options.push(AccountingInfo{
-            originator: account_id.clone(),
+            originator: originator.clone(),
             contract_id: None,
         });
         for accounting_info in acc_info_options {
@@ -174,6 +172,7 @@ impl Runtime {
         transaction: &SendMoneyTransaction,
         hash: CryptoHash,
         sender: &mut Account,
+        accounting_info: AccountingInfo,
     ) -> Result<Vec<Transaction>, String> {
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
@@ -187,10 +186,7 @@ impl Runtime {
                     vec![],
                     transaction.amount,
                     0,
-                    AccountingInfo {
-                        originator: transaction.originator.clone(),
-                        contract_id: Some(transaction.receiver.clone()),
-                    },
+                    accounting_info,
                 ))
             );
             Ok(vec![Transaction::Receipt(receipt)])
@@ -317,6 +313,7 @@ impl Runtime {
         &self,
         body: &DeployContractTransaction,
         hash: CryptoHash,
+        accounting_info: AccountingInfo,
     ) -> Result<Vec<Transaction>, String> {
         // TODO: check signature
         
@@ -332,10 +329,7 @@ impl Runtime {
                 args,
                 0,
                 0,
-                AccountingInfo {
-                    originator: body.originator.clone(),
-                    contract_id: Some(body.contract_id.clone()),
-                },
+                accounting_info,
             ))
         );
         Ok(vec![Transaction::Receipt(receipt)])
@@ -347,6 +341,8 @@ impl Runtime {
         transaction: &FunctionCallTransaction,
         hash: CryptoHash,
         sender: &mut Account,
+        accounting_info: AccountingInfo,
+        mana: Mana,
     ) -> Result<Vec<Transaction>, String> {
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
@@ -359,11 +355,8 @@ impl Runtime {
                     transaction.method_name.clone(),
                     transaction.args.clone(),
                     transaction.amount,
-                    DEFAULT_MANA_LIMIT,
-                    AccountingInfo {
-                        originator: transaction.originator.clone(),
-                        contract_id: Some(transaction.contract_id.clone()),
-                    },
+                    mana - 1,
+                    accounting_info,
                 ))
             );
             Ok(vec![Transaction::Receipt(receipt)])
@@ -385,6 +378,7 @@ impl Runtime {
     fn apply_signed_transaction(
         &mut self,
         state_update: &mut StateDbUpdate,
+        block_index: BlockIndex,
         transaction: &SignedTransaction,
         authority_proposals: &mut Vec<AuthorityProposal>,
     ) -> Result<Vec<Transaction>, String> {
@@ -406,6 +400,15 @@ impl Runtime {
                     &account_id_to_bytes(COL_ACCOUNT, &sender_account_id),
                     &sender
                 );
+                let contract_id = transaction.body.get_contract_id();
+                let mana = transaction.body.get_mana();
+                let accounting_info = self.try_charge_mana(
+                    state_update,
+                    block_index,
+                    &sender_account_id,
+                    &contract_id,
+                    mana,
+                ).ok_or_else(|| format!("sender {} does not have enough mana {}", sender_account_id, mana))?;
                 match transaction.body {
                     TransactionBody::SendMoney(ref t) => {
                         self.send_money(
@@ -413,6 +416,7 @@ impl Runtime {
                             &t,
                             transaction.transaction_hash(),
                             &mut sender,
+                            accounting_info,
                         )
                     },
                     TransactionBody::Stake(ref t) => {
@@ -430,10 +434,16 @@ impl Runtime {
                             &t,
                             transaction.transaction_hash(),
                             &mut sender,
+                            accounting_info,
+                            mana,
                         )
                     },
                     TransactionBody::DeployContract(ref t) => {
-                        self.deploy(t, transaction.transaction_hash())
+                        self.deploy(
+                            t,
+                            transaction.transaction_hash(),
+                            accounting_info,
+                        )
                     },
                     TransactionBody::CreateAccount(ref t) => {
                         self.create_account(
@@ -912,6 +922,7 @@ impl Runtime {
         runtime: &mut Self,
         state_update: &mut StateDbUpdate,
         shard_id: ShardId,
+        block_index: BlockIndex,
         transaction: &Transaction,
         new_receipts: &mut Vec<Transaction>,
         authority_proposals: &mut Vec<AuthorityProposal>,
@@ -920,6 +931,7 @@ impl Runtime {
             Transaction::SignedTransaction(ref tx) => {
                 match runtime.apply_signed_transaction(
                     state_update,
+                    block_index,
                     tx,
                     authority_proposals
                 ) {
@@ -972,11 +984,13 @@ impl Runtime {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
         let shard_id = apply_state.shard_id;
+        let block_index = apply_state.block_index;
         for tx in prev_receipts.iter().chain(transactions) {
             let filter_res = Self::filter_transaction(
                 self,
                 &mut state_update,
                 shard_id,
+                block_index,
                 tx,
                 &mut new_receipts,
                 &mut authority_proposals
@@ -1000,11 +1014,13 @@ impl Runtime {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
         let shard_id = apply_state.shard_id;
+        let block_index = apply_state.block_index;
         for receipt in prev_receipts.iter() {
             Self::filter_transaction(
                 self,
                 &mut state_update,
                 shard_id,
+                block_index,
                 receipt,
                 &mut new_receipts,
                 &mut authority_proposals
@@ -1015,6 +1031,7 @@ impl Runtime {
                 self,
                 &mut state_update,
                 shard_id,
+                block_index,
                 t,
                 &mut new_receipts,
                 &mut authority_proposals

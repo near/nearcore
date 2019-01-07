@@ -159,6 +159,31 @@ impl TransactionBody {
             TransactionBody::SwapKey(t) => t.originator.clone(),
         }
     }
+
+    /// Returns option contract_id for Mana and Gas accounting
+    pub fn get_contract_id(&self) -> Option<AccountId> {
+        match self {
+            TransactionBody::Stake(_) => None,
+            TransactionBody::SendMoney(t) => Some(t.receiver.clone()),
+            TransactionBody::DeployContract(t) => Some(t.contract_id.clone()),
+            TransactionBody::FunctionCall(t) => Some(t.contract_id.clone()),
+            TransactionBody::CreateAccount(_) => None,
+            TransactionBody::SwapKey(_) => None,
+        }
+    }
+
+    /// Returns mana required to execute this transaction.
+    pub fn get_mana(&self) -> Mana {
+        match self {
+            TransactionBody::Stake(_) => 1,
+            TransactionBody::SendMoney(_) => 1,
+            TransactionBody::DeployContract(_) => 1,
+            // TODO(#344): DEFAULT_MANA_LIMIT is 20. Need to check that the value is at least 1 mana.
+            TransactionBody::FunctionCall(_t) => 20,
+            TransactionBody::CreateAccount(_) => 1,
+            TransactionBody::SwapKey(_) => 1,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Eq, Debug, Clone)]
