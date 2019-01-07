@@ -1,3 +1,5 @@
+var txflow = require('./txflow.js');
+
 var _rand_int = function(n) {
     return Math.floor(Math.random() * n);
 }
@@ -46,7 +48,7 @@ var stress_epoch_blocks = function(nodes, num_users, seconds) {
     var longest_selected_node_ids = [];
     while (new Date().getTime() - started < seconds * 1000) {
         var selected_nodes = _select_random_nodes(nodes);
-        var annotations = compute_annotations(selected_nodes, num_users);
+        var annotations = txflow.compute_annotations(selected_nodes, num_users);
         var epoch_blocks = [];
         var selected_node_ids = selected_nodes.map(x => x.uid);
 
@@ -114,7 +116,7 @@ var stress_beacon = function(nodes, num_users, seconds) {
     return `PASSED!\nRan stress for ${seconds} seconds. Completed ${iter} iterations.\nLargest report: ${JSON.stringify(existing_report)}`;
 }
 
-var generate_random_graph = function(num_users, num_malicious, num_nodes, beacon_mode) {
+var generate_random_graph = function(num_users, num_malicious, num_nodes, beacon_mode, show_html=true) {
     last_node_uid = 0;
 
     var mode_users_hanging = _rand_int(2);
@@ -172,9 +174,9 @@ var generate_random_graph = function(num_users, num_malicious, num_nodes, beacon
         var user_id = _random_user();
         var parents = _get_parents(user_id, i);
 
-        var node = create_node(user_id, parents);
+        var node = txflow.create_node(user_id, parents);
         if (mode_prefer_non_repr && _rand_int(3) != 0) {
-            var annotations = compute_annotations([node], num_users)
+            var annotations = txflow.compute_annotations([node], num_users)
             var skip = false;
             for (var a of annotations) {
                 if (a.node.uid == node.uid && a.representative != -1) {
@@ -210,8 +212,8 @@ var generate_random_graph = function(num_users, num_malicious, num_nodes, beacon
                 beacon_states.push(-1);
             }
 
-            var annotations = compute_annotations(graph, num_users)
-            var toposorted = toposort(graph);
+            var annotations = txflow.compute_annotations(graph, num_users)
+            var toposorted = txflow.toposort(graph);
             add_beacon_annotations(toposorted, annotations, num_users);
 
             for (var a of annotations) {
@@ -245,10 +247,15 @@ var generate_random_graph = function(num_users, num_malicious, num_nodes, beacon
             }
         }
     }
-
-    refresh();
-    serialize();
-
-    alert(stress_epoch_blocks(all_nodes.map(x => x[0]), num_users, 0.5));
+    if (show_html) {
+        refresh();
+        serialize();
+        alert(stress_epoch_blocks(all_nodes.map(x => x[0]), num_users, 0.5));
+    }
+    return graph;
 }
 
+if (typeof module !== 'undefined') {
+    module.exports.generate_random_graph = generate_random_graph;
+    module.exports.stress_epoch_blocks = stress_epoch_blocks;
+}

@@ -526,6 +526,7 @@ impl<'a, P: Payload> Message<'a, P> {
 #[macro_use]
 mod testing_utils;
 mod generated_tests;
+mod nightly_generated_test;
 
 #[cfg(test)]
 mod tests {
