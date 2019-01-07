@@ -15,9 +15,10 @@ use shard::ShardBlockChain;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
-    SignedBeaconBlockResponse, SignedShardBlockResponse, StakeRequest, SwapKeyRequest,
-    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    GetBlocksByIndexRequest, PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
+    SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedShardBlocksResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
+    ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
 pub struct HttpApi {
@@ -218,6 +219,22 @@ impl HttpApi {
         match self.shard_chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
+        }
+    }
+
+    pub fn get_shard_blocks_by_index(
+        &self,
+        r: &GetBlocksByIndexRequest,
+    ) -> Result<SignedShardBlocksResponse, String> {
+        let start = r.start.unwrap_or_else(|| { self.shard_chain.best_index() });
+        let limit = r.limit.unwrap_or(25);
+        match self.shard_chain.get_blocks_by_index(start, limit) {
+            Ok(blocks) => {
+                Ok(SignedShardBlocksResponse {
+                    blocks: blocks.into_iter().map(|x| x.into()).collect(),
+                })
+            },
+            Err(e) => Err(e),
         }
     }
 }
