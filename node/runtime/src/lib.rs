@@ -509,7 +509,7 @@ impl Runtime {
         );
         // TODO(#347): Remove default TX staking once tx staking is properly implemented
         let mut tx_total_stake = TxTotalStake::new(0);
-        tx_total_stake.add_active_stake(1);
+        tx_total_stake.add_active_stake(100);
         set(
             state_update,
             &get_tx_stake_key(&account_id, &None),
