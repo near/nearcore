@@ -11,7 +11,7 @@ use beacon::authority::{AuthorityConfig, AuthorityProposal};
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
-    accounts: Vec<(AccountId, ReadablePublicKey, u64)>,
+    accounts: Vec<(AccountId, ReadablePublicKey, u64, u64)>,
     initial_authorities: Vec<(AccountId, ReadablePublicKey, u64)>,
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
@@ -73,7 +73,7 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
 #[test]
 fn test_deserialize() {
     let data = json!({
-        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
+        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100, 10]],
         "initial_authorities": [("alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,

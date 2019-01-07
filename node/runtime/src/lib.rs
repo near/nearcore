@@ -241,6 +241,7 @@ impl Runtime {
         body: &CreateAccountTransaction,
         hash: CryptoHash,
         sender: &mut Account,
+        accounting_info: AccountingInfo,
     ) -> Result<Vec<Transaction>, String> {
         if !is_valid_account_id(&body.new_account_id) {
             return Err(format!("Account {} does not match requirements", body.new_account_id));
@@ -262,10 +263,7 @@ impl Runtime {
                     body.public_key.clone(),
                     body.amount,
                     0,
-                    AccountingInfo {
-                        originator: body.originator.clone(),
-                        contract_id: None,
-                    },
+                    accounting_info,
                 ))
             );
             Ok(vec![Transaction::Receipt(receipt)])
@@ -451,6 +449,7 @@ impl Runtime {
                             t,
                             transaction.transaction_hash(),
                             &mut sender,
+                            accounting_info,
                         )
                     },
                     TransactionBody::SwapKey(ref t) => {
@@ -508,6 +507,15 @@ impl Runtime {
             &account_id_bytes,
             &new_account
         );
+        // TODO(#347): Remove default TX staking once tx staking is properly implemented
+        let mut tx_total_stake = TxTotalStake::new(0);
+        tx_total_stake.add_active_stake(1);
+        set(
+            state_update,
+            &get_tx_stake_key(&account_id, &None),
+            &tx_total_stake,
+        );
+
         Ok(vec![])
     }
 
@@ -1048,20 +1056,21 @@ impl Runtime {
         }
     }
 
+    /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
-        balances: &[(AccountId, ReadablePublicKey, u64)],
+        balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],
         initial_authorities: &[(AccountId, ReadablePublicKey, u64)]
     ) -> MerkleHash {
         let mut state_db_update =
             StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         let mut pk_to_acc_id = HashMap::new();
-        balances.iter().for_each(|(account_id, public_key, balance)| {
+        balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
             pk_to_acc_id.insert(public_key.clone(), account_id.clone());
             set(
                 &mut state_db_update,
-                &account_id_to_bytes(COL_ACCOUNT, &account_id.clone()),
+                &account_id_to_bytes(COL_ACCOUNT, &account_id),
                 &Account {
                     public_keys: vec![PublicKey::from(public_key)],
                     amount: *balance,
@@ -1070,11 +1079,25 @@ impl Runtime {
                     code_hash: hash(wasm_binary),
                 },
             );
+            // Default code
             set(
                 &mut state_db_update,
-                &account_id_to_bytes(COL_CODE, &account_id.clone()),
+                &account_id_to_bytes(COL_CODE, &account_id),
                 &wasm_binary.to_vec(),
             );
+            // Default transaction stake
+            let key = get_tx_stake_key(
+                &account_id,
+                &None,
+            );
+            let mut tx_total_stake = TxTotalStake::new(0);
+            tx_total_stake.add_active_stake(*initial_tx_stake);
+            set(
+                &mut state_db_update,
+                &key,
+                &tx_total_stake,
+            );
+            // TODO(#345): Add system TX stake
         });
         for (_, pk, amount) in initial_authorities {
             let account_id = pk_to_acc_id.get(pk).expect("Missing account for public key");

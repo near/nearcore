@@ -129,4 +129,9 @@ impl TxTotalStake {
         self.mana_used_num += u64::from(mana) * config.mana_common_denum; 
     }
 
+    pub fn add_active_stake(&mut self, stake: Balance) {
+        self.total_active_stake += stake;
+        self.total_stake += stake;
+    }
+
 }
