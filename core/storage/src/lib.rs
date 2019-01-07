@@ -148,8 +148,8 @@ mod tests {
         state_db.commit(transaction).ok();
         let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
         assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
-//        let mut values = vec![];
-//        state_db_update2.for_keys_with_prefix(b"dog", |key| { values.push(key.to_vec()) });
-//        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+        let mut values = vec![];
+        state_db_update2.for_keys_with_prefix(b"dog", |key| { values.push(key.to_vec()) });
+        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
     }
 }

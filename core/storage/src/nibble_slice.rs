@@ -62,16 +62,6 @@ impl<'a> NibbleSlice<'a> {
         }
     }
 
-    /// Create a composed nibble slice; one followed by the other.
-    pub fn new_composed(a: &NibbleSlice<'a>, b: &NibbleSlice<'a>) -> Self {
-        NibbleSlice {
-            data: a.data,
-            offset: a.offset,
-            data_encode_suffix: b.data,
-            offset_encode_suffix: b.offset
-        }
-    }
-
     /// Get an iterator for the series of nibbles.
     pub fn iter(&'a self) -> NibbleSliceIterator<'a> {
         NibbleSliceIterator { p: self, i: 0 }

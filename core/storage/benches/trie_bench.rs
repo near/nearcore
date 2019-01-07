@@ -35,7 +35,7 @@ fn trie_lookup(bench: &mut Bencher) {
                 trie.get(&root, &key).unwrap();
             }
         }
-    })
+    });
 }
 
 fn trie_update(bench: &mut Bencher) {
@@ -54,5 +54,6 @@ fn trie_update(bench: &mut Bencher) {
 }
 
 // benchmark_group!(benches, trie_lookup, trie_update);
-benchmark_group!(benches, trie_update);
+// benchmark_group!(benches, trie_update);
+benchmark_group!(benches, trie_lookup);
 benchmark_main!(benches);
