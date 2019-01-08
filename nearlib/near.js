@@ -37,7 +37,6 @@ class Near {
         }
         const serializedArgs =  Array.from(BSON.serialize(args));
         const response = await this.nearClient.submitTransaction('schedule_function_call', {
-            // TODO(#5): Need to make sure that big ints are supported later
             amount: amount,
             originator: sender,
             contract_account_id: contractAccountId,

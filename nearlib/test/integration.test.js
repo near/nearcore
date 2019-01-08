@@ -39,16 +39,14 @@ test('create account and then view account returns the created account', async (
         stake: 0,
     };
 
-    // try to read the account a few times to wait for the transaction to go through
-    for (var viewAttempt = 0; viewAttempt < TEST_MAX_RETRIES; viewAttempt++) {
-        try {
-            const viewAccountResponse = await account.viewAccount(newAccountName);
-            expect(viewAccountResponse).toEqual(expctedAccount);
-            return; // success!
-        } catch (_) {}
+    const viewAccountFunc = async () => {
+        return await account.viewAccount(newAccountName);
+    };
+    const checkConditionFunc = (result) => {
+        expect(result).toEqual(expctedAccount);
+        return true;
     }
-    // exceeded retries. fail. 
-    fail('exceeded number of retries for viewing account');
+    callUntilConditionIsMet(viewAccountFunc, checkConditionFunc, "Call view account until result matches expected value");
 });
 
 test('deploy contract and make function calls', async () => {
@@ -82,42 +80,47 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         "near_func_setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
-    waitForNonceToIncrease(accountBeforeScheduleCall);
-
-    for (let i = 0; i < TEST_MAX_RETRIES; i++) {
-        try {
-            const getValueResult = await nearjs.callViewFunction(
-                aliceAccountName,
-                "test_contract",
-                "near_func_getValue", // this is the function defined in hello.wasm file that we are calling
-                {});
-            expect(getValueResult).toEqual(setCallValue);
-            break;
-            // TODO: once we have a way to tell that transaction succeeded, rewrite this to avoid polling
-            // https://github.com/nearprotocol/nearcore/issues/349
-        } catch (_) {
-            if (i == TEST_MAX_RETRIES - 1) {
-                fail('exceeded number of retries for completing transaction ');
-            }
-        }   
+    const callViewFunctionGetValue = async () => { 
+        return await nearjs.callViewFunction(
+            aliceAccountName,
+            "test_contract",
+            "near_func_getValue", // this is the function defined in hello.wasm file that we are calling
+            {});
+    };
+    const checkResult = async (result) => {
+        expect(result).toEqual(setCallValue);
     }
+    callUntilConditionIsMet(
+        callViewFunctionGetValue,
+        checkResult,
+        "Call getValue until result is equal to expected value");
 });
 
-const waitForNonceToIncrease = async (initialAccount) => {
+const callUntilConditionIsMet = async (functToPoll, condition, description) => {
     for (let i = 0; i < TEST_MAX_RETRIES; i++) {
         try {
-            const viewAccountResponse = await account.viewAccount(initialAccount['account_id']);
-            if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return viewAccountResponse; }
+            const response = await functToPoll();
+            if (condition(response)) {
+                console.log("Success " + description + " in " + (i + 1) + " attempts.");
+                return response;
+            }
         } catch (_) {
             // Errors are expected, not logging to avoid spam
         }
     }
-    fail('exceeded number of retries for viewing account ' + i);
-    return viewAccountResponse;
-}
+    fail('exceeded number of retries for ' + description);
+};
+
+const waitForNonceToIncrease = async (initialAccount) => {
+    callUntilConditionIsMet(
+        async () => { return await account.viewAccount(initialAccount['account_id']); },
+        (response) => { return response['nonce'] != initialAccount['nonce'] },
+        "Call view account until nonce increases"
+    );
+};
 
 // Generate some unique string with a given prefix using the alice nonce. 
 const generateUniqueString = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);
     return prefix + viewAccountResponse.nonce;
-}
+};
