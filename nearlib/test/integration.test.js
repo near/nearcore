@@ -8,8 +8,8 @@ const fs = require('fs');
 
 const aliceAccountName = 'alice.near';
 const aliceKey = {
-    public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE",
-    secret_key: "2hoLMP9X2Vsvib2t4F1fkZHpFd6fHLr5q7eqGroRoNqdBKcPja2jCrmxW9uGBLXdTnbtZYibWe4NoFtB4Bk7LWg6"
+    public_key: "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
+    secret_key: "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
 };
 const test_key_store = new InMemoryKeyStore();
 test_key_store.setKey(aliceAccountName, aliceKey);
@@ -28,7 +28,7 @@ test('view pre-defined account works and returns correct name', async () => {
 });
 
 test('create account and then view account returns the created account', async () => {
-    const newAccountName = await generateUniqueAccountId("create.account.test");
+    const newAccountName = await generateUniqueString("create.account.test");
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
     const expctedAccount = {
@@ -52,6 +52,7 @@ test('create account and then view account returns the created account', async (
 });
 
 test('deploy contract and make function calls', async () => {
+    // Contract is currently living here https://studio.nearprotocol.com/?f=Wbe7Zvd
     const data = [...fs.readFileSync('../tests/hello.wasm')];  
     const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
@@ -69,21 +70,54 @@ test('deploy contract and make function calls', async () => {
         "near_func_hello", // this is the function defined in hello.wasm file that we are calling
         args);
     expect(viewFunctionResult).toEqual("hello trex");
+
+    var setCallValue = await generateUniqueString("setCallPrefix");
+    const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
+    const setArgs = {
+        "value": setCallValue
+    }
+    const scheduleResult = await nearjs.scheduleFunctionCall(
+        0,
+        aliceAccountName,
+        "test_contract",
+        "near_func_setValue", // this is the function defined in hello.wasm file that we are calling
+        setArgs);
+    waitForNonceToIncrease(accountBeforeScheduleCall);
+
+    for (let i = 0; i < TEST_MAX_RETRIES; i++) {
+        try {
+            const getValueResult = await nearjs.callViewFunction(
+                aliceAccountName,
+                "test_contract",
+                "near_func_getValue", // this is the function defined in hello.wasm file that we are calling
+                {});
+            expect(getValueResult).toEqual(setCallValue);
+            break;
+            // TODO: once we have a way to tell that transaction succeeded, rewrite this to avoid polling
+            // https://github.com/nearprotocol/nearcore/issues/349
+        } catch (_) {
+            if (i == TEST_MAX_RETRIES - 1) {
+                fail('exceeded number of retries for completing transaction ');
+            }
+        }   
+    }
 });
 
 const waitForNonceToIncrease = async (initialAccount) => {
     for (let i = 0; i < TEST_MAX_RETRIES; i++) {
         try {
             const viewAccountResponse = await account.viewAccount(initialAccount['account_id']);
-            if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return; }
+            if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return viewAccountResponse; }
         } catch (_) {
             // Errors are expected, not logging to avoid spam
         }
     }
     fail('exceeded number of retries for viewing account ' + i);
+    return viewAccountResponse;
 }
 
-const generateUniqueAccountId = async (prefix) => {
+// Generate some unique string with a given prefix using the alice nonce. 
+const generateUniqueString = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);
     return prefix + viewAccountResponse.nonce;
 }
