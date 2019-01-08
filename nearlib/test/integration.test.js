@@ -52,6 +52,35 @@ test('create account and then view account returns the created account', async (
         "Call view account until result matches expected value");
 });
 
+test('create account with a new key and then view account returns the created account', async () => {
+    const newAccountName = await generateUniqueString("create.randomkey.test");
+    const createAccountResponse = await account.createAccountWithRandomKey(
+        newAccountName,
+        2,
+        aliceAccountName);
+    expect(createAccountResponse["key"]).not.toBeFalsy();
+    console.log(createAccountResponse["key"])
+    const expctedAccount = {
+        nonce: 0,
+        account_id: newAccountName,
+        amount: 2,
+        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        stake: 0,
+    };
+
+    const viewAccountFunc = async () => {
+        return await account.viewAccount(newAccountName);
+    };
+    const checkConditionFunc = (result) => {
+        expect(result).toEqual(expctedAccount);
+        return true;
+    }
+    await callUntilConditionIsMet(
+        viewAccountFunc,
+        checkConditionFunc, 
+        "Call view account until result matches expected value");
+});
+
 test('deploy contract and make function calls', async () => {
     // Contract is currently living here https://studio.nearprotocol.com/?f=Wbe7Zvd
     const data = [...fs.readFileSync('../tests/hello.wasm')];  
