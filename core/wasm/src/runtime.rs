@@ -5,6 +5,7 @@ use wasmi::{RuntimeArgs, RuntimeValue};
 use types::{RuntimeError as Error, ReturnData, RuntimeContext};
 
 use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
+use primitives::hash::hash;
 use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -26,6 +27,8 @@ pub struct Runtime<'a> {
     gas_limit: Gas,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
+    pub random_seed: Vec<u8>,
+    random_buffer_offset: usize,
 }
 
 impl<'a> Runtime<'a> {
@@ -49,6 +52,8 @@ impl<'a> Runtime<'a> {
             gas_limit,
             promise_ids: Vec::new(),
             return_data: ReturnData::None,
+            random_seed: hash(&context.random_seed).into(),
+            random_buffer_offset: 0,
         }
     }
 
@@ -60,13 +65,21 @@ impl<'a> Runtime<'a> {
         Ok(buf)
     }
 
-
     fn read_buffer(&self, offset: u32) -> Result<Vec<u8>> {
         let len: u32 = self
             .memory
             .get_u32(offset)
             .map_err(|_| Error::MemoryAccessViolation)?;
         self.read_buffer_with_size(offset + 4, len as usize)
+    }
+
+    fn random_u8(&mut self) -> u8 {
+        if self.random_buffer_offset >= self.random_seed.len() {
+            self.random_seed = hash(&self.random_seed).into();
+            self.random_buffer_offset = 0;
+        }
+        self.random_buffer_offset += 1;
+        self.random_seed[self.random_buffer_offset - 1]
     }
 
     fn read_string(&self, offset: u32) -> Result<String> {
@@ -445,6 +458,67 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
+    fn hash(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let buf_ptr: u32 = args.nth_checked(0)?;
+        let out_ptr: u32 = args.nth_checked(1)?;
+
+        let buf = self.read_buffer(buf_ptr)?;
+        let buf_hash = hash(&buf);
+
+        self.memory
+            .set(out_ptr, buf_hash.as_ref())
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(())
+    }
+
+    fn hash32(&self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let buf_ptr: u32 = args.nth_checked(0)?;
+
+        let buf = self.read_buffer(buf_ptr)?;
+        let buf_hash = hash(&buf);
+        let buf_hash_ref = buf_hash.as_ref();
+
+        let mut buf_hash_32: u32 = 0;
+        for b in buf_hash_ref.iter().take(4) {
+            buf_hash_32 <<= 8;
+            buf_hash_32 += u32::from(*b);
+        }
+
+        Ok(RuntimeValue::I32(buf_hash_32 as i32))
+    }
+
+    fn random_buf(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let len: u32 = args.nth_checked(0)?;
+        let out_ptr: u32 = args.nth_checked(1)?;
+
+        if !self.memory.can_fit(out_ptr as usize, len as usize) {
+            return Err(Error::MemoryAccessViolation);
+        }
+
+        let mut buf = Vec::with_capacity(len as usize);
+        for _ in 0..len {
+            buf.push(self.random_u8());
+        }
+
+        self.memory
+            .set(out_ptr, &buf)
+            .map_err(|_| Error::MemoryAccessViolation)?;
+        Ok(())
+    }
+
+    fn random_u32(&mut self) -> Result<RuntimeValue> {
+        let mut random_val: u32 = 0;
+        for _ in 0..4 {
+            random_val <<= 8;
+            random_val += u32::from(self.random_u8());
+        }
+
+        Ok(RuntimeValue::I32(random_val as i32))
+    }
+
+    fn block_index(&self) -> Result<RuntimeValue> {
+        Ok(RuntimeValue::I64(self.context.block_index as i64))
+    }
 }
 
 fn format_buf(buf: &[u8]) -> String {
@@ -494,6 +568,11 @@ mod ext_impl {
                 ABORT_FUNC => void!(self.abort(&args)),
                 READ_LEN_FUNC => some!(self.read_len(&args)),
                 READ_INTO_FUNC => void!(self.read_into(&args)),
+                HASH_FUNC => void!(self.hash(&args)),
+                HASH_32_FUNC => some!(self.hash32(&args)),
+                RANDOM_BUF_FUNC => void!(self.random_buf(&args)),
+                RANDOM_32_FUNC => some!(self.random_u32()),
+                BLOCK_INDEX_FUNC => some!(self.block_index()),
                 LOG_FUNC => void!(self.log(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }

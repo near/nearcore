@@ -622,6 +622,7 @@ impl Runtime {
         nonce: &[u8],
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
+        block_index: BlockIndex,
     ) -> Result<Vec<Transaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("cannot find contract code for account {}", receiver_id.clone()))?;
@@ -648,6 +649,8 @@ impl Runtime {
                     sender_id,
                     receiver_id,
                     async_call.mana,
+                    block_index,
+                    nonce.to_vec(),
                 ),
             ).map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
@@ -683,6 +686,7 @@ impl Runtime {
         nonce: &[u8],
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
+        block_index: BlockIndex,
     ) -> Result<Vec<Transaction>, String> {
         let mut needs_removal = false;
         let callback: Option<Callback> = 
@@ -720,6 +724,8 @@ impl Runtime {
                             sender_id,
                             receiver_id,
                             callback.mana,
+                            block_index,
+                            nonce.to_vec(),
                         ),
                     ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
                     mana_accounting.gas_used = wasm_res.gas_used;
@@ -763,6 +769,7 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<Transaction>,
+        block_index: BlockIndex,
     ) -> Result<(), String> {
         let receiver: Option<Account> = 
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver));
@@ -824,6 +831,7 @@ impl Runtime {
                                 &receipt.nonce,
                                 &mut receiver,
                                 &mut mana_accounting,
+                                block_index,
                             )
                         }
                     },
@@ -837,6 +845,7 @@ impl Runtime {
                             &receipt.nonce,
                             &mut receiver,
                             &mut mana_accounting,
+                            block_index,
                         )
                     }
                     ReceiptBody::Refund(amount) => {
@@ -958,7 +967,7 @@ impl Runtime {
             Transaction::Receipt(ref r) => {
                 if account_to_shard_id(&r.receiver) == shard_id {
                     let mut tmp_new_receipts = vec![];
-                    match runtime.apply_receipt(state_update, r, &mut tmp_new_receipts) {
+                    match runtime.apply_receipt(state_update, r, &mut tmp_new_receipts, block_index) {
                         Ok(()) => {
                             state_update.commit();
                             new_receipts.append(&mut tmp_new_receipts);
@@ -1724,9 +1733,10 @@ mod tests {
             hash(&[1, 2, 3]).into(),
             ReceiptBody::NewCall(async_call),
         );
+        let block_index = 1;
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
         let mut new_receipts = vec![];
-        runtime.apply_receipt(&mut state_update, &receipt, &mut new_receipts).unwrap();
+        runtime.apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index).unwrap();
         assert_eq!(new_receipts.len(), 1);
         if let Transaction::Receipt(new_receipt) = &new_receipts[0] {
             assert_eq!(new_receipt.originator, bob_account());

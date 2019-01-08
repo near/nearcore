@@ -72,51 +72,61 @@ extern "C" {
     fn gas_left() -> u64;
     fn received_amount() -> u64;
     fn assert(expr: bool);
+
+    /// Hash buffer is 32 bytes
+    fn hash(buffer: *const u8, out: *mut u8);
+    fn hash32(buffer: *const u8) -> u32;
+
+    // Fills given buffer with random u8.
+    fn random_buf(len: u32, out: *mut u8);
+    fn random32() -> u32;
+
+    fn block_index() -> u64;
 }
 
 fn storage_read(key: *const u8) -> Vec<u8> {
-    unsafe {
-        let len = storage_read_len(key);
-        let mut vec = vec![0u8; len as usize];
-        storage_read_into(key, vec.as_mut_ptr());
-        vec
-    }
+unsafe {
+    let len = storage_read_len(key);
+    let mut vec = vec![0u8; len as usize];
+    storage_read_into(key, vec.as_mut_ptr());
+    vec
+}
 }
 
 fn input_read() -> Vec<u8> {
-    unsafe {
-        let len = input_read_len();
-        let mut vec = vec![0u8; len as usize];
-        input_read_into(vec.as_mut_ptr());
-        vec
-    }
+unsafe {
+    let len = input_read_len();
+    let mut vec = vec![0u8; len as usize];
+    input_read_into(vec.as_mut_ptr());
+    vec
+}
 }
 
 fn result_read(index: u32) -> Vec<u8> {
-    unsafe {
-        let len = result_read_len(index);
-        let mut vec = vec![0u8; len as usize];
-        result_read_into(index, vec.as_mut_ptr());
-        vec
-    }
+unsafe {
+    let len = result_read_len(index);
+    let mut vec = vec![0u8; len as usize];
+    result_read_into(index, vec.as_mut_ptr());
+    vec
+}
 }
 
 fn return_i32(res: i32) {
+unsafe {
     let mut buf = [0u8; 8];
     LittleEndian::write_u32(&mut buf[..4], 4);
     LittleEndian::write_i32(&mut buf[4..], res);
-    unsafe {
-        return_value(buf.as_ptr())
-    }
+    return_value(buf.as_ptr())
+}
 }
 
 fn return_u64(res: u64) {
+unsafe {
     let mut buf = [0u8; 12];
     LittleEndian::write_u32(&mut buf[..4], 8);
     LittleEndian::write_u64(&mut buf[4..], res);
-    unsafe {
-        return_value(buf.as_ptr())
-    }
+    return_value(buf.as_ptr())
+}
 }
 
 fn read(type_index: u32, key: &[u8]) -> Vec<u8> {
@@ -161,21 +171,21 @@ fn key_to_str(key: u32) -> [u8; 19] {
 
 #[no_mangle]
 pub fn put_int(key: u32, value: i32) {
+unsafe {
     let mut val_bytes = [0u8; 8];
     LittleEndian::write_u32(&mut val_bytes[..4], 4);
     LittleEndian::write_i32(&mut val_bytes[4..], value);
-    unsafe {
-        storage_write(key_to_str(key).as_ptr(), val_bytes.as_ptr());
-    }
+    storage_write(key_to_str(key).as_ptr(), val_bytes.as_ptr());
+}
 }
 
 #[no_mangle]
 pub fn get_int(key: u32) -> i32 {
+unsafe {
     let val = storage_read(key_to_str(key).as_ptr());
-    unsafe {
-        assert(val.len() == 4);
-    }
+    assert(val.len() == 4);
     LittleEndian::read_i32(&val[..])
+}
 }
 
 #[no_mangle]
@@ -193,76 +203,76 @@ pub fn run_test_with_storage_change() {
 
 #[no_mangle]
 pub fn sum_with_input() {
+unsafe {
     let input = input_read();
-    unsafe {
-        assert(input.len() == 8);
-    }
+    assert(input.len() == 8);
     let a = LittleEndian::read_i32(&input[..4]);
     let b = LittleEndian::read_i32(&input[4..]);
     let sum = a + b;
     return_i32(sum)
 }
+}
 
 #[no_mangle]
 pub fn get_account_id() {
+unsafe {
     let acc_id = account_id();
-    unsafe {
-        return_value(serialize(&acc_id).as_ptr())
-    }
+    return_value(serialize(&acc_id).as_ptr())
+}
 }
 
 #[no_mangle]
 pub fn get_originator_id() {
+unsafe {
     let acc_id = originator_id();
-    unsafe {
-        return_value(serialize(&acc_id).as_ptr())
-    }
+    return_value(serialize(&acc_id).as_ptr())
+}
 }
 
 #[no_mangle]
 pub fn sum_with_multiple_results() {
-    unsafe {
-        let cnt = result_count();
-        if cnt == 0 {
+unsafe {
+    let cnt = result_count();
+    if cnt == 0 {
+        return return_i32(-100);
+    }
+    let mut sum = 0;
+    for index in 0..cnt {
+        if !result_is_ok(index) {
             return return_i32(-100);
         }
-        let mut sum = 0;
-        for index in 0..cnt {
-            if !result_is_ok(index) {
-                return return_i32(-100);
-            }
-            sum += LittleEndian::read_i32(&result_read(index));
-        }
-        return_i32(sum)
+        sum += LittleEndian::read_i32(&result_read(index));
     }
+    return_i32(sum)
+}
 }
 
 #[no_mangle]
 pub fn create_promises_and_join() {
-    unsafe {
-        let promise1 = promise_create(
-            serialize(b"test1").as_ptr(),
-            serialize(b"run1").as_ptr(),
-            serialize(b"args1").as_ptr(),
-            0,
-            0,
-        );
-        let promise2 = promise_create(
-            serialize(b"test2").as_ptr(),
-            serialize(b"run2").as_ptr(),
-            serialize(b"args2").as_ptr(),
-            0,
-            0,
-        );
-        let promise_joined = promise_and(promise1, promise2);
-        let callback = promise_then(
-            promise_joined,
-            serialize(b"run_test").as_ptr(),
-            serialize(b"").as_ptr(),
-            0,
-        );
-        return_promise(callback);
-    }
+unsafe {
+    let promise1 = promise_create(
+        serialize(b"test1").as_ptr(),
+        serialize(b"run1").as_ptr(),
+        serialize(b"args1").as_ptr(),
+        0,
+        0,
+    );
+    let promise2 = promise_create(
+        serialize(b"test2").as_ptr(),
+        serialize(b"run2").as_ptr(),
+        serialize(b"args2").as_ptr(),
+        0,
+        0,
+    );
+    let promise_joined = promise_and(promise1, promise2);
+    let callback = promise_then(
+        promise_joined,
+        serialize(b"run_test").as_ptr(),
+        serialize(b"").as_ptr(),
+        0,
+    );
+    return_promise(callback);
+}
 }
 
 #[no_mangle]
@@ -272,55 +282,100 @@ pub fn answer_to_life() {
 
 #[no_mangle]
 pub fn transfer_to_bob() {
-    unsafe {
-        let promise1 = promise_create(
-            serialize(b"bob").as_ptr(),
-            serialize(b"deposit").as_ptr(),
-            serialize(b"").as_ptr(),
-            0,
-            1u64,
-        );
-        return_promise(promise1);
-    }
+unsafe {
+    let promise1 = promise_create(
+        serialize(b"bob").as_ptr(),
+        serialize(b"deposit").as_ptr(),
+        serialize(b"").as_ptr(),
+        0,
+        1u64,
+    );
+    return_promise(promise1);
+}
 }
 
 #[no_mangle]
 pub fn get_prev_balance() {
-    unsafe {
-        let bal = balance();
-        let amount = received_amount();
-        return_u64(bal - amount);
-    }
+unsafe {
+    let bal = balance();
+    let amount = received_amount();
+    return_u64(bal - amount);
+}
 }
 
 #[no_mangle]
 pub fn get_gas_left() {
-    unsafe {
-        let my_gas = gas_left();
-        return_u64(my_gas);
-    }
+unsafe {
+    let my_gas = gas_left();
+    return_u64(my_gas);
+}
 }
 
 #[no_mangle]
 pub fn get_mana_left() {
-    unsafe {
-        let my_mana = mana_left();
-        return_i32(my_mana as i32);
-    }
+unsafe {
+    let my_mana = mana_left();
+    return_i32(my_mana as i32);
+}
+}
+
+#[no_mangle]
+pub fn get_block_index() {
+unsafe {
+    let bi = block_index();
+    return_u64(bi);
+}
 }
 
 #[no_mangle]
 pub fn assert_sum() {
-    unsafe {
-        let input = input_read();
-        assert(input.len() == 12);
-        let a = LittleEndian::read_i32(&input[..4]);
-        let b = LittleEndian::read_i32(&input[4..8]);
-        let sum = LittleEndian::read_i32(&input[8..]);
-        assert(a + b == sum);
-    }
+unsafe {
+    let input = input_read();
+    assert(input.len() == 12);
+    let a = LittleEndian::read_i32(&input[..4]);
+    let b = LittleEndian::read_i32(&input[4..8]);
+    let sum = LittleEndian::read_i32(&input[8..]);
+    assert(a + b == sum);
+}
 }
 
+#[no_mangle]
+pub fn get_random_32() {
+unsafe {
+    return_i32(random32() as i32)
+}
+}
+
+#[no_mangle]
+pub fn get_random_buf() {
+unsafe {
+    let input = input_read();
+    assert(input.len() == 4);
+    let len = LittleEndian::read_u32(&input[..4]);
+    let mut buf = vec![0u8; len as usize];
+    random_buf(len, buf.as_mut_ptr());
+    return_value(serialize(&buf).as_ptr())
+}
+}
+
+#[no_mangle]
+pub fn hash_given_input() {
+unsafe {
+    let input = input_read();
+    let mut buf = [0u8; 32];
+    hash(serialize(&input).as_ptr(), buf.as_mut_ptr());
+    return_value(serialize(&buf).as_ptr())
+}
+}
+
+
+#[no_mangle]
+pub fn hash32_given_input() {
+unsafe {
+    let input = input_read();
+    return_i32(hash32(serialize(&input).as_ptr()) as i32)
+}
+}
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
