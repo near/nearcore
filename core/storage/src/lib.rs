@@ -6,9 +6,9 @@ extern crate kvdb_memorydb;
 extern crate kvdb_rocksdb;
 #[macro_use]
 extern crate log;
+extern crate byteorder;
 extern crate primitives;
 extern crate serde;
-extern crate byteorder;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,8 +20,8 @@ use primitives::types::MerkleHash;
 pub use trie::DBChanges;
 
 mod nibble_slice;
-pub mod trie;
 pub mod test_utils;
+pub mod trie;
 
 pub const COL_STATE: Option<u32> = Some(0);
 pub const COL_EXTRA: Option<u32> = Some(1);
@@ -44,18 +44,16 @@ impl StateDbUpdate {
             state_db,
             root,
             committed: HashMap::default(),
-            prospective: HashMap::default()
+            prospective: HashMap::default(),
         }
     }
     pub fn get(&self, key: &[u8]) -> Option<DBValue> {
-        match self.prospective.get(key) {
-            Some(Some(value)) => Some(DBValue::from_slice(value)),
-            Some(None) => None,
-            None => match self.committed.get(key) {
-                Some(Some(value)) => Some(DBValue::from_slice(value)),
-                Some(None) => None,
-                None => self.state_db.trie.get(&self.root, key).map(|x| DBValue::from_slice(&x))
-            }
+        if let Some(value) = self.prospective.get(key) {
+            Some(DBValue::from_slice(value.as_ref()?))
+        } else if let Some(value) = self.committed.get(key) {
+            Some(DBValue::from_slice(value.as_ref()?))
+        } else {
+            self.state_db.trie.get(&self.root, key).map(|x| DBValue::from_slice(&x))
         }
     }
     pub fn set(&mut self, key: &[u8], value: &DBValue) {
@@ -67,7 +65,7 @@ impl StateDbUpdate {
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
         // TODO: join with iterating over committed / perspective overlay here.
         let mut iter = move || -> Result<(), String> {
-            let mut iter  = self.state_db.trie.iter(&self.root)?;
+            let mut iter = self.state_db.trie.iter(&self.root)?;
             iter.seek(prefix)?;
             for x in iter {
                 let (key, _) = x?;
@@ -90,7 +88,6 @@ impl StateDbUpdate {
                 *self.committed.entry(key).or_default() = val;
             }
         }
-
     }
     pub fn rollback(&mut self) {
         self.prospective.clear();
@@ -114,13 +111,10 @@ pub struct StateDb {
 
 impl StateDb {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
-        StateDb {
-            trie: trie::Trie::new(storage.clone(), COL_STATE),
-            storage,
-        }
+        StateDb { trie: trie::Trie::new(storage.clone(), COL_STATE), storage }
     }
     pub fn commit(&self, transaction: DBChanges) -> std::io::Result<()> {
-        trie::apply_changes(&self.storage, COL_STATE,transaction)
+        trie::apply_changes(&self.storage, COL_STATE, transaction)
     }
 }
 
@@ -144,14 +138,11 @@ mod tests {
         state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
         let (transaction, new_root) = state_db_update.finalize();
-        for (key, value) in &transaction {
-            println!("{:?} {:?}", key, value);
-        }
         state_db.commit(transaction).ok();
         let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
         assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
         let mut values = vec![];
-        state_db_update2.for_keys_with_prefix(b"dog", |key| { values.push(key.to_vec()) });
+        state_db_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec()));
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
     }
 }

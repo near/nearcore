@@ -7,9 +7,9 @@ use bencher::Bencher;
 extern crate storage;
 
 use std::sync::Arc;
-use storage::KeyValueDB;
 use storage::test_utils::create_memory_db;
-use storage::trie::{Trie, apply_changes};
+use storage::trie::{apply_changes, Trie};
+use storage::KeyValueDB;
 
 use rand::random;
 
@@ -53,7 +53,5 @@ fn trie_update(bench: &mut Bencher) {
     });
 }
 
- benchmark_group!(benches, trie_lookup, trie_update);
-// benchmark_group!(benches, trie_update);
-//benchmark_group!(benches, trie_lookup);
+benchmark_group!(benches, trie_lookup, trie_update);
 benchmark_main!(benches);
