@@ -756,7 +756,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                                 self.trie.retrieve_node(&hash).map(Box::new)
                             }
                             Some(NodeHandle::InMemory(node)) => Ok(node.clone()),
-                            _ => panic!(), // Wrapper with is_some()
+                            _ => panic!("Wrapped with is_some()"),
                         };
                         IterStep::Descend(next_node)
                     }
@@ -766,7 +766,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                         }
                         IterStep::Continue
                     }
-                    _ => panic!(), // Should never see Entering or AtChild without a Branch here.
+                    _ => panic!("Should never see Entering or AtChild without a Branch here."),
                 }
             };
             match iter_step {
