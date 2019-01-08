@@ -337,7 +337,7 @@ mod tests {
         .expect("ok");
 
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, b"alice"),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice"),
             _ => assert!(false, "Expected returned value"),
         };
     }
