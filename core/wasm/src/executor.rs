@@ -16,6 +16,7 @@ pub struct ExecutionOutcome {
     pub return_data: Result<ReturnData, Error>,
     pub balance: Balance,
     pub random_seed: Vec<u8>,
+    pub logs: Vec<String>,
 }
 
 pub fn execute(
@@ -67,6 +68,7 @@ pub fn execute(
             return_data: Err(e.into()),
             balance: context.initial_balance,
             random_seed: runtime.random_seed,
+            logs: runtime.logs,
         }),
         Ok(module_instance) => match module_instance.invoke_export(method_name, &[], &mut runtime) {
             Ok(_) => Ok(ExecutionOutcome {
@@ -76,6 +78,7 @@ pub fn execute(
                 return_data: Ok(runtime.return_data),
                 balance: runtime.balance,
                 random_seed: runtime.random_seed,
+                logs: runtime.logs,
             }),
             Err(e) => Ok(ExecutionOutcome {
                 gas_used: runtime.gas_counter,
@@ -84,6 +87,7 @@ pub fn execute(
                 return_data: Err(e.into()),
                 balance: context.initial_balance,
                 random_seed: runtime.random_seed,
+                logs: runtime.logs,
             })
         }
     }

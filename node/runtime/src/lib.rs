@@ -655,6 +655,11 @@ impl Runtime {
             ).map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
             mana_accounting.mana_refund = wasm_res.mana_left;
+            
+            
+            // serialize_logs(wasm_res.logs);
+            
+            
             let balance = wasm_res.balance;
             let return_data = wasm_res.return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
