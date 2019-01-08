@@ -6,6 +6,7 @@ extern crate log;
 extern crate rand;
 extern crate chrono;
 extern crate tokio;
+extern crate parking_lot;
 extern crate futures;
 extern crate typed_arena;
 extern crate primitives;
