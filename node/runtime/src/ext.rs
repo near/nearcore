@@ -3,7 +3,8 @@ use kvdb::DBValue;
 
 use primitives::types::{
     ReceiptId, Balance, Mana, CallbackId, ReceiptTransaction, Callback,
-    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo, Transaction
+    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo, Transaction,
+    AccountingInfo,
 };
 use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
@@ -15,6 +16,7 @@ pub struct RuntimeExt<'a, 'b: 'a> {
     pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
     pub callbacks: HashMap<CallbackId, Callback>,
     account_id: AccountId,
+    accounting_info: AccountingInfo,
     nonce: u64,
     transaction_hash: &'a [u8],
 }
@@ -23,6 +25,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     pub fn new(
         state_db_update: &'a mut StateDbUpdate<'b>,
         account_id: &AccountId,
+        accounting_info: &AccountingInfo,
         transaction_hash: &'a [u8]
     ) -> Self {
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
@@ -33,6 +36,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
             account_id: account_id.clone(),
+            accounting_info: accounting_info.clone(),
             nonce: 0,
             transaction_hash,
         }
@@ -86,6 +90,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
                 arguments,
                 amount,
                 mana,
+                self.accounting_info.clone(),
             )),
         );
         let promise_id = PromiseId::Receipt(nonce.clone());
@@ -106,7 +111,12 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             PromiseId::Joiner(rs) => rs,
             PromiseId::Callback(_) => return Err(ExtError::WrongPromise)
         };
-        let mut callback = Callback::new(method_name, arguments, mana);
+        let mut callback = Callback::new(
+            method_name,
+            arguments,
+            mana,
+            self.accounting_info.clone(),
+        );
         callback.results.resize(receipt_ids.len(), None);
         for (index, receipt_id) in receipt_ids.iter().enumerate() {
             let receipt = match self.receipts.get_mut(receipt_id) {

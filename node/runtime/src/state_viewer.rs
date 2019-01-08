@@ -3,15 +3,14 @@ use std::sync::Arc;
 use std::str;
 
 use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, Balance, MerkleHash};
+use primitives::types::{AccountId, Balance, MerkleHash, AccountingInfo};
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use super::{
-    Account, account_id_to_bytes, get, RuntimeExt,
-    COL_ACCOUNT, COL_CODE,
+    Account, account_id_to_bytes, get, RuntimeExt, COL_ACCOUNT, COL_CODE,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -101,45 +100,56 @@ impl StateDbViewer {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
             .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
-        let wasm_res = {
-            match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
-                Some(account) => {
-                    let mut runtime_ext = RuntimeExt::new(
-                        &mut state_update,
+        let wasm_res = match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
+            Some(account) => {
+                let mut runtime_ext = RuntimeExt::new(
+                    &mut state_update,
+                    contract_id,
+                    &AccountingInfo {
+                        originator: originator_id.clone(),
+                        contract_id: Some(contract_id.clone()),
+                    },
+                    &[],
+                );
+                executor::execute(
+                    &code,
+                    method_name.as_bytes(),
+                    &args.to_owned(),
+                    &[],
+                    &mut runtime_ext,
+                    &wasm::types::Config::default(),
+                    &RuntimeContext::new(
+                        account.amount,
+                        0,
+                        originator_id,
                         contract_id,
-                        &[],
-                    );
-                    executor::execute(
-                        &code,
-                        method_name.as_bytes(),
-                        &args.to_owned(),
-                        &[],
-                        &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                        &RuntimeContext::new(
-                            account.amount,
-                            0,
-                            originator_id,
-                            contract_id,
-                            0,
-                        ),
-                    )
-                }
-                None => return Err(format!("contract {} does not exist", contract_id))
+                        0,
+                    ),
+                )
             }
+            None => return Err(format!("contract {} does not exist", contract_id))
         };
         match wasm_res {
             Ok(res) => {
                 debug!(target: "runtime", "result of execution: {:?}", res);
-                let (_, root_after) = state_update.finalize();
-                if root_after != root {
-                    return Err("function call for viewing tried to change storage".to_string());
+                match res.return_data {
+                    Ok(return_data) => {
+                        let (_, root_after) = state_update.finalize();
+                        if root_after != root {
+                            return Err("function call for viewing tried to change storage".to_string());
+                        }
+                        let mut result = vec![];
+                        if let ReturnData::Value(buf) = return_data {
+                            result.extend(&buf);
+                        }
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        let message = format!("wasm view call execution failed with error: {:?}", e);
+                        debug!(target: "runtime", "{}", message);
+                        Err(message)
+                    }
                 }
-                let mut result = vec![];
-                if let ReturnData::Value(buf) = res.return_data {
-                    result.extend(&buf);
-                }
-                Ok(result)
             }
             Err(e) => {
                 let message = format!("wasm execution failed with error: {:?}", e);

@@ -17,9 +17,9 @@ pub fn generate_test_chain_spec() -> ChainSpec {
     let public_keys: Vec<PublicKey> = (0..3).map(|_| get_keypair().0).collect();
     ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), public_keys[0].to_string(), 100),
-            ("bob.near".to_string(), public_keys[1].to_string(), 0),
-            ("system".to_string(), public_keys[2].to_string(), 0),
+            ("alice.near".to_string(), public_keys[0].to_string(), 100, 10),
+            ("bob.near".to_string(), public_keys[1].to_string(), 0, 10),
+            ("system".to_string(), public_keys[2].to_string(), 0, 0),
         ],
         initial_authorities: vec![("alice.near".to_string(), public_keys[0].to_string(), 50)],
         genesis_wasm,
