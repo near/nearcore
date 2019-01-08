@@ -95,6 +95,8 @@ pub enum RuntimeError {
     InvalidConversionToInt,
     /// Stack overflow
     StackOverflow,
+    /// Unknown buffer type index for reading or writing
+    UnknownBufferTypeIndex,
     /// Panic with message
     Panic(String),
 }
@@ -156,6 +158,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::DivisionByZero => write!(f, "Division by zero"),
             RuntimeError::StackOverflow => write!(f, "Stack overflow"),
             RuntimeError::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
+            RuntimeError::UnknownBufferTypeIndex => write!(f, "Unknown buffer type index"),
             RuntimeError::Panic(ref msg) => write!(f, "Panic: {}", msg),
         }
     }

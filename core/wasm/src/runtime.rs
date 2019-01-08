@@ -9,6 +9,11 @@ use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
 
+type BufferTypeIndex = u32;
+
+pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
+pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
+
 pub struct Runtime<'a> {
     ext: &'a mut External,
     input_data: &'a [u8],
@@ -410,23 +415,36 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn sender_id(&self, args: &RuntimeArgs) -> Result<()> {
-        let val_ptr: u32 = args.nth_checked(0)?;
+    /// Returns length of the buffer for the type/key pair
+    fn read_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let buffer_type_index: BufferTypeIndex = args.nth_checked(0)?;
+        let _key_ptr: u32 = args.nth_checked(1)?;
 
+        let len = match buffer_type_index {
+            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes().len(),
+            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes().len(),
+            _ => return Err(Error::UnknownBufferTypeIndex)
+        };
+        Ok(RuntimeValue::I32(len as i32))
+    }
+
+    /// Writes content of the buffer for the type/key pair into given pointer
+    fn read_into(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let buffer_type_index: BufferTypeIndex = args.nth_checked(0)?;
+        let _key_ptr: u32 = args.nth_checked(1)?;
+        let val_ptr: u32 = args.nth_checked(2)?;
+
+        let buf = match buffer_type_index {
+            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes(),
+            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
+            _ => return Err(Error::UnknownBufferTypeIndex)
+        };
         self.memory
-            .set(val_ptr, self.context.originator_id.as_ref())
+            .set(val_ptr, buf)
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
     }
 
-    fn account_id(&self, args: &RuntimeArgs) -> Result<()> {
-        let val_ptr: u32 = args.nth_checked(0)?;
-
-        self.memory
-            .set(val_ptr, self.context.account_id.as_ref())
-            .map_err(|_| Error::MemoryAccessViolation)?;
-        Ok(())
-    }
 }
 
 fn format_buf(buf: &[u8]) -> String {
@@ -474,8 +492,8 @@ mod ext_impl {
                 RECEIVED_AMOUNT_FUNC => some!(self.received_amount()),
                 ASSERT_FUNC => void!(self.assert(&args)),
                 ABORT_FUNC => void!(self.abort(&args)),
-                SENDER_ID_FUNC => void!(self.sender_id(&args)),
-                ACCOUNT_ID_FUNC => void!(self.account_id(&args)),
+                READ_LEN_FUNC => some!(self.read_len(&args)),
+                READ_INTO_FUNC => void!(self.read_into(&args)),
                 LOG_FUNC => void!(self.log(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }

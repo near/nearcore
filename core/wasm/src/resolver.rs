@@ -100,13 +100,13 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32, ValueType::I32, ValueType::I32, ValueType::I32][..], None),
                 ids::ABORT_FUNC,
             ),
-            "sender_id" => FuncInstance::alloc_host(
-                Signature::new(&[ValueType::I32][..], None),
-                ids::SENDER_ID_FUNC,
+            "read_len" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32][..], Some(ValueType::I32)),
+                ids::READ_LEN_FUNC,
             ),
-            "account_id" => FuncInstance::alloc_host(
-                Signature::new(&[ValueType::I32][..], None),
-                ids::ACCOUNT_ID_FUNC,
+            "read_into" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32, ValueType::I32][..], None),
+                ids::READ_INTO_FUNC,
             ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
