@@ -29,6 +29,24 @@ class Near {
     };
 
     /**
+     * Schedules an asynchronous function call.
+     */
+    async scheduleFunctionCall(amount, sender, contractAccountId, methodName, args) {
+        if (!args) {
+            args = {};
+        }
+        const serializedArgs =  Array.from(BSON.serialize(args));
+        const response = await this.nearClient.submitTransaction('schedule_function_call', {
+            amount: amount,
+            originator: sender,
+            contract_account_id: contractAccountId,
+            method_name: methodName,
+            args: serializedArgs
+        });
+        return {}; // there is nothing returned from schedule function call right now
+    };
+
+    /**
      * Deploys a contract.
      */
     async deployContract(senderAccountId, contractAccountId, wasmArray, publicKey) {
