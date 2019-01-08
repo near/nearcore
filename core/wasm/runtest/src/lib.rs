@@ -323,4 +323,22 @@ mod tests {
             _ => assert!(false, "Expected returned value"),
         };
     }
+
+    #[test]
+    fn test_originator()  {
+        let input_data = [0u8; 0];
+
+        let return_data = run(
+            b"get_originator_id",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
+
+        match return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice"),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
 }

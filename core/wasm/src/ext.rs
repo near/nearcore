@@ -5,6 +5,11 @@ pub mod ids {
     pub const STORAGE_READ_LEN_FUNC: usize = 100;
     pub const STORAGE_READ_INTO_FUNC: usize = 110;
     pub const STORAGE_WRITE_FUNC: usize = 120;
+    // TODO(#350): Refactor all reads and writes into generic reads. 
+    /// Generic data read. Returns the length of the buffer for the type/key.
+    pub const READ_LEN_FUNC: usize = 140;
+    /// Generic data read. Writes content of the buffer for the type/key into the given pointer.
+    pub const READ_INTO_FUNC: usize = 150;
 
     /// Returns the current balance.
     pub const BALANCE_FUNC: usize = 200;
@@ -14,10 +19,6 @@ pub mod ids {
     pub const GAS_LEFT_FUNC: usize = 220;
     /// Returns the amount of balance received for this call.
     pub const RECEIVED_AMOUNT_FUNC: usize = 230;
-    /// Provides Sender's AccountId by writing 32 bytes into the given buffer.
-    pub const SENDER_ID_FUNC: usize = 240;
-    /// Provides your AccountId by writing 32 bytes into the given buffer.
-    pub const ACCOUNT_ID_FUNC: usize = 250;
 
     /// Function from gas counter. Automatically called by the gas meter.
     pub const GAS_FUNC: usize = 300;

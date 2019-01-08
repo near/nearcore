@@ -21,8 +21,14 @@ use byteorder::{ByteOrder, LittleEndian};
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+type BufferTypeIndex = u32;
+
+pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
+pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
+
 #[allow(unused)]
 extern "C" {
+    // TODO(#350): Refactor read/write APIs to unify them.
     // First 4 bytes are the length of the remaining buffer.
     fn storage_write(key: *const u8, value: *const u8);
     fn storage_read_len(key: *const u8) -> u32;
@@ -39,11 +45,9 @@ extern "C" {
     fn return_value(value: *const u8);
     fn return_promise(promise_index: u32);
 
-    // TODO(#316): Fix sender_id/account_id to work with dynamic length of the account id.
-    // Sender's account id.
-    fn sender_id(account_id: *mut u8);
-    // Current account id.
-    fn account_id(account_id: *mut u8);
+    // key can be 0 for certain types
+    fn read_len(type_index: u32, key: *const u8) -> u32;
+    fn read_into(type_index: u32, key: *const u8, value: *mut u8);
 
     // AccountID is just 32 bytes without the prefix length.
     fn promise_create(
@@ -115,6 +119,24 @@ fn return_u64(res: u64) {
     }
 }
 
+fn read(type_index: u32, key: &[u8]) -> Vec<u8> {
+unsafe {
+    let key = serialize(key);
+    let len = read_len(type_index, key.as_ptr());
+    let mut vec = vec![0u8; len as usize];
+    read_into(type_index, key.as_ptr(), vec.as_mut_ptr());
+    vec
+}
+}
+
+fn originator_id() -> Vec<u8> {
+    read(BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID, &[])
+}
+
+fn account_id() -> Vec<u8> {
+    read(BUFFER_TYPE_CURRENT_ACCOUNT_ID, &[])
+}
+
 fn serialize(buf: &[u8]) -> Vec<u8> {
     let mut vec = vec![0u8; buf.len() + 4];
     LittleEndian::write_u32(&mut vec[..4], buf.len() as u32);
@@ -179,6 +201,22 @@ pub fn sum_with_input() {
     let b = LittleEndian::read_i32(&input[4..]);
     let sum = a + b;
     return_i32(sum)
+}
+
+#[no_mangle]
+pub fn get_account_id() {
+    let acc_id = account_id();
+    unsafe {
+        return_value(serialize(&acc_id).as_ptr())
+    }
+}
+
+#[no_mangle]
+pub fn get_originator_id() {
+    let acc_id = originator_id();
+    unsafe {
+        return_value(serialize(&acc_id).as_ptr())
+    }
 }
 
 #[no_mangle]
