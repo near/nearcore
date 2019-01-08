@@ -124,6 +124,8 @@ impl StateDbViewer {
                         originator_id,
                         contract_id,
                         0,
+                        self.shard_chain.best_index(),
+                        root.into(),
                     ),
                 )
             }

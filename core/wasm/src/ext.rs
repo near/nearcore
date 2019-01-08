@@ -19,6 +19,12 @@ pub mod ids {
     pub const GAS_LEFT_FUNC: usize = 220;
     /// Returns the amount of balance received for this call.
     pub const RECEIVED_AMOUNT_FUNC: usize = 230;
+    /// Returns currently produced block index.
+    pub const BLOCK_INDEX_FUNC: usize = 240;
+    /// Fills given buffer of given length with random values.
+    pub const RANDOM_BUF_FUNC: usize = 250;
+    /// Returns random u32.
+    pub const RANDOM_32_FUNC: usize = 260;
 
     /// Function from gas counter. Automatically called by the gas meter.
     pub const GAS_FUNC: usize = 300;
@@ -47,6 +53,12 @@ pub mod ids {
     pub const RETURN_VALUE_FUNC: usize = 560;
     /// Called to return promise from the function.
     pub const RETURN_PROMISE_FUNC: usize = 570;
+
+    // Crypto and hashing
+    /// Hashes given buffer and writes 32 bytes of result in the given pointer.
+    pub const HASH_FUNC: usize = 600;
+    /// Returns hash of the given buffer into u32.
+    pub const HASH_32_FUNC: usize = 610;
 
     // Dev
     pub const PANIC_FUNC: usize = 1000;

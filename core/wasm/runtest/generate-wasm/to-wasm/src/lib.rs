@@ -72,6 +72,16 @@ extern "C" {
     fn gas_left() -> u64;
     fn received_amount() -> u64;
     fn assert(expr: bool);
+
+    /// Hash buffer is 32 bytes
+    fn hash(buffer: *const u8, out: *mut u8);
+    fn hash32(buffer: *const u8) -> u32;
+
+    // Fills given buffer with random u8.
+    fn random_buf(len: u32, out: *mut u8);
+    fn random32() -> u32;
+
+    fn block_index() -> u64;
 }
 
 fn storage_read(key: *const u8) -> Vec<u8> {
@@ -310,6 +320,14 @@ pub fn get_mana_left() {
 }
 
 #[no_mangle]
+pub fn get_block_index() {
+    unsafe {
+        let bi = block_index();
+        return_u64(bi);
+    }
+}
+
+#[no_mangle]
 pub fn assert_sum() {
     unsafe {
         let input = input_read();
@@ -321,6 +339,43 @@ pub fn assert_sum() {
     }
 }
 
+#[no_mangle]
+pub fn get_random_32() {
+unsafe {
+    return_i32(random32() as i32)
+}
+}
+
+#[no_mangle]
+pub fn get_random_buf() {
+unsafe {
+    let input = input_read();
+    assert(input.len() == 4);
+    let len = LittleEndian::read_u32(&input[..4]);
+    let mut buf = vec![0u8; len as usize];
+    random_buf(len, buf.as_mut_ptr());
+    return_value(serialize(&buf).as_ptr())
+}
+}
+
+#[no_mangle]
+pub fn hash_given_input() {
+unsafe {
+    let input = input_read();
+    let mut buf = [0u8; 32];
+    hash(serialize(&input).as_ptr(), buf.as_mut_ptr());
+    return_value(serialize(&buf).as_ptr())
+}
+}
+
+
+#[no_mangle]
+pub fn hash32_given_input() {
+unsafe {
+    let input = input_read();
+    return_i32(hash32(serialize(&input).as_ptr()) as i32)
+}
+}
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
