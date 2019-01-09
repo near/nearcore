@@ -1,4 +1,4 @@
-image: registry.gitlab.com/nearprotocol/nearcore/builder:0.1
+image: parity/rust:nightly
 
 variables:
     CI_SERVER_NAME:  "GitLab CI"
@@ -19,7 +19,7 @@ test_cargo:
     stage: test
     before_script:
     - *setup_cache
-    - rustup component add clippy-preview
+    - rustup component add clippy
     # TODO(#289): remove this
     - pip install bson
     script:
