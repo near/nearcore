@@ -100,7 +100,7 @@ pub struct ApplyState {
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
-    pub transaction: storage::TrieBackendTransaction,
+    pub transaction: storage::DBChanges,
     pub authority_proposals: Vec<AuthorityProposal>,
     pub filtered_transactions: Vec<Transaction>,
     pub new_receipts: Vec<Transaction>,
@@ -118,7 +118,7 @@ fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
 }
 
 pub struct Runtime {
-    state_db: Arc<StateDb>,
+    pub state_db: Arc<StateDb>,
 }
 
 impl Runtime {
@@ -996,7 +996,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Transaction],
         transactions: &[Transaction],
-    ) -> Option<(storage::TrieBackendTransaction, MerkleHash)> {
+    ) -> Option<(storage::DBChanges, MerkleHash)> {
         let mut new_receipts = vec![];
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
@@ -1122,9 +1122,9 @@ impl Runtime {
                 &account
             );
         }
-        let (mut transaction, genesis_root) = state_db_update.finalize();
+        let (transaction, genesis_root) = state_db_update.finalize();
         // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
-        self.state_db.commit(&mut transaction).expect("Failed to commit genesis state");
+        self.state_db.commit(transaction).expect("Failed to commit genesis state");
         genesis_root
     }
 }
@@ -1204,8 +1204,8 @@ mod tests {
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id), &test_account);
-        let (mut transaction, new_root) = state_update.finalize();
-        state_db.commit(&mut transaction).unwrap();
+        let (transaction, new_root) = state_update.finalize();
+        state_db.commit(transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
         let get_res = get(&mut new_state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id)).unwrap();
         assert_eq!(test_account, get_res);
@@ -1285,13 +1285,13 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
         let code: Vec<u8> = get(
             &mut new_state_update,
@@ -1324,13 +1324,13 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)],
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db, apply_result.root);
         let code: Vec<u8> = get(
             &mut new_state_update,
@@ -1356,13 +1356,13 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
         assert_eq!(
             result1.unwrap(),
@@ -1404,13 +1404,13 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply(
+        let apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::SignedTransaction(transaction)]
         );
         assert_eq!(apply_result.filtered_transactions.len(), 0);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
         assert_eq!(
             result1.unwrap(),
@@ -1453,11 +1453,11 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
         assert_eq!(
             result1.unwrap(),
@@ -1492,11 +1492,11 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
         assert_eq!(
             result1.unwrap(),
@@ -1585,11 +1585,11 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
         assert_eq!(
             result1.unwrap(),
@@ -1634,13 +1634,13 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply_all(
+        let apply_result = runtime.apply_all(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
         assert_eq!(apply_result.filtered_transactions.len(), 1);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let tx_body = TransactionBody::SwapKey(SwapKeyTransaction {
             nonce: 2,
             originator: eve_account(),
@@ -1656,10 +1656,10 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        let mut apply_result = runtime.apply(
+        let apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::SignedTransaction(transaction1)],
         );
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let account = get::<Account>(
             &mut new_state_update,
@@ -1773,8 +1773,8 @@ mod tests {
             &callback_id_to_bytes(&callback_id.clone()),
             &callback
         );
-        let (mut transaction, new_root) = state_update.finalize();
-        runtime.state_db.commit(&mut transaction).unwrap();
+        let (transaction, new_root) = state_update.finalize();
+        runtime.state_db.commit(transaction).unwrap();
         let receipt = ReceiptTransaction::new(
             alice_account(),
             bob_account(),
@@ -1790,10 +1790,10 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply(
+        let apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::Receipt(receipt)]
         );
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
         assert!(callback.is_none());
@@ -1819,15 +1819,28 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let mut apply_result = runtime.apply(
+        let apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::SignedTransaction(transaction)]
         );
-        runtime.state_db.commit(&mut apply_result.transaction).unwrap();
+        runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let account: Account = get(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account())
         ).unwrap();
         assert_eq!(account.nonce, 1);
+    }
+
+    #[test]
+    fn test_100_accounts() {
+        let mut chain_spec = generate_test_chain_spec();
+        let public_key = get_keypair().0;
+        for i in 0..100 {
+            chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000));
+        }
+        let (_, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
+        for i in 0..100 {
+            assert_eq!(viewer.view_account(&format!("account{}", i)).unwrap().amount, 10000)
+        }
     }
 }
