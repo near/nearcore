@@ -426,7 +426,7 @@ impl<'a> Runtime<'a> {
         Err(Error::AssertFailed)
     }
 
-    fn log(&mut self, args: &RuntimeArgs) -> Result<()> {
+    fn debug(&mut self, args: &RuntimeArgs) -> Result<()> {
         let msg_ptr: u32 = args.nth_checked(0)?;
 
         let message = format!("LOG: {}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
@@ -581,7 +581,7 @@ mod ext_impl {
                 RANDOM_BUF_FUNC => void!(self.random_buf(&args)),
                 RANDOM_32_FUNC => some!(self.random_u32()),
                 BLOCK_INDEX_FUNC => some!(self.block_index()),
-                LOG_FUNC => void!(self.log(&args)),
+                DEBUG_FUNC => void!(self.debug(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }

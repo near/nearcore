@@ -460,4 +460,19 @@ mod tests {
             _ => assert!(false, "Expected returned value"),
         };
     }
+
+    #[test]
+    fn test_debug()  {
+        let input_data = [0u8; 0];
+
+        let outcome = run(
+            b"log_something",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).expect("ok");
+
+        assert_eq!(outcome.logs, vec!["LOG: hello".to_string(),]);
+    }
+
 }
