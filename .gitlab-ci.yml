@@ -15,7 +15,7 @@ variables:
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}" -atime +10 -delete
 
-test:cargo:
+test_cargo:
     stage: test
     before_script:
     - *setup_cache
@@ -29,7 +29,7 @@ test:cargo:
     after_script:
     - *cleanup_obsolete_cache
 
-test:nearlib:
+test_nearlib:
     stage: test
     before_script:
     - *setup_cache
