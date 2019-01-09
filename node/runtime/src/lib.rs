@@ -1836,7 +1836,7 @@ mod tests {
         let mut chain_spec = generate_test_chain_spec();
         let public_key = get_keypair().0;
         for i in 0..100 {
-            chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000));
+            chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }
         let (_, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
         for i in 0..100 {
