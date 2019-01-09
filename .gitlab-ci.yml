@@ -3,14 +3,12 @@ image: registry.gitlab.com/nearprotocol/nearcore/builder:0.1
 variables:
     CI_SERVER_NAME:  "GitLab CI"
     CACHE_ROOT: "/tmp/cache/nearcore/${CI_JOB_NAME}"
-    CARGO_HOME:  "${CI_PROJECT_DIR}/cargo"
+    CARGO_HOME:  "${CACHE_ROOT}/cargo"
     BUILD_TARGET: ubuntu
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
 
 .setup_cache: &setup_cache
-    mkdir -p "${CACHE_ROOT}/cargo" &&
-    ln -s "${CACHE_ROOT}/cargo" "${CARGO_HOME}" &&
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
 
