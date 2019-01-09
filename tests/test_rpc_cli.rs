@@ -91,7 +91,7 @@ fn deploy_contract() -> Result<(Output, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
     create_account(contract_name.as_str());
-    thread::sleep(Duration::from_secs(2));
+    thread::sleep(Duration::from_millis(500));
     let account = view_account(Some(&contract_name));
     check_result(account)?;
 
@@ -160,6 +160,7 @@ test! { fn test_deploy() { test_deploy_inner() } }
 fn test_schedule_function_call_inner() {
     if !*DEVNET_STARTED { panic!() }
     let (_, contract_name) = deploy_contract().unwrap();
+    thread::sleep(Duration::from_millis(500));
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
         .arg(contract_name)
@@ -172,7 +173,6 @@ fn test_schedule_function_call_inner() {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("schedule_function_call command failed to process");
-    thread::sleep(Duration::from_secs(1));
     let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
@@ -183,7 +183,6 @@ test! { fn test_schedule_function_call() { test_schedule_function_call_inner() }
 fn test_call_view_function_inner() {
     if !*DEVNET_STARTED { panic!() }
     let (_, contract_name) = deploy_contract().unwrap();
-    thread::sleep(Duration::from_secs(3));
     let output = Command::new("./scripts/rpc.py")
         .arg("call_view_function")
         .arg(contract_name)
@@ -192,6 +191,8 @@ fn test_call_view_function_inner() {
         .arg("{}")
         .output()
         .expect("call_view_function command failed to process");
+
+    thread::sleep(Duration::from_secs(1));
     let result = check_result(output).unwrap();
     let _: CallViewFunctionResponse = serde_json::from_str(&result).unwrap();
 }
@@ -216,7 +217,6 @@ test! { fn test_view_state() { test_view_state_inner() } }
 fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
     let output = create_account("eve.near");
-    thread::sleep(Duration::from_secs(2));
     let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);

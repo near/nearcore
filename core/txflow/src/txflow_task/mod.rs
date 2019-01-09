@@ -48,6 +48,8 @@ pub fn spawn_task<
     messages_sender: mpsc::Sender<Gossip<P>>,
     control_receiver: mpsc::Receiver<Control<W>>,
     consensus_sender: mpsc::Sender<ConsensusBlockBody<P>>,
+    // this is to satisfy the interface used in cli/service
+    _dummy: bool
 ) {
     let task = TxFlowTask::new(
         messages_receiver,

@@ -139,6 +139,8 @@ pub struct ServiceConfig {
     pub chain_spec_path: Option<PathBuf>,
     pub log_level: log::LevelFilter,
     pub rpc_port: u16,
+    /// whether to produce blocks immediately when receiving transactions
+    pub prod_block_on_tx: bool,
 
     // Network configuration
     pub p2p_port: u16,
@@ -155,6 +157,7 @@ impl Default for ServiceConfig {
             chain_spec_path: None,
             log_level: DEFAULT_LOG_LEVEL,
             rpc_port: DEFAULT_RPC_PORT,
+            prod_block_on_tx: true,
             p2p_port: DEFAULT_P2P_PORT,
             boot_nodes: vec![],
             test_network_key_seed: None,
@@ -170,6 +173,7 @@ where
             Sender<Gossip<ChainPayload>>,
             Receiver<Control<BeaconWitnessSelector>>,
             Sender<ChainConsensusBlockBody>,
+            bool
         ) -> ()
         + Send
         + Sync
@@ -291,6 +295,7 @@ where
             out_gossip_tx,
             consensus_control_rx,
             beacon_block_consensus_body_tx,
+            config.prod_block_on_tx,
         );
         Ok(())
     }));

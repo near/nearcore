@@ -158,6 +158,11 @@ pub fn get_service_config() -> service::ServiceConfig {
     let public_key = matches
         .value_of("public_key")
         .map(String::from);
+    
+    let prod_block_on_tx = matches
+        .value_of("prod_block_on_tx")
+        .map(|s| s == "true")
+        .unwrap_or(true);
 
     service::ServiceConfig {
         base_path,
@@ -167,6 +172,7 @@ pub fn get_service_config() -> service::ServiceConfig {
         log_level,
         p2p_port,
         rpc_port,
+        prod_block_on_tx,
         boot_nodes,
         test_network_key_seed,
     }
