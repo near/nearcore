@@ -150,6 +150,21 @@ pub fn write_with_cache<T: Clone + Encode>(
     storage.write(db_transaction).expect("Database write failed");
 }
 
+pub fn extend_with_cache<T: Clone + Encode>(
+    storage: &Arc<Storage>,
+    col: Option<u32>,
+    cache: &RwLock<HashMap<Vec<u8>, T>>,
+    values: HashMap<Vec<u8>, T>,
+) {
+    let mut db_transaction = storage.transaction();
+    for (key, value) in values {
+        let data = Encode::encode(&value).expect("Error serializing data");
+        cache.write().insert(key.clone(), value.clone());
+        db_transaction.put(col, &key, &data);
+    }
+    storage.write(db_transaction).expect("Database write failed");
+}
+
 pub fn read_with_cache<T: Clone + Decode>(
     storage: &Arc<Storage>,
     col: Option<u32>,

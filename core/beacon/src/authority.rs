@@ -291,6 +291,7 @@ mod test {
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use storage::test_utils::MemoryStorage;
+    use types::SignedBeaconBlock;
 
     use super::*;
 
