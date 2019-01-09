@@ -54,7 +54,7 @@ class NearClient {
         var newKeypair = ed25519.MakeKeypair(randomSeed);
         const response = {};
         response['public_key'] = this.encodeBufferInBs58(newKeypair.publicKey);
-        response['private_key'] = this.encodeBufferInBs58(newKeypair.privateKey);
+        response['secret_key'] = this.encodeBufferInBs58(newKeypair.privateKey);
         return response;
     };
 
