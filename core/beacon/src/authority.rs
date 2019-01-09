@@ -165,10 +165,10 @@ impl Authority {
         let mut ordered_proposals = proposals;
         let mut indices = HashMap::new();
         for (i, p) in ordered_proposals.iter().enumerate() {
-            indices.insert(p.account_id, i);
+            indices.insert(p.account_id.clone(), i);
         }
         for r in rollovers.drain(..) {
-            match indices.entry(r.account_id) {
+            match indices.entry(r.account_id.clone()) {
                 Entry::Occupied(mut e) => {
                     let i = *e.get();
                     ordered_proposals[i].amount += r.amount;
@@ -233,7 +233,7 @@ impl Authority {
                 let participation = self.participation[&s].iter();
                 for (acc, participated) in accepted.zip(participation) {
                     if *participated {
-                        match indices.entry(acc.account_id) {
+                        match indices.entry(acc.account_id.clone()) {
                             Entry::Occupied(mut e) => {
                                 let el: &mut AuthorityStake = &mut ordered_rollovers[*e.get()];
                                 el.amount += threshold;
@@ -244,7 +244,7 @@ impl Authority {
                             }
                         }
                     } else {
-                        match penalties.entry(acc.account_id) {
+                        match penalties.entry(acc.account_id.clone()) {
                             Entry::Occupied(mut e) => {
                                 *e.get_mut() += threshold;
                             }

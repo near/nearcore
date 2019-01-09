@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use serde_json;
 
 use node_runtime::chain_spec::ChainSpec;
-use primitives::types::{AccountAlias, ReadablePublicKey};
+use primitives::types::{AccountId, ReadablePublicKey};
 use beacon::authority::{AuthorityConfig, AuthorityStake};
 
 #[derive(Serialize, Deserialize)]
