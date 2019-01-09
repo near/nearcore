@@ -135,6 +135,10 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32][..], None),
                 ids::DEBUG_FUNC,
             ),
+            "log" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::LOG_FUNC,
+            ),
             _ => {
                 return Err(WasmiError::Instantiation(format!(
                     "Export {} not found",

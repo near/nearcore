@@ -582,6 +582,7 @@ mod ext_impl {
                 RANDOM_32_FUNC => some!(self.random_u32()),
                 BLOCK_INDEX_FUNC => some!(self.block_index()),
                 DEBUG_FUNC => void!(self.debug(&args)),
+                LOG_FUNC => void!(self.debug(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }
