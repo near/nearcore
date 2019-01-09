@@ -25,10 +25,6 @@ class BrowserLocalStorageKeystore {
     };
 
     async getKey(accountId) {
-        console.log(window.localStorage.getItem(
-            BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)));
-        console.log(window.localStorage.getItem(
-            BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId)));
         return {
             public_key: window.localStorage.getItem(
                 BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)),
