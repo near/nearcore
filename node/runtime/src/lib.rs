@@ -1729,6 +1729,46 @@ mod tests {
     }
 
     #[test]
+    fn test_async_call_with_logs() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let nonce: Vec<u8> = hash(&[1, 2, 3]).into();
+        let receipt = ReceiptTransaction::new(
+            alice_account(),
+            bob_account(),
+            nonce.clone(),
+            ReceiptBody::NewCall(AsyncCall::new(
+                b"log_something".to_vec(),
+                vec![],
+                0,
+                0,
+                AccountingInfo {
+                    originator: alice_account(),
+                    contract_id: Some(bob_account()),
+                },
+            ))
+        );
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::Receipt(receipt)]
+        );
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
+        // New root contains a log
+        assert_ne!(root, apply_result.root);
+        runtime.state_db.commit(apply_result.transaction).unwrap();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
+        let log: Vec<u8> = get(&mut state_update, &logs_key(&nonce))
+            .expect("The logs should be written to state");
+        assert_eq!(log, "LOG: hello".to_string().into_bytes())
+    }
+
+    #[test]
     fn test_async_call_with_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
