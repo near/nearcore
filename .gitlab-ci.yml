@@ -1,17 +1,21 @@
 image: registry.gitlab.com/nearprotocol/nearcore/builder:0.1
 
-cache:
-  key: "${CI_JOB_NAME}"
-  paths:
-    - target/
-    - cargo/
-
 variables:
     CI_SERVER_NAME:  "GitLab CI"
+    CACHE_ROOT: "/tmp/cache/nearcore/${CI_JOB_NAME}"
     CARGO_HOME:  "${CI_PROJECT_DIR}/cargo"
     BUILD_TARGET: ubuntu
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
+
+before_script:
+    - mkdir -p "${CACHE_ROOT}/cargo"
+    - ln -s "${CACHE_ROOT}/cargo" "${CARGO_HOME}"
+    - mkdir -p "${CACHE_ROOT}/target"
+    - ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
+
+after_script:
+    - find "${CACHE_ROOT}" -atime +10 -delete
 
 test:cargo:
     stage: test
@@ -27,7 +31,6 @@ test:cargo:
 test:nearlib:
     stage: test
     before_script:
-    - rustup component add clippy-preview
     # TODO(#289): remove this
     - pip install bson
     script:
