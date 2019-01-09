@@ -6,7 +6,7 @@ use serde_json;
 
 use node_runtime::chain_spec::ChainSpec;
 use primitives::types::{AccountId, ReadablePublicKey};
-use beacon::authority::{AuthorityConfig, AuthorityProposal};
+use beacon::authority::{AuthorityConfig, AuthorityStake};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
@@ -53,10 +53,10 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpe
 }
 
 pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
-    let initial_authorities: Vec<AuthorityProposal> = chain_spec.initial_authorities
+    let initial_authorities: Vec<AuthorityStake> = chain_spec.initial_authorities
         .iter()
         .map(|(account_id, key, amount)| {
-            AuthorityProposal {
+            AuthorityStake {
                 account_id: account_id.clone(),
                 public_key: key.into(),
                 amount: *amount,
@@ -64,7 +64,7 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
         })
         .collect();
     AuthorityConfig {
-        initial_authorities,
+        initial_proposals: initial_authorities,
         epoch_length: chain_spec.beacon_chain_epoch_length,
         num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
     }

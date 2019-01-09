@@ -19,7 +19,7 @@ use substrate_network_libp2p::{
 use tokio::timer::Interval;
 
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
-use beacon::authority::{AuthorityConfig, AuthorityProposal};
+use beacon::authority::{AuthorityConfig, AuthorityStake};
 use chain::{SignedBlock, SignedHeader};
 use error::Error;
 use message::Message;
@@ -132,7 +132,7 @@ pub fn get_test_authority_config(
     let mut initial_authorities = vec![];
     for i in 0..num_authorities {
         let (public_key, _) = get_keypair();
-        initial_authorities.push(AuthorityProposal { account_id: i.to_string(), public_key, amount: 100 });
+        initial_authorities.push(AuthorityStake { account_id: i.to_string(), public_key, amount: 100 });
     }
-    AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
+    AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
 }

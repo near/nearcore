@@ -1,7 +1,7 @@
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
-use authority::AuthorityProposal;
+use authority::AuthorityStake;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -10,7 +10,7 @@ pub struct BeaconBlockHeader {
     /// Block index.
     pub index: u64,
     /// Authority proposals.
-    pub authority_proposal: Vec<AuthorityProposal>,
+    pub authority_proposal: Vec<AuthorityStake>,
     /// Hash of the shard block.
     pub shard_block_hash: CryptoHash,
 }
@@ -55,7 +55,7 @@ impl SignedBeaconBlock {
     pub fn new(
         index: u64,
         parent_hash: CryptoHash,
-        authority_proposal: Vec<AuthorityProposal>,
+        authority_proposal: Vec<AuthorityStake>,
         shard_block_hash: CryptoHash,
     ) -> SignedBeaconBlock {
         let header = BeaconBlockHeader { index, parent_hash, authority_proposal, shard_block_hash };

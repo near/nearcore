@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use beacon::authority::AuthorityProposal;
+use beacon::authority::AuthorityStake;
 use ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
@@ -101,7 +101,7 @@ pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
     pub transaction: storage::DBChanges,
-    pub authority_proposals: Vec<AuthorityProposal>,
+    pub authority_proposals: Vec<AuthorityStake>,
     pub filtered_transactions: Vec<Transaction>,
     pub new_receipts: Vec<Transaction>,
 }
@@ -209,10 +209,10 @@ impl Runtime {
         body: &StakeTransaction,
         sender_account_id: &AccountId,
         sender: &mut Account,
-        authority_proposals: &mut Vec<AuthorityProposal>,
+        authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<Transaction>, String> {
         if sender.amount >= body.amount && sender.public_keys.is_empty() {
-            authority_proposals.push(AuthorityProposal {
+            authority_proposals.push(AuthorityStake {
                 account_id: sender_account_id.clone(),
                 public_key: sender.public_keys[0],
                 amount: body.amount,
@@ -378,7 +378,7 @@ impl Runtime {
         state_update: &mut StateDbUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
-        authority_proposals: &mut Vec<AuthorityProposal>,
+        authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<Transaction>, String> {
         let sender_account_id = transaction.body.get_originator();
         let sender: Option<Account> =
@@ -942,7 +942,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction: &Transaction,
         new_receipts: &mut Vec<Transaction>,
-        authority_proposals: &mut Vec<AuthorityProposal>,
+        authority_proposals: &mut Vec<AuthorityStake>,
     ) -> bool {
         match transaction {
             Transaction::SignedTransaction(ref tx) => {

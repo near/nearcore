@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use beacon::authority::AuthorityProposal;
+use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
@@ -117,8 +117,8 @@ pub struct AuthorityProposalResponse {
     pub amount: u64,
 }
 
-impl From<AuthorityProposal> for AuthorityProposalResponse {
-    fn from(proposal: AuthorityProposal) -> Self {
+impl From<AuthorityStake> for AuthorityProposalResponse {
+    fn from(proposal: AuthorityStake) -> Self {
         AuthorityProposalResponse {
             account_id: proposal.account_id,
             public_key: proposal.public_key,

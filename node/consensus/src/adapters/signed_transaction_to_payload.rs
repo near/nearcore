@@ -6,7 +6,10 @@ use primitives::types::{ChainPayload, SignedTransaction, Transaction};
 // TODO(#265): Include transaction verification here.
 pub fn spawn_task(receiver: Receiver<SignedTransaction>, sender: Sender<ChainPayload>) {
     let task = receiver
-        .map(|t| ChainPayload { body: vec![Transaction::SignedTransaction(t)] })
+        .map(|t| {
+            println!("Received transaction! {:?}", t);
+            ChainPayload { body: vec![Transaction::SignedTransaction(t)] }
+        })
         .forward(
             sender.sink_map_err(|err| error!("Error sending payload down the sink: {:?}", err)),
         )
