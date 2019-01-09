@@ -13,7 +13,7 @@ const aliceKey = {
 };
 const test_key_store = new InMemoryKeyStore();
 test_key_store.setKey(aliceAccountName, aliceKey);
-const localNodeConnection = new LocalNodeConnection();
+const localNodeConnection = new LocalNodeConnection("http://localhost:3030");
 const nearClient = new NearClient(test_key_store, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
@@ -46,7 +46,39 @@ test('create account and then view account returns the created account', async (
         expect(result).toEqual(expctedAccount);
         return true;
     }
-    callUntilConditionIsMet(viewAccountFunc, checkConditionFunc, "Call view account until result matches expected value");
+    await callUntilConditionIsMet(
+        viewAccountFunc,
+        checkConditionFunc, 
+        "Call view account until result matches expected value");
+});
+
+test('create account with a new key and then view account returns the created account', async () => {
+    const newAccountName = await generateUniqueString("create.randomkey.test");
+    const createAccountResponse = await account.createAccountWithRandomKey(
+        newAccountName,
+        2,
+        aliceAccountName);
+    expect(createAccountResponse["key"]).not.toBeFalsy();
+    console.log(createAccountResponse["key"])
+    const expctedAccount = {
+        nonce: 0,
+        account_id: newAccountName,
+        amount: 2,
+        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        stake: 0,
+    };
+
+    const viewAccountFunc = async () => {
+        return await account.viewAccount(newAccountName);
+    };
+    const checkConditionFunc = (result) => {
+        expect(result).toEqual(expctedAccount);
+        return true;
+    }
+    await callUntilConditionIsMet(
+        viewAccountFunc,
+        checkConditionFunc, 
+        "Call view account until result matches expected value");
 });
 
 test('deploy contract and make function calls', async () => {
@@ -87,10 +119,11 @@ test('deploy contract and make function calls', async () => {
             "near_func_getValue", // this is the function defined in hello.wasm file that we are calling
             {});
     };
-    const checkResult = async (result) => {
+    const checkResult = (result) => {
         expect(result).toEqual(setCallValue);
+        return true;
     }
-    callUntilConditionIsMet(
+    await callUntilConditionIsMet(
         callViewFunctionGetValue,
         checkResult,
         "Call getValue until result is equal to expected value");
@@ -104,15 +137,16 @@ const callUntilConditionIsMet = async (functToPoll, condition, description) => {
                 console.log("Success " + description + " in " + (i + 1) + " attempts.");
                 return response;
             }
-        } catch (_) {
-            // Errors are expected, not logging to avoid spam
+        } catch (e) {
+            if (i == TEST_MAX_RETRIES - 1) {
+                fail('exceeded number of retries for ' + description + ". Last error " + e.toString());
+            }
         }
     }
-    fail('exceeded number of retries for ' + description);
 };
 
 const waitForNonceToIncrease = async (initialAccount) => {
-    callUntilConditionIsMet(
+    await callUntilConditionIsMet(
         async () => { return await account.viewAccount(initialAccount['account_id']); },
         (response) => { return response['nonce'] != initialAccount['nonce'] },
         "Call view account until nonce increases"

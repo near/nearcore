@@ -1,11 +1,12 @@
 const ed25519 = require('ed25519');
 const bs58 = require('bs58');
+const crypto = require('crypto');
 
 /**
  * Client for communicating with near blockchain. 
  */
 class NearClient {
-    constructor(keyStore, nearConnection) {
+    constructor (keyStore, nearConnection) {
         this.keyStore = keyStore;
         this.nearConnection = nearConnection;
     }
@@ -47,6 +48,21 @@ class NearClient {
     async request (methodName, params) {
         return await this.nearConnection.request(methodName, params);
     };
+
+    async generateNewKeyFromRandomSeed () {
+        var randomSeed = crypto.randomBytes(32);
+        var newKeypair = ed25519.MakeKeypair(randomSeed);
+        const response = {};
+        response['public_key'] = this.encodeBufferInBs58(newKeypair.publicKey);
+        response['secret_key'] = this.encodeBufferInBs58(newKeypair.privateKey);
+        return response;
+    };
+
+    encodeBufferInBs58(buffer) {
+        const bytes = Buffer.from(buffer);
+        const encodedValue = bs58.encode(bytes);
+        return encodedValue;
+    }
 }
 
 module.exports = NearClient;
