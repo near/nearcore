@@ -8,9 +8,6 @@ use std::os::raw::{c_char};
 use std::path::PathBuf;
 use std::str::FromStr;
 use node_cli::service;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use primitives::types::ChainPayload;
-
 
 #[no_mangle]
 pub unsafe extern fn run_with_config(
@@ -73,8 +70,5 @@ pub unsafe extern fn run_with_config(
         test_network_key_seed,
     };
 
-    service::start_service(
-        config,
-        txflow::txflow_task::spawn_task::<ChainPayload, BeaconWitnessSelector>
-    );
+    service::start_service(config, false);
 }

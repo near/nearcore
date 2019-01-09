@@ -16,10 +16,9 @@ use beacon::authority::{Authority, SelectedAuthority};
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
-use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use chain::SignedBlock;
 use chain_spec;
-use consensus::adapters;
+use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer, Runtime};
@@ -30,8 +29,7 @@ use primitives::types::{
 };
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use txflow::txflow_task::Control;
+use txflow::txflow_task::spawn_task;
 
 const STORAGE_PATH: &str = "storage/db";
 const NETWORK_CONFIG_PATH: &str = "storage";
@@ -165,20 +163,7 @@ impl Default for ServiceConfig {
     }
 }
 
-pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
-where
-    S: Fn(
-            Receiver<Gossip<ChainPayload>>,
-            Receiver<ChainPayload>,
-            Sender<Gossip<ChainPayload>>,
-            Receiver<Control<BeaconWitnessSelector>>,
-            Sender<ChainConsensusBlockBody>,
-            bool
-        ) -> ()
-        + Send
-        + Sync
-        + 'static,
-{
+pub fn start_service(config: ServiceConfig, use_pass_thru: bool) {
     // Create shared-state objects.
     let storage = get_storage(&config.base_path);
     let chain_spec = chain_spec::read_or_default_chain_spec(&config.chain_spec_path);
@@ -289,14 +274,24 @@ where
         adapters::signed_transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
         adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
 
-        spawn_consensus_task_fn(
-            inc_gossip_rx,
-            payload_rx,
-            out_gossip_tx,
-            consensus_control_rx,
-            beacon_block_consensus_body_tx,
-            config.prod_block_on_tx,
-        );
+        if use_pass_thru {
+            passthrough::spawn_consensus(
+                inc_gossip_rx,
+                payload_rx,
+                out_gossip_tx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx,
+                config.prod_block_on_tx,
+            );
+        } else {
+            spawn_task(
+                inc_gossip_rx,
+                payload_rx,
+                out_gossip_tx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx,
+            )
+        }
         Ok(())
     }));
 }

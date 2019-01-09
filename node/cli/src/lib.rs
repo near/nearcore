@@ -25,8 +25,6 @@ extern crate txflow;
 use clap::{App, Arg};
 use std::path::PathBuf;
 use std::str::FromStr;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use primitives::types::ChainPayload;
 
 pub mod chain_spec;
 pub mod service;
@@ -113,6 +111,13 @@ pub fn get_service_config() -> service::ServiceConfig {
               .help("Sets public key to sign with, \
                          can be omitted with 1 file in keystore")
               .takes_value(true)
+        ).arg(
+            Arg::with_name("prod_block_on_tx")
+                .long("prod-block-on-tx")
+                .value_name("PROD_BLOCK_ON_TX")
+                .help("Whether to produce blocks immediately when receiving a transaction")
+                .takes_value(true)
+                .default_value("true")
         ).get_matches();
 
     let base_path = matches
@@ -180,8 +185,5 @@ pub fn get_service_config() -> service::ServiceConfig {
 
 pub fn run() {
     let config = get_service_config();
-    service::start_service(
-        config,
-        txflow::txflow_task::spawn_task::<ChainPayload, BeaconWitnessSelector>
-    );
+    service::start_service(config, false);
 }
