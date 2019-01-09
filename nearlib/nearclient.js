@@ -1,6 +1,5 @@
-const ed25519 = require('ed25519');
 const bs58 = require('bs58');
-const crypto = require('crypto');
+const nacl = require("tweetnacl") 
 
 /**
  * Client for communicating with near blockchain. 
@@ -22,7 +21,8 @@ class NearClient {
         const stringifiedTxn = JSON.stringify(transaction);
         const encodedKey = await this.keyStore.getKey(sender);
         const key = bs58.decode(encodedKey.secret_key);
-        const signature = [...ed25519.Sign(Buffer.from(stringifiedTxn, 'utf8'), key)];
+        const message = Buffer.from(stringifiedTxn, 'utf8');
+        const signature = [...nacl.sign.detached(message, key)];
         const response = {
             body: transaction,
             signature: signature
@@ -50,11 +50,10 @@ class NearClient {
     };
 
     async generateNewKeyFromRandomSeed () {
-        var randomSeed = crypto.randomBytes(32);
-        var newKeypair = ed25519.MakeKeypair(randomSeed);
         const response = {};
+        var newKeypair = nacl.sign.keyPair()
         response['public_key'] = this.encodeBufferInBs58(newKeypair.publicKey);
-        response['secret_key'] = this.encodeBufferInBs58(newKeypair.privateKey);
+        response['secret_key'] = this.encodeBufferInBs58(newKeypair.secretKey);
         return response;
     };
 
