@@ -4,7 +4,8 @@ version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 
 [dependencies]
-bincode = "1.0.0"
+regex = "1"
+bincode = { version = "1.0", features = ["i128"] }
 bs58 = "0.2.0"
 byteorder = "1.2"
 exonum_sodiumoxide = "0.0.20"

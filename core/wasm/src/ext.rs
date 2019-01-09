@@ -5,6 +5,11 @@ pub mod ids {
     pub const STORAGE_READ_LEN_FUNC: usize = 100;
     pub const STORAGE_READ_INTO_FUNC: usize = 110;
     pub const STORAGE_WRITE_FUNC: usize = 120;
+    // TODO(#350): Refactor all reads and writes into generic reads. 
+    /// Generic data read. Returns the length of the buffer for the type/key.
+    pub const READ_LEN_FUNC: usize = 140;
+    /// Generic data read. Writes content of the buffer for the type/key into the given pointer.
+    pub const READ_INTO_FUNC: usize = 150;
 
     /// Returns the current balance.
     pub const BALANCE_FUNC: usize = 200;
@@ -14,10 +19,12 @@ pub mod ids {
     pub const GAS_LEFT_FUNC: usize = 220;
     /// Returns the amount of balance received for this call.
     pub const RECEIVED_AMOUNT_FUNC: usize = 230;
-    /// Provides Sender's AccountId by writing 32 bytes into the given buffer.
-    pub const SENDER_ID_FUNC: usize = 240;
-    /// Provides your AccountId by writing 32 bytes into the given buffer.
-    pub const ACCOUNT_ID_FUNC: usize = 250;
+    /// Returns currently produced block index.
+    pub const BLOCK_INDEX_FUNC: usize = 240;
+    /// Fills given buffer of given length with random values.
+    pub const RANDOM_BUF_FUNC: usize = 250;
+    /// Returns random u32.
+    pub const RANDOM_32_FUNC: usize = 260;
 
     /// Function from gas counter. Automatically called by the gas meter.
     pub const GAS_FUNC: usize = 300;
@@ -33,9 +40,6 @@ pub mod ids {
     pub const PROMISE_THEN_FUNC: usize = 410;
     /// Joins 2 given promises together and returns a new promise.
     pub const PROMISE_AND_FUNC: usize = 420;
-    /// Converts a given account alias to the AccountId.
-    /// AccountID size is exactly 32 bytes.
-    pub const ACCOUNT_ALIAS_TO_ID_FUNC: usize = 430;
 
     /// Returns total byte length of the arguments.
     pub const INPUT_READ_LEN_FUNC: usize = 500;
@@ -49,6 +53,12 @@ pub mod ids {
     pub const RETURN_VALUE_FUNC: usize = 560;
     /// Called to return promise from the function.
     pub const RETURN_PROMISE_FUNC: usize = 570;
+
+    // Crypto and hashing
+    /// Hashes given buffer and writes 32 bytes of result in the given pointer.
+    pub const HASH_FUNC: usize = 600;
+    /// Returns hash of the given buffer into u32.
+    pub const HASH_32_FUNC: usize = 610;
 
     // Dev
     pub const PANIC_FUNC: usize = 1000;

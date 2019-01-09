@@ -94,12 +94,12 @@ impl BlockProducer {
             shard_id,
         };
         loop {
-            let mut apply_result = self.runtime.write().apply(
+            let apply_result = self.runtime.write().apply(
                 &apply_state,
                 &last_shard_block.body.new_receipts,
                 transactions
             );
-            self.state_db.commit(&mut apply_result.transaction).ok();
+            self.state_db.commit(apply_result.transaction).ok();
             let mut shard_block = SignedShardBlock::new(
                 shard_id,
                 last_shard_block.body.header.index + 1,

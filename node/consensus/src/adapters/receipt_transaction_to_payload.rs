@@ -20,7 +20,6 @@ mod tests {
     use futures::{lazy, stream};
     use futures::sync::mpsc::channel;
     use primitives::types::{Transaction, ReceiptTransaction, ReceiptBody};
-    use primitives::hash::CryptoHash;
 
     #[test]
     fn pass_through() {
@@ -31,7 +30,7 @@ mod tests {
             let mut transactions = vec![];
             for i in 0..10 {
                 transactions.push(
-                    ReceiptTransaction::new(CryptoHash::default(), CryptoHash::default(), vec![],
+                    ReceiptTransaction::new("alice".to_string(), "bob".to_string(), vec![],
                                             ReceiptBody::Refund(i)
                 ));
             }

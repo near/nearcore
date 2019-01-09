@@ -13,9 +13,7 @@ use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
     pub nonce: u64,
-    #[serde(with = "bs58_format")]
-    pub sender_account_id: AccountId,
-    #[serde(with = "bs58_format")]
+    pub originator: AccountId,
     pub receiver_account_id: AccountId,
     pub amount: Balance,
 }
@@ -23,17 +21,14 @@ pub struct SendMoneyRequest {
 #[derive(Serialize, Deserialize)]
 pub struct StakeRequest {
     pub nonce: u64,
-    #[serde(with = "bs58_format")]
-    pub staker_account_id: AccountId,
+    pub originator: AccountId,
     pub amount: Balance,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct DeployContractRequest {
     pub nonce: u64,
-    #[serde(with = "bs58_format")]
-    pub sender_account_id: AccountId,
-    #[serde(with = "bs58_format")]
+    pub originator: AccountId,
     pub contract_account_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
     #[serde(with = "bs58_pub_key_format")]
@@ -43,9 +38,7 @@ pub struct DeployContractRequest {
 #[derive(Serialize, Deserialize)]
 pub struct CreateAccountRequest {
     pub nonce: u64,
-    #[serde(with = "bs58_format")]
-    pub sender: AccountId,
-    #[serde(with = "bs58_format")]
+    pub originator: AccountId,
     pub new_account_id: AccountId,
     pub amount: u64,
     #[serde(with = "bs58_pub_key_format")]
@@ -55,7 +48,6 @@ pub struct CreateAccountRequest {
 #[derive(Serialize, Deserialize)]
 pub struct SwapKeyRequest {
     pub nonce: u64,
-    #[serde(with = "bs58_format")]
     pub account: AccountId,
     #[serde(with = "bs58_pub_key_format")]
     pub current_key: PublicKey,
@@ -66,9 +58,7 @@ pub struct SwapKeyRequest {
 #[derive(Serialize, Deserialize)]
 pub struct ScheduleFunctionCallRequest {
     pub nonce: u64,
-    #[serde(with = "bs58_format")]
-    pub originator_account_id: AccountId,
-    #[serde(with = "bs58_format")]
+    pub originator: AccountId,
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
@@ -77,13 +67,11 @@ pub struct ScheduleFunctionCallRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
-    #[serde(with = "bs58_format")]
     pub account_id: AccountId,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountResponse {
-    #[serde(with = "bs58_format")]
     pub account_id: AccountId,
     pub amount: Balance,
     pub stake: Balance,
@@ -94,9 +82,7 @@ pub struct ViewAccountResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionRequest {
-    #[serde(with = "bs58_format")]
-    pub originator_id: AccountId,
-    #[serde(with = "bs58_format")]
+    pub originator: AccountId,
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
@@ -114,20 +100,17 @@ pub struct PreparedTransactionBodyResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateRequest {
-    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResponse {
-    #[serde(with = "bs58_format")]
     pub contract_account_id: AccountId,
     pub values: HashMap<String, Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct AuthorityProposalResponse {
-    #[serde(with = "bs58_format")]
     pub account_id: AccountId,
     #[serde(with = "bs58_pub_key_format")]
     pub public_key: PublicKey,

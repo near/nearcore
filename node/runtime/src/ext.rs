@@ -3,36 +3,40 @@ use kvdb::DBValue;
 
 use primitives::types::{
     ReceiptId, Balance, Mana, CallbackId, ReceiptTransaction, Callback,
-    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo, Transaction
+    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo, Transaction,
+    AccountingInfo,
 };
 use storage::StateDbUpdate;
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
-use super::{account_id_to_bytes, create_nonce_with_nonce};
+use super::{account_id_to_bytes, create_nonce_with_nonce, COL_ACCOUNT};
 
-pub struct RuntimeExt<'a, 'b: 'a> {
-    state_db_update: &'a mut StateDbUpdate<'b>,
+pub struct RuntimeExt<'a> {
+    state_db_update: &'a mut StateDbUpdate,
     storage_prefix: Vec<u8>,
     pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
     pub callbacks: HashMap<CallbackId, Callback>,
     account_id: AccountId,
+    accounting_info: AccountingInfo,
     nonce: u64,
     transaction_hash: &'a [u8],
 }
 
-impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
+impl<'a> RuntimeExt<'a> {
     pub fn new(
-        state_db_update: &'a mut StateDbUpdate<'b>,
-        account_id: AccountId,
+        state_db_update: &'a mut StateDbUpdate,
+        account_id: &AccountId,
+        accounting_info: &AccountingInfo,
         transaction_hash: &'a [u8]
     ) -> Self {
-        let mut prefix = account_id_to_bytes(account_id);
+        let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
         RuntimeExt { 
             state_db_update,
             storage_prefix: prefix,
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
-            account_id,
+            account_id: account_id.clone(),
+            accounting_info: accounting_info.clone(),
             nonce: 0,
             transaction_hash,
         }
@@ -55,7 +59,7 @@ impl<'a, 'b: 'a> RuntimeExt<'a, 'b> {
     }
 }
 
-impl<'a, 'b> External for RuntimeExt<'a, 'b> {
+impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
@@ -78,7 +82,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
     ) -> ExtResult<PromiseId> {
         let nonce = self.create_nonce();
         let receipt = ReceiptTransaction::new(
-            self.account_id,
+            self.account_id.clone(),
             account_id,
             nonce.clone(),
             ReceiptBody::NewCall(AsyncCall::new(
@@ -86,6 +90,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
                 arguments,
                 amount,
                 mana,
+                self.accounting_info.clone(),
             )),
         );
         let promise_id = PromiseId::Receipt(nonce.clone());
@@ -106,7 +111,12 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             PromiseId::Joiner(rs) => rs,
             PromiseId::Callback(_) => return Err(ExtError::WrongPromise)
         };
-        let mut callback = Callback::new(method_name, arguments, mana);
+        let mut callback = Callback::new(
+            method_name,
+            arguments,
+            mana,
+            self.accounting_info.clone(),
+        );
         callback.results.resize(receipt_ids.len(), None);
         for (index, receipt_id) in receipt_ids.iter().enumerate() {
             let receipt = match self.receipts.get_mut(receipt_id) {
@@ -115,7 +125,7 @@ impl<'a, 'b> External for RuntimeExt<'a, 'b> {
             };
             match receipt.body {
                 ReceiptBody::NewCall(ref mut async_call) => {
-                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id);
+                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id.clone());
                     match async_call.callback {
                         Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
                         None => {

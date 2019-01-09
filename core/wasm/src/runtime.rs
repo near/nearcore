@@ -4,10 +4,16 @@ use memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
 use types::{RuntimeError as Error, ReturnData, RuntimeContext};
 
-use primitives::types::{AccountAlias, AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
+use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
+use primitives::hash::hash;
 use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
+
+type BufferTypeIndex = u32;
+
+pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
+pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
 
 pub struct Runtime<'a> {
     ext: &'a mut External,
@@ -21,6 +27,8 @@ pub struct Runtime<'a> {
     gas_limit: Gas,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
+    pub random_seed: Vec<u8>,
+    random_buffer_offset: usize,
 }
 
 impl<'a> Runtime<'a> {
@@ -44,6 +52,8 @@ impl<'a> Runtime<'a> {
             gas_limit,
             promise_ids: Vec::new(),
             return_data: ReturnData::None,
+            random_seed: hash(&context.random_seed).into(),
+            random_buffer_offset: 0,
         }
     }
 
@@ -55,13 +65,21 @@ impl<'a> Runtime<'a> {
         Ok(buf)
     }
 
-
     fn read_buffer(&self, offset: u32) -> Result<Vec<u8>> {
         let len: u32 = self
             .memory
             .get_u32(offset)
             .map_err(|_| Error::MemoryAccessViolation)?;
         self.read_buffer_with_size(offset + 4, len as usize)
+    }
+
+    fn random_u8(&mut self) -> u8 {
+        if self.random_buffer_offset >= self.random_seed.len() {
+            self.random_seed = hash(&self.random_seed).into();
+            self.random_buffer_offset = 0;
+        }
+        self.random_buffer_offset += 1;
+        self.random_seed[self.random_buffer_offset - 1]
     }
 
     fn read_string(&self, offset: u32) -> Result<String> {
@@ -84,9 +102,9 @@ impl<'a> Runtime<'a> {
         Ok(self.promise_ids.get(promise_index as usize).ok_or(Error::InvalidPromiseIndex)?.clone())
     }
 
-    fn read_and_parse_account_alias(&self, offset: u32) -> Result<AccountAlias> {
+    fn read_and_parse_account_id(&self, offset: u32) -> Result<AccountId> {
         let buf = self.read_buffer(offset)?;
-        AccountAlias::from_utf8(buf).map_err(|_| Error::BadUtf8)
+        AccountId::from_utf8(buf).map_err(|_| Error::BadUtf8)
     }
 
     fn charge_gas(&mut self, gas_amount: Gas) -> bool {
@@ -191,8 +209,7 @@ impl<'a> Runtime<'a> {
         let mana: u32 = args.nth_checked(3)?;
         let amount: u64 = args.nth_checked(4)?;
 
-        let account_id_buf = self.read_buffer_with_size(account_id_ptr, 32)?;
-        let account_id: AccountId = AccountId::from(account_id_buf);
+        let account_id = self.read_and_parse_account_id(account_id_ptr)?;
         let method_name = self.read_buffer(method_name_ptr)?;
         let arguments = self.read_buffer(arguments_ptr)?;
 
@@ -411,35 +428,96 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn sender_id(&self, args: &RuntimeArgs) -> Result<()> {
-        let val_ptr: u32 = args.nth_checked(0)?;
+    /// Returns length of the buffer for the type/key pair
+    fn read_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let buffer_type_index: BufferTypeIndex = args.nth_checked(0)?;
+        let _key_ptr: u32 = args.nth_checked(1)?;
 
+        let len = match buffer_type_index {
+            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes().len(),
+            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes().len(),
+            _ => return Err(Error::UnknownBufferTypeIndex)
+        };
+        Ok(RuntimeValue::I32(len as i32))
+    }
+
+    /// Writes content of the buffer for the type/key pair into given pointer
+    fn read_into(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let buffer_type_index: BufferTypeIndex = args.nth_checked(0)?;
+        let _key_ptr: u32 = args.nth_checked(1)?;
+        let val_ptr: u32 = args.nth_checked(2)?;
+
+        let buf = match buffer_type_index {
+            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes(),
+            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
+            _ => return Err(Error::UnknownBufferTypeIndex)
+        };
         self.memory
-            .set(val_ptr, self.context.sender_id.as_ref())
+            .set(val_ptr, buf)
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
     }
 
-    fn account_id(&self, args: &RuntimeArgs) -> Result<()> {
-        let val_ptr: u32 = args.nth_checked(0)?;
+    fn hash(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let buf_ptr: u32 = args.nth_checked(0)?;
+        let out_ptr: u32 = args.nth_checked(1)?;
+
+        let buf = self.read_buffer(buf_ptr)?;
+        let buf_hash = hash(&buf);
 
         self.memory
-            .set(val_ptr, self.context.account_id.as_ref())
+            .set(out_ptr, buf_hash.as_ref())
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
     }
 
-    fn account_alias_to_id(&self, args: &RuntimeArgs) -> Result<()> {
-        let account_alias_ptr: u32 = args.nth_checked(0)?;
-        let val_ptr: u32 = args.nth_checked(1)?;
+    fn hash32(&self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let buf_ptr: u32 = args.nth_checked(0)?;
 
-        let account_alias = self.read_and_parse_account_alias(account_alias_ptr)?;
-        let account_id = AccountId::from(&account_alias);
+        let buf = self.read_buffer(buf_ptr)?;
+        let buf_hash = hash(&buf);
+        let buf_hash_ref = buf_hash.as_ref();
+
+        let mut buf_hash_32: u32 = 0;
+        for b in buf_hash_ref.iter().take(4) {
+            buf_hash_32 <<= 8;
+            buf_hash_32 += u32::from(*b);
+        }
+
+        Ok(RuntimeValue::I32(buf_hash_32 as i32))
+    }
+
+    fn random_buf(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let len: u32 = args.nth_checked(0)?;
+        let out_ptr: u32 = args.nth_checked(1)?;
+
+        if !self.memory.can_fit(out_ptr as usize, len as usize) {
+            return Err(Error::MemoryAccessViolation);
+        }
+
+        let mut buf = Vec::with_capacity(len as usize);
+        for _ in 0..len {
+            buf.push(self.random_u8());
+        }
 
         self.memory
-            .set(val_ptr, account_id.as_ref())
+            .set(out_ptr, &buf)
             .map_err(|_| Error::MemoryAccessViolation)?;
         Ok(())
+    }
+
+    fn random_u32(&mut self) -> Result<RuntimeValue> {
+        let mut random_val: u32 = 0;
+        for _ in 0..4 {
+            random_val <<= 8;
+            random_val += u32::from(self.random_u8());
+        }
+
+        Ok(RuntimeValue::I32(random_val as i32))
+    }
+
+    fn block_index(&self) -> Result<RuntimeValue> {
+        Ok(RuntimeValue::I64(self.context.block_index as i64))
     }
 }
 
@@ -488,9 +566,13 @@ mod ext_impl {
                 RECEIVED_AMOUNT_FUNC => some!(self.received_amount()),
                 ASSERT_FUNC => void!(self.assert(&args)),
                 ABORT_FUNC => void!(self.abort(&args)),
-                SENDER_ID_FUNC => void!(self.sender_id(&args)),
-                ACCOUNT_ID_FUNC => void!(self.account_id(&args)),
-                ACCOUNT_ALIAS_TO_ID_FUNC => void!(self.account_alias_to_id(&args)),
+                READ_LEN_FUNC => some!(self.read_len(&args)),
+                READ_INTO_FUNC => void!(self.read_into(&args)),
+                HASH_FUNC => void!(self.hash(&args)),
+                HASH_32_FUNC => some!(self.hash32(&args)),
+                RANDOM_BUF_FUNC => void!(self.random_buf(&args)),
+                RANDOM_32_FUNC => some!(self.random_u32()),
+                BLOCK_INDEX_FUNC => some!(self.block_index()),
                 LOG_FUNC => void!(self.log(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }

@@ -1,4 +1,4 @@
-use primitives::types::{PromiseId, AccountId, Balance, Mana};
+use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
 use wasmi::{Error as WasmiError, Trap, TrapKind};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -95,6 +95,8 @@ pub enum RuntimeError {
     InvalidConversionToInt,
     /// Stack overflow
     StackOverflow,
+    /// Unknown buffer type index for reading or writing
+    UnknownBufferTypeIndex,
     /// Panic with message
     Panic(String),
 }
@@ -156,6 +158,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::DivisionByZero => write!(f, "Division by zero"),
             RuntimeError::StackOverflow => write!(f, "Stack overflow"),
             RuntimeError::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
+            RuntimeError::UnknownBufferTypeIndex => write!(f, "Unknown buffer type index"),
             RuntimeError::Panic(ref msg) => write!(f, "Panic: {}", msg),
         }
     }
@@ -260,28 +263,36 @@ pub struct RuntimeContext {
     pub initial_balance: Balance,
     /// The amount sent by the Sender.
     pub received_amount: Balance,
-    /// Sender's Account ID.
-    pub sender_id: AccountId,
+    /// Originator's Account ID.
+    pub originator_id: AccountId,
     /// Current Account ID.
     pub account_id: AccountId,
     /// Available mana for the execution by this contract.
     pub mana: Mana,
+    /// Currently produced block index
+    pub block_index: BlockIndex,
+    /// Initial seed for randomness
+    pub random_seed: Vec<u8>,
 }
 
 impl RuntimeContext {
     pub fn new(
         initial_balance: Balance,
         received_amount: Balance,
-        sender_id: AccountId,
-        account_id: AccountId,
+        sender_id: &AccountId,
+        account_id: &AccountId,
         mana: Mana,
+        block_index: BlockIndex,
+        random_seed: Vec<u8>,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
             received_amount,
-            sender_id,
-            account_id,
+            originator_id: sender_id.clone(),
+            account_id: account_id.clone(),
             mana,
+            block_index,
+            random_seed,
         }
     }
 }

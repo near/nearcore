@@ -330,7 +330,7 @@ mod test {
     use std::sync::Arc;
 
     use chain::{SignedBlock, SignedHeader};
-    use primitives::hash::{hash_struct, CryptoHash};
+    use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use storage::test_utils::MemoryStorage;
 
@@ -342,10 +342,9 @@ mod test {
         num_seats_per_slot: u64,
     ) -> AuthorityConfig {
         let mut initial_authorities = vec![];
-        for _ in 0..num_authorities {
+        for i in 0..num_authorities {
             let (public_key, _) = get_keypair();
-            let account_id = hash_struct(&public_key);
-            initial_authorities.push(AuthorityStake { account_id, public_key, amount: 100 });
+            initial_authorities.push(AuthorityStake { account_id: i.to_string(), public_key, amount: 100 });
         }
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }

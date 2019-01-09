@@ -1,5 +1,5 @@
 use types::PrepareError as Error;
-use wasmi::memory_units::Pages;
+use wasmi::memory_units::{Bytes, Pages};
 use wasmi::{MemoryInstance, MemoryRef};
 
 #[derive(Clone)]
@@ -38,5 +38,13 @@ impl Memory {
     pub fn set(&self, ptr: u32, value: &[u8]) -> Result<(), Error> {
         self.memref.set(ptr, value).map_err(|_| Error::Memory)?;
         Ok(())
+    }
+
+    pub fn can_fit(&self, ptr: usize, len: usize) -> bool {
+        if let Some(size) = ptr.checked_add(len) {
+            Bytes(ptr) <= self.memref.current_size().into()
+        } else {
+            false
+        }
     }
 }

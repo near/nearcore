@@ -50,8 +50,8 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: r.nonce,
-            sender: r.sender,
-            new_account_id: r.new_account_id,
+            originator: r.originator.clone(),
+            new_account_id: r.new_account_id.clone(),
             amount: r.amount,
             public_key: r.public_key.encode().unwrap(),
         });
@@ -65,8 +65,8 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: r.nonce,
-            sender: r.sender_account_id,
-            contract_id: r.contract_account_id,
+            originator: r.originator.clone(),
+            contract_id: r.contract_account_id.clone(),
             wasm_byte_array: r.wasm_byte_array,
             public_key: r.public_key.encode().unwrap(),
         });
@@ -80,7 +80,7 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::SwapKey(SwapKeyTransaction {
             nonce: r.nonce,
-            sender: r.account,
+            originator: r.account.clone(),
             cur_key: r.current_key.encode().unwrap(),
             new_key: r.new_key.encode().unwrap(),
         });
@@ -94,12 +94,12 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: r.nonce,
-            sender: r.sender_account_id,
-            receiver: r.receiver_account_id,
+            originator: r.originator.clone(),
+            receiver: r.receiver_account_id.clone(),
             amount: r.amount,
         });
         debug!(target: "near-rpc", "Send money transaction {:?}->{:?}, amount: {:?}",
-               r.sender_account_id, r.receiver_account_id, r.amount);
+               r.originator, r.receiver_account_id, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -109,11 +109,11 @@ impl HttpApi {
     ) -> Result<PreparedTransactionBodyResponse, ()> {
         let body = TransactionBody::Stake(StakeTransaction {
             nonce: r.nonce,
-            staker: r.staker_account_id,
+            originator: r.originator.clone(),
             amount: r.amount,
         });
         debug!(target: "near-rpc", "Stake money transaction {:?}, amount: {:?}",
-               r.staker_account_id, r.amount);
+               r.originator, r.amount);
         Ok(PreparedTransactionBodyResponse { body })
     }
 
@@ -125,8 +125,8 @@ impl HttpApi {
                r.contract_account_id, r.method_name);
         let body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: r.nonce,
-            originator: r.originator_account_id,
-            contract_id: r.contract_account_id,
+            originator: r.originator.clone(),
+            contract_id: r.contract_account_id.clone(),
             method_name: r.method_name.into_bytes(),
             args: r.args,
             amount: r.amount,
@@ -139,7 +139,7 @@ impl HttpApi {
         r: &ViewAccountRequest,
     ) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
-        match self.state_db_viewer.view_account(r.account_id) {
+        match self.state_db_viewer.view_account(&r.account_id) {
             Ok(r) => {
                 Ok(ViewAccountResponse {
                     account_id: r.account,
@@ -164,8 +164,8 @@ impl HttpApi {
             r.method_name,
         );
         match self.state_db_viewer.call_function(
-            r.originator_id,
-            r.contract_account_id,
+            &r.originator,
+            &r.contract_account_id,
             &r.method_name,
             &r.args,
         ) {
@@ -185,9 +185,9 @@ impl HttpApi {
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
-        let result = self.state_db_viewer.view_state(r.contract_account_id);
+        let result = self.state_db_viewer.view_state(&r.contract_account_id);
         let response = ViewStateResponse {
-            contract_account_id: r.contract_account_id,
+            contract_account_id: r.contract_account_id.clone(),
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect()
         };
         Ok(response)

@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::str;
 
-use primitives::hash::{CryptoHash, hash};
-use primitives::types::{AccountId, Balance, MerkleHash};
+use primitives::hash::CryptoHash;
+use primitives::types::{AccountId, Balance, MerkleHash, AccountingInfo};
 use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use super::{
-    Account, account_id_to_bytes, get, RUNTIME_DATA, RuntimeData, RuntimeExt,
+    Account, account_id_to_bytes, get, RuntimeExt, COL_ACCOUNT, COL_CODE,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -46,39 +46,38 @@ impl StateDbViewer {
 
     pub fn view_account_at(
         &self,
-        account_id: AccountId,
+        account_id: &AccountId,
         root: MerkleHash,
-    ) -> Result<AccountViewCallResult, &str> {
+    ) -> Result<AccountViewCallResult, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        let runtime_data: RuntimeData = get(&mut state_update, RUNTIME_DATA)
-            .expect("Runtime data is missing");
-        match get::<Account>(&mut state_update, &account_id_to_bytes(account_id)) {
+
+        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => {
                 Ok(AccountViewCallResult {
-                    account: account_id,
+                    account: account_id.clone(),
                     nonce: account.nonce,
                     amount: account.amount,
-                    stake: runtime_data.get_stake_for_account(account_id),
-                    code_hash: hash(&account.code),
+                    stake: account.staked,
+                    code_hash: account.code_hash
                 })
             },
-            _ => Err("account does not exist"),
+            _ => Err(format!("account {} does not exist while viewing", account_id)),
         }
     }
 
     pub fn view_account(
         &self,
-        account_id: AccountId,
-    ) -> Result<AccountViewCallResult, &str> {
+        account_id: &AccountId,
+    ) -> Result<AccountViewCallResult, String> {
         let root = self.get_root();
         self.view_account_at(account_id, root)
     }
 
-    pub fn view_state(&self, account_id: AccountId) -> ViewStateResult {
+    pub fn view_state(&self, account_id: &AccountId) -> ViewStateResult {
         let root = self.get_root();
         let mut values = HashMap::default();
         let state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        let mut prefix = account_id_to_bytes(account_id);
+        let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
@@ -92,23 +91,28 @@ impl StateDbViewer {
 
     pub fn call_function_at(
         &self,
-        originator_id: AccountId,
-        contract_id: AccountId,
+        originator_id: &AccountId,
+        contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
         root: MerkleHash,
     ) -> Result<Vec<u8>, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        match get::<Account>(&mut state_update, &account_id_to_bytes(contract_id)) {
+        let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
+            .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
+        let wasm_res = match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
             Some(account) => {
-                let mut result = vec![];
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
+                    &AccountingInfo {
+                        originator: originator_id.clone(),
+                        contract_id: Some(contract_id.clone()),
+                    },
                     &[],
                 );
-                let wasm_res = executor::execute(
-                    &account.code,
+                executor::execute(
+                    &code,
                     method_name.as_bytes(),
                     &args.to_owned(),
                     &[],
@@ -120,32 +124,47 @@ impl StateDbViewer {
                         originator_id,
                         contract_id,
                         0,
+                        self.shard_chain.best_index(),
+                        root.into(),
                     ),
-                );
-                match wasm_res {
-                    Ok(res) => {
-                        debug!(target: "runtime", "result of execution: {:?}", res);
-                        // TODO: Handle other ExecutionOutcome results
-                        if let ReturnData::Value(buf) = res.return_data {
+                )
+            }
+            None => return Err(format!("contract {} does not exist", contract_id))
+        };
+        match wasm_res {
+            Ok(res) => {
+                debug!(target: "runtime", "result of execution: {:?}", res);
+                match res.return_data {
+                    Ok(return_data) => {
+                        let (_, root_after) = state_update.finalize();
+                        if root_after != root {
+                            return Err("function call for viewing tried to change storage".to_string());
+                        }
+                        let mut result = vec![];
+                        if let ReturnData::Value(buf) = return_data {
                             result.extend(&buf);
                         }
                         Ok(result)
                     }
                     Err(e) => {
-                        let message = format!("wasm execution failed with error: {:?}", e);
+                        let message = format!("wasm view call execution failed with error: {:?}", e);
                         debug!(target: "runtime", "{}", message);
                         Err(message)
                     }
                 }
             }
-            None => Err("contract does not exist".to_string())
+            Err(e) => {
+                let message = format!("wasm execution failed with error: {:?}", e);
+                debug!(target: "runtime", "{}", message);
+                Err(message)
+            }
         }
     }
 
     pub fn call_function(
         &self,
-        originator_id: AccountId,
-        contract_id: AccountId,
+        originator_id: &AccountId,
+        contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
     ) -> Result<Vec<u8>, String> {
@@ -162,21 +181,40 @@ impl StateDbViewer {
 
 #[cfg(test)]
 mod tests {
-    use primitives::hash::hash;
+    use primitives::types::AccountId;
     use std::collections::HashMap;
     use test_utils::*;
+
+    fn alice_account() -> AccountId {
+        "alice.near".to_string()
+    }
 
     #[test]
     fn test_view_call() {
         let viewer = get_test_state_db_viewer();
 
-        let view_call_result = viewer.call_function(
-            hash(b"alice"),
-            hash(b"alice"),
+        let result = viewer.call_function(
+            &alice_account(),
+            &alice_account(),
             "run_test",
             &vec![]
         );
-        assert_eq!(view_call_result.unwrap(), encode_int(20).to_vec());
+
+        assert_eq!(result.unwrap(), encode_int(10));
+    }
+
+    #[test]
+    fn test_view_call_try_changing_storage() {
+        let viewer = get_test_state_db_viewer();
+
+        let result = viewer.call_function(
+            &alice_account(),
+            &alice_account(),
+            "run_test_with_storage_change",
+            &vec![]
+        );
+        // run_test tries to change storage, so it should fail
+        assert!(result.is_err());
     }
 
     #[test]
@@ -186,8 +224,8 @@ mod tests {
             .flat_map(|x| encode_int(x).to_vec())
             .collect::<Vec<_>>();
         let view_call_result = viewer.call_function(
-            hash(b"alice"),
-            hash(b"alice"),
+            &alice_account(),
+            &alice_account(),
             "sum_with_input",
             &args,
         );
@@ -197,7 +235,7 @@ mod tests {
     #[test]
     fn test_view_state() {
         let viewer = get_test_state_db_viewer();
-        let result = viewer.view_state(hash(b"alice"));
+        let result = viewer.view_state(&alice_account());
         assert_eq!(result.values, HashMap::default());
     }
 }
