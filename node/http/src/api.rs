@@ -209,14 +209,14 @@ impl HttpApi {
     }
 
     pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
-        Ok(self.shard_chain.best_block().into())
+        Ok(self.shard_chain.chain.best_block().into())
     }
 
     pub fn get_shard_block_by_hash(
         &self,
         r: &GetBlockByHashRequest,
     ) -> Result<SignedShardBlockResponse, &str> {
-        match self.shard_chain.get_block(&BlockId::Hash(r.hash)) {
+        match self.shard_chain.chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
@@ -226,9 +226,9 @@ impl HttpApi {
         &self,
         r: &GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String> {
-        let start = r.start.unwrap_or_else(|| { self.shard_chain.best_index() });
+        let start = r.start.unwrap_or_else(|| { self.shard_chain.chain.best_index() });
         let limit = r.limit.unwrap_or(25);
-        match self.shard_chain.get_blocks_by_index(start, limit) {
+        match self.shard_chain.chain.get_blocks_by_index(start, limit) {
             Ok(blocks) => {
                 Ok(SignedShardBlocksResponse {
                     blocks: blocks.into_iter().map(|x| x.into()).collect(),

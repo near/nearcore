@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use rand::{Rng, SeedableRng, StdRng};
 
-use chain::{BlockChain, SignedBlock};
+use chain::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, BlockId};
-use types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use types::SignedBeaconBlockHeader;
+use types::BeaconBlockChain;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthorityProposal {
@@ -96,7 +97,7 @@ impl Authority {
     /// Starting from best block, figure out current authorities.
     pub fn new(
         authority_config: AuthorityConfig,
-        blockchain: &BlockChain<SignedBeaconBlock>,
+        blockchain: &BeaconBlockChain,
     ) -> Self {
         let mut authority = Authority {
             authority_config,
@@ -306,11 +307,11 @@ mod test {
         AuthorityConfig { initial_authorities, epoch_length, num_seats_per_slot }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BlockChain<SignedBeaconBlock> {
+    fn test_blockchain(num_blocks: u64) -> BeaconBlockChain {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BlockChain::new(last_block.clone(), storage);
+        let bc = BeaconBlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());

@@ -77,14 +77,14 @@ impl BlockImporter {
         self.pending_shard_blocks.entry(hash).or_insert(shard_block);
     }
 
-    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
+    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: &SignedShardBlock) {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
         // we can unwrap because parent is guaranteed to exist
         let prev_header = self.beacon_chain
             .get_header(&BlockId::Hash(parent_hash))
             .expect("Parent is known but header not found.");
-        let prev_shard_block = self.shard_chain
+        let prev_shard_block = self.shard_chain.chain
             .get_block(&BlockId::Hash(parent_shard_hash))
             .expect("At this moment shard chain should be present together with beacon chain");
         let prev_shard_header = prev_shard_block.header();
@@ -111,7 +111,7 @@ impl BlockImporter {
                     return;
                 }
                 self.state_db.commit(&mut db_transaction).ok();
-                self.shard_chain.insert_block(shard_block);
+                self.shard_chain.insert_block(&shard_block);
                 self.beacon_chain.insert_block(beacon_block);
             }
             None => {
@@ -129,7 +129,7 @@ impl BlockImporter {
         let mut part_pending = HashMap::default();
         for (hash, other) in self.pending_beacon_blocks.drain() {
             if self.beacon_chain.is_known(&other.body.header.parent_hash) && (
-                self.shard_chain.is_known(&other.body.header.shard_block_hash) ||
+                self.shard_chain.chain.is_known(&other.body.header.shard_block_hash) ||
                     self.pending_shard_blocks.contains_key(&other.body.header.shard_block_hash)) {
                 part_add.push(other);
             } else {
@@ -181,7 +181,7 @@ impl BlockImporter {
                         error!("failed to send new block: {:?}", e);
                     })
             });
-            self.add_block(next_beacon_block, next_shard_block);
+            self.add_block(next_beacon_block, &next_shard_block);
         }
     }
 }

@@ -72,7 +72,7 @@ impl BlockProducer {
             signer,
             state_db,
             block_announce_tx,
-            new_block_tx
+            new_block_tx,
         }
     }
 
@@ -83,7 +83,7 @@ impl BlockProducer {
             .collect();
 
         let mut last_block = self.beacon_chain.best_block();
-        let mut last_shard_block = self.shard_chain
+        let mut last_shard_block = self.shard_chain.chain
             .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
             .expect("At the moment we should have shard blocks accompany beacon blocks");
         let shard_id = last_shard_block.body.header.shard_id;
@@ -118,7 +118,7 @@ impl BlockProducer {
             shard_block.add_signature(signature);
             let signature = block.sign(&*self.signer);
             block.add_signature(signature);
-            self.shard_chain.insert_block(shard_block.clone());
+            self.shard_chain.insert_block(&shard_block.clone());
             self.beacon_chain.insert_block(block.clone());
             info!(target: "block_producer", "Block body: {:?}", block.body);
             info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);

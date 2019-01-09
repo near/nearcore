@@ -11,14 +11,20 @@ extern crate substrate_state_machine;
 extern crate hex_literal;
 #[cfg(test)]
 extern crate memory_db;
+extern crate parking_lot;
 
-pub use kvdb::{DBValue, KeyValueDB};
-use kvdb_rocksdb::{Database, DatabaseConfig};
-use primitives::hash::CryptoHash;
-use primitives::types::MerkleHash;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+pub use kvdb::{DBValue, DBTransaction, KeyValueDB};
+use kvdb_rocksdb::{Database, DatabaseConfig};
+use parking_lot::RwLock;
 use substrate_storage::{CryptoHasher, Externalities, OverlayedChanges, StateExt, TrieBackend, Backend};
 pub use substrate_storage::TrieBackendTransaction;
+
+use primitives::hash::CryptoHash;
+use primitives::traits::{Decode, Encode};
+use primitives::types::MerkleHash;
 
 mod substrate_storage;
 pub mod test_utils;
@@ -97,6 +103,7 @@ impl StateDb {
             null_node_data: [0u8][..].into(),
         }
     }
+
     pub fn commit(&self, transaction: &mut TrieBackendTransaction) -> std::io::Result<()> {
         let mut db_transaction = self.storage.transaction();
         for (k, (v, rc)) in transaction.drain() {
@@ -126,6 +133,44 @@ impl substrate_state_machine::Storage<CryptoHasher> for StateDb {
 pub fn open_database(storage_path: &str) -> Database {
     let storage_config = DiskStorageConfig::with_columns(TOTAL_COLUMNS);
     DiskStorage::open(&storage_config, storage_path).expect("Database wasn't open")
+}
+
+pub fn write_with_cache<T: Clone + Encode>(
+    storage: &Arc<Storage>,
+    col: Option<u32>,
+    cache: &RwLock<HashMap<Vec<u8>, T>>,
+    key: &[u8],
+    value: &T,
+) {
+    let data = Encode::encode(value).expect("Error serializing data");
+    cache.write().insert(key.to_vec(), value.clone());
+
+    let mut db_transaction = storage.transaction();
+    db_transaction.put(col, key, &data);
+    storage.write(db_transaction).expect("Database write failed");
+}
+
+pub fn read_with_cache<T: Clone + Decode>(
+    storage: &Arc<Storage>,
+    col: Option<u32>,
+    cache: &RwLock<HashMap<Vec<u8>, T>>,
+    key: &[u8],
+) -> Option<T> {
+    {
+        let read = cache.read();
+        if let Some(v) = read.get(key) {
+            return Some(v.clone());
+        }
+    }
+
+    match storage.get(col, key) {
+        Ok(Some(value)) => Decode::decode(value.as_ref()).map(|value: T| {
+            let mut write = cache.write();
+            write.insert(key.to_vec(), value.clone());
+            value
+        }),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

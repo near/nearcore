@@ -42,7 +42,7 @@ impl StateDbViewer {
     }
 
     pub fn get_root(&self) -> MerkleHash {
-        self.shard_chain.best_block().body.header.merkle_root_state
+        self.shard_chain.chain.best_block().body.header.merkle_root_state
     }
 
     pub fn view_account_at(

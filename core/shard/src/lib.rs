@@ -6,6 +6,10 @@ extern crate rand;
 extern crate serde_derive;
 extern crate storage;
 
+pub mod db;
+
+use std::sync::Arc;
+
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{
@@ -97,11 +101,6 @@ impl SignedShardBlock {
 impl SignedBlock for SignedShardBlock {
     type SignedHeader = SignedShardBlockHeader;
 
-    #[inline]
-    fn block_hash(&self) -> CryptoHash {
-        self.hash
-    }
-
     fn header(&self) -> Self::SignedHeader {
         SignedShardBlockHeader {
             body: self.body.header.clone(),
@@ -109,6 +108,11 @@ impl SignedBlock for SignedShardBlock {
             signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
         }
+    }
+
+    #[inline]
+    fn block_hash(&self) -> CryptoHash {
+        self.hash
     }
 
     fn add_signature(&mut self, signature: PartialSignature) {
@@ -120,4 +124,23 @@ impl SignedBlock for SignedShardBlock {
     }
 }
 
-pub type ShardBlockChain = chain::BlockChain<SignedShardBlock>;
+pub struct ShardBlockChain {
+    pub chain: chain::BlockChain<SignedShardBlock>,
+    pub db: db::ShardChainDb,
+}
+
+impl ShardBlockChain {
+    pub fn new(genesis: SignedShardBlock, storage: Arc<storage::Storage>) -> Self{
+        let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
+        let db = db::ShardChainDb::new(storage);
+        Self {
+            chain,
+            db,
+        }
+    }
+
+    pub fn insert_block(&self, block: &SignedShardBlock) {
+        self.chain.insert_block(block.clone());
+        self.db.update_for_inserted_block(&block.clone());
+    }
+}
