@@ -20,10 +20,10 @@ pub fn spawn_consensus(
     _out_gossip_tx: Sender<Gossip<ChainPayload>>,
     control_rx: Receiver<Control<BeaconWitnessSelector>>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
-    prod_block_on_tx: bool,
+    batch_transactions: bool,
 ) { 
     // whether produce blocks immediately when receives a transaction
-    if prod_block_on_tx {
+    if !batch_transactions {
         let task = payload_rx
             .fold((consensus_tx, control_rx), |(consensus_tx, control_rx), p| {
                 let message: SignedMessageData<ChainPayload> = SignedMessageData {

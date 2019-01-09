@@ -18,7 +18,7 @@ pub unsafe extern fn run_with_config(
     log_level_ptr: *const c_char,
     p2p_port: u16,
     rpc_port: u16,
-    prod_block_on_tx: bool,
+    batch_transactions: bool,
     boot_nodes_ptr: *const c_char,
     test_network_key_seed_val: u32) {
 
@@ -65,7 +65,7 @@ pub unsafe extern fn run_with_config(
         log_level,
         p2p_port,
         rpc_port,
-        prod_block_on_tx,
+        batch_transactions,
         boot_nodes,
         test_network_key_seed,
     };

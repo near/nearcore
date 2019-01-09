@@ -112,12 +112,10 @@ pub fn get_service_config() -> service::ServiceConfig {
                          can be omitted with 1 file in keystore")
               .takes_value(true)
         ).arg(
-            Arg::with_name("prod_block_on_tx")
-                .long("prod-block-on-tx")
-                .value_name("PROD_BLOCK_ON_TX")
+            Arg::with_name("batch_transactions")
+                .long("batch-transactions")
                 .help("Whether to produce blocks immediately when receiving a transaction")
-                .takes_value(true)
-                .default_value("true")
+                .takes_value(false)
         ).get_matches();
 
     let base_path = matches
@@ -164,10 +162,8 @@ pub fn get_service_config() -> service::ServiceConfig {
         .value_of("public_key")
         .map(String::from);
     
-    let prod_block_on_tx = matches
-        .value_of("prod_block_on_tx")
-        .map(|s| s == "true")
-        .unwrap_or(true);
+    let batch_transactions = matches
+        .is_present("batch_transactions");
 
     service::ServiceConfig {
         base_path,
@@ -177,7 +173,7 @@ pub fn get_service_config() -> service::ServiceConfig {
         log_level,
         p2p_port,
         rpc_port,
-        prod_block_on_tx,
+        batch_transactions,
         boot_nodes,
         test_network_key_seed,
     }
