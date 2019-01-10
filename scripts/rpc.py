@@ -317,7 +317,11 @@ class NearRPC(object):
             'method_name': function_name,
             'args': args,
         }
-        return self._call_rpc('call_view_function', params)
+        result = self._call_rpc('call_view_function', params)
+        try:
+            return json.loads(''.join([chr(x) for x in result["result"]]))
+        except json.JSONDecodeError:
+            return result
 
 
 class MultiCommandParser(object):
