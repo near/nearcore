@@ -59,7 +59,6 @@ test('create account with a new key and then view account returns the created ac
         2,
         aliceAccountName);
     expect(createAccountResponse["key"]).not.toBeFalsy();
-    console.log(createAccountResponse["key"])
     const expctedAccount = {
         nonce: 0,
         account_id: newAccountName,
