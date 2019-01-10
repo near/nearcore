@@ -257,3 +257,14 @@ pub struct GetBlockByHashRequest {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct GetBlocksByIndexRequest {
+    pub start: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedShardBlocksResponse {
+    pub blocks: Vec<SignedShardBlockResponse>
+}

@@ -136,7 +136,7 @@ impl Authority {
                 result.accepted_authorities.insert(slot, slot_auth.to_vec());
             }
         }
-        // Catch up with the blockchain. Note, the last block ias allowed to progress while we
+        // Catch up with the blockchain. Note, the last block is allowed to progress while we
         // are iterating.
         // TODO: Take care of the fork being changed while we are iterating.
         let mut index = 1;
@@ -361,6 +361,23 @@ mod test {
             last_block = block;
         }
         bc
+    }
+
+    #[test]
+    fn test_single_authority() {
+        let authority_config = get_test_config(1, 10, 5);
+        let initial_authorities = authority_config.initial_proposals.to_vec();
+        let bc = test_blockchain(0);
+        let mut authority = Authority::new(authority_config, &bc);
+        let mut prev_hash = bc.genesis_hash;
+        let num_seats = authority.get_authorities(1).unwrap().iter().map(|x| x.account_id == initial_authorities[0].account_id).count();
+        for i in 1..11 {
+            let block = SignedBeaconBlock::new(i, prev_hash, vec![], CryptoHash::default());
+            let mut header = block.header();
+            header.authority_mask = (0..num_seats).map(|_| true).collect();
+            authority.process_block_header(&header);
+            prev_hash = header.block_hash();
+        }
     }
 
     #[test]

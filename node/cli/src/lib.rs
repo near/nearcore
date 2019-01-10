@@ -104,7 +104,7 @@ pub fn get_service_config() -> service::ServiceConfig {
             .help("Set the account id of the node")
             .takes_value(true)
                 // TODO(#282): Remove default account id from here.
-            .default_value("alice")
+            .default_value("alice.near")
         ).arg(
             Arg::with_name("public_key")
               .short("k")

@@ -5,6 +5,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate storage;
 
+use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -292,5 +293,17 @@ impl<B: SignedBlock> BlockChain<B> {
             }
             BlockId::Hash(hash) => self.get_block_header_by_hash(hash),
         }
+    }
+
+    pub fn get_blocks_by_index(&self, start: u64, limit: u64) -> Result<Vec<B>, String> {
+        let mut blocks = vec![];
+        let lower = cmp::max((start as i32) - (limit as i32), 0) as u64;
+        for i in lower..=start {
+            match self.get_block(&BlockId::Number(i)) {
+                Some(block) => blocks.push(block),
+                None => return Err(format!("block {} does not exist", i))
+            }
+        };
+        Ok(blocks)
     }
 }
