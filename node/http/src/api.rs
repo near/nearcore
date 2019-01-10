@@ -228,13 +228,10 @@ impl HttpApi {
     ) -> Result<SignedShardBlocksResponse, String> {
         let start = r.start.unwrap_or_else(|| { self.shard_chain.best_index() });
         let limit = r.limit.unwrap_or(25);
-        match self.shard_chain.get_blocks_by_index(start, limit) {
-            Ok(blocks) => {
-                Ok(SignedShardBlocksResponse {
-                    blocks: blocks.into_iter().map(|x| x.into()).collect(),
-                })
-            },
-            Err(e) => Err(e),
-        }
+        self.shard_chain.get_blocks_by_index(start, limit).map(|blocks| {
+            SignedShardBlocksResponse {
+                blocks: blocks.into_iter().map(|x| x.into()).collect(),
+            }
+        })
     }
 }
