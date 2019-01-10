@@ -83,7 +83,7 @@ test('create account with a new key and then view account returns the created ac
 
 test('deploy contract and make function calls', async () => {
     // Contract is currently living here https://studio.nearprotocol.com/?f=Wbe7Zvd
-    const data = [...fs.readFileSync('../tests/hello.wasm')];  
+    const data = [...fs.readFileSync('../tests/hello.wasm')];
     const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
@@ -112,7 +112,7 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         "near_func_setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
-    const callViewFunctionGetValue = async () => { 
+    const callViewFunctionGetValue = async () => {
         return await nearjs.callViewFunction(
             aliceAccountName,
             "test_contract",
