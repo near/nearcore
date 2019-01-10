@@ -204,17 +204,17 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn log_something() {
+pub fn near_func_log_something() {
     my_log(b"hello");
 }
 
 #[no_mangle]
-pub fn run_test() {
+pub fn near_func_run_test() {
     return_i32(10)
 }
 
 #[no_mangle]
-pub fn run_test_with_storage_change() {
+pub fn near_func_run_test_with_storage_change() {
     put_int(10, 20);
     put_int(50, 150);
     let res = get_int(10);
@@ -222,7 +222,7 @@ pub fn run_test_with_storage_change() {
 }
 
 #[no_mangle]
-pub fn sum_with_input() {
+pub fn near_func_sum_with_input() {
 unsafe {
     let input = input_read();
     assert(input.len() == 8);
@@ -234,7 +234,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_account_id() {
+pub fn near_func_get_account_id() {
 unsafe {
     let acc_id = account_id();
     return_value(serialize(&acc_id).as_ptr())
@@ -242,7 +242,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_originator_id() {
+pub fn near_func_get_originator_id() {
 unsafe {
     let acc_id = originator_id();
     return_value(serialize(&acc_id).as_ptr())
@@ -250,7 +250,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn sum_with_multiple_results() {
+pub fn near_func_sum_with_multiple_results() {
 unsafe {
     let cnt = result_count();
     if cnt == 0 {
@@ -268,7 +268,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn create_promises_and_join() {
+pub fn near_func_create_promises_and_join() {
 unsafe {
     let promise1 = promise_create(
         serialize(b"test1").as_ptr(),
@@ -296,12 +296,12 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn answer_to_life() {
+pub fn near_func_answer_to_life() {
     return_i32(43);
 }
 
 #[no_mangle]
-pub fn transfer_to_bob() {
+pub fn near_func_transfer_to_bob() {
 unsafe {
     let promise1 = promise_create(
         serialize(b"bob").as_ptr(),
@@ -315,7 +315,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_prev_balance() {
+pub fn near_func_get_prev_balance() {
 unsafe {
     let bal = balance();
     let amount = received_amount();
@@ -324,7 +324,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_gas_left() {
+pub fn near_func_get_gas_left() {
 unsafe {
     let my_gas = gas_left();
     return_u64(my_gas);
@@ -332,7 +332,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_mana_left() {
+pub fn near_func_get_mana_left() {
 unsafe {
     let my_mana = mana_left();
     return_i32(my_mana as i32);
@@ -340,7 +340,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_block_index() {
+pub fn near_func_get_block_index() {
 unsafe {
     let bi = block_index();
     return_u64(bi);
@@ -360,14 +360,14 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn get_random_32() {
+pub fn near_func_get_random_32() {
 unsafe {
     return_i32(random32() as i32)
 }
 }
 
 #[no_mangle]
-pub fn get_random_buf() {
+pub fn near_func_get_random_buf() {
 unsafe {
     let input = input_read();
     assert(input.len() == 4);
@@ -379,7 +379,7 @@ unsafe {
 }
 
 #[no_mangle]
-pub fn hash_given_input() {
+pub fn near_func_hash_given_input() {
 unsafe {
     let input = input_read();
     let mut buf = [0u8; 32];
@@ -390,7 +390,7 @@ unsafe {
 
 
 #[no_mangle]
-pub fn hash32_given_input() {
+pub fn near_func_hash32_given_input() {
 unsafe {
     let input = input_read();
     return_i32(hash32(serialize(&input).as_ptr()) as i32)
