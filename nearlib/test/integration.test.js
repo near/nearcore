@@ -97,7 +97,7 @@ test('deploy contract and make function calls', async () => {
     const viewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
         "test_contract",
-        "near_func_hello", // this is the function defined in hello.wasm file that we are calling
+        "hello", // this is the function defined in hello.wasm file that we are calling
         args);
     expect(viewFunctionResult).toEqual("hello trex");
 
@@ -110,13 +110,13 @@ test('deploy contract and make function calls', async () => {
         0,
         aliceAccountName,
         "test_contract",
-        "near_func_setValue", // this is the function defined in hello.wasm file that we are calling
+        "setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
     const callViewFunctionGetValue = async () => {
         return await nearjs.callViewFunction(
             aliceAccountName,
             "test_contract",
-            "near_func_getValue", // this is the function defined in hello.wasm file that we are calling
+            "getValue", // this is the function defined in hello.wasm file that we are calling
             {});
     };
     const checkResult = (result) => {

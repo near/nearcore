@@ -88,7 +88,7 @@ pub struct CallViewFunctionRequest {
     pub args: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CallViewFunctionResponse {
     pub result: Vec<u8>,
 }
