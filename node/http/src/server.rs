@@ -46,7 +46,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -68,7 +68,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -90,7 +90,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -113,7 +113,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -135,7 +135,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -157,7 +157,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -176,7 +176,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::SERVICE_UNAVAILABLE)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -184,7 +184,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -204,7 +204,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -212,7 +212,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -231,7 +231,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -239,7 +239,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -261,7 +261,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -292,7 +292,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -300,7 +300,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -331,7 +331,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -339,7 +339,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -363,7 +363,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
 
         _ => {
             Box::new(future::ok(
-                Response::builder()
+                build_response()
                     .status(StatusCode::NOT_FOUND)
                     .body(Body::empty())
                     .unwrap()
