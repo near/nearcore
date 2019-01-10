@@ -1,5 +1,7 @@
 const BSON = require('bsonfy').BSON;
 const NearClient = require('./nearclient');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_keystore');
+const LocalNodeConnection = require('./local_node_connection');
 
 /*
  * This is javascript library for interacting with blockchain.
@@ -8,6 +10,17 @@ class Near {
     constructor(nearClient) {
         this.nearClient = nearClient;
     }
+
+    /**
+     * Default setup for browser
+     */
+    static createDefaultConfig() {
+        //.keyStore, nearConnection
+        return new Near(new NearClient(
+            new BrowserLocalStorageKeystore(),
+            new LocalNodeConnection("http://localhost:3030")
+        ));
+    };
 
     /**
      * Calls a view function. Returns the same value that the function returns.
