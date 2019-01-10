@@ -82,6 +82,9 @@ extern "C" {
     fn random32() -> u32;
 
     fn block_index() -> u64;
+
+    /// Log using u16 string format and the 4 bytes prefix is number of u16 chars
+    fn debug(msg: *const u8);
 }
 
 fn storage_read(key: *const u8) -> Vec<u8> {
@@ -99,6 +102,18 @@ unsafe {
     let mut vec = vec![0u8; len as usize];
     input_read_into(vec.as_mut_ptr());
     vec
+}
+}
+
+fn my_log(msg: &[u8]) {
+unsafe {
+    let mut vec = vec![0u8; 4 + msg.len() * 2];
+    LittleEndian::write_u32(&mut vec[..4], msg.len() as u32);
+    for i in 0..msg.len() {
+        vec[4 + i * 2] = msg[i];
+        vec[5 + i * 2] = 0;
+    };
+    debug(vec.as_ptr());
 }
 }
 
@@ -186,6 +201,11 @@ unsafe {
     assert(val.len() == 4);
     LittleEndian::read_i32(&val[..])
 }
+}
+
+#[no_mangle]
+pub fn log_something() {
+    my_log(b"hello");
 }
 
 #[no_mangle]

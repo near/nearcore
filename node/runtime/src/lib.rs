@@ -49,6 +49,7 @@ const COL_CALLBACK: &[u8] = &[1];
 const COL_CODE: &[u8] = &[2];
 const COL_TX_STAKE: &[u8] = &[3];
 const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
+const COL_LOGS: &[u8] = &[5];
 
 // const does not allow function call, so have to resort to this
 fn system_account() -> AccountId {
@@ -75,6 +76,14 @@ impl Account {
 fn account_id_to_bytes(col: &[u8], account_key: &AccountId) -> Vec<u8> {
     let mut key = col.to_vec();
     key.append(&mut account_key.clone().into_bytes());
+    key
+}
+
+// TODO(#362): Maybe need to replace Receipt nonce with the Receipt hash.
+// It's actually might be fine as well, since nonce is unique.
+fn logs_key(nonce: &[u8]) -> Vec<u8> {
+    let mut key = COL_LOGS.to_vec();
+    key.extend_from_slice(&nonce);
     key
 }
 
@@ -623,6 +632,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
+        logs: &mut Vec<String>,
     ) -> Result<Vec<Transaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("cannot find contract code for account {}", receiver_id.clone()))?;
@@ -636,7 +646,7 @@ impl Runtime {
                 &async_call.accounting_info,
                 nonce,
             );
-            let wasm_res = executor::execute(
+            let mut wasm_res = executor::execute(
                 &code,
                 &async_call.method_name,
                 &async_call.args,
@@ -655,6 +665,7 @@ impl Runtime {
             ).map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
             mana_accounting.mana_refund = wasm_res.mana_left;
+            logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
             let return_data = wasm_res.return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
@@ -687,6 +698,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
+        logs: &mut Vec<String>,
     ) -> Result<Vec<Transaction>, String> {
         let mut needs_removal = false;
         let callback: Option<Callback> = 
@@ -711,7 +723,7 @@ impl Runtime {
                     mana_accounting.accounting_info = callback.accounting_info.clone();
                     mana_accounting.mana_refund = callback.mana;
                     needs_removal = true;
-                    let wasm_res = executor::execute(
+                    let mut wasm_res = executor::execute(
                         &code,
                         &callback.method_name,
                         &callback.args,
@@ -730,6 +742,7 @@ impl Runtime {
                     ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
                     mana_accounting.gas_used = wasm_res.gas_used;
                     mana_accounting.mana_refund = wasm_res.mana_left;
+                    logs.append(&mut wasm_res.logs);
                     let balance = wasm_res.balance;
                     let return_data = wasm_res.return_data
                         .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))?;
@@ -770,6 +783,7 @@ impl Runtime {
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<Transaction>,
         block_index: BlockIndex,
+        logs: &mut Vec<String>,
     ) -> Result<(), String> {
         let receiver: Option<Account> = 
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver));
@@ -832,6 +846,7 @@ impl Runtime {
                                 &mut receiver,
                                 &mut mana_accounting,
                                 block_index,
+                                logs,
                             )
                         }
                     },
@@ -846,6 +861,7 @@ impl Runtime {
                             &mut receiver,
                             &mut mana_accounting,
                             block_index,
+                            logs,
                         )
                     }
                     ReceiptBody::Refund(amount) => {
@@ -967,7 +983,8 @@ impl Runtime {
             Transaction::Receipt(ref r) => {
                 if account_to_shard_id(&r.receiver) == shard_id {
                     let mut tmp_new_receipts = vec![];
-                    match runtime.apply_receipt(state_update, r, &mut tmp_new_receipts, block_index) {
+                    let mut logs = vec![];
+                    let res = match runtime.apply_receipt(state_update, r, &mut tmp_new_receipts, block_index, &mut logs) {
                         Ok(()) => {
                             state_update.commit();
                             new_receipts.append(&mut tmp_new_receipts);
@@ -979,7 +996,17 @@ impl Runtime {
                             new_receipts.append(&mut tmp_new_receipts);
                             false
                         }
+                    };
+                    // TODO(#362): May need to where do we keep logs
+                    if !logs.is_empty() {
+                        set(
+                            state_update,
+                            &logs_key(&r.nonce),
+                            &logs.join("\n").into_bytes(),
+                        );
+                        state_update.commit()
                     }
+                    res
                 } else {
                     // wrong receipt
                     debug!(target: "runtime", "receipt sent to the wrong shard");
@@ -1702,6 +1729,46 @@ mod tests {
     }
 
     #[test]
+    fn test_async_call_with_logs() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let nonce: Vec<u8> = hash(&[1, 2, 3]).into();
+        let receipt = ReceiptTransaction::new(
+            alice_account(),
+            bob_account(),
+            nonce.clone(),
+            ReceiptBody::NewCall(AsyncCall::new(
+                b"log_something".to_vec(),
+                vec![],
+                0,
+                0,
+                AccountingInfo {
+                    originator: alice_account(),
+                    contract_id: Some(bob_account()),
+                },
+            ))
+        );
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_result = runtime.apply_all(
+            apply_state, vec![Transaction::Receipt(receipt)]
+        );
+        assert_eq!(apply_result.filtered_transactions.len(), 1);
+        assert_eq!(apply_result.new_receipts.len(), 0);
+        // New root contains a log
+        assert_ne!(root, apply_result.root);
+        runtime.state_db.commit(apply_result.transaction).unwrap();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
+        let log: Vec<u8> = get(&mut state_update, &logs_key(&nonce))
+            .expect("The logs should be written to state");
+        assert_eq!(log, "LOG: hello".to_string().into_bytes())
+    }
+
+    #[test]
     fn test_async_call_with_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
@@ -1736,7 +1803,14 @@ mod tests {
         let block_index = 1;
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
         let mut new_receipts = vec![];
-        runtime.apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index).unwrap();
+        let mut logs = vec![];
+        runtime.apply_receipt(
+            &mut state_update,
+            &receipt,
+            &mut new_receipts,
+            block_index,
+            &mut logs,
+        ).unwrap();
         assert_eq!(new_receipts.len(), 1);
         if let Transaction::Receipt(new_receipt) = &new_receipts[0] {
             assert_eq!(new_receipt.originator, bob_account());

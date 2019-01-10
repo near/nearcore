@@ -29,6 +29,7 @@ pub struct Runtime<'a> {
     pub return_data: ReturnData,
     pub random_seed: Vec<u8>,
     random_buffer_offset: usize,
+    pub logs: Vec<String>,
 }
 
 impl<'a> Runtime<'a> {
@@ -54,6 +55,7 @@ impl<'a> Runtime<'a> {
             return_data: ReturnData::None,
             random_seed: hash(&context.random_seed).into(),
             random_buffer_offset: 0,
+            logs: Vec::new(),
         }
     }
 
@@ -408,7 +410,7 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn abort(&self, args: &RuntimeArgs) -> Result<()> {
+    fn abort(&mut self, args: &RuntimeArgs) -> Result<()> {
         let msg_ptr: u32 = args.nth_checked(0)?;
         let filename_ptr: u32 = args.nth_checked(1)?;
         let line: u32 = args.nth_checked(2)?;
@@ -417,14 +419,20 @@ impl<'a> Runtime<'a> {
         let msg = self.read_string(msg_ptr)?;
         let filename = self.read_string(filename_ptr)?;
 
-        debug!(target: "wasm", "abort with msg: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+        let message = format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+        debug!(target: "wasm", "{}", &message);
+        self.logs.push(message);
 
         Err(Error::AssertFailed)
     }
 
-    fn log(&self, args: &RuntimeArgs) -> Result<()> {
+    fn debug(&mut self, args: &RuntimeArgs) -> Result<()> {
         let msg_ptr: u32 = args.nth_checked(0)?;
-        debug!(target: "wasm", "{}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+
+        let message = format!("LOG: {}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+        debug!(target: "wasm", "{}", &message);
+        self.logs.push(message);
+
         Ok(())
     }
 
@@ -573,7 +581,8 @@ mod ext_impl {
                 RANDOM_BUF_FUNC => void!(self.random_buf(&args)),
                 RANDOM_32_FUNC => some!(self.random_u32()),
                 BLOCK_INDEX_FUNC => some!(self.block_index()),
-                LOG_FUNC => void!(self.log(&args)),
+                DEBUG_FUNC => void!(self.debug(&args)),
+                LOG_FUNC => void!(self.debug(&args)),
                 _ => panic!("env module doesn't provide function at index {}", index),
             }
         }
