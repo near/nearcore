@@ -88,7 +88,7 @@ pub struct CallViewFunctionRequest {
     pub args: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CallViewFunctionResponse {
     pub result: Vec<u8>,
 }
@@ -256,4 +256,15 @@ impl From<SignedShardBlock> for SignedShardBlockResponse {
 pub struct GetBlockByHashRequest {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetBlocksByIndexRequest {
+    pub start: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedShardBlocksResponse {
+    pub blocks: Vec<SignedShardBlockResponse>
 }

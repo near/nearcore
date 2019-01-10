@@ -81,22 +81,22 @@ test('create account with a new key and then view account returns the created ac
 });
 
 test('deploy contract and make function calls', async () => {
-    // Contract is currently living here https://studio.nearprotocol.com/?f=Wbe7Zvd
-    const data = [...fs.readFileSync('../tests/hello.wasm')];  
+    // See README.md for details about this contract source code location.
+    const data = [...fs.readFileSync('../tests/hello.wasm')];
     const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
         "test_contract",
         data,
         "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
-    waitForNonceToIncrease(initialAccount);
+    await waitForContractToDeploy("test_contract");
     const args = {
         "name": "trex"
     };
     const viewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
         "test_contract",
-        "near_func_hello", // this is the function defined in hello.wasm file that we are calling
+        "hello", // this is the function defined in hello.wasm file that we are calling
         args);
     expect(viewFunctionResult).toEqual("hello trex");
 
@@ -104,24 +104,24 @@ test('deploy contract and make function calls', async () => {
     const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
     const setArgs = {
         "value": setCallValue
-    }
+    };
     const scheduleResult = await nearjs.scheduleFunctionCall(
         0,
         aliceAccountName,
         "test_contract",
-        "near_func_setValue", // this is the function defined in hello.wasm file that we are calling
+        "setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
-    const callViewFunctionGetValue = async () => { 
+    const callViewFunctionGetValue = async () => {
         return await nearjs.callViewFunction(
             aliceAccountName,
             "test_contract",
-            "near_func_getValue", // this is the function defined in hello.wasm file that we are calling
+            "getValue", // this is the function defined in hello.wasm file that we are calling
             {});
     };
     const checkResult = (result) => {
         expect(result).toEqual(setCallValue);
         return true;
-    }
+    };
     await callUntilConditionIsMet(
         callViewFunctionGetValue,
         checkResult,
@@ -142,6 +142,14 @@ const callUntilConditionIsMet = async (functToPoll, condition, description) => {
             }
         }
     }
+};
+
+const waitForContractToDeploy = async (contractId) => {
+    await callUntilConditionIsMet(
+        async () => { return await account.viewAccount(contractId); },
+        (response) => { return response['code'] != '' },
+        "Call account status until contract is deployed"
+    );
 };
 
 const waitForNonceToIncrease = async (initialAccount) => {
