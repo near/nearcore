@@ -127,7 +127,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.schedule_function_call(data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -149,7 +149,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.send_money(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -171,7 +171,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.submit_transaction(data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -199,7 +199,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.call_view_function(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -273,7 +273,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
             Box::new(future::ok(
                 match http_api.view_latest_beacon_block() {
                     Ok(response) => {
-                        Response::builder()
+                        build_response()
                             .body(Body::from(serde_json::to_string(&response).unwrap()))
                             .unwrap()
                     }
@@ -287,7 +287,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.get_beacon_block_by_hash(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -312,7 +312,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
             Box::new(future::ok(
                 match http_api.view_latest_shard_block() {
                     Ok(response) => {
-                        Response::builder()
+                        build_response()
                             .body(Body::from(serde_json::to_string(&response).unwrap()))
                             .unwrap()
                     }
@@ -326,7 +326,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.get_shard_block_by_hash(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -352,7 +352,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
             Box::new(future::ok(
                 match http_api.view_latest_beacon_block() {
                     Ok(_) => {
-                        Response::builder()
+                        build_response()
                             .body(Body::from(""))
                             .unwrap()
                     }
