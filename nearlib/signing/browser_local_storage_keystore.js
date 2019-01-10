@@ -32,6 +32,14 @@ class BrowserLocalStorageKeystore {
                 BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))
         };
     };
+
+    static getAccounts() {
+        return Object.keys(window.localStorage).map(function(key) {
+            if (key.endsWith("_public")) {
+                return key.substr(0, key.length() - 7);
+            }
+        });
+    }
 };
 
 module.exports = BrowserLocalStorageKeystore;

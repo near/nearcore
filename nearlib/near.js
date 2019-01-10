@@ -13,11 +13,10 @@ class Near {
     /**
      * Default setup for browser
      */
-    static createDefaultConfig() {
-        //.keyStore, nearConnection
+    static createDefaultConfig(nodeUrl = "http://localhost:3030") {
         return new Near(new NearClient(
             new BrowserLocalStorageKeystore(),
-            new LocalNodeConnection("http://localhost:3030")
+            new LocalNodeConnection(nodeUrl)
         ));
     };
 
