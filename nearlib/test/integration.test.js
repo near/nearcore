@@ -82,7 +82,7 @@ test('create account with a new key and then view account returns the created ac
 });
 
 test('deploy contract and make function calls', async () => {
-    // Contract is currently living here https://studio.nearprotocol.com/?f=Wbe7Zvd
+    // See README.md for details about this contract source code location.
     const data = [...fs.readFileSync('../tests/hello.wasm')];
     const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
