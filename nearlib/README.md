@@ -16,3 +16,7 @@ Start the node by following instructions from nearcore/README.md, then
 ```
 npm test
 ```
+
+## Integration test
+
+Contract "hello.wasm" source code location: https://studio.nearprotocol.com/?f=mfaccXt

@@ -20,8 +20,6 @@ test_cargo:
     before_script:
     - *setup_cache
     - rustup component add clippy
-    # TODO(#289): remove this
-    - pip install bson
     script:
     - rustc --version && cargo --version
     - ./scripts/run_clippy.sh
@@ -33,8 +31,6 @@ test_nearlib:
     stage: test
     before_script:
     - *setup_cache
-    # TODO(#289): remove this
-    - pip install bson
     script:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet

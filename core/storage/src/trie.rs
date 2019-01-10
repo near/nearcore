@@ -668,7 +668,7 @@ impl<'a> TrieIterator<'a> {
                         hash = child;
                         key = key.mid(existing_key.len());
                     } else {
-                        // ???
+                        self.descend_into_node(&copy_node);
                         return Ok(());
                     }
                 }
@@ -681,7 +681,7 @@ impl<'a> TrieIterator<'a> {
         match &self.trail.last().expect("Just pushed item").node {
             TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
                 let key = NibbleSlice::from_encoded(key).0;
-                self.key_nibbles.extend((0..key.len()).map(|i| key.at(i)));
+                self.key_nibbles.extend(key.iter());
             }
             _ => {}
         }
@@ -712,9 +712,10 @@ impl<'a> Iterator for TrieIterator<'a> {
                 match (b.status.clone(), &b.node) {
                     (CrumbStatus::Exiting, n) => {
                         match n {
-                            TrieNode::Extension(ref key, _) => {
+                            TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
+                                let existing_key = NibbleSlice::from_encoded(&key).0;
                                 let l = self.key_nibbles.len();
-                                self.key_nibbles.truncate(l - key.len());
+                                self.key_nibbles.truncate(l - existing_key.len());
                             }
                             TrieNode::Branch(_, _) => {
                                 self.key_nibbles.pop();
@@ -922,5 +923,29 @@ mod tests {
             (b"dogax".to_vec(), Some(b"puppy".to_vec())),
         ];
         test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+    }
+
+    #[test]
+    fn test_trie_iter_seek_stop_at_extension() {
+        let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
+        let trie = Trie::new(storage.clone(), Some(0));
+        let changes = vec![
+            (vec![0, 116, 101, 115, 116], Some(vec![0])),
+            (vec![2, 116, 101, 115, 116], Some(vec![0])),
+            (vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98, 46, 110, 101, 97, 114], Some(vec![0])),
+            (vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117, 108, 108], Some(vec![0])),
+        ];
+        let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        let mut iter = trie.iter(&root).unwrap();
+        iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
+        let mut pairs = vec![];
+        for pair in iter {
+            pairs.push(pair.unwrap().0);
+        }
+        assert_eq!(
+            pairs[..2], [
+                vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98, 46, 110, 101, 97, 114],
+                vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117, 108, 108],
+            ]);
     }
 }

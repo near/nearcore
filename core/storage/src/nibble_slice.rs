@@ -183,6 +183,9 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
 
 impl<'a> fmt::Debug for NibbleSlice<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_empty() {
+            return Ok(())
+        }
         write!(f, "{:01x}", self.at(0))?;
         for i in 1..self.len() {
             write!(f, "'{:01x}", self.at(i))?;
@@ -281,5 +284,13 @@ mod tests {
         assert!(n == m.mid(4));
         assert!(n >= m.mid(4));
         assert!(n <= m.mid(4));
+    }
+
+    #[test]
+    fn nibble_indexing() {
+        let encoded = vec![32, 116, 101, 115, 116];
+        let n = NibbleSlice::from_encoded(&encoded).0;
+        let nibbles: Vec<u8> = (0..n.len()).map(|i| n.at(i)).collect();
+        assert_eq!(nibbles, vec![7, 4, 6, 5, 7, 3, 7, 4]);
     }
 }
