@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use futures::{Future, Sink, Stream};
+use futures::sync::mpsc::{Receiver, Sender};
+use parking_lot::RwLock;
+
 use beacon::authority::{Authority, AuthorityStake};
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
-use futures::sync::mpsc::{Receiver, Sender};
-use futures::{Future, Sink, Stream};
 use primitives::types::{AccountId, UID};
-use std::collections::HashMap;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::{Control, State};
+use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 
 pub fn spawn_authority_task(
     mut authority_handler: AuthorityHandler,
@@ -17,10 +21,10 @@ pub fn spawn_authority_task(
     let task = new_block_rx
         .map(move |block| {
             let index = block.header().index();
-            authority_handler.authority.process_block_header(&block.header());
+            authority_handler.authority.write().process_block_header(&block.header());
             // get authorities for the next block
             let next_authorities =
-                authority_handler.authority.get_authorities(index + 1).unwrap_or_else(|_| {
+                authority_handler.authority.read().get_authorities(index + 1).unwrap_or_else(|_| {
                     panic!("failed to get authorities for block index {}", index + 1)
                 });
 
@@ -72,14 +76,14 @@ pub fn spawn_authority_task(
     tokio::spawn(task);
 }
 pub struct AuthorityHandler {
-    authority: Authority,
+    authority: Arc<RwLock<Authority>>,
     account_id: AccountId,
     /// whether the node has started consensus
     started: bool,
 }
 
 impl AuthorityHandler {
-    pub fn new(authority: Authority, account_id: AccountId) -> Self {
+    pub fn new(authority: Arc<RwLock<Authority>>, account_id: AccountId) -> Self {
         AuthorityHandler { authority, account_id, started: false }
     }
 }
