@@ -183,7 +183,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
 
 impl<'a> fmt::Debug for NibbleSlice<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.len() == 0 {
+        if self.is_empty() {
             return Ok(())
         }
         write!(f, "{:01x}", self.at(0))?;
