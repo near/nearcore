@@ -90,7 +90,7 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         data,
         "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
-    waitForNonceToIncrease(initialAccount);
+    await waitForContractToDeploy("test_contract");
     const args = {
         "name": "trex"
     };
@@ -105,7 +105,7 @@ test('deploy contract and make function calls', async () => {
     const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
     const setArgs = {
         "value": setCallValue
-    }
+    };
     const scheduleResult = await nearjs.scheduleFunctionCall(
         0,
         aliceAccountName,
@@ -122,7 +122,7 @@ test('deploy contract and make function calls', async () => {
     const checkResult = (result) => {
         expect(result).toEqual(setCallValue);
         return true;
-    }
+    };
     await callUntilConditionIsMet(
         callViewFunctionGetValue,
         checkResult,
@@ -143,6 +143,14 @@ const callUntilConditionIsMet = async (functToPoll, condition, description) => {
             }
         }
     }
+};
+
+const waitForContractToDeploy = async (contractId) => {
+    await callUntilConditionIsMet(
+        async () => { return await account.viewAccount(contractId); },
+        (response) => { return response['code'] != '' },
+        "Call account status until contract is deployed"
+    );
 };
 
 const waitForNonceToIncrease = async (initialAccount) => {
