@@ -210,8 +210,8 @@ where
         config.public_key.clone(),
     ));
     let authority_config = chain_spec::get_authority_config(&chain_spec);
-    let authority = Authority::new(authority_config, &beacon_chain);
-    let authority_handler = AuthorityHandler::new(authority, config.account_id.clone());
+    let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
+    let authority_handler = AuthorityHandler::new(authority.clone(), config.account_id.clone());
 
     configure_logging(config.log_level);
     tokio::run(future::lazy(move || {
@@ -242,6 +242,7 @@ where
             runtime.clone(),
             signer.clone(),
             state_db.clone(),
+            authority.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
             new_block_tx.clone(),
