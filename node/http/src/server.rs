@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use futures::future;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::http::response::Builder;
 use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 
@@ -13,15 +14,31 @@ use api::HttpApi;
 
 type BoxFut = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 
+fn build_response() -> Builder {
+    let mut builder = Response::builder();
+    builder
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Headers", "Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+    builder
+}
+
 fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
     match (req.method(), req.uri().path()) {
+        (&Method::OPTIONS, _) => {
+            // Pre-flight response for cross site access.
+            Box::new(req.into_body().concat2().map(move |_| {
+                build_response()
+                    .body(Body::empty())
+                    .unwrap()
+            }))
+        }
         (&Method::POST, "/create_account") => {
             Box::new(req.into_body().concat2().map(move |chunk| {
                 match serde_json::from_slice(&chunk) {
                     Ok(data) => {
                         match http_api.create_account(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -43,7 +60,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.stake(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -65,7 +82,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.swap_key(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -88,7 +105,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.deploy_contract(data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -209,7 +226,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.view_account(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -236,7 +253,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.view_state(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
