@@ -12,7 +12,7 @@ use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
 use parking_lot::{Mutex, RwLock};
 
-use beacon::authority::{Authority, SelectedAuthority};
+use beacon::authority::{Authority, AuthorityStake};
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
@@ -75,7 +75,7 @@ fn spawn_network_tasks(
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     beacon_block_rx: Receiver<SignedBeaconBlock>,
-    authority_rx: Receiver<HashMap<UID, SelectedAuthority>>,
+    authority_rx: Receiver<HashMap<UID, AuthorityStake>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::new_with_default_id(account_id);
@@ -210,8 +210,8 @@ where
         config.public_key.clone(),
     ));
     let authority_config = chain_spec::get_authority_config(&chain_spec);
-    let authority = Authority::new(authority_config, &beacon_chain);
-    let authority_handler = AuthorityHandler::new(authority, config.account_id.clone());
+    let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
+    let authority_handler = AuthorityHandler::new(authority.clone(), config.account_id.clone());
 
     configure_logging(config.log_level);
     tokio::run(future::lazy(move || {
@@ -242,6 +242,7 @@ where
             runtime.clone(),
             signer.clone(),
             state_db.clone(),
+            authority.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
             new_block_tx.clone(),

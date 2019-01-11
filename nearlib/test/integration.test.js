@@ -8,12 +8,12 @@ const fs = require('fs');
 
 const aliceAccountName = 'alice.near';
 const aliceKey = {
-    public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE",
-    secret_key: "2hoLMP9X2Vsvib2t4F1fkZHpFd6fHLr5q7eqGroRoNqdBKcPja2jCrmxW9uGBLXdTnbtZYibWe4NoFtB4Bk7LWg6"
+    public_key: "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
+    secret_key: "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
 };
 const test_key_store = new InMemoryKeyStore();
 test_key_store.setKey(aliceAccountName, aliceKey);
-const localNodeConnection = new LocalNodeConnection();
+const localNodeConnection = new LocalNodeConnection("http://localhost:3030");
 const nearClient = new NearClient(test_key_store, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
@@ -28,7 +28,7 @@ test('view pre-defined account works and returns correct name', async () => {
 });
 
 test('create account and then view account returns the created account', async () => {
-    const newAccountName = await generateUniqueAccountId("create.account.test");
+    const newAccountName = await generateUniqueString("create.account.test");
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
     const expctedAccount = {
@@ -39,51 +39,129 @@ test('create account and then view account returns the created account', async (
         stake: 0,
     };
 
-    // try to read the account a few times to wait for the transaction to go through
-    for (var viewAttempt = 0; viewAttempt < TEST_MAX_RETRIES; viewAttempt++) {
-        try {
-            const viewAccountResponse = await account.viewAccount(newAccountName);
-            expect(viewAccountResponse).toEqual(expctedAccount);
-            return; // success!
-        } catch (_) {}
+    const viewAccountFunc = async () => {
+        return await account.viewAccount(newAccountName);
+    };
+    const checkConditionFunc = (result) => {
+        expect(result).toEqual(expctedAccount);
+        return true;
     }
-    // exceeded retries. fail. 
-    fail('exceeded number of retries for viewing account');
+    await callUntilConditionIsMet(
+        viewAccountFunc,
+        checkConditionFunc, 
+        "Call view account until result matches expected value");
+});
+
+test('create account with a new key and then view account returns the created account', async () => {
+    const newAccountName = await generateUniqueString("create.randomkey.test");
+    const createAccountResponse = await account.createAccountWithRandomKey(
+        newAccountName,
+        2,
+        aliceAccountName);
+    expect(createAccountResponse["key"]).not.toBeFalsy();
+    const expctedAccount = {
+        nonce: 0,
+        account_id: newAccountName,
+        amount: 2,
+        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        stake: 0,
+    };
+
+    const viewAccountFunc = async () => {
+        return await account.viewAccount(newAccountName);
+    };
+    const checkConditionFunc = (result) => {
+        expect(result).toEqual(expctedAccount);
+        return true;
+    }
+    await callUntilConditionIsMet(
+        viewAccountFunc,
+        checkConditionFunc, 
+        "Call view account until result matches expected value");
 });
 
 test('deploy contract and make function calls', async () => {
-    const data = [...fs.readFileSync('../tests/hello.wasm')];  
+    // See README.md for details about this contract source code location.
+    const data = [...fs.readFileSync('../tests/hello.wasm')];
     const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
         "test_contract",
         data,
         "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
-    waitForNonceToIncrease(initialAccount);
+    await waitForContractToDeploy("test_contract");
     const args = {
         "name": "trex"
     };
     const viewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
         "test_contract",
-        "near_func_hello", // this is the function defined in hello.wasm file that we are calling
+        "hello", // this is the function defined in hello.wasm file that we are calling
         args);
     expect(viewFunctionResult).toEqual("hello trex");
+
+    var setCallValue = await generateUniqueString("setCallPrefix");
+    const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
+    const setArgs = {
+        "value": setCallValue
+    };
+    const scheduleResult = await nearjs.scheduleFunctionCall(
+        0,
+        aliceAccountName,
+        "test_contract",
+        "setValue", // this is the function defined in hello.wasm file that we are calling
+        setArgs);
+    const callViewFunctionGetValue = async () => {
+        return await nearjs.callViewFunction(
+            aliceAccountName,
+            "test_contract",
+            "getValue", // this is the function defined in hello.wasm file that we are calling
+            {});
+    };
+    const checkResult = (result) => {
+        expect(result).toEqual(setCallValue);
+        return true;
+    };
+    await callUntilConditionIsMet(
+        callViewFunctionGetValue,
+        checkResult,
+        "Call getValue until result is equal to expected value");
 });
 
-const waitForNonceToIncrease = async (initialAccount) => {
+const callUntilConditionIsMet = async (functToPoll, condition, description) => {
     for (let i = 0; i < TEST_MAX_RETRIES; i++) {
         try {
-            const viewAccountResponse = await account.viewAccount(initialAccount['account_id']);
-            if (viewAccountResponse['nonce'] != initialAccount['nonce']) { return; }
-        } catch (_) {
-            // Errors are expected, not logging to avoid spam
+            const response = await functToPoll();
+            if (condition(response)) {
+                console.log("Success " + description + " in " + (i + 1) + " attempts.");
+                return response;
+            }
+        } catch (e) {
+            if (i == TEST_MAX_RETRIES - 1) {
+                fail('exceeded number of retries for ' + description + ". Last error " + e.toString());
+            }
         }
     }
-    fail('exceeded number of retries for viewing account ' + i);
-}
+};
 
-const generateUniqueAccountId = async (prefix) => {
+const waitForContractToDeploy = async (contractId) => {
+    await callUntilConditionIsMet(
+        async () => { return await account.viewAccount(contractId); },
+        (response) => { return response['code'] != '' },
+        "Call account status until contract is deployed"
+    );
+};
+
+const waitForNonceToIncrease = async (initialAccount) => {
+    await callUntilConditionIsMet(
+        async () => { return await account.viewAccount(initialAccount['account_id']); },
+        (response) => { return response['nonce'] != initialAccount['nonce'] },
+        "Call view account until nonce increases"
+    );
+};
+
+// Generate some unique string with a given prefix using the alice nonce. 
+const generateUniqueString = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);
     return prefix + viewAccountResponse.nonce;
-}
+};

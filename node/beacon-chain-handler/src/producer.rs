@@ -7,6 +7,7 @@ use futures::sync::mpsc::{Sender, Receiver};
 use parking_lot::RwLock;
 
 use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
+use beacon::authority::Authority;
 use chain::SignedBlock;
 use node_runtime::{ApplyState, Runtime};
 use primitives::traits::Signer;
@@ -25,6 +26,7 @@ pub fn spawn_block_producer(
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
+    authority: Arc<RwLock<Authority>>,
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<SignedBeaconBlock>,
     new_block_tx: Sender<SignedBeaconBlock>,
@@ -35,6 +37,7 @@ pub fn spawn_block_producer(
         runtime,
         signer,
         state_db,
+        authority,
         block_announce_tx,
         new_block_tx,
     );
@@ -51,6 +54,7 @@ pub struct BlockProducer {
     runtime: Arc<RwLock<Runtime>>,
     signer: Arc<Signer>,
     state_db: Arc<StateDb>,
+    authority: Arc<RwLock<Authority>>,
     block_announce_tx: Sender<SignedBeaconBlock>,
     new_block_tx: Sender<SignedBeaconBlock>,
 }
@@ -62,6 +66,7 @@ impl BlockProducer {
         runtime: Arc<RwLock<Runtime>>,
         signer: Arc<Signer>,
         state_db: Arc<StateDb>,
+        authority: Arc<RwLock<Authority>>,
         block_announce_tx: Sender<SignedBeaconBlock>,
         new_block_tx: Sender<SignedBeaconBlock>,
     ) -> Self {
@@ -71,6 +76,7 @@ impl BlockProducer {
             runtime,
             signer,
             state_db,
+            authority,
             block_announce_tx,
             new_block_tx,
         }
@@ -86,6 +92,8 @@ impl BlockProducer {
         let mut last_shard_block = self.shard_chain.chain
             .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
             .expect("At the moment we should have shard blocks accompany beacon blocks");
+        let authorities = self.authority.read().get_authorities(last_block.body.header.index)
+            .expect("Authorities should be present for given block to produce it");
         let shard_id = last_shard_block.body.header.shard_id;
         let mut apply_state = ApplyState {
             root: last_shard_block.body.header.merkle_root_state,
@@ -94,12 +102,12 @@ impl BlockProducer {
             shard_id,
         };
         loop {
-            let mut apply_result = self.runtime.write().apply(
+            let apply_result = self.runtime.write().apply(
                 &apply_state,
                 &last_shard_block.body.new_receipts,
                 transactions
             );
-            self.state_db.commit(&mut apply_result.transaction).ok();
+            self.state_db.commit(apply_result.transaction).ok();
             let mut shard_block = SignedShardBlock::new(
                 shard_id,
                 last_shard_block.body.header.index + 1,
@@ -114,11 +122,14 @@ impl BlockProducer {
                 apply_result.authority_proposals,
                 shard_block.block_hash()
             );
+            let authority_mask: Vec<bool> = authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
             let signature = shard_block.sign(&*self.signer);
             shard_block.add_signature(signature);
+            shard_block.authority_mask = authority_mask.clone();
             let signature = block.sign(&*self.signer);
             block.add_signature(signature);
             self.shard_chain.insert_block(&shard_block.clone());
+            block.authority_mask = authority_mask;
             self.beacon_chain.insert_block(block.clone());
             info!(target: "block_producer", "Block body: {:?}", block.body);
             info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);

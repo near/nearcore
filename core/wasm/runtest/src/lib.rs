@@ -85,6 +85,7 @@ mod tests {
     use std::fs;
     use wasm::executor::{self, ExecutionOutcome};
     use wasm::types::{Error, Config, RuntimeContext, ReturnData};
+    use primitives::hash::hash;
     
     use super::*;
 
@@ -132,7 +133,9 @@ mod tests {
             amount,
             &"alice".to_string(),
             &"bob".to_string(),
-            mana
+            mana,
+            123,
+            b"yolo".to_vec(),
         )
     }
 
@@ -149,7 +152,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -168,7 +171,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(40)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(40)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -191,7 +194,7 @@ mod tests {
         .expect("ok");
         
         match return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(12)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(12)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -210,7 +213,7 @@ mod tests {
         assert_eq!(outcome.mana_used, 4); 
 
         match outcome.return_data {
-            ReturnData::Promise(promise_id) => assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec())),
+            Ok(ReturnData::Promise(promise_id)) => assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec())),
             _ => assert!(false, "Expected returned promise"),
         };
     }
@@ -224,9 +227,9 @@ mod tests {
             &input_data,
             &[],
             &runtime_context(0, 0, 3),
-        );
+        ).expect("outcome to be ok");
 
-        match outcome {
+        match outcome.return_data {
             Err(_) => assert!(true, "That's legit"),
             _ => assert!(false, "Expected to fail with mana limit"),
         };
@@ -253,9 +256,9 @@ mod tests {
             &input_data,
             &[],
             &runtime_context(0, 0, 0),
-        );
+        ).expect("outcome to be ok");
 
-        match outcome {
+        match outcome.return_data {
             Err(_) => assert!(true, "That's legit"),
             _ => assert!(false, "Expected to fail with assert failure"),
         };
@@ -275,7 +278,7 @@ mod tests {
         assert_eq!(outcome.mana_left, 10);
 
         match outcome.return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -295,7 +298,7 @@ mod tests {
         let approximate_expected_gas = Config::default().gas_limit;
 
         match return_data {
-            ReturnData::Value(output_data) => {
+            Ok(ReturnData::Value(output_data)) => {
                 assert_eq!(output_data.len(), 8);
                 let actual_gas = LittleEndian::read_u64(&output_data);
                 assert!(actual_gas <= approximate_expected_gas);
@@ -319,8 +322,157 @@ mod tests {
         assert_eq!(outcome.balance, 100);
 
         match outcome.return_data {
-            ReturnData::Value(output_data) => assert_eq!(&output_data, &encode_u64(90)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(90)),
             _ => assert!(false, "Expected returned value"),
         };
     }
+
+    #[test]
+    fn test_originator()  {
+        let input_data = [0u8; 0];
+
+        let return_data = run(
+            b"get_originator_id",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
+
+        match return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice"),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_random_32()  {
+        let input_data = [0u8; 0];
+
+        let mut output_data = Vec::new();
+
+        for _ in 0..2 {
+            let return_data = run(
+                b"get_random_32",
+                &input_data,
+                &[],
+                &runtime_context(0, 0, 0),
+            ).map(|outcome| outcome.return_data)
+            .expect("ok");
+
+            output_data.push(match return_data {
+                Ok(ReturnData::Value(output_data)) => output_data,
+                _ => panic!("Expected returned value"),
+            });
+        }
+
+        assert_ne!(&output_data[0], &encode_i32(0));
+        assert_eq!(&output_data[0], &output_data[1]);
+    }
+
+    #[test]
+    fn test_random_buf()  {
+        let input_data = [80u8, 0, 0, 0];
+
+        let mut output_data = Vec::new();
+
+        for _ in 0..2 {
+            let return_data = run(
+                b"get_random_buf",
+                &input_data,
+                &[],
+                &runtime_context(0, 0, 0),
+            ).map(|outcome| outcome.return_data)
+            .expect("ok");
+
+            let data = match return_data {
+                Ok(ReturnData::Value(output_data)) => output_data,
+                _ => panic!("Expected returned value"),
+            };
+            assert_eq!(data.len(), 80);
+
+            output_data.push(data);
+        }
+
+        assert_ne!(&output_data[0][..4], &encode_i32(0));
+        assert_eq!(&output_data[0], &output_data[1]);
+    }
+
+    #[test]
+    fn test_hash()  {
+        let input_data = b"testing_hashing_this_slice";
+
+        let return_data = run(
+            b"hash_given_input",
+            input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
+
+        let output_data = match return_data {
+            Ok(ReturnData::Value(output_data)) => output_data,
+            _ => panic!("Expected returned value"),
+        };
+
+        let expected_result: Vec<u8> = hash(input_data).into();
+
+        assert_eq!(&output_data, &expected_result);
+    }
+
+    #[test]
+    fn test_hash32()  {
+        let input_data = b"testing_hashing_this_slice";
+
+        let return_data = run(
+            b"hash32_given_input",
+            input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).map(|outcome| outcome.return_data)
+        .expect("ok");
+
+        let output_data = match return_data {
+            Ok(ReturnData::Value(output_data)) => output_data,
+            _ => panic!("Expected returned value"),
+        };
+
+        let input_data_hash: Vec<u8> = hash(input_data).into();
+        let mut expected_result = input_data_hash[..4].to_vec();
+        expected_result.reverse();
+
+        assert_eq!(&output_data, &expected_result);
+    }
+
+    #[test]
+    fn test_get_block_index()  {
+        let input_data = [0u8; 0];
+
+        let outcome = run(
+            b"get_block_index",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).expect("ok");
+
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(123)),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_debug()  {
+        let input_data = [0u8; 0];
+
+        let outcome = run(
+            b"log_something",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+        ).expect("ok");
+
+        assert_eq!(outcome.logs, vec!["LOG: hello".to_string(),]);
+    }
+
 }

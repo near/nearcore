@@ -20,3 +20,10 @@ wasm = { path = "../../core/wasm" }
 
 [features]
 test-utils = []
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "bench"
+harness = false

@@ -16,9 +16,9 @@ pub fn generate_test_chain_spec() -> ChainSpec {
     let public_keys: Vec<PublicKey> = (0..3).map(|_| get_keypair().0).collect();
     ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), public_keys[0].to_string(), 100),
-            ("bob.near".to_string(), public_keys[1].to_string(), 0),
-            ("system".to_string(), public_keys[2].to_string(), 0),
+            ("alice.near".to_string(), public_keys[0].to_string(), 100, 10),
+            ("bob.near".to_string(), public_keys[1].to_string(), 0, 10),
+            ("system".to_string(), public_keys[2].to_string(), 0, 0),
         ],
         initial_authorities: vec![("alice.near".to_string(), public_keys[0].to_string(), 50)],
         genesis_wasm,
@@ -28,8 +28,7 @@ pub fn generate_test_chain_spec() -> ChainSpec {
     }
 }
 
-pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
-    let chain_spec = generate_test_chain_spec();
+pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, StateDbViewer) {
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Runtime::new(state_db.clone());
@@ -47,6 +46,11 @@ pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
         state_db.clone(),
     );
     (runtime, state_db_viewer)
+}
+
+pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
+    let chain_spec = generate_test_chain_spec();
+    get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec)
 }
 
 pub fn get_test_state_db_viewer() -> StateDbViewer {
@@ -69,11 +73,11 @@ impl Runtime {
         let mut cur_apply_state = apply_state;
         let mut cur_transactions = transactions;
         loop {
-            let mut apply_result = self.apply(&cur_apply_state, &[], cur_transactions);
+            let apply_result = self.apply(&cur_apply_state, &[], cur_transactions);
             if apply_result.new_receipts.is_empty() {
                 return apply_result;
             }
-            self.state_db.commit(&mut apply_result.transaction).unwrap();
+            self.state_db.commit(apply_result.transaction).unwrap();
             cur_apply_state = ApplyState {
                 root: apply_result.root,
                 shard_id: cur_apply_state.shard_id,

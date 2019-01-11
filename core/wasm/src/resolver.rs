@@ -100,17 +100,41 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32, ValueType::I32, ValueType::I32, ValueType::I32][..], None),
                 ids::ABORT_FUNC,
             ),
-            "sender_id" => FuncInstance::alloc_host(
-                Signature::new(&[ValueType::I32][..], None),
-                ids::SENDER_ID_FUNC,
+            "read_len" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32][..], Some(ValueType::I32)),
+                ids::READ_LEN_FUNC,
             ),
-            "account_id" => FuncInstance::alloc_host(
-                Signature::new(&[ValueType::I32][..], None),
-                ids::ACCOUNT_ID_FUNC,
+            "read_into" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32, ValueType::I32][..], None),
+                ids::READ_INTO_FUNC,
+            ),
+            "hash" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32][..], None),
+                ids::HASH_FUNC,
+            ),
+            "hash32" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
+                ids::HASH_32_FUNC,
+            ),
+            "random_buf" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32][..], None),
+                ids::RANDOM_BUF_FUNC,
+            ),
+            "random32" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I32)),
+                ids::RANDOM_32_FUNC,
+            ),
+            "block_index" => FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I64)),
+                ids::BLOCK_INDEX_FUNC,
             ),
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             },
+            "debug" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::DEBUG_FUNC,
+            ),
             "log" => FuncInstance::alloc_host(
                 Signature::new(&[ValueType::I32][..], None),
                 ids::LOG_FUNC,

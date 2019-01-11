@@ -6,12 +6,12 @@ use serde_json;
 
 use node_runtime::chain_spec::ChainSpec;
 use primitives::types::{AccountId, ReadablePublicKey};
-use beacon::authority::{AuthorityConfig, AuthorityProposal};
+use beacon::authority::{AuthorityConfig, AuthorityStake};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
-    accounts: Vec<(AccountId, ReadablePublicKey, u64)>,
+    accounts: Vec<(AccountId, ReadablePublicKey, u64, u64)>,
     initial_authorities: Vec<(AccountId, ReadablePublicKey, u64)>,
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
@@ -53,10 +53,10 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpe
 }
 
 pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
-    let initial_authorities: Vec<AuthorityProposal> = chain_spec.initial_authorities
+    let initial_authorities: Vec<AuthorityStake> = chain_spec.initial_authorities
         .iter()
         .map(|(account_id, key, amount)| {
-            AuthorityProposal {
+            AuthorityStake {
                 account_id: account_id.clone(),
                 public_key: key.into(),
                 amount: *amount,
@@ -64,7 +64,7 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
         })
         .collect();
     AuthorityConfig {
-        initial_authorities,
+        initial_proposals: initial_authorities,
         epoch_length: chain_spec.beacon_chain_epoch_length,
         num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
     }
@@ -73,7 +73,7 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
 #[test]
 fn test_deserialize() {
     let data = json!({
-        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
+        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100, 10]],
         "initial_authorities": [("alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,
