@@ -7,12 +7,9 @@ extern crate kvdb_rocksdb;
 #[macro_use]
 extern crate log;
 extern crate byteorder;
+extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-
-#[cfg(test)]
-extern crate hex_literal;
-extern crate parking_lot;
 
 use std::collections::HashMap;
 use std::sync::Arc;
