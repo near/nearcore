@@ -17,6 +17,7 @@ use primitives::hash::CryptoHash;
 use primitives::types::Transaction;
 use storage::{extend_with_cache, read_with_cache};
 pub use types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+use primitives::types::BlockId;
 
 type H264 = [u8; 33];
 
@@ -43,7 +44,7 @@ pub struct TransactionAddress {
     pub index: usize
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum TransactionStatus {
     Unknown,
     Started,
@@ -71,11 +72,36 @@ impl ShardBlockChain {
         self.update_for_inserted_block(&block.clone());
     }
 
+    fn is_transaction_complete(
+        &self,
+        hash: &CryptoHash,
+        last_block: &SignedShardBlock,
+    ) -> TransactionStatus {
+        for receipt in last_block.body.new_receipts.iter() {
+            match receipt {
+                Transaction::Receipt(r) => {
+                    if r.nonce == hash.as_ref() {
+                        let next_index = last_block.body.header.index + 1;
+                        match self.chain.get_block(&BlockId::Number(next_index)) {
+                            Some(b) => return self.is_transaction_complete(hash, &b),
+                            None => return TransactionStatus::Started,
+                        };
+                    }
+                }
+                _ => panic!("non receipt in SignedShardBlock.new_receipts")
+            }
+        };
+        TransactionStatus::Completed
+    }
+
     fn get_transaction_status_from_address(
         &self,
-        _address: &TransactionAddress,
+        hash: &CryptoHash,
+        address: &TransactionAddress,
     ) -> TransactionStatus {
-        TransactionStatus::Started
+        let block = self.chain.get_block(&BlockId::Hash(address.block_hash))
+            .expect("transaction address points to non-existent block");
+        self.is_transaction_complete(&hash, &block)
     }
 
     fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
@@ -91,7 +117,7 @@ impl ShardBlockChain {
     /// Get the address of transaction with given hash.
     pub fn get_transaction_status(&self, hash: &CryptoHash) -> TransactionStatus {
         match self.get_transaction_address(&hash) {
-            Some(a) => self.get_transaction_status_from_address(&a),
+            Some(a) => self.get_transaction_status_from_address(hash, &a),
             None => TransactionStatus::Unknown,
         }
     }
@@ -129,6 +155,9 @@ mod tests {
     use super::*;
     use storage::test_utils::create_memory_db;
     use primitives::types::SignedTransaction;
+    use primitives::types::ReceiptTransaction;
+    use primitives::types::AccountId;
+    use primitives::types::ReceiptBody;
 
     fn get_chain() -> ShardBlockChain {
         let genesis = SignedShardBlock::genesis(CryptoHash::default());
@@ -143,13 +172,13 @@ mod tests {
     }
 
     #[test]
-    fn test_get_transaction_status_started() {
+    fn test_get_transaction_status_complete_no_receipts() {
         let chain = get_chain();
         let t = SignedTransaction::empty();
         let transaction = Transaction::SignedTransaction(SignedTransaction::empty());
         let block = SignedShardBlock::new(
             0,
-            0,
+            1,
             CryptoHash::default(),
             CryptoHash::default(),
             vec![transaction],
@@ -158,7 +187,64 @@ mod tests {
         chain.insert_block(&block);
 
         let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Completed);
+    }
+
+    #[test]
+    fn test_get_transaction_status_complete_with_receipts() {
+        let chain = get_chain();
+        let t = SignedTransaction::empty();
+        let transaction = Transaction::SignedTransaction(SignedTransaction::empty());
+        let receipt0 = Transaction::Receipt(ReceiptTransaction::new(
+            AccountId::default(),
+            AccountId::default(),
+            t.transaction_hash().into(),
+            ReceiptBody::Refund(0),
+        ));
+        let block1 = SignedShardBlock::new(
+            0,
+            1,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![transaction],
+            vec![receipt0],
+        );
+        chain.insert_block(&block1);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Started);
+
+        let receipt1 = Transaction::Receipt(ReceiptTransaction::new(
+            AccountId::default(),
+            AccountId::default(),
+            t.transaction_hash().into(),
+            ReceiptBody::Refund(0),
+        ));
+        let block2 = SignedShardBlock::new(
+            0,
+            2,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            vec![receipt1],
+        );
+        chain.insert_block(&block2);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Started);
+
+        let block3 = SignedShardBlock::new(
+            0,
+            3,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            vec![],
+        );
+        chain.insert_block(&block3);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Completed);
     }
 
     #[test]
