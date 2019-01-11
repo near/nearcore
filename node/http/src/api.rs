@@ -20,6 +20,8 @@ use types::{
     SignedShardBlocksResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
+use types::GetTransactionStatusRequest;
+use types::TransactionStatusResponse;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -233,5 +235,13 @@ impl HttpApi {
                 blocks: blocks.into_iter().map(|x| x.into()).collect(),
             }
         })
+    }
+
+    pub fn get_transaction_status(
+        &self,
+        r: &GetTransactionStatusRequest,
+    )-> Result<TransactionStatusResponse, ()> {
+        let status = self.shard_chain.get_transaction_status(&r.hash);
+        Ok(TransactionStatusResponse { status })
     }
 }

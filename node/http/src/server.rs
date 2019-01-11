@@ -374,6 +374,28 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                 }
             }))
         }
+        (&Method::POST, "/get_transaction_status") => {
+            Box::new(req.into_body().concat2().map(move |chunk| {
+                match serde_json::from_slice(&chunk) {
+                    Ok(data) => {
+                        match http_api.get_transaction_status(&data) {
+                            Ok(response) => {
+                                Response::builder()
+                                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                                    .unwrap()
+                            }
+                            Err(_) => unreachable!()
+                        }
+                    }
+                    Err(e) => {
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()
+                    }
+                }
+            }))
+        }
         (&Method::GET, "/healthz") => {
             // Assume that, if we can get a latest block, things are healthy
             Box::new(future::ok(
