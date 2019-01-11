@@ -7,7 +7,7 @@ use primitives::types::{ChainPayload, SignedTransaction, Transaction};
 pub fn spawn_task(receiver: Receiver<SignedTransaction>, sender: Sender<ChainPayload>) {
     let task = receiver
         .map(|t| {
-            println!("Received transaction! {:?}", t);
+            debug!(target: "consensus", "Received transaction! {:?}", t);
             ChainPayload { body: vec![Transaction::SignedTransaction(t)] }
         })
         .forward(
