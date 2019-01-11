@@ -280,3 +280,9 @@ pub struct GetTransactionStatusRequest {
 pub struct TransactionStatusResponse {
     pub status: TransactionStatus
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct SubmitTransactionResponse {
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash
+}

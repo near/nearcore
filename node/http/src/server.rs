@@ -169,7 +169,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
             Box::new(req.into_body().concat2().map(move |chunk| {
                 match serde_json::from_slice(&chunk) {
                     Ok(data) => {
-                        match http_api.submit_transaction(data) {
+                        match http_api.submit_transaction(&data) {
                             Ok(response) => {
                                 build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))

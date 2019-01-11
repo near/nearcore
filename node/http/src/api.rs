@@ -15,13 +15,13 @@ use shard::ShardBlockChain;
 use types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
+    GetBlocksByIndexRequest, GetTransactionStatusRequest,
+    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
     SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
-    SignedShardBlocksResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
+    SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
+    SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
-use types::GetTransactionStatusRequest;
-use types::TransactionStatusResponse;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -179,10 +179,16 @@ impl HttpApi {
         }
     }
 
-    pub fn submit_transaction(&self, r: SignedTransaction) -> Result<(), &str> {
+    pub fn submit_transaction(
+        &self,
+        r: &SignedTransaction,
+    ) -> Result<SubmitTransactionResponse, &str> {
         debug!(target: "near-rpc", "Received transaction {:?}", r);
-        self.submit_txn_sender.clone().try_send(r).map_err(|_| {
+        self.submit_txn_sender.clone().try_send(r.clone()).map_err(|_| {
             "transaction channel is full"
+        })?;
+        Ok(SubmitTransactionResponse {
+            hash: r.transaction_hash(),
         })
     }
 

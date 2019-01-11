@@ -21,7 +21,7 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_http::types::{
-    SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedBeaconBlockResponse, SignedShardBlockResponse, SubmitTransactionResponse,
     ViewAccountResponse, ViewStateResponse,
 };
 use primitives::signer::write_key_file;
@@ -146,8 +146,7 @@ fn test_send_money_inner() {
         .output()
         .expect("send_money command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
 test! { fn test_send_money() { test_send_money_inner() } }
@@ -189,8 +188,7 @@ fn test_set_get_values_inner() {
         .output()
         .expect("schedule_function_call command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     wait_for(&|| {
         let new_account: Value = serde_json::from_str(&check_result(view_account(None))?).unwrap();
@@ -232,8 +230,7 @@ fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
     let output = create_account("eve.near");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     let output = Command::new("./scripts/rpc.py")
         .arg("view_account")
@@ -260,8 +257,7 @@ fn test_swap_key_inner() {
         .output()
         .expect("swap key command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
 test! { fn test_swap_key() { test_swap_key_inner() } }
