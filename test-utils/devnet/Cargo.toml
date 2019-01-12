@@ -6,3 +6,4 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 [dependencies]
 node-cli = { path = "../../node/cli" }
 consensus = { path = "../../node/consensus" }
+client = { path = "../../node/client" }

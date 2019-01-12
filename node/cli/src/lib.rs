@@ -2,20 +2,18 @@ extern crate beacon;
 extern crate beacon_chain_handler;
 extern crate chain;
 extern crate clap;
+extern crate client;
 extern crate consensus;
 extern crate env_logger;
 extern crate futures;
-#[macro_use]
-extern crate log;
 extern crate network;
 extern crate node_http;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-#[macro_use]
 extern crate serde_derive;
-#[cfg_attr(test, macro_use)]
+#[cfg(test)]
 extern crate serde_json;
 extern crate shard;
 extern crate storage;
@@ -27,14 +25,16 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use primitives::types::ChainPayload;
+use client::{chain_spec, ClientConfig, DEFAULT_LOG_LEVEL, DEFAULT_BASE_PATH};
 
-pub mod chain_spec;
 pub mod service;
 
-pub fn get_service_config() -> service::ServiceConfig {
+use service::NetworkConfig;
+
+pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
     let default_p2p_port = service::DEFAULT_P2P_PORT.to_string();
     let default_rpc_port = service::DEFAULT_RPC_PORT.to_string();
-    let default_log_level = service::DEFAULT_LOG_LEVEL.to_string().to_lowercase();
+    let default_log_level = DEFAULT_LOG_LEVEL.to_string().to_lowercase();
     let matches = App::new("near")
         .arg(
             Arg::with_name("base_path")
@@ -42,7 +42,7 @@ pub fn get_service_config() -> service::ServiceConfig {
                 .long("base-path")
                 .value_name("PATH")
                 .help("Specify a base path for persisted files.")
-                .default_value(service::DEFAULT_BASE_PATH)
+                .default_value(DEFAULT_BASE_PATH)
                 .takes_value(true),
         ).arg(
             Arg::with_name("chain_spec_file")
@@ -159,23 +159,26 @@ pub fn get_service_config() -> service::ServiceConfig {
         .value_of("public_key")
         .map(String::from);
 
-    service::ServiceConfig {
+    (NetworkConfig {
+        p2p_port,
+        rpc_port,
+        boot_nodes,
+        test_network_key_seed,
+    },
+    ClientConfig {
         base_path,
         account_id,
         public_key,
         chain_spec_path,
         log_level,
-        p2p_port,
-        rpc_port,
-        boot_nodes,
-        test_network_key_seed,
-    }
+    })
 }
 
 pub fn run() {
-    let config = get_service_config();
+    let (network_cfg, client_cfg) = get_service_configs();
     service::start_service(
-        config,
+        network_cfg,
+        client_cfg,
         txflow::txflow_task::spawn_task::<ChainPayload, BeaconWitnessSelector>
     );
 }

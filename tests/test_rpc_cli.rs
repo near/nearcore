@@ -38,10 +38,11 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    let mut service_config = devnet::ServiceConfig::default();
-    service_config.base_path = base_path;
-    service_config.log_level = log::LevelFilter::Off;
-    thread::spawn(|| { devnet::start_devnet(Some(service_config)) });
+    let network_cfg = devnet::NetworkConfig::default();
+    let mut client_cfg = devnet::ClientConfig::default();
+    client_cfg.base_path = base_path;
+    client_cfg.log_level = log::LevelFilter::Off;
+    thread::spawn(|| { devnet::start_devnet(Some(network_cfg), Some(client_cfg)) });
     thread::sleep(Duration::from_secs(1));
     true
 }

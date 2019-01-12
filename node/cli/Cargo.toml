@@ -21,6 +21,7 @@ parking_lot = "0.6"
 primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 txflow = { path = "../../core/txflow" }
+client = { path = "../../node/client" }
 
 serde = "1.0"
 serde_derive = "1.0"

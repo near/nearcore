@@ -1,51 +1,33 @@
-use std::cmp;
 use std::collections::HashMap;
-use std::env;
-use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use env_logger::Builder;
 use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
-use beacon::authority::{Authority, AuthorityStake};
+use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
-use chain::SignedBlock;
 use chain_spec;
+use client::{Client, ClientConfig};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
-use node_runtime::{state_viewer::StateDbViewer, Runtime};
-use primitives::signer::InMemorySigner;
+use node_runtime::{state_viewer::StateDbViewer};
 use primitives::traits::Signer;
 use primitives::types::{
     AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
 };
-use shard::{ShardBlockChain, SignedShardBlock};
-use storage::{StateDb, Storage};
+use shard::ShardBlockChain;
+use storage::StateDb;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 
-const STORAGE_PATH: &str = "storage/db";
 const NETWORK_CONFIG_PATH: &str = "storage";
-const KEY_STORE_PATH: &str = "storage/keystore";
-
-fn get_storage(base_path: &Path) -> Arc<Storage> {
-    let mut storage_path = base_path.to_owned();
-    storage_path.push(STORAGE_PATH);
-    match fs::canonicalize(storage_path.clone()) {
-        Ok(path) => info!("Opening storage database at {:?}", path),
-        _ => info!("Could not resolve {:?} path", storage_path),
-    };
-    Arc::new(storage::open_database(&storage_path.to_string_lossy()))
-}
 
 fn spawn_rpc_server_task(
     transactions_tx: Sender<SignedTransaction>,
@@ -111,41 +93,11 @@ fn spawn_network_tasks(
     );
 }
 
-fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets = vec![
-        "consensus",
-        "near-rpc",
-        "network",
-        "producer",
-        "runtime",
-        "service",
-        "wasm",
-    ];
-    let mut builder = Builder::from_default_env();
-    internal_targets.iter().for_each(|internal_targets| {
-        builder.filter(Some(internal_targets), log_level);
-    });
 
-    let other_log_level = cmp::min(log_level, log::LevelFilter::Info);
-    builder.filter(None, other_log_level);
-
-    if let Ok(lvl) = env::var("RUST_LOG") {
-        builder.parse(&lvl);
-    }
-    builder.init();
-}
-
-pub const DEFAULT_BASE_PATH: &str = ".";
-pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 pub const DEFAULT_P2P_PORT: u16 = 30333;
 pub const DEFAULT_RPC_PORT: u16 = 3030;
 
-pub struct ServiceConfig {
-    pub base_path: PathBuf,
-    pub account_id: AccountId,
-    pub public_key: Option<String>,
-    pub chain_spec_path: Option<PathBuf>,
-    pub log_level: log::LevelFilter,
+pub struct NetworkConfig {
     pub rpc_port: u16,
 
     // Network configuration
@@ -154,14 +106,9 @@ pub struct ServiceConfig {
     pub test_network_key_seed: Option<u32>,
 }
 
-impl Default for ServiceConfig {
-    fn default() -> ServiceConfig {
-        ServiceConfig {
-            base_path: PathBuf::from(DEFAULT_BASE_PATH),
-            account_id: String::from("alice"),
-            public_key: None,
-            chain_spec_path: None,
-            log_level: DEFAULT_LOG_LEVEL,
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
             rpc_port: DEFAULT_RPC_PORT,
             p2p_port: DEFAULT_P2P_PORT,
             boot_nodes: vec![],
@@ -170,7 +117,9 @@ impl Default for ServiceConfig {
     }
 }
 
-pub fn start_service<S>(config: ServiceConfig, spawn_consensus_task_fn: S)
+pub fn start_service<S>(network_cfg: NetworkConfig,
+                        client_cfg: ClientConfig,
+                        spawn_consensus_task_fn: S)
 where
     S: Fn(
             Receiver<Gossip<ChainPayload>>,
@@ -183,13 +132,11 @@ where
         + Sync
         + 'static,
 {
-    // Create shared-state objects.
-    let storage = get_storage(&config.base_path);
-    let chain_spec = chain_spec::read_or_default_chain_spec(&config.chain_spec_path);
+    let chain_spec = chain_spec::read_or_default_chain_spec(&client_cfg.chain_spec_path);
     let boot_nodes = if chain_spec.boot_nodes.is_empty() {
-        config.boot_nodes.clone()
+        network_cfg.boot_nodes.clone()
     } else {
-        if !config.boot_nodes.is_empty() {
+        if !network_cfg.boot_nodes.is_empty() {
             // TODO(#222): return an error here instead of panicking
             panic!("boot nodes cannot be specified when chain spec has boot nodes");
         } else {
@@ -197,40 +144,19 @@ where
         }
     };
 
-    let state_db = Arc::new(StateDb::new(storage.clone()));
-    let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
-    let genesis_root = runtime.write().apply_genesis_state(
-        &chain_spec.accounts,
-        &chain_spec.genesis_wasm,
-        &chain_spec.initial_authorities,
-    );
+    let client = Client::new(&client_cfg, &chain_spec);
+    let authority_handler = AuthorityHandler::new(client.authority.clone(),
+                                                  client_cfg.account_id.clone());
 
-    let shard_genesis = SignedShardBlock::genesis(genesis_root);
-    let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
-    let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
-    let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
-
-    let mut key_file_path = config.base_path.to_path_buf();
-    key_file_path.push(KEY_STORE_PATH);
-    let signer = Arc::new(InMemorySigner::from_key_file(
-        config.account_id.clone(),
-        key_file_path.as_path(),
-        config.public_key.clone(),
-    ));
-    let authority_config = chain_spec::get_authority_config(&chain_spec);
-    let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
-    let authority_handler = AuthorityHandler::new(authority.clone(), config.account_id.clone());
-
-    configure_logging(config.log_level);
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (transactions_tx, transactions_rx) = channel(1024);
         spawn_rpc_server_task(
             transactions_tx.clone(),
-            Some(config.rpc_port),
-            &shard_chain.clone(),
-            state_db.clone(),
-            beacon_chain.clone(),
+            Some(network_cfg.rpc_port),
+            &client.shard_chain,
+            client.state_db.clone(),
+            client.beacon_chain.clone(),
         );
 
         // Create a task that receives new blocks from importer/producer
@@ -245,12 +171,12 @@ where
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
-            beacon_chain.clone(),
-            shard_chain.clone(),
-            runtime.clone(),
-            signer.clone(),
-            state_db.clone(),
-            authority.clone(),
+            client.beacon_chain.clone(),
+            client.shard_chain.clone(),
+            client.runtime.clone(),
+            client.signer.clone(),
+            client.state_db.clone(),
+            client.authority.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
             new_block_tx.clone(),
@@ -259,10 +185,10 @@ where
         // Create task that can import beacon chain blocks from other peers.
         let (beacon_block_tx, beacon_block_rx) = channel(1024);
         beacon_chain_handler::importer::spawn_block_importer(
-            beacon_chain.clone(),
-            shard_chain.clone(),
-            runtime.clone(),
-            state_db.clone(),
+            client.beacon_chain.clone(),
+            client.shard_chain.clone(),
+            client.runtime.clone(),
+            client.state_db.clone(),
             beacon_block_rx,
             new_block_tx,
         );
@@ -274,12 +200,12 @@ where
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(
-            Some(signer.account_id()),
-            &config.base_path,
-            Some(config.p2p_port),
+            Some(client.signer.account_id()),
+            &client_cfg.base_path,
+            Some(network_cfg.p2p_port),
             boot_nodes,
-            config.test_network_key_seed,
-            beacon_chain.clone(),
+            network_cfg.test_network_key_seed,
+            client.beacon_chain.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),
             receipts_tx.clone(),

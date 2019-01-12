@@ -1,6 +1,6 @@
 extern crate clap;
 extern crate network;
-extern crate node_cli;
+extern crate client;
 extern crate node_runtime;
 extern crate serde_json;
 
@@ -46,6 +46,6 @@ fn main() {
 
     let mut chain_spec = node_runtime::test_utils::generate_test_chain_spec();
     chain_spec.boot_nodes = boot_nodes;
-    let serialized = node_cli::chain_spec::serialize_chain_spec(chain_spec);
+    let serialized = client::chain_spec::serialize_chain_spec(chain_spec);
     println!("{}", serialized);
 }

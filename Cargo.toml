@@ -18,6 +18,7 @@ node-cli = { path = "./node/cli" }
 node-runtime = { path = "./node/runtime" }
 primitives = { path = "./core/primitives" }
 txflow = { path = "./core/txflow" }
+client = { path = "./node/client" }
 
 [workspace]
 members = [
@@ -32,6 +33,7 @@ members = [
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/beacon-chain-handler",
     "node/cli",
+    "node/client",
     "node/consensus",
     "node/http",
     "node/runtime",

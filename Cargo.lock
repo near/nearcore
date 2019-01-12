@@ -314,8 +314,8 @@ name = "chain-spec-builder"
 version = "0.1.0"
 dependencies = [
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "client 0.1.0",
  "network 0.0.1",
- "node-cli 0.1.0",
  "node-runtime 0.0.1",
  "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -359,6 +359,24 @@ version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cc 1.0.25 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "beacon 0.0.1",
+ "chain 0.0.1",
+ "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "node-runtime 0.0.1",
+ "parking_lot 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "primitives 0.0.1",
+ "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
+ "shard 0.0.1",
+ "storage 0.0.1",
 ]
 
 [[package]]
@@ -560,6 +578,7 @@ dependencies = [
 name = "devnet"
 version = "0.1.0"
 dependencies = [
+ "client 0.1.0",
  "consensus 0.0.1",
  "node-cli 0.1.0",
 ]
@@ -1541,6 +1560,7 @@ dependencies = [
 name = "nearcore"
 version = "0.1.0"
 dependencies = [
+ "client 0.1.0",
  "devnet 0.1.0",
  "keystore 0.1.0",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1596,6 +1616,7 @@ dependencies = [
  "beacon-chain-handler 0.1.0",
  "chain 0.0.1",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "client 0.1.0",
  "consensus 0.0.1",
  "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
