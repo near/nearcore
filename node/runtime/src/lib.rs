@@ -1176,8 +1176,7 @@ impl Runtime {
             );
             // TODO(#345): Add system TX stake
         });
-        for (_, pk, amount) in initial_authorities {
-            let account_id = pk_to_acc_id.get(pk).expect("Missing account for public key");
+        for (account_id, _pk, amount) in initial_authorities {
             let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
             let mut account: Account = get(
                 &mut state_db_update,

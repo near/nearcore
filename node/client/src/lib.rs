@@ -22,6 +22,7 @@ use parking_lot::RwLock;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::SignedBlock;
 use configs::ClientConfig;
+use primitives::aggregate_signature::BlsSignature;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
@@ -144,13 +145,19 @@ impl Client {
             shard_block.block_hash(),
         );
         // TODO(#377): We should have a proper mask computation once we have a correct consensus.
-        let authority_mask: Vec<bool> = authorities.iter().map(|_| true).collect();
-        let signature = shard_block.sign(&self.signer);
-        shard_block.add_signature(signature);
-        shard_block.authority_mask = authority_mask.clone();
-        let signature = block.sign(&self.signer);
-        block.add_signature(signature);
-        block.authority_mask = authority_mask;
+        for (i, authority) in authorities.iter().enumerate() {
+            if authority.account_id == self.signer.account_id {
+                let shard_block_signature = shard_block.sign(&self.signer);
+                shard_block.add_signature(shard_block_signature, i);
+                let block_signature = block.sign(&self.signer);
+                block.add_signature(block_signature, i);
+                break;
+            }
+        }
+        // TODO: Remove.  This is a hack to make tests pass.
+        if block.weight() == 0 {
+            block.add_signature(BlsSignature::empty(), authorities.len());
+        }
 
         if self.beacon_chain.chain.is_known(&block.hash) {
             info!(target: "client", "The block was already imported, before we managed to produce it.");

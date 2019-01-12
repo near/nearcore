@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+use primitives::aggregate_signature::BlsSecretKey;
 use primitives::types::MerkleHash;
 use primitives::signer::InMemorySigner;
 use primitives::test_utils::get_key_pair_from_seed;
@@ -15,13 +16,18 @@ use crate::state_viewer::StateDbViewer;
 use super::{ApplyResult, ApplyState, Runtime};
 
 pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
+    use rand::{SeedableRng, XorShiftRng};
+
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let account_id = "alice.near";
-    let key_pair = get_key_pair_from_seed(account_id);
+    let mut rng = XorShiftRng::from_seed([11111, 22222, 33333, 44444]);
+    let secret_key = BlsSecretKey::generate_from_rng(&mut rng);
+    let public_key = secret_key.get_public_key();
+    let authority = public_key.to_string();
     let signer = InMemorySigner {
         account_id: account_id.to_string(),
-        public_key: key_pair.0,
-        secret_key: key_pair.1,
+        public_key,
+        secret_key,
     };
     (ChainSpec {
         accounts: vec![
@@ -29,7 +35,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
             ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_string(), 0, 10),
             ("system".to_string(), get_key_pair_from_seed("system").0.to_string(), 0, 0),
         ],
-        initial_authorities: vec![(account_id.to_string(), key_pair.0.to_string(), 50)],
+        initial_authorities: vec![(account_id.to_string(), authority, 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
