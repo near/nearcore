@@ -127,6 +127,8 @@ impl Client {
         let authority_config = chain_spec::get_authority_config(&chain_spec);
         let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
 
+        configure_logging(config.log_level);
+
         Self {
             state_db,
             authority,

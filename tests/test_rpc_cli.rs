@@ -38,7 +38,7 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    let mut network_cfg = devnet::NetworkConfig::default();
+    let network_cfg = devnet::NetworkConfig::default();
     let mut client_cfg = devnet::ClientConfig::default();
     client_cfg.base_path = base_path;
     client_cfg.log_level = log::LevelFilter::Off;

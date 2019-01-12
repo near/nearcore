@@ -6,17 +6,14 @@ extern crate client;
 extern crate consensus;
 extern crate env_logger;
 extern crate futures;
-#[macro_use]
-extern crate log;
 extern crate network;
 extern crate node_http;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-#[macro_use]
 extern crate serde_derive;
-#[cfg_attr(test, macro_use)]
+#[cfg(test)]
 extern crate serde_json;
 extern crate shard;
 extern crate storage;

@@ -1,42 +1,33 @@
-use std::cmp;
 use std::collections::HashMap;
-use std::env;
-use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use env_logger::Builder;
 use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
-use beacon::authority::{Authority, AuthorityStake};
+use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
-use chain::SignedBlock;
 use chain_spec;
 use client::{Client, ClientConfig};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
-use node_runtime::{state_viewer::StateDbViewer, Runtime};
-use primitives::signer::InMemorySigner;
+use node_runtime::{state_viewer::StateDbViewer};
 use primitives::traits::Signer;
 use primitives::types::{
     AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
 };
-use shard::{ShardBlockChain, SignedShardBlock};
-use storage::{StateDb, Storage};
+use shard::ShardBlockChain;
+use storage::StateDb;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 
-const STORAGE_PATH: &str = "storage/db";
 const NETWORK_CONFIG_PATH: &str = "storage";
-const KEY_STORE_PATH: &str = "storage/keystore";
 
 fn spawn_rpc_server_task(
     transactions_tx: Sender<SignedTransaction>,
@@ -126,7 +117,7 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(mut network_cfg: NetworkConfig,
+pub fn start_service<S>(network_cfg: NetworkConfig,
                         client_cfg: ClientConfig,
                         spawn_consensus_task_fn: S)
 where
@@ -212,7 +203,7 @@ where
             Some(client.signer.account_id()),
             &client_cfg.base_path,
             Some(network_cfg.p2p_port),
-            network_cfg.boot_nodes,
+            boot_nodes,
             network_cfg.test_network_key_seed,
             client.beacon_chain.clone(),
             beacon_block_tx.clone(),
