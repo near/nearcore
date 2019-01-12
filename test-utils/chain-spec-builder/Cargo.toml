@@ -7,5 +7,5 @@ clap = "2.32.0"
 serde_json = "1.0.0"
 
 network = { path = "../../node/network" }
-node-cli = { path = "../../node/cli" }
+client = { path = "../../node/client" }
 node-runtime = { path = "../../node/runtime" }
