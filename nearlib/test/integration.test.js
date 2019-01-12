@@ -89,7 +89,7 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         data,
         "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
-    await waitForContractToDeploy("test_contract");
+    await waitForContractToDeploy(deployResult);
     const args = {
         "name": "trex"
     };
@@ -144,10 +144,10 @@ const callUntilConditionIsMet = async (functToPoll, condition, description) => {
     }
 };
 
-const waitForContractToDeploy = async (contractId) => {
+const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
-        async () => { return await account.viewAccount(contractId); },
-        (response) => { return response['code'] != '' },
+        async () => { return await nearClient.getTransactionStatus(deployResult.hash); },
+        (response) => { return response['status'] == 'Completed' },
         "Call account status until contract is deployed"
     );
 };
