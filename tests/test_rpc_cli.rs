@@ -25,6 +25,7 @@ use node_http::types::{
     ViewAccountResponse, ViewStateResponse,
 };
 use primitives::signer::write_key_file;
+use primitives::test_utils::get_key_pair_from_seed;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
@@ -49,7 +50,8 @@ fn test_service_ready() -> bool {
 
 fn get_public_key() -> String {
     let key_store_path = Path::new(KEY_STORE_PATH);
-    write_key_file(key_store_path)
+    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
+    write_key_file(key_store_path, public_key, secret_key)
 }
 
 lazy_static! {

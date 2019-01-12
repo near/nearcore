@@ -10,7 +10,7 @@ use hyper::http::response::Builder;
 use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 
-use crate::api::HttpApi;
+use crate::api::{HttpApi, RPCError};
 
 type BoxFut = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 
@@ -176,9 +176,13 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .unwrap()
                             }
                             Err(e) => {
+                                let (body, error_code) = match e {
+                                    RPCError::BadRequest(body) => (body, StatusCode::BAD_REQUEST),
+                                    RPCError::ServiceUnavailable(body) => (body, StatusCode::SERVICE_UNAVAILABLE),
+                                };
                                 build_response()
-                                    .status(StatusCode::SERVICE_UNAVAILABLE)
-                                    .body(Body::from(e.to_string()))
+                                    .status(error_code)
+                                    .body(Body::from(body))
                                     .unwrap()
                             }
                         }

@@ -22,6 +22,7 @@ use crate::types::{
     SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
+use primitives::signature::verify_transaction_signature;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -44,6 +45,11 @@ impl HttpApi {
             shard_chain,
         }
     }
+}
+
+pub enum RPCError {
+    BadRequest(String),
+    ServiceUnavailable(String),
 }
 
 impl HttpApi {
@@ -182,10 +188,24 @@ impl HttpApi {
     pub fn submit_transaction(
         &self,
         r: &SignedTransaction,
-    ) -> Result<SubmitTransactionResponse, &str> {
+    ) -> Result<SubmitTransactionResponse, RPCError> {
         debug!(target: "near-rpc", "Received transaction {:?}", r);
+        let originator = r.body.get_originator();
+        let public_keys = self.state_db_viewer
+            .get_public_keys_for_account(&originator)
+            .map_err(RPCError::BadRequest)?;
+        if !verify_transaction_signature(&r.clone(), &public_keys) {
+            let msg = format!(
+                "transaction not signed with a public key of originator {:?}",
+                originator,
+            );
+            return Err(RPCError::BadRequest(msg))
+        }
+
         self.submit_txn_sender.clone().try_send(r.clone()).map_err(|_| {
-            "transaction channel is full"
+            RPCError::ServiceUnavailable(
+                "transaction channel is full".to_string()
+            )
         })?;
         Ok(SubmitTransactionResponse {
             hash: r.transaction_hash(),
