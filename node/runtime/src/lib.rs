@@ -639,30 +639,35 @@ impl Runtime {
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = async_call.mana;
         mana_accounting.accounting_info = async_call.accounting_info.clone();
-        let result = {
-            let mut runtime_ext = RuntimeExt::new(
-                state_update,
-                receiver_id,
-                &async_call.accounting_info,
-                nonce,
-            );
-            let mut wasm_res = executor::execute(
+        let config = wasm::types::Config::default();
+        let context = RuntimeContext::new(
+            receiver.amount,
+            async_call.amount,
+            sender_id,
+            receiver_id,
+            async_call.mana,
+            block_index,
+            nonce.to_vec(),
+        );
+        let mut runtime_ext = RuntimeExt::new(
+            state_update,
+            receiver_id,
+            &async_call.accounting_info,
+            nonce,
+        );
+        let mut wasm_res = {
+            let mut value = executor::execute(
                 &code,
                 &async_call.method_name,
                 &async_call.args,
                 &[],
                 &mut runtime_ext,
-                &wasm::types::Config::default(),
-                &RuntimeContext::new(
-                    receiver.amount,
-                    async_call.amount,
-                    sender_id,
-                    receiver_id,
-                    async_call.mana,
-                    block_index,
-                    nonce.to_vec(),
-                ),
+                &config,
+                &context,
             ).map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
+            value
+        };
+        let result = {
             mana_accounting.gas_used = wasm_res.gas_used;
             mana_accounting.mana_refund = wasm_res.mana_left;
             logs.append(&mut wasm_res.logs);
@@ -707,6 +712,7 @@ impl Runtime {
             .ok_or_else(|| format!("account {} does not have contract code", receiver_id.clone()))?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
+        let config = wasm::types::Config::default();
         let receipts = match callback {
             Some(mut callback) => {
                 callback.results[callback_res.info.result_index] = callback_res.result.clone();
@@ -723,23 +729,29 @@ impl Runtime {
                     mana_accounting.accounting_info = callback.accounting_info.clone();
                     mana_accounting.mana_refund = callback.mana;
                     needs_removal = true;
-                    let mut wasm_res = executor::execute(
-                        &code,
-                        &callback.method_name,
-                        &callback.args,
-                        &callback.results,
-                        &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                        &RuntimeContext::new(
-                            receiver.amount,
-                            0,
-                            sender_id,
-                            receiver_id,
-                            callback.mana,
-                            block_index,
-                            nonce.to_vec(),
-                        ),
-                    ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
+
+                    let runtime_context = RuntimeContext::new(
+                        receiver.amount,
+                        0,
+                        sender_id,
+                        receiver_id,
+                        callback.mana,
+                        block_index,
+                        nonce.to_vec(),
+                    );
+
+                    let mut wasm_res = {
+                        let mut value = executor::execute(
+                            &code,
+                            &callback.method_name,
+                            &callback.args,
+                            &callback.results,
+                            &mut runtime_ext,
+                            &config,
+                            &runtime_context,
+                        ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
+                        value
+                    };
                     mana_accounting.gas_used = wasm_res.gas_used;
                     mana_accounting.mana_refund = wasm_res.mana_left;
                     logs.append(&mut wasm_res.logs);
