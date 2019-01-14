@@ -12,7 +12,7 @@ use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
 use beacon_chain_handler::producer::ChainConsensusBlockBody;
-use chain_spec;
+use crate::chain_spec;
 use client::{Client, ClientConfig};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};
