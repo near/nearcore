@@ -19,6 +19,8 @@ pub mod chain_spec;
 use std::{cmp, env, fs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::io;
+use std::io::prelude::*;
 
 use env_logger::Builder;
 use parking_lot::RwLock;
@@ -26,10 +28,11 @@ use parking_lot::RwLock;
 use beacon::authority::Authority;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
 use chain::SignedBlock;
-use node_runtime::Runtime;
+use node_runtime::{ApplyState, Runtime};
 use node_runtime::chain_spec::ChainSpec;
 use primitives::signer::InMemorySigner;
-use primitives::types::AccountId;
+use primitives::types::{AccountId, BlockId, ConsensusBlockBody, ChainPayload};
+use primitives::traits::Signer;
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
 
@@ -102,6 +105,9 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 
+
+pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
+
 impl Client {
     pub fn new(config: &ClientConfig, chain_spec: &ChainSpec) -> Self {
         let storage = get_storage(&config.base_path);
@@ -137,5 +143,59 @@ impl Client {
             beacon_chain,
             signer,
         }
+    }
+
+    pub fn produce_block(&self, body: ChainConsensusBlockBody) -> SignedBeaconBlock {
+        // TODO: verify signature
+        let transactions = body.messages.into_iter()
+            .flat_map(|message| message.body.payload.body)
+            .collect();
+
+        let last_block = self.beacon_chain.best_block();
+        let last_shard_block = self.shard_chain
+            .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
+            .expect("At the moment we should have shard blocks accompany beacon blocks");
+        let authorities = self.authority.read().get_authorities(last_block.body.header.index)
+            .expect("Authorities should be present for given block to produce it");
+        let shard_id = last_shard_block.body.header.shard_id;
+        let apply_state = ApplyState {
+            root: last_shard_block.body.header.merkle_root_state,
+            parent_block_hash: last_block.block_hash(),
+            block_index: last_block.body.header.index + 1,
+            shard_id,
+        };
+        let apply_result = self.runtime.write().apply(
+            &apply_state,
+            &last_shard_block.body.new_receipts,
+            transactions
+        );
+        self.state_db.commit(apply_result.transaction).ok();
+        let mut shard_block = SignedShardBlock::new(
+            shard_id,
+            last_shard_block.body.header.index + 1,
+            last_shard_block.block_hash(),
+            apply_result.root,
+            apply_result.filtered_transactions,
+            apply_result.new_receipts,
+        );
+        let mut block = SignedBeaconBlock::new(
+            last_block.body.header.index + 1,
+            last_block.block_hash(),
+            apply_result.authority_proposals,
+            shard_block.block_hash()
+        );
+        let authority_mask: Vec<bool> = authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
+        let signature = shard_block.sign(&*self.signer);
+        shard_block.add_signature(signature);
+        shard_block.authority_mask = authority_mask.clone();
+        let signature = block.sign(&*self.signer);
+        block.add_signature(signature);
+        block.authority_mask = authority_mask;
+        self.shard_chain.insert_block(shard_block.clone());
+        self.beacon_chain.insert_block(block.clone());
+        info!(target: "block_producer", "Block body: {:?}", block.body);
+        info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
+        io::stdout().flush().expect("Could not flush stdout");
+        block
     }
 }

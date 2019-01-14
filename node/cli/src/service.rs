@@ -11,9 +11,8 @@ use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
-use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use chain_spec;
-use client::{Client, ClientConfig};
+use client::{Client, ClientConfig, ChainConsensusBlockBody};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
@@ -144,7 +143,7 @@ where
         }
     };
 
-    let client = Client::new(&client_cfg, &chain_spec);
+    let client = Arc::new(Client::new(&client_cfg, &chain_spec));
     let authority_handler = AuthorityHandler::new(client.authority.clone(),
                                                   client_cfg.account_id.clone());
 
@@ -171,12 +170,7 @@ where
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
-            client.beacon_chain.clone(),
-            client.shard_chain.clone(),
-            client.runtime.clone(),
-            client.signer.clone(),
-            client.state_db.clone(),
-            client.authority.clone(),
+            client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
             new_block_tx.clone(),
