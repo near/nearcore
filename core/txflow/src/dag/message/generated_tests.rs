@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use dag::message::Message;
+    use crate::dag::message::Message;
     use primitives::traits::{Payload, WitnessSelector};
     use primitives::types::UID;
     use std::collections::HashSet;

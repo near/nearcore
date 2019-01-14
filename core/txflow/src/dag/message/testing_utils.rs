@@ -70,13 +70,13 @@ macro_rules! simple_messages {
 
     ($starting_epoch:expr, $witness_selector:expr, $arena:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr, $recompute_epoch:expr; $($rest:tt)* ]) => {{
         let ps = simple_messages!($starting_epoch, $witness_selector, $arena [ $($parents)* ]);
-        $messages.push(&*$arena.alloc(::dag::message::testing_utils::simple_message($owner, $epoch, ps, $recompute_epoch, $starting_epoch, $witness_selector)));
+        $messages.push(&*$arena.alloc(crate::dag::message::testing_utils::simple_message($owner, $epoch, ps, $recompute_epoch, $starting_epoch, $witness_selector)));
         simple_messages!($starting_epoch, $witness_selector, $arena, $messages [$($rest)*]);
     }};
 
     ($starting_epoch:expr, $witness_selector:expr, $arena:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr, $recompute_epoch:expr => $name:ident; $($rest:tt)* ]) => {{
         let ps = simple_messages!($starting_epoch, $witness_selector, $arena [ $($parents)* ]);
-        $name = &*$arena.alloc(::dag::message::testing_utils::simple_message($owner, $epoch, ps, $recompute_epoch, $starting_epoch, $witness_selector));
+        $name = &*$arena.alloc(crate::dag::message::testing_utils::simple_message($owner, $epoch, ps, $recompute_epoch, $starting_epoch, $witness_selector));
         $messages.push($name);
         simple_messages!($starting_epoch, $witness_selector, $arena, $messages [$($rest)*]);
     }};
@@ -87,7 +87,7 @@ macro_rules! simple_messages {
     }};
 
     ($starting_epoch:expr, $witness_selector:expr, $arena:ident, $messages:ident [ $owner:expr, $epoch:expr, $recompute_epoch:expr; $($rest:tt)* ]) => {{
-        $messages.push(&*$arena.alloc(::dag::message::testing_utils::simple_message($owner, $epoch, vec![], $recompute_epoch, $starting_epoch, $witness_selector)));
+        $messages.push(&*$arena.alloc(crate::dag::message::testing_utils::simple_message($owner, $epoch, vec![], $recompute_epoch, $starting_epoch, $witness_selector)));
         simple_messages!($starting_epoch, $witness_selector, $arena, $messages [ $($rest)* ]);
     }};
 
@@ -97,7 +97,7 @@ macro_rules! simple_messages {
     }};
 
     ($starting_epoch:expr, $witness_selector:expr, $arena:ident, $messages:ident [ $owner:expr, $epoch:expr, $recompute_epoch:expr => $name:ident; $($rest:tt)* ]) => {{
-        $name = &*$arena.alloc(::dag::message::testing_utils::simple_message($owner, $epoch, vec![], $recompute_epoch, $starting_epoch, $witness_selector));
+        $name = &*$arena.alloc(crate::dag::message::testing_utils::simple_message($owner, $epoch, vec![], $recompute_epoch, $starting_epoch, $witness_selector));
         $messages.push($name);
         simple_messages!($starting_epoch, $witness_selector, $arena, $messages [ $($rest)* ]);
     }};

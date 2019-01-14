@@ -1,11 +1,11 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use memory::Memory;
+use crate::memory::Memory;
 use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
 use parity_wasm::builder;
 use pwasm_utils::{self, rules};
-use types::{Config, PrepareError as Error};
+use crate::types::{Config, PrepareError as Error};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.

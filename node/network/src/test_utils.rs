@@ -21,13 +21,13 @@ use tokio::timer::Interval;
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader, BeaconBlockChain};
 use beacon::authority::{AuthorityConfig, AuthorityStake};
 use chain::{SignedBlock, SignedHeader};
-use error::Error;
-use message::Message;
+use crate::error::Error;
+use crate::message::Message;
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::traits::GenericResult;
 use primitives::types;
 use primitives::signature::get_keypair;
-use protocol::{CURRENT_VERSION, ProtocolConfig, Protocol};
+use crate::protocol::{CURRENT_VERSION, ProtocolConfig, Protocol};
 use self::storage::test_utils::create_memory_db;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {

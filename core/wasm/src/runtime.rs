@@ -1,8 +1,8 @@
-use ext::External;
+use crate::ext::External;
 
-use memory::Memory;
+use crate::memory::Memory;
 use wasmi::{RuntimeArgs, RuntimeValue};
-use types::{RuntimeError as Error, ReturnData, RuntimeContext};
+use crate::types::{RuntimeError as Error, ReturnData, RuntimeContext};
 
 use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
 use primitives::hash::hash;
@@ -535,7 +535,7 @@ fn format_buf(buf: &[u8]) -> String {
 
 mod ext_impl {
 
-    use ext::ids::*;
+    use crate::ext::ids::*;
     use wasmi::{Externals, RuntimeArgs, RuntimeValue, Trap};
 
     macro_rules! void {

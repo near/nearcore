@@ -12,7 +12,7 @@ use primitives::types::{
 };
 use primitives::utils::bs58_vec2str;
 use shard::ShardBlockChain;
-use types::{
+use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
     GetBlocksByIndexRequest, PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
