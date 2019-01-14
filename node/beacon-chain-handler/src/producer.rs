@@ -6,9 +6,7 @@ use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 
 use beacon::types::SignedBeaconBlock;
-use chain::SignedBlock;
 use client::{Client, ChainConsensusBlockBody};
-use primitives::traits::Signer;
 
 pub fn spawn_block_producer(
     client: Arc<Client>,
