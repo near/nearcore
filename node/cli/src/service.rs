@@ -179,10 +179,7 @@ where
         // Create task that can import beacon chain blocks from other peers.
         let (beacon_block_tx, beacon_block_rx) = channel(1024);
         beacon_chain_handler::importer::spawn_block_importer(
-            client.beacon_chain.clone(),
-            client.shard_chain.clone(),
-            client.runtime.clone(),
-            client.state_db.clone(),
+            client.clone(),
             beacon_block_rx,
             new_block_tx,
         );
