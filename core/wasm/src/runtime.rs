@@ -16,7 +16,7 @@ pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
 pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
 
 pub struct Runtime<'a> {
-    ext: &'a mut External<'a>,
+    ext: &'a mut External,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
@@ -34,7 +34,7 @@ pub struct Runtime<'a> {
 
 impl<'a> Runtime<'a> {
     pub fn new(
-        ext: &'a mut External<'a>,
+        ext: &'a mut External,
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,

@@ -63,16 +63,9 @@ impl<'a> RuntimeExt<'a> {
     pub fn get_receipts(&mut self) -> Vec<Transaction> {
         self.receipts.drain().map(|(_, v)| Transaction::Receipt(v)).collect()
     }
-
-    fn get_iter<'b>(&'b mut self, prefix: &[u8]) -> ExtResult<u32> where 'b: 'a {
-        let iter = self.state_db_update.iter(prefix).map_err(|_| ExtError::TrieIteratorError)?;
-        self.iters.insert(self.last_iter_id, iter);
-        self.last_iter_id += 1;
-        Ok(self.last_iter_id - 1)
-    }
 }
 
-impl<'a> External<'a> for RuntimeExt<'a> {
+impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
@@ -85,20 +78,22 @@ impl<'a> External<'a> for RuntimeExt<'a> {
         Ok(value.map(|buf| buf.to_vec()))
     }
 
-    fn storage_iter<'b>(&'b mut self, prefix: &[u8]) -> ExtResult<u32> where 'b: 'a {
-        self.get_iter(prefix)
+    fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
+        let iter = self.state_db_update.iter(prefix).map_err(|_| ExtError::TrieIteratorError)?;
+        self.iters.insert(self.last_iter_id, iter);
+        self.last_iter_id += 1;
+        Ok(self.last_iter_id - 1)
     }
 
     fn storage_iter_next(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
-        Err(ExtError::TrieIteratorMissing)
-//        let result = match self.iters.get_mut(&id) {
-//            Some(iter) => iter.next(),
-//            None => return Err(ExtError::TrieIteratorMissing),
-//        };
-//        if result.is_none() {
-//            self.iters.remove(&id);
-//        }
-//        Ok(result)
+        let result = match self.iters.get_mut(&id) {
+            Some(iter) => iter.next(),
+            None => return Err(ExtError::TrieIteratorMissing),
+        };
+        if result.is_none() {
+            self.iters.remove(&id);
+        }
+        Ok(result)
     }
 
     fn promise_create(
