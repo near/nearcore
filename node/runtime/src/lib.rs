@@ -780,13 +780,12 @@ impl Runtime {
                 state_update.commit();
             } else {
                 state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                set(
+                    state_update,
+                    &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
+                    receiver
+                );
             }
-            
-            set(
-                state_update,
-                &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
-                receiver
-            );
         } else {
             // if we don't need to remove callback, since it is updated, we need
             // to update the storage.
