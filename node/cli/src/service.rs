@@ -97,8 +97,6 @@ pub const DEFAULT_RPC_PORT: u16 = 3030;
 
 pub struct NetworkConfig {
     pub rpc_port: u16,
-    /// whether to produce blocks with a set time period
-    pub batch_transactions: bool,
 
     // Network configuration
     pub p2p_port: u16,
@@ -110,7 +108,6 @@ impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             rpc_port: DEFAULT_RPC_PORT,
-            batch_transactions: false,
             p2p_port: DEFAULT_P2P_PORT,
             boot_nodes: vec![],
             test_network_key_seed: None,
@@ -118,10 +115,11 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(network_cfg: NetworkConfig,
-                        client_cfg: ClientConfig,
-                        spawn_consensus_task_fn: S)
-where
+pub fn start_service<S>(
+    network_cfg: NetworkConfig,
+    client_cfg: ClientConfig,
+    spawn_consensus_task_fn: S
+) where
     S: Fn(
             Receiver<Gossip<ChainPayload>>,
             Receiver<ChainPayload>,
@@ -208,24 +206,13 @@ where
         adapters::signed_transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
         adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
 
-        if use_pass_thru {
-            passthrough::spawn_consensus(
-                inc_gossip_rx,
-                payload_rx,
-                out_gossip_tx,
-                consensus_control_rx,
-                beacon_block_consensus_body_tx,
-                config.batch_transactions,
-            );
-        } else {
-            spawn_task(
-                inc_gossip_rx,
-                payload_rx,
-                out_gossip_tx,
-                consensus_control_rx,
-                beacon_block_consensus_body_tx,
-            )
-        }
+        spawn_consensus_task_fn(
+            inc_gossip_rx,
+            payload_rx,
+            out_gossip_tx,
+            consensus_control_rx,
+            beacon_block_consensus_body_tx,
+        );
         Ok(())
     }));
 }

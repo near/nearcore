@@ -113,11 +113,6 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
               .help("Sets public key to sign with, \
                          can be omitted with 1 file in keystore")
               .takes_value(true)
-        ).arg(
-            Arg::with_name("batch_transactions")
-                .long("batch-transactions")
-                .help("Whether to produce blocks immediately when receiving a transaction")
-                .takes_value(false)
         ).get_matches();
 
     let base_path = matches
@@ -163,9 +158,6 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
     let public_key = matches
         .value_of("public_key")
         .map(String::from);
-    
-    let batch_transactions = matches
-        .is_present("batch_transactions");
 
     (NetworkConfig {
         p2p_port,

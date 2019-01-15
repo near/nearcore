@@ -119,6 +119,13 @@ fn deploy_contract() -> Result<(String, String), String> {
         .expect("deploy command failed to process");
     check_result(output)?;
 
+    wait_for(&|| {
+        let check_result = check_result(view_account(Some(&contract_name)));
+        check_result.and_then(|res| {
+            let new_account: Value = serde_json::from_str(&res).unwrap();
+            if new_account != Value::Null { Ok(()) } else { Err("Account not created".to_string()) }
+        })
+    }).unwrap();
     let result = wait_for(&|| check_result(view_account(Some(&contract_name))))?;
     Ok((result, contract_name))
 }
@@ -235,6 +242,15 @@ test! { fn test_view_state() { test_view_state_inner() } }
 fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
     let output = create_account("eve.near");
+
+    wait_for(&|| {
+        let check_result = check_result(view_account(Some("eve.near")));
+        check_result.and_then(|res| {
+            let new_account: Value = serde_json::from_str(&res).unwrap();
+            if new_account != Value::Null { Ok(()) } else { Err("Nonce didn't change".to_string()) }
+        })
+    }).unwrap();
+
     let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
