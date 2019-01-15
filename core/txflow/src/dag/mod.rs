@@ -400,7 +400,7 @@ mod tests {
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
         assert!(dag.add_existing_message((*a).clone()).is_ok());
-        let (message, _) = dag.create_root_message(::testing_utils::FakePayload {}, vec![]);
+        let (message, _) = dag.create_root_message(crate::testing_utils::FakePayload {}, vec![]);
         d = &message.data;
 
         simple_bare_messages!(data_arena, all_messages [[=> b; => d;] => 4, 5 => e;]);

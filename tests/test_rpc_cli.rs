@@ -38,10 +38,11 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    let mut service_config = devnet::ServiceConfig::default();
-    service_config.base_path = base_path;
-    service_config.log_level = log::LevelFilter::Off;
-    thread::spawn(|| { devnet::start_devnet(Some(service_config)) });
+    let network_cfg = devnet::NetworkConfig::default();
+    let mut client_cfg = devnet::ClientConfig::default();
+    client_cfg.base_path = base_path;
+    client_cfg.log_level = log::LevelFilter::Off;
+    thread::spawn(|| { devnet::start_devnet(Some(network_cfg), Some(client_cfg)) });
     thread::sleep(Duration::from_secs(1));
     true
 }
@@ -170,6 +171,7 @@ fn test_deploy_inner() {
 
 test! { fn test_deploy() { test_deploy_inner() } }
 
+#[allow(dead_code)]
 fn test_set_get_values_inner() {
     if !*DEVNET_STARTED { panic!() }
 
@@ -192,9 +194,10 @@ fn test_set_get_values_inner() {
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 
+    // It takes more than two nonce changes for the action to propagate.
     wait_for(&|| {
         let new_account: Value = serde_json::from_str(&check_result(view_account(None))?).unwrap();
-        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() { Ok(()) } else { Err("Nonce didn't change".to_string()) }
+        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 { Ok(()) } else { Err("Nonce didn't change".to_string()) }
     }).unwrap();
 
     let output = Command::new("./scripts/rpc.py")
@@ -211,7 +214,8 @@ fn test_set_get_values_inner() {
     assert_eq!(data["result"], json!("test"));
 }
 
-test! { fn test_set_get_values() { test_set_get_values_inner() } }
+// TODO(#391): Disabled until the issue is fixed.
+// test! { fn test_set_get_values() { test_set_get_values_inner() } }
 
 fn test_view_state_inner() {
     if !*DEVNET_STARTED { panic!() }

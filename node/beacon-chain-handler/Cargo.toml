@@ -1,6 +1,7 @@
 [package]
 name = "beacon-chain-handler"
 version = "0.1.0"
+edition = "2018"
 
 [dependencies]
 log = "0.4"
@@ -8,6 +9,7 @@ log = "0.4"
 beacon = { path = "../../core/beacon" }
 shard = { path = "../../core/shard" }
 chain = { path = "../../core/chain" }
+client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../runtime" }
 storage = { path = "../../core/storage" }

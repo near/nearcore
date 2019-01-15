@@ -9,7 +9,7 @@ use chain::{BlockChain, SignedBlock};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, AuthorityMask, BlockId};
-use types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use crate::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -169,11 +169,11 @@ impl Authority {
         }
         for r in rollovers.drain(..) {
             match indices.entry(r.account_id.clone()) {
-                Entry::Occupied(mut e) => {
+                Entry::Occupied(e) => {
                     let i = *e.get();
                     ordered_proposals[i].amount += r.amount;
                 }
-                Entry::Vacant(mut e) => {
+                Entry::Vacant(e) => {
                     e.insert(ordered_proposals.len());
                     ordered_proposals.push(r);
                 }
@@ -234,11 +234,11 @@ impl Authority {
                 for (acc, participated) in accepted.zip(participation) {
                     if *participated {
                         match indices.entry(acc.account_id.clone()) {
-                            Entry::Occupied(mut e) => {
+                            Entry::Occupied(e) => {
                                 let el: &mut AuthorityStake = &mut ordered_rollovers[*e.get()];
                                 el.amount += threshold;
                             }
-                            Entry::Vacant(mut e) => {
+                            Entry::Vacant(e) => {
                                 e.insert(ordered_rollovers.len());
                                 ordered_rollovers.push(acc.clone());
                             }
@@ -248,7 +248,7 @@ impl Authority {
                             Entry::Occupied(mut e) => {
                                 *e.get_mut() += threshold;
                             }
-                            Entry::Vacant(mut e) => {
+                            Entry::Vacant(e) => {
                                 e.insert(threshold);
                             }
                         }
@@ -291,7 +291,7 @@ impl Authority {
             // Update the tracker of processed slots.
             let epoch = self.slot_to_epoch(slot);
             let all_slots_processed = {
-                let mut processed_slots =
+                let processed_slots =
                     self.processed_blocks.entry(epoch).or_insert_with(HashSet::new);
                 processed_slots.insert(slot);
                 processed_slots.len() == self.authority_config.epoch_length as usize

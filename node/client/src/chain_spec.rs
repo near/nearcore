@@ -27,7 +27,7 @@ pub fn serialize_chain_spec(chain_spec: ChainSpec) -> String {
         .expect("Error serializing the chain spec.")
 }
 
-pub fn deserialize_chain_spec(config: &str) -> ChainSpec {
+fn deserialize_chain_spec(config: &str) -> ChainSpec {
     serde_json::from_str(config)
         .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the chain spec.")

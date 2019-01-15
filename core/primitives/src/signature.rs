@@ -1,10 +1,10 @@
 extern crate exonum_sodiumoxide as sodiumoxide;
 
 use bs58;
-use hash;
+use crate::hash;
 use std::fmt;
 
-pub use signature::sodiumoxide::crypto::sign::ed25519::Seed;
+pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);

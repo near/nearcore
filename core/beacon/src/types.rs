@@ -1,7 +1,7 @@
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AuthorityMask, MultiSignature, PartialSignature};
-use authority::AuthorityStake;
+use crate::authority::AuthorityStake;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {

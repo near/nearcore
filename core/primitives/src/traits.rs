@@ -5,7 +5,7 @@ use std::hash::Hash;
 use bincode;
 use serde::{de::DeserializeOwned, Serialize};
 
-use hash::CryptoHash;
+use crate::hash::CryptoHash;
 
 use super::signature;
 use super::types;
