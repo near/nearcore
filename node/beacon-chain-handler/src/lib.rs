@@ -14,4 +14,3 @@ extern crate txflow;
 
 pub mod producer;
 pub mod importer;
-pub mod authority_handler;

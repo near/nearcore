@@ -1,40 +1,40 @@
 #[macro_use]
 extern crate log;
-extern crate storage;
-extern crate primitives;
 extern crate beacon;
-extern crate parking_lot;
-extern crate node_runtime;
-extern crate shard;
 extern crate chain;
+extern crate node_runtime;
+extern crate parking_lot;
+extern crate primitives;
 extern crate serde;
+extern crate shard;
+extern crate storage;
 #[macro_use]
 extern crate serde_derive;
+extern crate env_logger;
 #[cfg_attr(test, macro_use)]
 extern crate serde_json;
-extern crate env_logger;
 
 pub mod chain_spec;
 
-use std::{cmp, env, fs};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
-use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use parking_lot::RwLock;
 
-use beacon::authority::Authority;
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use beacon::authority::{Authority, AuthorityStake};
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::SignedBlock;
-use node_runtime::{ApplyState, Runtime};
 use node_runtime::chain_spec::ChainSpec;
+use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, BlockId, ConsensusBlockBody, ChainPayload};
 use primitives::traits::Signer;
+use primitives::types::{AccountId, BlockId, ChainPayload, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
 
@@ -47,6 +47,9 @@ pub struct ClientConfig {
 }
 
 pub struct Client {
+    pub account_id: AccountId,
+
+    // State-shared objects.
     pub state_db: Arc<StateDb>,
     pub authority: Arc<RwLock<Authority>>,
     pub runtime: Arc<RwLock<Runtime>>,
@@ -61,15 +64,8 @@ pub struct Client {
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets = vec![
-        "consensus",
-        "near-rpc",
-        "network",
-        "producer",
-        "runtime",
-        "service",
-        "wasm",
-    ];
+    let internal_targets =
+        vec!["consensus", "near-rpc", "network", "producer", "runtime", "service", "wasm"];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
@@ -112,7 +108,6 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
     Arc::new(storage::open_database(&storage_path.to_string_lossy()))
 }
 
-
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
@@ -143,6 +138,7 @@ impl Client {
         configure_logging(config.log_level);
 
         Self {
+            account_id: config.account_id.clone(),
             state_db,
             authority,
             runtime,
@@ -155,17 +151,23 @@ impl Client {
     }
 
     // Block producer code.
-    pub fn produce_block(&self, body: ChainConsensusBlockBody) -> (SignedBeaconBlock, SignedShardBlock) {
+    pub fn produce_block(
+        &self,
+        body: ChainConsensusBlockBody,
+    ) -> (SignedBeaconBlock, SignedShardBlock) {
         // TODO: verify signature
-        let transactions = body.messages.into_iter()
-            .flat_map(|message| message.body.payload.body)
-            .collect();
+        let transactions =
+            body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
 
         let last_block = self.beacon_chain.best_block();
-        let last_shard_block = self.shard_chain
+        let last_shard_block = self
+            .shard_chain
             .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
             .expect("At the moment we should have shard blocks accompany beacon blocks");
-        let authorities = self.authority.read().get_authorities(last_block.body.header.index)
+        let authorities = self
+            .authority
+            .read()
+            .get_authorities(last_block.body.header.index)
             .expect("Authorities should be present for given block to produce it");
         let shard_id = last_shard_block.body.header.shard_id;
         let apply_state = ApplyState {
@@ -177,7 +179,7 @@ impl Client {
         let apply_result = self.runtime.write().apply(
             &apply_state,
             &last_shard_block.body.new_receipts,
-            transactions
+            transactions,
         );
         self.state_db.commit(apply_result.transaction).ok();
         let mut shard_block = SignedShardBlock::new(
@@ -192,9 +194,10 @@ impl Client {
             last_block.body.header.index + 1,
             last_block.block_hash(),
             apply_result.authority_proposals,
-            shard_block.block_hash()
+            shard_block.block_hash(),
         );
-        let authority_mask: Vec<bool> = authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
+        let authority_mask: Vec<bool> =
+            authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
         let signature = shard_block.sign(&*self.signer);
         shard_block.add_signature(signature);
         shard_block.authority_mask = authority_mask.clone();
@@ -206,6 +209,9 @@ impl Client {
         info!(target: "block_producer", "Block body: {:?}", block.body);
         info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
         io::stdout().flush().expect("Could not flush stdout");
+
+        // Update the authority.
+        self.update_authority(&block.header());
         (block, shard_block)
     }
 
@@ -214,10 +220,12 @@ impl Client {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
         // we can unwrap because parent is guaranteed to exist
-        let prev_header = self.beacon_chain
+        let prev_header = self
+            .beacon_chain
             .get_header(&BlockId::Hash(parent_hash))
             .expect("Parent is known but header not found.");
-        let prev_shard_block = self.shard_chain
+        let prev_shard_block = self
+            .shard_chain
             .get_block(&BlockId::Hash(parent_shard_hash))
             .expect("At this moment shard chain should be present together with beacon chain");
         let prev_shard_header = prev_shard_block.header();
@@ -230,7 +238,7 @@ impl Client {
         let apply_result = self.runtime.write().check(
             &apply_state,
             &prev_shard_block.body.new_receipts,
-            &shard_block.body.transactions
+            &shard_block.body.transactions,
         );
         match apply_result {
             Some((db_transaction, root)) => {
@@ -248,22 +256,25 @@ impl Client {
                 self.beacon_chain.insert_block(beacon_block);
             }
             None => {
-                info!(
-                    "Found incorrect transaction in block {:?}",
-                    beacon_block
-                );
+                info!("Found incorrect transaction in block {:?}", beacon_block);
                 return;
             }
         }
     }
 
-    fn blocks_to_process(&self) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
+    fn blocks_to_process(
+        &self,
+    ) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
         let mut part_add = vec![];
         let mut part_pending = HashMap::default();
         for (hash, other) in self.pending_beacon_blocks.write().drain() {
-            if self.beacon_chain.is_known(&other.body.header.parent_hash) && (
-                self.shard_chain.is_known(&other.body.header.shard_block_hash) ||
-                    self.pending_shard_blocks.read().contains_key(&other.body.header.shard_block_hash)) {
+            if self.beacon_chain.is_known(&other.body.header.parent_hash)
+                && (self.shard_chain.is_known(&other.body.header.shard_block_hash)
+                    || self
+                        .pending_shard_blocks
+                        .read()
+                        .contains_key(&other.body.header.shard_block_hash))
+            {
                 part_add.push(other);
             } else {
                 part_pending.insert(hash, other);
@@ -273,21 +284,24 @@ impl Client {
     }
 
     /// Attempts to import a beacon block. Fails to import if there are no known parent blocks.
-    /// If succeeds might unlock more blocks that were waiting for this parent. Returns a list of
-    /// blocks that were imported.
-    pub fn import_beacon_block(&self, beacon_block: SignedBeaconBlock) -> Vec<SignedBeaconBlock> {
+    /// If succeeds might unlock more blocks that were waiting for this parent. If import changes
+    /// the best block then it returns it, otherwise it returns None.
+    pub fn import_beacon_block(
+        &self,
+        beacon_block: SignedBeaconBlock,
+    ) -> Option<SignedBeaconBlock> {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
         if self.beacon_chain.is_known(&hash)
-            || self.pending_beacon_blocks.write().contains_key(&hash) {
-            return vec![];
+            || self.pending_beacon_blocks.write().contains_key(&hash)
+        {
+            return None;
         }
         self.pending_beacon_blocks.write().insert(hash, beacon_block);
+        let best_block_hash = self.beacon_chain.best_hash();
 
         let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
-
-        let mut result = vec![];
         // Loop until we run out of blocks to add.
         loop {
             // Only keep those blocks in `pending_blocks` that are still pending.
@@ -302,16 +316,53 @@ impl Client {
                 None => break,
             };
             let hash = next_beacon_block.block_hash();
-            if self.beacon_chain.is_known(&hash) { continue; }
+            if self.beacon_chain.is_known(&hash) {
+                continue;
+            }
 
-            let next_shard_block = self.pending_shard_blocks
+            let next_shard_block = self
+                .pending_shard_blocks
                 .write()
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
             self.add_block(next_beacon_block.clone(), next_shard_block);
-            result.push(next_beacon_block);
+            // Update the authority.
+            self.update_authority(&next_beacon_block.header());
         }
-        result
+        let new_best_block = self.beacon_chain.best_block();
+        if new_best_block.block_hash() == best_block_hash {
+            None
+        } else {
+            Some(new_best_block)
+        }
+    }
+
+    // Authority-related code. Consider hiding it inside the shard chain.
+    fn update_authority(&self, beacon_header: &SignedBeaconBlockHeader) {
+        self.authority.write().process_block_header(beacon_header);
+    }
+
+    /// Returns own UID and UID to authority map for the given block number.
+    /// If the owner is not participating in the block then it returns None.
+    pub fn get_uid_to_authority_map(
+        &self,
+        block_index: u64,
+    ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
+        let next_authorities = self
+            .authority
+            .read()
+            .get_authorities(block_index)
+            .unwrap_or_else(|_| panic!("Failed to get authorities for block index {}", block_index));
+
+        let mut uid_to_authority_map = HashMap::new();
+        let mut owner_uid = None;
+        for (index, authority) in next_authorities.into_iter().enumerate() {
+            if authority.account_id == self.account_id {
+                owner_uid = Some(index as UID);
+            }
+            uid_to_authority_map.insert(index as UID, authority);
+        }
+        (owner_uid, uid_to_authority_map)
     }
 }

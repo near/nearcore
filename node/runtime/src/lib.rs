@@ -619,6 +619,7 @@ impl Runtime {
             );
             receipts.push(Transaction::Receipt(new_receipt));
         }
+        runtime_ext.flush_callbacks();
         Ok(receipts)
     }
 
@@ -701,14 +702,14 @@ impl Runtime {
         logs: &mut Vec<String>,
     ) -> Result<Vec<Transaction>, String> {
         let mut needs_removal = false;
-        let callback: Option<Callback> = 
+        let mut callback: Option<Callback> = 
                 get(state_update, &callback_id_to_bytes(&callback_res.info.id));
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("account {} does not have contract code", receiver_id.clone()))?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
         let receipts = match callback {
-            Some(mut callback) => {
+            Some(ref mut callback) => {
                 callback.results[callback_res.info.result_index] = callback_res.result.clone();
                 callback.result_counter += 1;
                 // if we have gathered all results, execute the callback
@@ -723,7 +724,7 @@ impl Runtime {
                     mana_accounting.accounting_info = callback.accounting_info.clone();
                     mana_accounting.mana_refund = callback.mana;
                     needs_removal = true;
-                    let mut wasm_res = executor::execute(
+                    executor::execute(
                         &code,
                         &callback.method_name,
                         &callback.args,
@@ -739,42 +740,63 @@ impl Runtime {
                             block_index,
                             nonce.to_vec(),
                         ),
-                    ).map_err(|e| format!("wasm callback preparation failed with error: {:?}", e))?;
-                    mana_accounting.gas_used = wasm_res.gas_used;
-                    mana_accounting.mana_refund = wasm_res.mana_left;
-                    logs.append(&mut wasm_res.logs);
-                    let balance = wasm_res.balance;
-                    let return_data = wasm_res.return_data
-                        .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))?;
-                    Self::return_data_to_receipts(
-                        &mut runtime_ext,
-                        return_data,
-                        &callback.callback,
-                        sender_id,
-                        receiver_id,
-                    ).and_then(|receipts| {
-                        receiver.amount = balance;
-                        Ok(receipts)
-                    })?
+                    )
+                    .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
+                    .and_then(|mut res| {
+                        mana_accounting.gas_used = res.gas_used;
+                        mana_accounting.mana_refund = res.mana_left;
+                        logs.append(&mut res.logs);
+                        let balance = res.balance;
+                        res.return_data
+                            .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
+                            .and_then(|data|
+                                Self::return_data_to_receipts(
+                                    &mut runtime_ext,
+                                    data,
+                                    &callback.callback,
+                                    sender_id,
+                                    receiver_id,
+                                )
+                            )
+                            .and_then(|receipts| {
+                                receiver.amount = balance;
+                                Ok(receipts)
+                            })
+                    })
                 } else {
                     // otherwise no receipt is generated
-                    vec![]
+                    Ok(vec![])
                 }
             },
             _ => {
                 return Err(format!("callback id: {:?} not found", callback_res.info.id));
             }
         };
-        
         if needs_removal {
-            state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+            if receipts.is_err() {
+                // On error, we rollback previous changes and then commit the deletion
+                state_update.rollback();
+                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.commit();
+            } else {
+                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                set(
+                    state_update,
+                    &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
+                    receiver
+                );
+            }
+        } else {
+            // if we don't need to remove callback, since it is updated, we need
+            // to update the storage.
+            let callback = callback.expect("Cannot be none");
             set(
                 state_update,
-                &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
-                receiver
+                &callback_id_to_bytes(&callback_res.info.id),
+                &callback
             );
         }
-        Ok(receipts)
+        receipts
     }
 
     fn apply_receipt(
@@ -1829,10 +1851,9 @@ mod tests {
     fn test_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let mut callback = Callback::new(
-            b"sum_with_input".to_vec(),
-            args,
+            b"run_test_with_storage_change".to_vec(),
+            vec![],
             0,
             AccountingInfo {
                 originator: alice_account(),
@@ -1867,6 +1888,57 @@ mod tests {
         let apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::Receipt(receipt)]
         );
+        assert_ne!(new_root, apply_result.root);
+        runtime.state_db.commit(apply_result.transaction).unwrap();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
+        let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
+        assert!(callback.is_none());
+    }
+
+    #[test]
+    // if the callback failed, it should still be removed
+    fn test_callback_failure() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let mut callback = Callback::new(
+            b"a_function_that_does_not_exist".to_vec(),
+            vec![],
+            0,
+            AccountingInfo {
+                originator: alice_account(),
+                contract_id: Some(bob_account()),
+            },
+        );
+        callback.results.resize(1, None);
+        let callback_id = [0; 32].to_vec();
+        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
+        set(
+            &mut state_update,
+            &callback_id_to_bytes(&callback_id.clone()),
+            &callback
+        );
+        let (transaction, new_root) = state_update.finalize();
+        runtime.state_db.commit(transaction).unwrap();
+        let receipt = ReceiptTransaction::new(
+            alice_account(),
+            bob_account(),
+            hash(&[1, 2, 3]).into(),
+            ReceiptBody::Callback(CallbackResult::new(
+                CallbackInfo::new(callback_id.clone(), 0, alice_account()),
+                None,
+            ))
+        );
+        let apply_state = ApplyState {
+            root: new_root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_result = runtime.apply(
+            &apply_state, &[], vec![Transaction::Receipt(receipt)]
+        );
+        // the callback should be removed
+        assert_ne!(new_root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));

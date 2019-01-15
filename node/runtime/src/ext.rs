@@ -8,9 +8,9 @@ use primitives::types::{
     Transaction,
 };
 use storage::{StateDbUpdate, StateDbUpdateIterator};
-use wasm::ext::{Error as ExtError, External, Result as ExtResult};
+use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 
-use super::{account_id_to_bytes, COL_ACCOUNT, create_nonce_with_nonce};
+use super::{account_id_to_bytes, create_nonce_with_nonce, COL_ACCOUNT, callback_id_to_bytes, set};
 
 pub struct RuntimeExt<'a> {
     state_db_update: &'a mut StateDbUpdate,
@@ -62,6 +62,17 @@ impl<'a> RuntimeExt<'a> {
 
     pub fn get_receipts(&mut self) -> Vec<Transaction> {
         self.receipts.drain().map(|(_, v)| Transaction::Receipt(v)).collect()
+    }
+
+    /// write callbacks to stateUpdate
+    pub fn flush_callbacks(&mut self) {
+        for (id, callback) in self.callbacks.drain() {
+            set(
+                self.state_db_update,
+                &callback_id_to_bytes(&id),
+                &callback
+            );
+        }
     }
 }
 
