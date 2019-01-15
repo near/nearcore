@@ -25,6 +25,7 @@ class Account {
         const keyWithRandomSeed = await this.nearClient.generateNewKeyFromRandomSeed();
         const createAccountResult =
             await this.createAccount(newAccountId, keyWithRandomSeed.public_key, amount, originatorAccountId);
+        this.nearClient.keyStore.setKey(newAccountId, keyWithRandomSeed);
         const response = {};
         response["key"] = keyWithRandomSeed;
         return response;
