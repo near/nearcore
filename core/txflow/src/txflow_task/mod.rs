@@ -7,7 +7,7 @@ use futures::sync::mpsc;
 use futures::{stream, Async, Future, Poll, Sink, Stream};
 use tokio::timer::Delay;
 
-use dag::DAG;
+use crate::dag::DAG;
 use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::traits::{Payload, WitnessSelector};
 use primitives::types::{
@@ -487,7 +487,7 @@ mod tests {
 
     use primitives::traits::WitnessSelector;
     use primitives::types::UID;
-    use testing_utils::FakePayload;
+    use crate::testing_utils::FakePayload;
 
     struct FakeWitnessSelector {}
 

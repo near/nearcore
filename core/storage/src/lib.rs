@@ -17,7 +17,7 @@ pub use kvdb::{DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
 
 use primitives::types::MerkleHash;
-pub use trie::DBChanges;
+pub use crate::trie::DBChanges;
 
 mod nibble_slice;
 pub mod test_utils;
@@ -125,7 +125,7 @@ pub fn open_database(storage_path: &str) -> Database {
 
 #[cfg(test)]
 mod tests {
-    use test_utils::create_state_db;
+    use crate::test_utils::create_state_db;
 
     use super::*;
 

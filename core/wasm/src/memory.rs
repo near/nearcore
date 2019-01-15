@@ -1,4 +1,4 @@
-use types::PrepareError as Error;
+use crate::types::PrepareError as Error;
 use wasmi::memory_units::{Bytes, Pages};
 use wasmi::{MemoryInstance, MemoryRef};
 

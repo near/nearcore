@@ -1,11 +1,11 @@
-use ext::External;
+use crate::ext::External;
 use wasmi;
 
-use prepare;
-use resolver::EnvModuleResolver;
+use crate::prepare;
+use crate::resolver::EnvModuleResolver;
 
-use runtime::Runtime;
-use types::{RuntimeContext, Config, ReturnData, Error};
+use crate::runtime::Runtime;
+use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
 
 const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";

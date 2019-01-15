@@ -2,6 +2,7 @@
 name = "network"
 version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
 
 [dependencies]
 bincode = { "version" = "1.0", features = ["i128"] }

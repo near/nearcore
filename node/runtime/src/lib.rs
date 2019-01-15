@@ -19,7 +19,7 @@ use std::sync::Arc;
 use serde::{de::DeserializeOwned, Serialize};
 
 use beacon::authority::AuthorityStake;
-use ext::RuntimeExt;
+use crate::ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
 use primitives::traits::{Decode, Encode};
@@ -41,7 +41,7 @@ pub mod chain_spec;
 pub mod test_utils;
 pub mod state_viewer;
 mod tx_stakes;
-use tx_stakes::{TxStakeConfig, TxTotalStake, get_tx_stake_key};
+use crate::tx_stakes::{TxStakeConfig, TxTotalStake, get_tx_stake_key};
 mod ext;
 
 const COL_ACCOUNT: &[u8] = &[0];
@@ -1166,9 +1166,9 @@ mod tests {
         TransactionBody,
     };
     use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
-    use state_viewer::AccountViewCallResult;
+    use crate::state_viewer::AccountViewCallResult;
     use storage::test_utils::create_state_db;
-    use test_utils::*;
+    use crate::test_utils::*;
     use super::*;
 
     fn alice_account() -> AccountId {

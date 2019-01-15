@@ -24,7 +24,7 @@ pub fn simple_bare_message(
         owner_uid,
         parents: parents.into_iter().map(|m| m.hash).collect(),
         epoch,
-        payload: ::testing_utils::FakePayload {},
+        payload: crate::testing_utils::FakePayload {},
         endorsements: vec![],
     };
     let hash = {
@@ -80,7 +80,7 @@ macro_rules! simple_bare_messages {
 
     ($arena:ident, $all_messages:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr; $($rest:tt)* ]) => {{
         let ps = simple_bare_messages!($arena, $all_messages [ $($parents)* ]);
-        let r = &*$arena.alloc(::testing_utils::simple_bare_message($owner, $epoch, ps));
+        let r = &*$arena.alloc(crate::testing_utils::simple_bare_message($owner, $epoch, ps));
         $all_messages.push(r);
         $messages.push(r);
         simple_bare_messages!($arena, $all_messages, $messages [$($rest)*]);
@@ -88,7 +88,7 @@ macro_rules! simple_bare_messages {
 
     ($arena:ident, $all_messages:ident, $messages:ident [ [ $($parents:tt)* ] => $owner:expr, $epoch:expr => $name:ident; $($rest:tt)* ]) => {{
         let ps = simple_bare_messages!($arena, $all_messages [ $($parents)* ]);
-        $name = &*$arena.alloc(::testing_utils::simple_bare_message($owner, $epoch, ps));
+        $name = &*$arena.alloc(crate::testing_utils::simple_bare_message($owner, $epoch, ps));
         $all_messages.push($name);
         $messages.push($name);
         simple_bare_messages!($arena, $all_messages, $messages [$($rest)*]);
@@ -101,7 +101,7 @@ macro_rules! simple_bare_messages {
     }};
 
     ($arena:ident, $all_messages:ident, $messages:ident [ $owner:expr, $epoch:expr; $($rest:tt)* ]) => {{
-        let r = &*$arena.alloc(::testing_utils::simple_bare_message($owner, $epoch, vec![]));
+        let r = &*$arena.alloc(crate::testing_utils::simple_bare_message($owner, $epoch, vec![]));
         $all_messages.push(r);
         $messages.push(r);
         simple_bare_messages!($arena, $all_messages, $messages [ $($rest)* ]);
@@ -115,7 +115,7 @@ macro_rules! simple_bare_messages {
     }};
 
     ($arena:ident, $all_messages:ident, $messages:ident [ $owner:expr, $epoch:expr => $name:ident; $($rest:tt)* ]) => {{
-        $name = &*$arena.alloc(::testing_utils::simple_bare_message($owner, $epoch, vec![]));
+        $name = &*$arena.alloc(crate::testing_utils::simple_bare_message($owner, $epoch, vec![]));
         $all_messages.push($name);
         $messages.push($name);
         simple_bare_messages!($arena, $all_messages, $messages [ $($rest)* ]);

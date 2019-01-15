@@ -37,7 +37,7 @@ impl<'a, P: 'a + Payload> GroupApprovals<'a, P> {
 
     pub fn union_update(&mut self, other: &Self) {
         for (message, per_message) in &other.approvals {
-            let mut own_per_message = self.approvals.entry(message).or_insert_with(Group::new);
+            let own_per_message = self.approvals.entry(message).or_insert_with(Group::new);
             own_per_message.union_update(per_message);
         }
     }
