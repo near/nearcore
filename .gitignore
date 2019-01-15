@@ -27,3 +27,6 @@ nearlib/dist/
 
 # Integration tests
 tmp/
+
+# OS X
+.DS_Store
