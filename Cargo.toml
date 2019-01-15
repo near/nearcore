@@ -29,6 +29,7 @@ members = [
     "core/chain",
     "core/beacon",
     "core/shard",
+    "core/transaction",
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
