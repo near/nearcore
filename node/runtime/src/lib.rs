@@ -773,7 +773,9 @@ impl Runtime {
             }
         };
         if needs_removal {
+            state_update.rollback();
             state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+            state_update.commit();
             set(
                 state_update,
                 &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
