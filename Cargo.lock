@@ -147,6 +147,7 @@ version = "0.1.0"
 dependencies = [
  "beacon 0.0.1",
  "chain 0.0.1",
+ "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "node-runtime 0.0.1",
@@ -402,6 +403,7 @@ dependencies = [
  "beacon 0.0.1",
  "beacon-chain-handler 0.1.0",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "network 0.0.1",

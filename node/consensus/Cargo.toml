@@ -6,6 +6,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 [dependencies]
 network = { path = "../network" }
 beacon = { path = "../../core/beacon" }
+client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
 substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "5f1ec2832a9a79506985c003b5c041c760e39c4f" }
 beacon-chain-handler = { path = "../beacon-chain-handler" }
