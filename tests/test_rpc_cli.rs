@@ -171,6 +171,7 @@ fn test_deploy_inner() {
 
 test! { fn test_deploy() { test_deploy_inner() } }
 
+#[allow(dead_code)]
 fn test_set_get_values_inner() {
     if !*DEVNET_STARTED { panic!() }
 
@@ -193,9 +194,10 @@ fn test_set_get_values_inner() {
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
 
+    // It takes more than two nonce changes for the action to propagate.
     wait_for(&|| {
         let new_account: Value = serde_json::from_str(&check_result(view_account(None))?).unwrap();
-        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() { Ok(()) } else { Err("Nonce didn't change".to_string()) }
+        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 { Ok(()) } else { Err("Nonce didn't change".to_string()) }
     }).unwrap();
 
     let output = Command::new("./scripts/rpc.py")
@@ -212,7 +214,8 @@ fn test_set_get_values_inner() {
     assert_eq!(data["result"], json!("test"));
 }
 
-test! { fn test_set_get_values() { test_set_get_values_inner() } }
+// TODO(#391): Disabled until the issue is fixed.
+// test! { fn test_set_get_values() { test_set_get_values_inner() } }
 
 fn test_view_state_inner() {
     if !*DEVNET_STARTED { panic!() }
