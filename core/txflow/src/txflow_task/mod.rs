@@ -308,39 +308,46 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match self.control_receiver.poll() {
-            // Independently on whether we were stopped or not, if we receive a reset signal we
-            // reset the state and the dag.
-            Ok(Async::Ready(Some(Control::Reset(state)))) => {
-                self.state = Some(state);
-                self.init_dag();
-            }
-            // Stop command received.
-            Ok(Async::Ready(Some(Control::Stop))) => {
-                if self.state.is_some() {
-                    self.state = None;
-                    self.dag = None;
-                    // On the next call of poll if we still don't have the state this task will be
-                    // parked because we will return NotReady.
-                    return Ok(Async::Ready(Some(())));
-                } else {
-                    panic!("TxFlow task received stop command, but it is already stopped");
+        loop {
+            match self.control_receiver.poll() {
+                // Independently on whether we were stopped or not, if we receive a reset signal we
+                // reset the state and the dag.
+                Ok(Async::Ready(Some(Control::Reset(state)))) => {
+                    self.state = Some(state);
+                    self.init_dag();
+                    break;
                 }
-            }
-            // The input to control channel was dropped. We terminate TxFlow entirely.
-            Ok(Async::Ready(None)) => {
-                println!("Control channel was dropped");
-                return Ok(Async::Ready(None));
-            }
-            Ok(Async::NotReady) => {
-                // If there is not state then we cannot proceed, we return NotReady which will park
-                // the task and wait until we get the state over the control channel.
-                if self.state.is_none() {
-                    return Ok(Async::NotReady);
+                // Stop command received.
+                Ok(Async::Ready(Some(Control::Stop))) => {
+                    if self.state.is_some() {
+                        self.state = None;
+                        self.dag = None;
+                        // On the next call of poll if we still don't have the state this task will be
+                        // parked because we will return NotReady.
+                        return Ok(Async::Ready(Some(())));
+                    }
+                    // Otherwise loop until we encounter Reset command in the stream. If the stream
+                    // is NotReady this will automatically park the task.
                 }
-            }
-            Err(err) => error!("Failed to read from the control channel {:?}", err),
-        };
+                // The input to control channel was dropped. We terminate TxFlow entirely.
+                Ok(Async::Ready(None)) => {
+                    println!("Control channel was dropped");
+                    return Ok(Async::Ready(None));
+                }
+                Ok(Async::NotReady) => {
+                    if self.state.is_none() {
+                        // If there is no state then we cannot proceed, we return NotReady which
+                        // will park the task and wait until we get the state over the control
+                        // channel.
+                        return Ok(Async::NotReady);
+                    } else {
+                        // If there is a state then we do not care about the control.
+                        break;
+                    }
+                }
+                Err(err) => error!("Failed to read from the control channel {:?}", err),
+            };
+        }
 
         // Process new gossips.
         let mut end_of_gossips = false;

@@ -10,7 +10,6 @@ use parking_lot::Mutex;
 use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
-use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
 use crate::chain_spec;
 use client::{Client, ClientConfig, ChainConsensusBlockBody};
 use consensus::adapters;
@@ -144,9 +143,6 @@ where
     };
 
     let client = Arc::new(Client::new(&client_cfg, &chain_spec));
-    let authority_handler = AuthorityHandler::new(client.authority.clone(),
-                                                  client_cfg.account_id.clone());
-
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (transactions_tx, transactions_rx) = channel(1024);
@@ -160,10 +156,8 @@ where
 
         // Create a task that receives new blocks from importer/producer
         // and send the authority information to consensus
-        let (new_block_tx, new_block_rx) = channel(1024);
         let (authority_tx, authority_rx) = channel(1024);
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
-        spawn_authority_task(authority_handler, new_block_rx, authority_tx, consensus_control_tx);
 
         // Create a task that consumes the consensuses
         // and produces the beacon chain blocks.
@@ -176,17 +170,14 @@ where
             client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
-            new_block_tx.clone(),
             receipts_tx.clone(),
+            authority_tx,
+            consensus_control_tx
         );
 
         // Create task that can import beacon chain blocks from other peers.
-        let (beacon_block_tx, beacon_block_rx) = channel(1024);
-        beacon_chain_handler::importer::spawn_block_importer(
-            client.clone(),
-            beacon_block_rx,
-            new_block_tx,
-        );
+        let (beacon_block_tx, _) = channel(1024);
+        // TODO: Re-enable once we have correct shard block fetching and announcement.
 
         // Spawn protocol and the network_task.
         // Note, that network and RPC are using the same channels
