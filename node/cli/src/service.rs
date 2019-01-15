@@ -11,9 +11,8 @@ use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use beacon_chain_handler::authority_handler::{spawn_authority_task, AuthorityHandler};
-use beacon_chain_handler::producer::ChainConsensusBlockBody;
 use chain_spec;
-use client::{Client, ClientConfig};
+use client::{Client, ClientConfig, ChainConsensusBlockBody};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
@@ -144,7 +143,7 @@ where
         }
     };
 
-    let client = Client::new(&client_cfg, &chain_spec);
+    let client = Arc::new(Client::new(&client_cfg, &chain_spec));
     let authority_handler = AuthorityHandler::new(client.authority.clone(),
                                                   client_cfg.account_id.clone());
 
@@ -170,25 +169,21 @@ where
         // and produces the beacon chain blocks.
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
+        // Block producer is also responsible for re-submitting receipts from the previous block
+        // into the next block.
+        let (receipts_tx, receipts_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
-            client.beacon_chain.clone(),
-            client.shard_chain.clone(),
-            client.runtime.clone(),
-            client.signer.clone(),
-            client.state_db.clone(),
-            client.authority.clone(),
+            client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
             new_block_tx.clone(),
+            receipts_tx.clone(),
         );
 
         // Create task that can import beacon chain blocks from other peers.
         let (beacon_block_tx, beacon_block_rx) = channel(1024);
         beacon_chain_handler::importer::spawn_block_importer(
-            client.beacon_chain.clone(),
-            client.shard_chain.clone(),
-            client.runtime.clone(),
-            client.state_db.clone(),
+            client.clone(),
             beacon_block_rx,
             new_block_tx,
         );
@@ -196,7 +191,6 @@ where
         // Spawn protocol and the network_task.
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
-        let (receipts_tx, receipts_rx) = channel(1024);
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(

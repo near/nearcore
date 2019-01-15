@@ -1,4 +1,4 @@
-use beacon_chain_handler::producer::ChainConsensusBlockBody;
+use client::ChainConsensusBlockBody;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 use primitives::signature::DEFAULT_SIGNATURE;
