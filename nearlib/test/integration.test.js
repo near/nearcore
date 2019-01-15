@@ -18,6 +18,7 @@ const nearClient = new NearClient(test_key_store, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
 const TEST_MAX_RETRIES = 10;
+const TRANSACTION_COMPLETE_MAX_RETRIES = 100;
 
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -111,25 +112,23 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         "setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
-    const callViewFunctionGetValue = async () => {
-        return await nearjs.callViewFunction(
-            aliceAccountName,
-            "test_contract",
-            "getValue", // this is the function defined in hello.wasm file that we are calling
-            {});
-    };
-    const checkResult = (result) => {
-        expect(result).toEqual(setCallValue);
-        return true;
-    };
+    expect(scheduleResult.hash).not.toBeFalsy();
     await callUntilConditionIsMet(
-        callViewFunctionGetValue,
-        checkResult,
-        "Call getValue until result is equal to expected value");
+        async () => { return await nearClient.getTransactionStatus(scheduleResult.hash); },
+        (response) => { return response['status'] == 'Completed' },
+        "Call get transaction status until transaction is completed",
+        TRANSACTION_COMPLETE_MAX_RETRIES
+    );
+    const secondViewFunctionResult = await nearjs.callViewFunction(
+        aliceAccountName,
+        "test_contract",
+        "getValue", // this is the function defined in hello.wasm file that we are calling
+        {});
+    expect(secondViewFunctionResult).toEqual(setCallValue);
 });
 
-const callUntilConditionIsMet = async (functToPoll, condition, description) => {
-    for (let i = 0; i < TEST_MAX_RETRIES; i++) {
+const callUntilConditionIsMet = async (functToPoll, condition, description, maxRetries = TEST_MAX_RETRIES) => {
+    for (let i = 0; i < maxRetries; i++) {
         try {
             const response = await functToPoll();
             if (condition(response)) {
@@ -148,7 +147,8 @@ const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
         async () => { return await nearClient.getTransactionStatus(deployResult.hash); },
         (response) => { return response['status'] == 'Completed' },
-        "Call account status until contract is deployed"
+        "Call account status until contract is deployed",
+        TRANSACTION_COMPLETE_MAX_RETRIES
     );
 };
 
