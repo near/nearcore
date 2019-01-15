@@ -2,10 +2,10 @@ use std::fs;
 use std::path::Path;
 use std::process;
 
-use hash;
-use signature;
-use traits;
-use types;
+use crate::hash;
+use crate::signature;
+use crate::traits;
+use crate::types;
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {

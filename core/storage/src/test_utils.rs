@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use kvdb_memorydb::InMemory;
 
-use {StateDb, TOTAL_COLUMNS};
+use crate::{StateDb, TOTAL_COLUMNS};
 
 pub type MemoryStorage = InMemory;
 

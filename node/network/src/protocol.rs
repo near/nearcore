@@ -9,7 +9,7 @@ use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
 use beacon::authority::AuthorityStake;
 use chain::{BlockChain, SignedBlock, SignedHeader as BlockHeader};
-use message::{self, Message};
+use crate::message::{self, Message};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
@@ -304,7 +304,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             Message::BlockResponse(response) => {
                 let request = {
                     let mut peers = self.peer_info.write();
-                    let mut peer_info = peers
+                    let peer_info = peers
                         .get_mut(&peer)
                         .ok_or((peer, Severity::Bad("Unexpected packet received from peer")))?;
                     peer_info.block_request.take().ok_or((
@@ -401,7 +401,7 @@ mod tests {
     use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
     use primitives::traits::Encode;
     use primitives::types::{ChainPayload, SignedTransaction};
-    use test_utils::{get_test_authority_config, get_test_protocol};
+    use crate::test_utils::{get_test_authority_config, get_test_protocol};
 
     use super::*;
 

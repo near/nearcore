@@ -1,167 +1,94 @@
 //! ConsensusHandler consumes consensuses, retrieves the most recent state, computes the new
 //! state, signs it and puts in on the BeaconChain.
 use std::sync::Arc;
+use std::collections::HashMap;
 
-use futures::{Future, future, Stream, Sink};
-use futures::sync::mpsc::{Sender, Receiver};
-use parking_lot::RwLock;
+use futures::sync::mpsc::{Receiver, Sender};
+use futures::{future, stream, Future, Sink, Stream};
 
-use beacon::types::{SignedBeaconBlock, BeaconBlockChain};
-use beacon::authority::Authority;
-use chain::SignedBlock;
-use node_runtime::{ApplyState, Runtime};
-use primitives::traits::Signer;
-use primitives::types::BlockId;
-use primitives::types::{ConsensusBlockBody, ChainPayload};
-use shard::{SignedShardBlock, ShardBlockChain};
-use storage::StateDb;
-use std::io;
-use std::io::prelude::*;
-
-pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
+use beacon::types::SignedBeaconBlock;
+use chain::{SignedBlock, SignedHeader};
+use beacon::authority::AuthorityStake;
+use client::{ChainConsensusBlockBody, Client};
+use primitives::types::{ReceiptTransaction, Transaction, UID};
+use txflow::txflow_task::{Control, State};
+use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 
 pub fn spawn_block_producer(
-    beacon_chain: Arc<BeaconBlockChain>,
-    shard_chain: Arc<ShardBlockChain>,
-    runtime: Arc<RwLock<Runtime>>,
-    signer: Arc<Signer>,
-    state_db: Arc<StateDb>,
-    authority: Arc<RwLock<Authority>>,
+    client: Arc<Client>,
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<SignedBeaconBlock>,
-    new_block_tx: Sender<SignedBeaconBlock>,
+    new_receipts_tx: Sender<ReceiptTransaction>,
+    authority_tx: Sender<HashMap<UID, AuthorityStake>>,
+    control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
-    let beacon_block_producer = BlockProducer::new(
-        beacon_chain,
-        shard_chain,
-        runtime,
-        signer,
-        state_db,
-        authority,
-        block_announce_tx,
-        new_block_tx,
-    );
-    let task = receiver.fold(beacon_block_producer, |beacon_block_producer, body| {
-        beacon_block_producer.produce_block(body);
-        future::ok(beacon_block_producer)
-    }).and_then(|_| Ok(()));
+    let task = receiver
+        .fold(
+            (client, block_announce_tx, new_receipts_tx, authority_tx, control_tx),
+            |(client, block_announce_tx, new_receipts_tx, authority_tx, control_tx), body| {
+                let (new_block, new_shard_block) = client.produce_block(body);
+                // send beacon block to network
+                tokio::spawn({
+                    block_announce_tx
+                        .clone()
+                        .send(new_block.clone())
+                        .map(|_| ())
+                        .map_err(|e| error!("Error sending block: {}", e))
+                });
+
+                // Redirect the receipts from the previous block for processing in the next one.
+                tokio::spawn({
+                    let receipts: Vec<_> = new_shard_block
+                        .body
+                        .new_receipts
+                        .iter()
+                        .filter_map(|t| match t {
+                            Transaction::Receipt(r) => Some(r.clone()),
+                            Transaction::SignedTransaction(_) => panic!("new_receipts field should contain receipts only.")
+                        })
+                        .collect();
+                    new_receipts_tx
+                        .clone()
+                        .send_all(stream::iter_ok(receipts))
+                        .map(|_| ())
+                        .map_err(|e| error!("Error sending receipts: {}", e))
+                });
+
+                // Take care of changed authorities.
+                // Notify the network about the new set of UID -> AccountId.
+                let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(new_block.header().index());
+                tokio::spawn({
+                    authority_tx
+                        .clone()
+                        .send(uid_to_authority_map.clone())
+                        .map(|_| ())
+                        .map_err(|e| error!("Error sending authorities to the network: {}", e))
+                });
+                // Send control to TxFlow.
+                let control = match owner_uid {
+                    None => Control::Stop,
+                    Some(owner_uid) => {
+                        let witness_selector = Box::new(BeaconWitnessSelector::new(
+                            uid_to_authority_map.keys().cloned().collect(),
+                            owner_uid,
+                        ));
+                        Control::Reset(State {
+                            owner_uid,
+                            starting_epoch: 0,
+                            gossip_size: 1, // TODO: Use adaptive gossip size.
+                            witness_selector,
+                        })}
+                };
+                tokio::spawn({
+                    control_tx
+                        .clone()
+                        .send(control)
+                        .map(|_| ())
+                        .map_err(|e| error!("Error sending control to TxFlow: {}", e))
+                });
+                future::ok((client, block_announce_tx, new_receipts_tx, authority_tx, control_tx))
+            },
+        )
+        .and_then(|_| Ok(()));
     tokio::spawn(task);
-}
-
-pub struct BlockProducer {
-    beacon_chain: Arc<BeaconBlockChain>,
-    shard_chain: Arc<ShardBlockChain>,
-    runtime: Arc<RwLock<Runtime>>,
-    signer: Arc<Signer>,
-    state_db: Arc<StateDb>,
-    authority: Arc<RwLock<Authority>>,
-    block_announce_tx: Sender<SignedBeaconBlock>,
-    new_block_tx: Sender<SignedBeaconBlock>,
-}
-
-impl BlockProducer {
-    pub fn new(
-        beacon_chain: Arc<BeaconBlockChain>,
-        shard_chain: Arc<ShardBlockChain>,
-        runtime: Arc<RwLock<Runtime>>,
-        signer: Arc<Signer>,
-        state_db: Arc<StateDb>,
-        authority: Arc<RwLock<Authority>>,
-        block_announce_tx: Sender<SignedBeaconBlock>,
-        new_block_tx: Sender<SignedBeaconBlock>,
-    ) -> Self {
-        Self {
-            beacon_chain,
-            shard_chain,
-            runtime,
-            signer,
-            state_db,
-            authority,
-            block_announce_tx,
-            new_block_tx,
-        }
-    }
-
-    pub fn produce_block(&self, body: ChainConsensusBlockBody) {
-        // TODO: verify signature
-        let mut transactions = body.messages.into_iter()
-            .flat_map(|message| message.body.payload.body)
-            .collect();
-
-        let mut last_block = self.beacon_chain.best_block();
-        let mut last_shard_block = self.shard_chain.chain
-            .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
-            .expect("At the moment we should have shard blocks accompany beacon blocks");
-        let authorities = self.authority.read().get_authorities(last_block.body.header.index)
-            .expect("Authorities should be present for given block to produce it");
-        let shard_id = last_shard_block.body.header.shard_id;
-        let mut apply_state = ApplyState {
-            root: last_shard_block.body.header.merkle_root_state,
-            parent_block_hash: last_block.block_hash(),
-            block_index: last_block.body.header.index + 1,
-            shard_id,
-        };
-        loop {
-            let apply_result = self.runtime.write().apply(
-                &apply_state,
-                &last_shard_block.body.new_receipts,
-                transactions
-            );
-            self.state_db.commit(apply_result.transaction).ok();
-            let mut shard_block = SignedShardBlock::new(
-                shard_id,
-                last_shard_block.body.header.index + 1,
-                last_shard_block.block_hash(),
-                apply_result.root,
-                apply_result.filtered_transactions,
-                apply_result.new_receipts,
-            );
-            let mut block = SignedBeaconBlock::new(
-                last_block.body.header.index + 1,
-                last_block.block_hash(),
-                apply_result.authority_proposals,
-                shard_block.block_hash()
-            );
-            let authority_mask: Vec<bool> = authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
-            let signature = shard_block.sign(&*self.signer);
-            shard_block.add_signature(signature);
-            shard_block.authority_mask = authority_mask.clone();
-            let signature = block.sign(&*self.signer);
-            block.add_signature(signature);
-            self.shard_chain.insert_block(&shard_block.clone());
-            block.authority_mask = authority_mask;
-            self.beacon_chain.insert_block(block.clone());
-            info!(target: "block_producer", "Block body: {:?}", block.body);
-            info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
-            io::stdout().flush().expect("Could not flush stdout");
-            // send beacon block to network
-            tokio::spawn({
-                let block_announce_tx = self.block_announce_tx.clone();
-                block_announce_tx
-                    .send(block.clone())
-                    .map(|_| ())
-                    .map_err(|e| error!("Error sending block: {:?}", e))
-            });
-            // send beacon block to authority handler
-            tokio::spawn({
-                let new_block_tx = self.new_block_tx.clone();
-                new_block_tx
-                    .send(block.clone())
-                    .map(|_| ())
-                    .map_err(|e| error!("Error sending block: {:?}", e))
-            });
-            if shard_block.body.new_receipts.is_empty() {
-                break;
-            }
-            apply_state = ApplyState {
-                root: shard_block.body.header.merkle_root_state,
-                shard_id,
-                parent_block_hash: shard_block.block_hash(),
-                block_index: shard_block.body.header.index + 1,
-            };
-            transactions = vec![];
-            last_shard_block = shard_block;
-            last_block = block;
-        }
-    }
 }

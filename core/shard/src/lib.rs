@@ -13,11 +13,10 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use primitives::hash::CryptoHash;
-use primitives::types::Transaction;
+use primitives::types::{BlockId, Transaction};
 use storage::{extend_with_cache, read_with_cache};
-pub use types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
-use primitives::types::BlockId;
 
 type H264 = [u8; 33];
 

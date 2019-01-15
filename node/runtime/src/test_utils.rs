@@ -2,14 +2,15 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use chain_spec::ChainSpec;
+use crate::chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
 use primitives::types::Transaction;
-use shard::{ShardBlockChain, SignedShardBlock};
-use state_viewer::StateDbViewer;
+use shard::SignedShardBlock;
+use crate::state_viewer::StateDbViewer;
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
 use super::{Runtime, ApplyResult, ApplyState};
+use shard::ShardBlockChain;
 
 pub fn generate_test_chain_spec() -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();

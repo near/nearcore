@@ -1,0 +1,21 @@
+[package]
+name = "client"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4"
+parking_lot = "0.6"
+env_logger = "0.5"
+
+beacon = { path = "../../core/beacon" }
+chain = { path = "../../core/chain" }
+node-runtime = { path = "../runtime" }
+primitives = { path = "../../core/primitives" }
+shard = { path = "../../core/shard" }
+storage = { path = "../../core/storage" }
+
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"

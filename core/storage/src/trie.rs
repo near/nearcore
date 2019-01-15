@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
 
-use nibble_slice::NibbleSlice;
+use crate::nibble_slice::NibbleSlice;
 
 #[derive(Clone, Hash, Debug)]
 enum NodeHandle {
@@ -555,8 +555,8 @@ impl Trie {
         (db_changes, new_root)
     }
 
-    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<Box<TrieIterator<'a>>, String> {
-        TrieIterator::new(self, root).map(|iter| Box::new(iter) as Box<_>)
+    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
+        TrieIterator::new(self, root)
     }
 }
 
@@ -800,7 +800,7 @@ pub fn apply_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test_utils::create_memory_db;
+    use crate::test_utils::create_memory_db;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
