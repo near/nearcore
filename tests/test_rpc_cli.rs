@@ -171,6 +171,7 @@ fn test_deploy_inner() {
 
 test! { fn test_deploy() { test_deploy_inner() } }
 
+#[allow(dead_code)]
 fn test_set_get_values_inner() {
     if !*DEVNET_STARTED { panic!() }
 
@@ -213,7 +214,8 @@ fn test_set_get_values_inner() {
     assert_eq!(data["result"], json!("test"));
 }
 
-test! { fn test_set_get_values() { test_set_get_values_inner() } }
+// TODO(#391): Disabled until the issue is fixed.
+// test! { fn test_set_get_values() { test_set_get_values_inner() } }
 
 fn test_view_state_inner() {
     if !*DEVNET_STARTED { panic!() }
