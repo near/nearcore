@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 extern crate wasm;
 
@@ -11,7 +11,7 @@ use primitives::types::{AccountId, PromiseId, ReceiptId, Mana, Balance};
 
 #[derive(Default)]
 struct MyExt {
-    storage: HashMap<Vec<u8>, Vec<u8>>,
+    storage: BTreeMap<Vec<u8>, Vec<u8>>,
     num_receipts: u32,
 }
 
@@ -19,7 +19,7 @@ fn generate_promise_id(index: u32) -> ReceiptId {
     [index as u8; 32].to_vec()
 }
 
-impl External for MyExt {
+impl<'a> External<'a> for MyExt {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
         self.storage.insert(Vec::from(key), Vec::from(value));
@@ -38,6 +38,14 @@ impl External for MyExt {
                 Ok(None)
             }
         }
+    }
+
+    fn storage_iter(&mut self, _prefix: &[u8]) -> ExtResult<u32> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn storage_iter_next(&mut self, _iter: u32) -> ExtResult<Option<Vec<u8>>> {
+        Err(ExtError::NotImplemented)
     }
 
     fn promise_create(

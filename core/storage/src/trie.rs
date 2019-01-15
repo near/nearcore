@@ -555,8 +555,8 @@ impl Trie {
         (db_changes, new_root)
     }
 
-    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<Box<TrieIterator<'a>>, String> {
-        TrieIterator::new(self, root).map(|iter| Box::new(iter) as Box<_>)
+    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
+        TrieIterator::new(self, root)
     }
 }
 

@@ -1,3 +1,4 @@
+extern crate byteorder;
 extern crate elastic_array;
 #[cfg(test)]
 extern crate hex_literal;
@@ -6,11 +7,10 @@ extern crate kvdb_memorydb;
 extern crate kvdb_rocksdb;
 #[macro_use]
 extern crate log;
-extern crate byteorder;
 extern crate primitives;
 extern crate serde;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub use kvdb::{DBValue, KeyValueDB};
@@ -34,8 +34,8 @@ pub const TOTAL_COLUMNS: Option<u32> = Some(5);
 pub struct StateDbUpdate {
     state_db: Arc<StateDb>,
     root: MerkleHash,
-    committed: HashMap<Vec<u8>, Option<Vec<u8>>>,
-    prospective: HashMap<Vec<u8>, Option<Vec<u8>>>,
+    committed: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
 impl StateDbUpdate {
@@ -43,8 +43,8 @@ impl StateDbUpdate {
         StateDbUpdate {
             state_db,
             root,
-            committed: HashMap::default(),
-            prospective: HashMap::default(),
+            committed: BTreeMap::default(),
+            prospective: BTreeMap::default(),
         }
     }
     pub fn get(&self, key: &[u8]) -> Option<DBValue> {
@@ -84,9 +84,10 @@ impl StateDbUpdate {
         if self.committed.is_empty() {
             ::std::mem::swap(&mut self.prospective, &mut self.committed);
         } else {
-            for (key, val) in self.prospective.drain() {
-                *self.committed.entry(key).or_default() = val;
+            for (key, val) in self.prospective.iter() {
+                *self.committed.entry(key.clone()).or_default() = val.clone();
             }
+            self.prospective.clear();
         }
     }
     pub fn rollback(&mut self) {
@@ -96,7 +97,140 @@ impl StateDbUpdate {
         if !self.prospective.is_empty() {
             self.commit();
         }
-        self.state_db.trie.update(&self.root, self.committed.drain())
+        self.state_db.trie.update(
+            &self.root,
+          self.committed
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())))
+    }
+    pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<Box<StateDbUpdateIterator<'a>>, String> {
+        StateDbUpdateIterator::new(self, prefix).map(Box::new)
+    }
+}
+
+struct MergeIter<'a, I: Iterator<Item=(&'a Vec<u8>, &'a Option<Vec<u8>>)>> {
+    left: std::iter::Peekable<I>,
+    right: std::iter::Peekable<I>
+}
+
+impl<'a, I: Iterator<Item=(&'a Vec<u8>, &'a Option<Vec<u8>>)>> Iterator for MergeIter<'a, I> {
+    type Item = (&'a Vec<u8>, &'a Option<Vec<u8>>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let res = match (self.left.peek(), self.right.peek()) {
+            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => if left_key < right_key {
+                std::cmp::Ordering::Less
+            } else {
+                if left_key == right_key { std::cmp::Ordering::Equal } else { std::cmp::Ordering::Greater }
+            },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => return None,
+        };
+
+        // Check which elements comes first and only advance the corresponding iterator.
+        // If two keys are equal, take the value from `right`.
+        match res {
+            std::cmp::Ordering::Less => self.left.next(),
+            std::cmp::Ordering::Greater => self.right.next(),
+            std::cmp::Ordering::Equal => {
+                self.left.next();
+                self.right.next()
+            }
+        }
+    }
+}
+
+type MergeBTreeRange<'a> = MergeIter<'a, std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>>;
+
+pub struct StateDbUpdateIterator<'a> {
+    prefix: Vec<u8>,
+    trie_iter: std::iter::Peekable<trie::TrieIterator<'a>>,
+    overlay_iter: std::iter::Peekable<MergeBTreeRange<'a>>,
+}
+
+impl<'a> StateDbUpdateIterator<'a> {
+    #![allow(clippy::new_ret_no_self)]
+    pub fn new(state_update: &'a StateDbUpdate, prefix: &[u8]) -> Result<Self, String> {
+        let mut trie_iter = state_update.state_db.trie.iter(&state_update.root)?;
+        trie_iter.seek(prefix)?;
+        let committed_iter = state_update.committed.range(prefix.to_vec()..);
+        let prospective_iter = state_update.prospective.range(prefix.to_vec()..);
+        let overlay_iter = MergeIter { left: committed_iter.peekable(), right: prospective_iter.peekable() }.peekable();
+        Ok(StateDbUpdateIterator {
+            prefix: prefix.to_vec(),
+            trie_iter: trie_iter.peekable(),
+            overlay_iter
+        })
+    }
+}
+
+impl<'a> Iterator for StateDbUpdateIterator<'a> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        enum Ordering {
+            Trie,
+            Overlay,
+            Both,
+        }
+        // Usually one iteration, unless need to skip None values in prospective / committed.
+        loop {
+            let res = {
+                match (self.trie_iter.peek(), self.overlay_iter.peek()) {
+                    (Some(&Ok((ref left_key, _))), Some(&(ref right_key, _))) => {
+                        match (left_key.starts_with(&self.prefix), right_key.starts_with(&self.prefix)) {
+                            (true, true) => if left_key < right_key {
+                                Ordering::Trie
+                            } else {
+                                if &left_key == right_key { Ordering::Both } else { Ordering::Overlay }
+                            },
+                            (true, false) => Ordering::Trie,
+                            (false, true) => Ordering::Overlay,
+                            (false, false) => { return None; }
+                        }
+                    },
+                    (Some(&Ok((ref left_key, _))), None) => {
+                        if !left_key.starts_with(&self.prefix) {
+                            return None
+                        }
+                        Ordering::Trie
+                    },
+                    (None, Some(&(ref right_key, _))) => {
+                        if !right_key.starts_with(&self.prefix) {
+                            return None
+                        }
+                        Ordering::Overlay
+                    },
+                    (None, None) => return None,
+                    (Some(&Err(_)), _) => return None,
+                }
+            };
+
+            // Check which elements comes first and only advance the corresponding iterator.
+            // If two keys are equal, take the value from `right`.
+            return match res {
+                Ordering::Trie => match self.trie_iter.next() {
+                    Some(Ok(value)) => Some(value.0),
+                    _ => None,
+                },
+                Ordering::Overlay => {
+                    match self.overlay_iter.next() {
+                        Some((key, Some(_))) => Some(key.clone()),
+                        Some((_, None)) => continue,
+                        None => None
+                    }
+                },
+                Ordering::Both => {
+                    self.trie_iter.next();
+                    match self.overlay_iter.next() {
+                        Some((key, Some(_))) => Some(key.clone()),
+                        Some((_, None)) => continue,
+                        None => None
+                    }
+                }
+            };
+        }
     }
 }
 
@@ -144,5 +278,49 @@ mod tests {
         let mut values = vec![];
         state_db_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec()));
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+    }
+
+    #[test]
+    fn state_db_iter() {
+        let state_db = Arc::new(create_state_db());
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
+        state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"aaa", &DBValue::from_slice(b"puppy"));
+        let (transaction, new_root) = state_db_update.finalize();
+        state_db.commit(transaction).ok();
+
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);
+        state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
+        state_db_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
+
+        let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
+        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+
+        state_db_update.rollback();
+
+        let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
+        assert_eq!(values, vec![b"dog".to_vec()]);
+
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);
+        state_db_update.delete(b"dog");
+
+        let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
+        assert_eq!(values.len(), 0);
+
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);
+        state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
+        state_db_update.commit();
+        state_db_update.delete(b"dog2");
+
+        let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
+        assert_eq!(values, vec![b"dog".to_vec()]);
+
+        let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);
+        state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
+        state_db_update.commit();
+        state_db_update.set(b"dog3", &DBValue::from_slice(b"puppy"));
+
+        let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
+        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
     }
 }

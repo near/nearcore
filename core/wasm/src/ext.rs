@@ -72,14 +72,20 @@ pub enum Error {
     PromiseIdNotFound,
     WrongPromise,
     PromiseAlreadyHasCallback,
+    TrieIteratorError,
+    TrieIteratorMissing,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-pub trait External {
+pub trait External<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+
+    fn storage_iter(&'a mut self, prefix: &[u8]) -> Result<u32>;
+
+    fn storage_iter_next(&mut self, id: u32) -> Result<Option<Vec<u8>>>;
 
     fn promise_create(
         &mut self,
