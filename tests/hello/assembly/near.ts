@@ -1,10 +1,3 @@
-import { u128 } from "./bignum/integer/safe/u128";
-
-// TODO: Figure out what's best way to export these types from near module. Looks like type automatically exported.
-// TODO: I guess wrapper classes might be needed, which also allows to select subset of relevant ops
-type Address = u128;
-type MoneyNumber = u128;
-
 type BufferTypeIndex = u32;
 
 const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
@@ -46,11 +39,11 @@ export class GlobalStorage {
   removeItem(key: string): void {
     assert(false, "storage_remove not implemented yet.");
   }
-  setU128(key: string, value: u128): void {
+  setU64(key: string, value: u64): void {
     this.setItem(key, value.toString());
   }
-  getU128(key: string): u128 {
-    return u128.fromString(this.getItem(key) || "0");
+  getU64(key: string): u64 {
+    return U64.parseInt(this.getItem(key) || "0");
   }
 }
 
@@ -59,7 +52,6 @@ export let contractContext: ContractContext = new ContractContext();
 
 export namespace near {
   export function bufferWithSizeFromPtr(ptr: usize, length: usize): Uint8Array {
-    near.log("bufferWithSizeFromPtr length: " + near.str(length));
     let withSize = new Uint8Array(length + 4);
     store<u32>(withSize.buffer.data, length);
     // TODO: Should use better copy routine or better avoid copy altogether
@@ -79,11 +71,45 @@ export namespace near {
 
   export function str<T>(value: T): string {
     let arr: Array<T> = [value];
-    return arr.toString(); 
+    return arr.toString();
   }
 
   export function utf8(value: string): usize {
     return bufferWithSizeFromPtr(value.toUTF8(), value.lengthUTF8 - 1).buffer.data;
+  }
+
+  export function hash<T>(data: T): Uint8Array {
+    let result = new Uint8Array(32);
+    let dataToHash : Uint8Array;
+    if (data instanceof Uint8Array) {
+      dataToHash = bufferWithSize(data);
+    } else {
+      let str = data.toString();
+      dataToHash = bufferWithSizeFromPtr(str.toUTF8(), str.lengthUTF8 - 1)
+    }
+    _near_hash(dataToHash.buffer.data, result.buffer.data);
+    return result;
+  }
+
+  export function hash32<T>(data: T): u32 {
+    let dataToHash : Uint8Array;
+    if (data instanceof Uint8Array) {
+      dataToHash = bufferWithSize(data);
+    } else {
+      let str = data.toString();
+      dataToHash = bufferWithSizeFromPtr(str.toUTF8(), str.lengthUTF8 - 1)
+    }
+    return _near_hash32(dataToHash.buffer.data);
+  }
+
+  export function randomBuffer(len: u32): Uint8Array {
+    let result = new Uint8Array(len);
+    _near_random_buf(len, result.buffer.data);
+    return result;
+  }
+
+  export function random32(): u32 {
+    return _near_random32();
   }
 
   export function base58(source: Uint8Array): string {
@@ -170,6 +196,18 @@ declare function return_value(value_ptr: usize): void;
 declare function read_len(type_index: u32, key: usize): u32;
 @external("env", "read_into")
 declare function read_into(type_index: u32, key: usize, value: usize): void;
+
+/// Hash buffer is 32 bytes
+@external("env", "hash")
+declare function _near_hash(buffer: usize, out: usize): void;
+@external("env", "hash32")
+declare function _near_hash32(buffer: usize): u32;
+
+// Fills given buffer with random u8.
+@external("env", "random_buf")
+declare function _near_random_buf(len: u32, out: usize): void
+@external("env", "random32")
+declare function _near_random32(): u32;
 
 @external("env", "log")
 declare function _near_log(msg_ptr: usize): void;

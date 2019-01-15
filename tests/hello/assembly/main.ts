@@ -3,8 +3,6 @@ export { memory };
 
 import { contractContext, globalStorage, near } from "./near";
 
-import { u128 } from "./bignum/integer/safe/u128";
-
 // --- contract code goes below
 // --- bigints temporarily stringly typed, need support in bindgen
 
