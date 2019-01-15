@@ -2,7 +2,7 @@ use bs58;
 use byteorder::{LittleEndian, WriteBytesExt};
 
 use regex::Regex;
-use types::{AccountId, ShardId};
+use crate::types::{AccountId, ShardId};
 
 pub fn index_to_bytes(index: u64) -> Vec<u8> {
     let mut bytes = vec![];

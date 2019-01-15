@@ -10,7 +10,7 @@ use hyper::http::response::Builder;
 use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 
-use api::HttpApi;
+use crate::api::HttpApi;
 
 type BoxFut = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 

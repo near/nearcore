@@ -225,7 +225,7 @@ impl<'a, P: Payload> Message<'a, P> {
             None => false,
             Some(epoch_messages) => {
                 let total_witnesses = witness_selector.epoch_witnesses(prev_epoch);
-                let mut existing_witnesses: HashSet<u64> =
+                let existing_witnesses: HashSet<u64> =
                     epoch_messages.messages_by_owner.keys().cloned().collect();
                 //existing_witnesses.insert(owner_uid);
                 (total_witnesses & &existing_witnesses).len() > total_witnesses.len() * 2 / 3

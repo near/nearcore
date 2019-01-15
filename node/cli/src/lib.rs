@@ -29,7 +29,7 @@ use client::{chain_spec, ClientConfig, DEFAULT_LOG_LEVEL, DEFAULT_BASE_PATH};
 
 pub mod service;
 
-use service::NetworkConfig;
+use crate::service::NetworkConfig;
 
 pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
     let default_p2p_port = service::DEFAULT_P2P_PORT.to_string();
