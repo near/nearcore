@@ -36,6 +36,7 @@ test_nearlib:
     - cargo build --release --package=devnet
     - cargo run --release --package=devnet &
     - ./scripts/waitonserver.sh
+    - cd tests/hello && npm install && npm run build && cd ../..
     - cd nearlib && npm install && npm test && cd ..
     - ./scripts/kill_devnet.sh
     after_script:
