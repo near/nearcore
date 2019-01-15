@@ -1,5 +1,5 @@
-use ext::ids;
-use memory::Memory;
+use crate::ext::ids;
+use crate::memory::Memory;
 use wasmi::{self, Error as WasmiError, FuncInstance, MemoryRef, Signature, ValueType};
 
 pub(crate) struct EnvModuleResolver {
@@ -131,6 +131,10 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
             "gas" => {
                 FuncInstance::alloc_host(Signature::new(&[ValueType::I32][..], None), ids::GAS_FUNC)
             },
+            "debug" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], None),
+                ids::DEBUG_FUNC,
+            ),
             "log" => FuncInstance::alloc_host(
                 Signature::new(&[ValueType::I32][..], None),
                 ids::LOG_FUNC,

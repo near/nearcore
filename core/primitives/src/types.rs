@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
-use ::traits::Payload;
-use hash::{CryptoHash, hash_struct};
-use signature::{PublicKey, Signature};
-use signature::DEFAULT_SIGNATURE;
+use crate::traits::Payload;
+use crate::hash::{CryptoHash, hash_struct};
+use crate::signature::{PublicKey, Signature};
+use crate::signature::DEFAULT_SIGNATURE;
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;

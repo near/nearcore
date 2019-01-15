@@ -3,12 +3,15 @@ extern crate bs58;
 extern crate byteorder;
 extern crate exonum_sodiumoxide;
 extern crate heapsize;
+extern crate pairing;
+extern crate rand;
 extern crate regex;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
 
+pub mod aggregate_signature;
 pub mod hash;
 pub mod signature;
 pub mod signer;

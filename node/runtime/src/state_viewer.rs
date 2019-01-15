@@ -183,7 +183,7 @@ impl StateDbViewer {
 mod tests {
     use primitives::types::AccountId;
     use std::collections::HashMap;
-    use test_utils::*;
+    use crate::test_utils::*;
 
     fn alice_account() -> AccountId {
         "alice.near".to_string()

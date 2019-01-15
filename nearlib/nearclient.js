@@ -1,11 +1,11 @@
-const ed25519 = require('ed25519');
 const bs58 = require('bs58');
+const nacl = require("tweetnacl") 
 
 /**
  * Client for communicating with near blockchain. 
  */
 class NearClient {
-    constructor(keyStore, nearConnection) {
+    constructor (keyStore, nearConnection) {
         this.keyStore = keyStore;
         this.nearConnection = nearConnection;
     }
@@ -21,7 +21,8 @@ class NearClient {
         const stringifiedTxn = JSON.stringify(transaction);
         const encodedKey = await this.keyStore.getKey(sender);
         const key = bs58.decode(encodedKey.secret_key);
-        const signature = [...ed25519.Sign(Buffer.from(stringifiedTxn, 'utf8'), key)];
+        const message = Buffer.from(stringifiedTxn, 'utf8');
+        const signature = [...nacl.sign.detached(message, key)];
         const response = {
             body: transaction,
             signature: signature
@@ -47,6 +48,20 @@ class NearClient {
     async request (methodName, params) {
         return await this.nearConnection.request(methodName, params);
     };
+
+    async generateNewKeyFromRandomSeed () {
+        const response = {};
+        var newKeypair = nacl.sign.keyPair()
+        response['public_key'] = this.encodeBufferInBs58(newKeypair.publicKey);
+        response['secret_key'] = this.encodeBufferInBs58(newKeypair.secretKey);
+        return response;
+    };
+
+    encodeBufferInBs58(buffer) {
+        const bytes = Buffer.from(buffer);
+        const encodedValue = bs58.encode(bytes);
+        return encodedValue;
+    }
 }
 
 module.exports = NearClient;

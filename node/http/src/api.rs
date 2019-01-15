@@ -12,12 +12,13 @@ use primitives::types::{
 };
 use primitives::utils::bs58_vec2str;
 use shard::ShardBlockChain;
-use types::{
+use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
-    SignedBeaconBlockResponse, SignedShardBlockResponse, StakeRequest, SwapKeyRequest,
-    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    GetBlocksByIndexRequest, PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
+    SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedShardBlocksResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
+    ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
 pub struct HttpApi {
@@ -219,5 +220,18 @@ impl HttpApi {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
+    }
+
+    pub fn get_shard_blocks_by_index(
+        &self,
+        r: &GetBlocksByIndexRequest,
+    ) -> Result<SignedShardBlocksResponse, String> {
+        let start = r.start.unwrap_or_else(|| { self.shard_chain.best_index() });
+        let limit = r.limit.unwrap_or(25);
+        self.shard_chain.get_blocks_by_index(start, limit).map(|blocks| {
+            SignedShardBlocksResponse {
+                blocks: blocks.into_iter().map(|x| x.into()).collect(),
+            }
+        })
     }
 }

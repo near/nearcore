@@ -6,6 +6,7 @@ extern crate log;
 extern crate node_http;
 extern crate primitives;
 extern crate rand;
+#[macro_use]
 extern crate serde_json;
 
 use std::collections::HashMap;
@@ -20,13 +21,15 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_http::types::{
-    CallViewFunctionResponse, SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedBeaconBlockResponse, SignedShardBlockResponse,
     ViewAccountResponse, ViewStateResponse,
 };
 use primitives::signer::write_key_file;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
+const WAIT_FOR_RETRY: u64 = 500;
+const MAX_WAIT_FOR_RETRY: u32 = 5;
 
 fn test_service_ready() -> bool {
     let mut base_path = Path::new(TMP_DIR).to_owned();
@@ -35,10 +38,11 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    let mut service_config = devnet::ServiceConfig::default();
-    service_config.base_path = base_path;
-    service_config.log_level = log::LevelFilter::Off;
-    thread::spawn(|| { devnet::start_devnet(Some(service_config)) });
+    let network_cfg = devnet::NetworkConfig::default();
+    let mut client_cfg = devnet::ClientConfig::default();
+    client_cfg.base_path = base_path;
+    client_cfg.log_level = log::LevelFilter::Off;
+    thread::spawn(|| { devnet::start_devnet(Some(network_cfg), Some(client_cfg)) });
     thread::sleep(Duration::from_secs(1));
     true
 }
@@ -52,6 +56,18 @@ lazy_static! {
     static ref DEVNET_STARTED: bool = test_service_ready();
     static ref PUBLIC_KEY: String = get_public_key();
     static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
+}
+
+fn wait_for<R>(f: &Fn() -> Result<R, String>) -> Result<R, String> {
+    let mut last_result = Err("Not executed".to_string());
+    for _ in 0..MAX_WAIT_FOR_RETRY {
+        last_result = f();
+        if last_result.is_ok() {
+            return last_result;
+        }
+        thread::sleep(Duration::from_millis(WAIT_FOR_RETRY));
+    }
+    return last_result;
 }
 
 fn check_result(output: Output) -> Result<String, String> {
@@ -87,25 +103,24 @@ fn view_account(account_name: Option<&str>) -> Output {
         .expect("view_account command failed to process")
 }
 
-fn deploy_contract() -> Result<(Output, String), String> {
+fn deploy_contract() -> Result<(String, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
-    create_account(contract_name.as_str());
-    thread::sleep(Duration::from_millis(500));
-    let account = view_account(Some(&contract_name));
-    check_result(account)?;
 
     let output = Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg(contract_name.as_str())
-        .arg("core/wasm/runtest/res/wasm_with_mem.wasm")
+        .arg("tests/hello.wasm")
         .arg("-d")
         .arg(KEY_STORE_PATH)
         .arg("-k")
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("deploy command failed to process");
-    Ok((output, contract_name))
+    check_result(output)?;
+
+    let result = wait_for(&|| check_result(view_account(Some(&contract_name))))?;
+    Ok((result, contract_name))
 }
 
 macro_rules! test {
@@ -149,24 +164,26 @@ test! { fn test_view_account() { test_view_account_inner() } }
 
 fn test_deploy_inner() {
     if !*DEVNET_STARTED { panic!() }
-    let (output, _) = deploy_contract().unwrap();
-    let result = check_result(output).unwrap();
+    let (result, contract_name) = deploy_contract().unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    assert_eq!(data["account_id"], json!(contract_name));
 }
 
 test! { fn test_deploy() { test_deploy_inner() } }
 
-fn test_schedule_function_call_inner() {
+#[allow(dead_code)]
+fn test_set_get_values_inner() {
     if !*DEVNET_STARTED { panic!() }
+
+    let account: Value = serde_json::from_str(&check_result(view_account(None)).unwrap()).unwrap();
+
     let (_, contract_name) = deploy_contract().unwrap();
-    thread::sleep(Duration::from_millis(500));
     let output = Command::new("./scripts/rpc.py")
         .arg("schedule_function_call")
-        .arg(contract_name)
-        .arg("run_test")
+        .arg(&contract_name)
+        .arg("setValue")
         .arg("--args")
-        .arg("{}")
+        .arg("{\"value\": \"test\"}")
         .arg("-d")
         .arg(KEY_STORE_PATH)
         .arg("-k")
@@ -176,28 +193,29 @@ fn test_schedule_function_call_inner() {
     let result = check_result(output).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data, Value::Null);
-}
 
-test! { fn test_schedule_function_call() { test_schedule_function_call_inner() } }
+    // It takes more than two nonce changes for the action to propagate.
+    wait_for(&|| {
+        let new_account: Value = serde_json::from_str(&check_result(view_account(None))?).unwrap();
+        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 { Ok(()) } else { Err("Nonce didn't change".to_string()) }
+    }).unwrap();
 
-fn test_call_view_function_inner() {
-    if !*DEVNET_STARTED { panic!() }
-    let (_, contract_name) = deploy_contract().unwrap();
     let output = Command::new("./scripts/rpc.py")
         .arg("call_view_function")
         .arg(contract_name)
-        .arg("run_test")
+        .arg("getValue")
         .arg("--args")
         .arg("{}")
         .output()
         .expect("call_view_function command failed to process");
 
-    thread::sleep(Duration::from_secs(1));
     let result = check_result(output).unwrap();
-    let _: CallViewFunctionResponse = serde_json::from_str(&result).unwrap();
+    let data: Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(data["result"], json!("test"));
 }
 
-test! { fn test_call_view_function() { test_call_view_function_inner() } }
+// TODO(#391): Disabled until the issue is fixed.
+// test! { fn test_set_get_values() { test_set_get_values_inner() } }
 
 fn test_view_state_inner() {
     if !*DEVNET_STARTED { panic!() }

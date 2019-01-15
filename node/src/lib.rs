@@ -1,3 +1,4 @@
+extern crate client;
 extern crate log;
 extern crate node_cli;
 extern crate primitives;
@@ -57,18 +58,24 @@ pub unsafe extern fn run_with_config(
 
     let test_network_key_seed = Some(test_network_key_seed_val);
 
-    let config = service::ServiceConfig {
+    let network_cfg = service::NetworkConfig {
+        p2p_port,
+        rpc_port,
+        boot_nodes,
+        test_network_key_seed,
+    };
+
+    let client_cfg = client::ClientConfig {
         base_path,
         account_id,
         public_key,
         chain_spec_path,
         log_level,
-        p2p_port,
-        rpc_port,
-        batch_transactions,
-        boot_nodes,
-        test_network_key_seed,
     };
 
-    service::start_service(config, false);
+    service::start_service(
+        network_cfg,
+        client_cfg,
+        txflow::txflow_task::spawn_task::<ChainPayload, BeaconWitnessSelector>
+    );
 }

@@ -15,13 +15,6 @@ except ImportError:
     from urllib.request import urlopen, Request
     from urllib.error import HTTPError, URLError
 
-try:
-    import bson
-except ImportError:
-    print("Please install bson: pip install bson")
-    exit(1)
-
-
 # Data is empty string instead of None because method is
 # defined by whether or not data is None and cannot be
 # specified otherwise in py2
@@ -71,11 +64,6 @@ def b58encode(v):
 
 def _get_account_id(account_alias):
     return account_alias
-
-
-def _json_to_bson_bytes(args):
-    args = json.loads(args)
-    return list(bytearray(bson.dumps(args)))
 
 
 class NearRPC(object):
@@ -234,7 +222,7 @@ class NearRPC(object):
     ):
         if args is None:
             args = "{}"
-        args = _json_to_bson_bytes(args)
+        args = list(bytearray(args))
 
         nonce = self._get_nonce(sender)
         params = {
@@ -321,7 +309,7 @@ class NearRPC(object):
     ):
         if args is None:
             args = "{}"
-        args = _json_to_bson_bytes(args)
+        args = list(bytearray(args))
 
         params = {
             'originator': _get_account_id(originator),
@@ -329,7 +317,11 @@ class NearRPC(object):
             'method_name': function_name,
             'args': args,
         }
-        return self._call_rpc('call_view_function', params)
+        result = self._call_rpc('call_view_function', params)
+        try:
+            return json.loads(''.join([chr(x) for x in result["result"]]))
+        except json.JSONDecodeError:
+            return result
 
 
 class MultiCommandParser(object):

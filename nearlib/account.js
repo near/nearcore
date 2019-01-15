@@ -19,6 +19,18 @@ class Account {
     };
 
     /**
+     * Generate a key from a random seed and create a new account with this key.
+     */
+    async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
+        const keyWithRandomSeed = await this.nearClient.generateNewKeyFromRandomSeed();
+        const createAccountResult =
+            await this.createAccount(newAccountId, keyWithRandomSeed.public_key, amount, originatorAccountId);
+        const response = {};
+        response["key"] = keyWithRandomSeed;
+        return response;
+    };
+
+    /**
      * Retrieves account data by plain-text account id. 
      */
     async viewAccount (account_id) {

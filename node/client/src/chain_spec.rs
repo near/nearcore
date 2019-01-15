@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use serde_json;
 
+use beacon::authority::{AuthorityConfig, AuthorityStake};
 use node_runtime::chain_spec::ChainSpec;
 use primitives::types::{AccountId, ReadablePublicKey};
-use beacon::authority::{AuthorityConfig, AuthorityProposal};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "ChainSpec")]
@@ -27,7 +27,7 @@ pub fn serialize_chain_spec(chain_spec: ChainSpec) -> String {
         .expect("Error serializing the chain spec.")
 }
 
-pub fn deserialize_chain_spec(config: &str) -> ChainSpec {
+fn deserialize_chain_spec(config: &str) -> ChainSpec {
     serde_json::from_str(config)
         .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the chain spec.")
@@ -53,18 +53,17 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpe
 }
 
 pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
-    let initial_authorities: Vec<AuthorityProposal> = chain_spec.initial_authorities
+    let initial_authorities: Vec<AuthorityStake> = chain_spec
+        .initial_authorities
         .iter()
-        .map(|(account_id, key, amount)| {
-            AuthorityProposal {
-                account_id: account_id.clone(),
-                public_key: key.into(),
-                amount: *amount,
-            }
+        .map(|(account_id, key, amount)| AuthorityStake {
+            account_id: account_id.clone(),
+            public_key: key.into(),
+            amount: *amount,
         })
         .collect();
     AuthorityConfig {
-        initial_authorities,
+        initial_proposals: initial_authorities,
         epoch_length: chain_spec.beacon_chain_epoch_length,
         num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
     }
