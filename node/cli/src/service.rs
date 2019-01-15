@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
-use chain_spec;
+use crate::chain_spec;
 use client::{Client, ClientConfig, ChainConsensusBlockBody};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};

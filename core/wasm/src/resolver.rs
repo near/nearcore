@@ -1,5 +1,5 @@
-use ext::ids;
-use memory::Memory;
+use crate::ext::ids;
+use crate::memory::Memory;
 use wasmi::{self, Error as WasmiError, FuncInstance, MemoryRef, Signature, ValueType};
 
 pub(crate) struct EnvModuleResolver {
