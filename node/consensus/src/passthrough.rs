@@ -22,7 +22,7 @@ pub fn spawn_consensus(
     let interval_stream = Interval::new_interval(BLOCK_PERIOD)
         .map(|_| None as Option<ChainPayload>)
         .map_err(|_| ());
-    let payload_stream = payload_rx.map(|p| Some(p));
+    let payload_stream = payload_rx.map(Some);
     let task = payload_stream.select(interval_stream).fold(vec![], move |mut acc, p| {
         if let Some(payload) = p {
             let message: SignedMessageData<ChainPayload> = SignedMessageData {
