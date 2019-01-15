@@ -702,14 +702,14 @@ impl Runtime {
         logs: &mut Vec<String>,
     ) -> Result<Vec<Transaction>, String> {
         let mut needs_removal = false;
-        let callback: Option<Callback> = 
+        let mut callback: Option<Callback> = 
                 get(state_update, &callback_id_to_bytes(&callback_res.info.id));
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("account {} does not have contract code", receiver_id.clone()))?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
         let receipts = match callback {
-            Some(mut callback) => {
+            Some(ref mut callback) => {
                 callback.results[callback_res.info.result_index] = callback_res.result.clone();
                 callback.result_counter += 1;
                 // if we have gathered all results, execute the callback
@@ -773,13 +773,28 @@ impl Runtime {
             }
         };
         if needs_removal {
-            state_update.rollback();
-            state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
-            state_update.commit();
+            if receipts.is_err() {
+                // On error, we rollback previous changes and then commit the deletion
+                state_update.rollback();
+                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.commit();
+            } else {
+                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+            }
+            
             set(
                 state_update,
                 &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
                 receiver
+            );
+        } else {
+            // if we don't need to remove callback, since it is updated, we need
+            // to update the storage.
+            let callback = callback.expect("Cannot be none");
+            set(
+                state_update,
+                &callback_id_to_bytes(&callback_res.info.id),
+                &callback
             );
         }
         receipts
