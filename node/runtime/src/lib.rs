@@ -1851,10 +1851,9 @@ mod tests {
     fn test_callback() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let mut callback = Callback::new(
-            b"sum_with_input".to_vec(),
-            args,
+            b"run_test_with_storage_change".to_vec(),
+            vec![],
             0,
             AccountingInfo {
                 originator: alice_account(),
@@ -1889,6 +1888,7 @@ mod tests {
         let apply_result = runtime.apply(
             &apply_state, &[], vec![Transaction::Receipt(receipt)]
         );
+        assert_ne!(new_root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
