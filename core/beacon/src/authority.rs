@@ -323,6 +323,7 @@ impl Authority {
             ))
         }
     }
+
 }
 
 #[cfg(test)]
