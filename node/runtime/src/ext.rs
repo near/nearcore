@@ -63,6 +63,14 @@ impl<'a> RuntimeExt<'a> {
     pub fn get_receipts(&mut self) -> Vec<Transaction> {
         self.receipts.drain().map(|(_, v)| Transaction::Receipt(v)).collect()
     }
+
+    #[allow(dead_code)]
+    pub fn get_iter(&'a mut self, prefix: &[u8]) -> ExtResult<u32> {
+        let iter = self.state_db_update.iter(prefix).map_err(|_| ExtError::TrieIteratorError)?;
+        self.iters.insert(self.last_iter_id, iter);
+        self.last_iter_id += 1;
+        Ok(self.last_iter_id - 1)
+    }
 }
 
 impl<'a> External for RuntimeExt<'a> {
@@ -78,11 +86,8 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(value.map(|buf| buf.to_vec()))
     }
 
-    fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
-        let iter = self.state_db_update.iter(prefix).map_err(|_| ExtError::TrieIteratorError)?;
-        self.iters.insert(self.last_iter_id, iter);
-        self.last_iter_id += 1;
-        Ok(self.last_iter_id - 1)
+    fn storage_iter(&mut self, _prefix: &[u8]) -> ExtResult<u32> {
+        Err(ExtError::NotImplemented)
     }
 
     fn storage_iter_next(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {

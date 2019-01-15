@@ -104,7 +104,7 @@ impl StateDbUpdate {
                 .map(|(key, value)| (key.clone(), value.clone())))
     }
     pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<Box<StateDbUpdateIterator<'a>>, String> {
-        StateDbUpdateIterator::new(self, prefix).map(|x| Box::new(x))
+        StateDbUpdateIterator::new(self, prefix).map(Box::new)
     }
 }
 
@@ -141,13 +141,16 @@ impl<'a, I: Iterator<Item=(&'a Vec<u8>, &'a Option<Vec<u8>>)>> Iterator for Merg
     }
 }
 
+type MergeBTreeRange<'a> = MergeIter<'a, std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>>;
+
 pub struct StateDbUpdateIterator<'a> {
     prefix: Vec<u8>,
     trie_iter: std::iter::Peekable<trie::TrieIterator<'a>>,
-    overlay_iter: std::iter::Peekable<MergeIter<'a, std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>>>,
+    overlay_iter: std::iter::Peekable<MergeBTreeRange<'a>>,
 }
 
 impl<'a> StateDbUpdateIterator<'a> {
+    #![allow(clippy::new_ret_no_self)]
     pub fn new(state_update: &'a StateDbUpdate, prefix: &[u8]) -> Result<Self, String> {
         let mut trie_iter = state_update.state_db.trie.iter(&state_update.root)?;
         trie_iter.seek(prefix)?;
