@@ -1,4 +1,6 @@
-const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
+const SimpleKeyStoreSigner = require('../signing/simple_key_store_signer.js');
+const InMemoryKeyStore = require('../signing/in_memory_key_store.js');
+const KeyPair = require('../signing/key_pair.js');
 const LocalNodeConnection = require('../local_node_connection')
 const NearClient = require('../nearclient');
 const Account = require('../account');
@@ -7,14 +9,15 @@ const fs = require('fs');
 
 
 const aliceAccountName = 'alice.near';
-const aliceKey = {
-    public_key: "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
-    secret_key: "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
-};
+const aliceKey = new KeyPair(
+   "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
+    "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
+);
 const test_key_store = new InMemoryKeyStore();
+const simple_key_store_signer = new SimpleKeyStoreSigner(test_key_store);
 test_key_store.setKey(aliceAccountName, aliceKey);
 const localNodeConnection = new LocalNodeConnection("http://localhost:3030");
-const nearClient = new NearClient(test_key_store, localNodeConnection);
+const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
 const TEST_MAX_RETRIES = 10;
