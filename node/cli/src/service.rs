@@ -169,11 +169,15 @@ where
         // and produces the beacon chain blocks.
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
+        // Block producer is also responsible for re-submitting receipts from the previous block
+        // into the next block.
+        let (receipts_tx, receipts_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
             client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
             new_block_tx.clone(),
+            receipts_tx.clone(),
         );
 
         // Create task that can import beacon chain blocks from other peers.
@@ -187,7 +191,6 @@ where
         // Spawn protocol and the network_task.
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
-        let (receipts_tx, receipts_rx) = channel(1024);
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         spawn_network_tasks(

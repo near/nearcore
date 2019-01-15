@@ -155,7 +155,7 @@ impl Client {
     }
 
     // Block producer code.
-    pub fn produce_block(&self, body: ChainConsensusBlockBody) -> SignedBeaconBlock {
+    pub fn produce_block(&self, body: ChainConsensusBlockBody) -> (SignedBeaconBlock, SignedShardBlock) {
         // TODO: verify signature
         let transactions = body.messages.into_iter()
             .flat_map(|message| message.body.payload.body)
@@ -206,7 +206,7 @@ impl Client {
         info!(target: "block_producer", "Block body: {:?}", block.body);
         info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
         io::stdout().flush().expect("Could not flush stdout");
-        block
+        (block, shard_block)
     }
 
     // Block importer code.
