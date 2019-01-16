@@ -1,0 +1,10 @@
+{
+    "name": "hello-wasm",
+    "version": "0.0.1",
+    "dependencies": {
+        "assemblyscript": "git+https://github.com/nearprotocol/assemblyscript.git"
+    },
+    "scripts": {
+        "build": "./build.sh"
+    }
+}
