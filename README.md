@@ -76,7 +76,7 @@ DevNet is a development tool that runs WebAssembly and State transition without 
 First, generate key pair (saves a key pair into `keystore` folder to use with `rpc.py`):
 
 ```bash
-cargo run --package keystore -- keygen
+cargo run --package keystore -- keygen --test-seed alice.near
 ```
 
 Then build and run DevNet:

@@ -22,6 +22,8 @@ use crate::types::{
     SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
+use primitives::signature::verify_transaction_signature;
+use primitives::hash::hash_struct;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -46,6 +48,11 @@ impl HttpApi {
     }
 }
 
+pub enum RPCError {
+    BadRequest(String),
+    ServiceUnavailable(String),
+}
+
 impl HttpApi {
     pub fn create_account(
         &self,
@@ -59,7 +66,7 @@ impl HttpApi {
             public_key: r.public_key.encode().unwrap(),
         });
         debug!(target: "near-rpc", "Create account transaction {:?}", r.new_account_id);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn deploy_contract(
@@ -74,7 +81,7 @@ impl HttpApi {
             public_key: r.public_key.encode().unwrap(),
         });
         debug!(target: "near-rpc", "Deploy contract transaction {:?}", r.contract_account_id);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn swap_key(
@@ -88,7 +95,7 @@ impl HttpApi {
             new_key: r.new_key.encode().unwrap(),
         });
         debug!(target: "near-rpc", "Swap key transaction {:?}", r.account);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn send_money(
@@ -103,7 +110,7 @@ impl HttpApi {
         });
         debug!(target: "near-rpc", "Send money transaction {:?}->{:?}, amount: {:?}",
                r.originator, r.receiver_account_id, r.amount);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn stake(
@@ -117,7 +124,7 @@ impl HttpApi {
         });
         debug!(target: "near-rpc", "Stake money transaction {:?}, amount: {:?}",
                r.originator, r.amount);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn schedule_function_call(
@@ -134,7 +141,7 @@ impl HttpApi {
             args: r.args,
             amount: r.amount,
         });
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn view_account(
@@ -182,10 +189,24 @@ impl HttpApi {
     pub fn submit_transaction(
         &self,
         r: &SignedTransaction,
-    ) -> Result<SubmitTransactionResponse, &str> {
+    ) -> Result<SubmitTransactionResponse, RPCError> {
         debug!(target: "near-rpc", "Received transaction {:?}", r);
+        let originator = r.body.get_originator();
+        let public_keys = self.state_db_viewer
+            .get_public_keys_for_account(&originator)
+            .map_err(RPCError::BadRequest)?;
+        if !verify_transaction_signature(&r.clone(), &public_keys) {
+            let msg = format!(
+                "transaction not signed with a public key of originator {:?}",
+                originator,
+            );
+            return Err(RPCError::BadRequest(msg))
+        }
+
         self.submit_txn_sender.clone().try_send(r.clone()).map_err(|_| {
-            "transaction channel is full"
+            RPCError::ServiceUnavailable(
+                "transaction channel is full".to_string()
+            )
         })?;
         Ok(SubmitTransactionResponse {
             hash: r.transaction_hash(),

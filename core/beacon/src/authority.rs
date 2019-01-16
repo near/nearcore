@@ -334,7 +334,7 @@ mod test {
     use crate::types::SignedBeaconBlock;
     use chain::SignedHeader;
     use primitives::hash::CryptoHash;
-    use primitives::signature::get_keypair;
+    use primitives::signature::get_key_pair;
     use storage::test_utils::MemoryStorage;
 
     use super::*;
@@ -346,7 +346,7 @@ mod test {
     ) -> AuthorityConfig {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
-            let (public_key, _) = get_keypair();
+            let (public_key, _) = get_key_pair();
             initial_authorities.push(AuthorityStake { account_id: i.to_string(), public_key, amount: 100 });
         }
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }

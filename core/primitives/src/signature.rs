@@ -5,6 +5,7 @@ use crate::hash;
 use std::fmt;
 
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
+use crate::types::SignedTransaction;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -23,12 +24,7 @@ pub fn verify(data: &[u8], signature: &Signature, public_key: &PublicKey) -> boo
     sodiumoxide::crypto::sign::ed25519::verify_detached(&signature.0, data, &public_key.0)
 }
 
-pub fn get_keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
-    let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::keypair_from_seed(seed);
-    (PublicKey(public_key), SecretKey(secret_key))
-}
-
-pub fn get_keypair() -> (PublicKey, SecretKey) {
+pub fn get_key_pair() -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::gen_keypair();
     (PublicKey(public_key), SecretKey(secret_key))
 }
@@ -204,17 +200,43 @@ pub mod bs58_signature_format {
     }
 }
 
+pub fn verify_transaction_signature(
+    transaction: &SignedTransaction,
+    public_keys: &Vec<PublicKey>,
+) -> bool {
+    let hash = transaction.transaction_hash();
+    let hash = hash.as_ref();
+    public_keys.iter().any(|key| {
+        verify(&hash, &transaction.signature, &key)
+    })
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
 
     #[test]
-    fn test_signautre() {
-        let (public_key, private_key) = get_keypair();
+    fn test_verify() {
+        let (public_key, private_key) = get_key_pair();
         let data = b"123";
         let signature = sign(data, &private_key);
         assert!(verify(data, &signature, &public_key));
     }
 
+    #[test]
+    fn test_verify_transaction() {
+        let (public_key, private_key) = get_key_pair();
+        let mut transaction = SignedTransaction::empty();
+        transaction.signature = sign(
+            &transaction.transaction_hash().as_ref(),
+            &private_key,
+        );
+        let (wrong_public_key, _) = get_key_pair();
+        let valid_keys = vec![public_key, wrong_public_key];
+        assert!(verify_transaction_signature(&transaction, &valid_keys));
+
+        let invalid_keys = vec![wrong_public_key];
+        assert!(!verify_transaction_signature(&transaction, &invalid_keys));
+    }
 }

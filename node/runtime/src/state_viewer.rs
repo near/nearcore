@@ -12,6 +12,7 @@ use wasm::types::{ReturnData, RuntimeContext};
 use super::{
     Account, account_id_to_bytes, get, RuntimeExt, COL_ACCOUNT, COL_CODE,
 };
+use primitives::signature::PublicKey;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -61,6 +62,18 @@ impl StateDbViewer {
                     code_hash: account.code_hash
                 })
             },
+            _ => Err(format!("account {} does not exist while viewing", account_id)),
+        }
+    }
+
+    pub fn get_public_keys_for_account(
+        &self,
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, String> {
+        let root = self.get_root();
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
+            Some(account) => Ok(account.public_keys),
             _ => Err(format!("account {} does not exist while viewing", account_id)),
         }
     }
