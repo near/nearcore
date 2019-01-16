@@ -10,6 +10,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate shard;
+extern crate client;
 
 pub mod api;
 pub mod server;
