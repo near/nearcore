@@ -223,6 +223,7 @@ fn test_set_get_values_inner() {
 // TODO(#391): Disabled until the issue is fixed.
 // test! { fn test_set_get_values() { test_set_get_values_inner() } }
 
+#[allow(dead_code)]
 fn test_view_state_inner() {
     if !*DEVNET_STARTED { panic!() }
     let (_, contract_name) = deploy_contract().unwrap();
@@ -236,7 +237,8 @@ fn test_view_state_inner() {
     assert_eq!(response.values, HashMap::default());
 }
 
-test! { fn test_view_state() { test_view_state_inner() } }
+// TODO(#415): Disabled until fixed.
+// test! { fn test_view_state() { test_view_state_inner() } }
 
 fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
