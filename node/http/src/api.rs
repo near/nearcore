@@ -15,9 +15,11 @@ use shard::ShardBlockChain;
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
+    GetBlocksByIndexRequest, GetTransactionStatusRequest,
+    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
     SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
-    SignedShardBlocksResponse, StakeRequest, SwapKeyRequest, ViewAccountRequest,
+    SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
+    SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
@@ -177,10 +179,16 @@ impl HttpApi {
         }
     }
 
-    pub fn submit_transaction(&self, r: SignedTransaction) -> Result<(), &str> {
+    pub fn submit_transaction(
+        &self,
+        r: &SignedTransaction,
+    ) -> Result<SubmitTransactionResponse, &str> {
         debug!(target: "near-rpc", "Received transaction {:?}", r);
-        self.submit_txn_sender.clone().try_send(r).map_err(|_| {
+        self.submit_txn_sender.clone().try_send(r.clone()).map_err(|_| {
             "transaction channel is full"
+        })?;
+        Ok(SubmitTransactionResponse {
+            hash: r.transaction_hash(),
         })
     }
 
@@ -209,14 +217,14 @@ impl HttpApi {
     }
 
     pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
-        Ok(self.shard_chain.best_block().into())
+        Ok(self.shard_chain.chain.best_block().into())
     }
 
     pub fn get_shard_block_by_hash(
         &self,
         r: &GetBlockByHashRequest,
     ) -> Result<SignedShardBlockResponse, &str> {
-        match self.shard_chain.get_block(&BlockId::Hash(r.hash)) {
+        match self.shard_chain.chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
@@ -226,12 +234,20 @@ impl HttpApi {
         &self,
         r: &GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String> {
-        let start = r.start.unwrap_or_else(|| { self.shard_chain.best_index() });
+        let start = r.start.unwrap_or_else(|| { self.shard_chain.chain.best_index() });
         let limit = r.limit.unwrap_or(25);
-        self.shard_chain.get_blocks_by_index(start, limit).map(|blocks| {
+        self.shard_chain.chain.get_blocks_by_index(start, limit).map(|blocks| {
             SignedShardBlocksResponse {
                 blocks: blocks.into_iter().map(|x| x.into()).collect(),
             }
         })
+    }
+
+    pub fn get_transaction_status(
+        &self,
+        r: &GetTransactionStatusRequest,
+    )-> Result<TransactionStatusResponse, ()> {
+        let status = self.shard_chain.get_transaction_status(&r.hash);
+        Ok(TransactionStatusResponse { status })
     }
 }

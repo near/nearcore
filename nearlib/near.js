@@ -46,21 +46,20 @@ class Near {
             args = {};
         }
         const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        const response = await this.nearClient.submitTransaction('schedule_function_call', {
+        return await this.nearClient.submitTransaction('schedule_function_call', {
             amount: amount,
             originator: sender,
             contract_account_id: contractAccountId,
             method_name: methodName,
             args: serializedArgs
         });
-        return {}; // there is nothing returned from schedule function call right now
     };
 
     /**
      * Deploys a contract.
      */
     async deployContract(senderAccountId, contractAccountId, wasmArray, publicKey) {
-        await this.nearClient.submitTransaction('deploy_contract', {
+        return await this.nearClient.submitTransaction('deploy_contract', {
             originator: senderAccountId,
             contract_account_id: contractAccountId,
             wasm_byte_array: wasmArray,

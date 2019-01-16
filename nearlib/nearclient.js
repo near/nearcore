@@ -32,6 +32,13 @@ class NearClient {
         return submitResponse;
     };
 
+    async getTransactionStatus (transaction_hash) {
+        const transactionStatusResponse = await this.request('get_transaction_status', {
+            hash: transaction_hash,
+        });
+        return transactionStatusResponse;
+    }
+
     async getNonce (account_id) {
         return (await this.viewAccount(account_id)).nonce + 1;
     };

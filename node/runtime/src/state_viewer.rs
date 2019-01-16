@@ -41,7 +41,7 @@ impl StateDbViewer {
     }
 
     pub fn get_root(&self) -> MerkleHash {
-        self.shard_chain.best_block().body.header.merkle_root_state
+        self.shard_chain.chain.best_block().body.header.merkle_root_state
     }
 
     pub fn view_account_at(
@@ -124,7 +124,7 @@ impl StateDbViewer {
                         originator_id,
                         contract_id,
                         0,
-                        self.shard_chain.best_index(),
+                        self.shard_chain.chain.best_index(),
                         root.into(),
                     ),
                 )

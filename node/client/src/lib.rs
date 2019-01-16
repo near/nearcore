@@ -162,6 +162,7 @@ impl Client {
         let last_block = self.beacon_chain.best_block();
         let last_shard_block = self
             .shard_chain
+            .chain
             .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
             .expect("At the moment we should have shard blocks accompany beacon blocks");
         let authorities = self
@@ -204,7 +205,7 @@ impl Client {
         let signature = block.sign(&*self.signer);
         block.add_signature(signature);
         block.authority_mask = authority_mask;
-        self.shard_chain.insert_block(shard_block.clone());
+        self.shard_chain.insert_block(&shard_block.clone());
         self.beacon_chain.insert_block(block.clone());
         info!(target: "block_producer", "Block body: {:?}", block.body);
         info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
@@ -216,7 +217,7 @@ impl Client {
     }
 
     // Block importer code.
-    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
+    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: &SignedShardBlock) {
         let parent_hash = beacon_block.body.header.parent_hash;
         let parent_shard_hash = shard_block.body.header.parent_hash;
         // we can unwrap because parent is guaranteed to exist
@@ -226,6 +227,7 @@ impl Client {
             .expect("Parent is known but header not found.");
         let prev_shard_block = self
             .shard_chain
+            .chain
             .get_block(&BlockId::Hash(parent_shard_hash))
             .expect("At this moment shard chain should be present together with beacon chain");
         let prev_shard_header = prev_shard_block.header();
@@ -252,7 +254,7 @@ impl Client {
                     return;
                 }
                 self.state_db.commit(db_transaction).ok();
-                self.shard_chain.insert_block(shard_block);
+                self.shard_chain.insert_block(&shard_block);
                 self.beacon_chain.insert_block(beacon_block);
             }
             None => {
@@ -269,7 +271,7 @@ impl Client {
         let mut part_pending = HashMap::default();
         for (hash, other) in self.pending_beacon_blocks.write().drain() {
             if self.beacon_chain.is_known(&other.body.header.parent_hash)
-                && (self.shard_chain.is_known(&other.body.header.shard_block_hash)
+                && (self.shard_chain.chain.is_known(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
                         .read()
@@ -326,7 +328,7 @@ impl Client {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
-            self.add_block(next_beacon_block.clone(), next_shard_block);
+            self.add_block(next_beacon_block.clone(), &next_shard_block);
             // Update the authority.
             self.update_authority(&next_beacon_block.header());
         }

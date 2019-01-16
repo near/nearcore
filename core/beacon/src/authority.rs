@@ -5,11 +5,11 @@ use rand::{SeedableRng, seq::SliceRandom, rngs::StdRng};
 use std::iter;
 use std::mem;
 
-use chain::{BlockChain, SignedBlock};
+use chain::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, AuthorityMask, BlockId};
-use crate::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use crate::types::{BeaconBlockChain, SignedBeaconBlockHeader};
 
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -111,7 +111,7 @@ impl Authority {
     /// Initializes authorities from the config and the past blocks in the beaconchain.
     pub fn new(
         authority_config: AuthorityConfig,
-        blockchain: &BlockChain<SignedBeaconBlock>,
+        blockchain: &BeaconBlockChain,
     ) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
@@ -331,7 +331,8 @@ impl Authority {
 mod test {
     use std::sync::Arc;
 
-    use chain::{SignedBlock, SignedHeader};
+    use crate::types::SignedBeaconBlock;
+    use chain::SignedHeader;
     use primitives::hash::CryptoHash;
     use primitives::signature::get_keypair;
     use storage::test_utils::MemoryStorage;
@@ -351,11 +352,11 @@ mod test {
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BlockChain<SignedBeaconBlock> {
+    fn test_blockchain(num_blocks: u64) -> BeaconBlockChain {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BlockChain::new(last_block.clone(), storage);
+        let bc = BeaconBlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
