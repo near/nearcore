@@ -19,8 +19,8 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
     let key_pair = get_key_pair_from_seed(account_id);
     let signer = InMemorySigner {
         account_id: account_id.to_string(),
-        public_key: key_pair.0.clone(),
-        secret_key: key_pair.1.clone(),
+        public_key: key_pair.0,
+        secret_key: key_pair.1,
     };
     (ChainSpec {
         accounts: vec![
