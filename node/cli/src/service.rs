@@ -7,19 +7,17 @@ use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
 use parking_lot::Mutex;
 
-use beacon::authority::AuthorityStake;
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use beacon_chain_handler;
 use crate::chain_spec;
-use client::{Client, ClientConfig, ChainConsensusBlockBody};
+use beacon::authority::AuthorityStake;
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use beacon_chain_handler;
+use client::{ChainConsensusBlockBody, Client, ClientConfig};
 use consensus::adapters;
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
-use node_runtime::{state_viewer::StateDbViewer};
+use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Signer;
-use primitives::types::{
-    AccountId, ChainPayload, Gossip, Transaction, UID,
-};
+use primitives::types::{AccountId, ChainPayload, Gossip, Transaction, UID};
 use shard::ShardBlockChain;
 use storage::StateDb;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
@@ -58,7 +56,7 @@ fn spawn_network_tasks(
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::new_with_default_id(account_id);
-    let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
+    let protocol = Protocol::new(
         protocol_config.clone(),
         beacon_chain,
         beacon_block_tx,
@@ -89,7 +87,6 @@ fn spawn_network_tasks(
     );
 }
 
-
 pub const DEFAULT_P2P_PORT: u16 = 30333;
 pub const DEFAULT_RPC_PORT: u16 = 3030;
 
@@ -113,10 +110,11 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(network_cfg: NetworkConfig,
-                        client_cfg: ClientConfig,
-                        spawn_consensus_task_fn: S)
-where
+pub fn start_service<S>(
+    network_cfg: NetworkConfig,
+    client_cfg: ClientConfig,
+    spawn_consensus_task_fn: S,
+) where
     S: Fn(
             Receiver<Gossip<ChainPayload>>,
             Receiver<ChainPayload>,
@@ -169,7 +167,7 @@ where
             beacon_block_announce_tx,
             transactions_tx.clone(),
             authority_tx,
-            consensus_control_tx
+            consensus_control_tx,
         );
 
         // Create task that can import beacon chain blocks from other peers.
