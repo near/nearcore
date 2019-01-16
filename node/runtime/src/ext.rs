@@ -1,13 +1,15 @@
 use std::collections::HashMap;
+
 use kvdb::DBValue;
 
 use primitives::types::{
-    ReceiptId, Balance, Mana, CallbackId, ReceiptTransaction, Callback,
-    AccountId, PromiseId, ReceiptBody, AsyncCall, CallbackInfo, Transaction,
-    AccountingInfo,
+    AccountId, AccountingInfo, AsyncCall, Balance, Callback, CallbackId,
+    CallbackInfo, Mana, PromiseId, ReceiptBody, ReceiptId, ReceiptTransaction,
+    Transaction,
 };
-use storage::StateDbUpdate;
+use storage::{StateDbUpdate, StateDbUpdateIterator};
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
+
 use super::{account_id_to_bytes, create_nonce_with_nonce, COL_ACCOUNT, callback_id_to_bytes, set};
 
 pub struct RuntimeExt<'a> {
@@ -19,6 +21,8 @@ pub struct RuntimeExt<'a> {
     accounting_info: AccountingInfo,
     nonce: u64,
     transaction_hash: &'a [u8],
+    iters: HashMap<u32, Box<StateDbUpdateIterator<'a>>>,
+    last_iter_id: u32,
 }
 
 impl<'a> RuntimeExt<'a> {
@@ -39,6 +43,8 @@ impl<'a> RuntimeExt<'a> {
             accounting_info: accounting_info.clone(),
             nonce: 0,
             transaction_hash,
+            iters: HashMap::new(),
+            last_iter_id: 0,
         }
     }
 
@@ -70,7 +76,7 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-impl<'a> External for RuntimeExt<'a> {
+impl<'a> External<'a> for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
@@ -81,6 +87,24 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let value = self.state_db_update.get(&storage_key);
         Ok(value.map(|buf| buf.to_vec()))
+    }
+
+    fn storage_iter(&'a mut self, prefix: &[u8]) -> ExtResult<u32> {
+        let iter = self.state_db_update.iter(prefix).map_err(|_| ExtError::TrieIteratorError)?;
+        self.iters.insert(self.last_iter_id, iter);
+        self.last_iter_id += 1;
+        Ok(self.last_iter_id - 1)
+    }
+
+    fn storage_iter_next(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
+        let result = match self.iters.get_mut(&id) {
+            Some(iter) => iter.next(),
+            None => return Err(ExtError::TrieIteratorMissing),
+        };
+        if result.is_none() {
+            self.iters.remove(&id);
+        }
+        Ok(result)
     }
 
     fn promise_create(

@@ -6,118 +6,273 @@ extern crate rand;
 extern crate serde_derive;
 extern crate storage;
 
-use chain::{SignedBlock, SignedHeader};
-use primitives::hash::{CryptoHash, hash_struct};
-use primitives::types::{
-    AuthorityMask, MerkleHash, MultiSignature, PartialSignature,
-    Transaction, ShardId
-};
+pub mod types;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct ShardBlockHeader {
-    pub parent_hash: CryptoHash,
-    pub shard_id: ShardId,
-    pub index: u64,
-    pub merkle_root_state: MerkleHash,
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use parking_lot::RwLock;
+
+pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+use primitives::hash::CryptoHash;
+use primitives::types::{BlockId, Transaction};
+use storage::{extend_with_cache, read_with_cache};
+
+type H264 = [u8; 33];
+
+/// Represents index of extra data in database
+#[derive(Copy, Debug, Hash, Eq, PartialEq, Clone)]
+pub enum ExtrasIndex {
+    /// Transaction address index
+    TransactionAddress = 0,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct SignedShardBlockHeader {
-    pub body: ShardBlockHeader,
-    pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    pub signature: MultiSignature,
+fn with_index(hash: &CryptoHash, i: ExtrasIndex) -> H264 {
+    let mut result = [0; 33];
+    result[0] = i as u8;
+    result[1..].clone_from_slice(hash.as_ref());
+    result
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct ShardBlock {
-    pub header: ShardBlockHeader,
-    pub transactions: Vec<Transaction>,
-    pub new_receipts: Vec<Transaction>,
+/// Represents address of certain transaction within block
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct TransactionAddress {
+    /// Block hash
+    pub block_hash: CryptoHash,
+    /// Transaction index within the block
+    pub index: usize
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct SignedShardBlock {
-    pub body: ShardBlock,
-    pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    pub signature: MultiSignature,
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum TransactionStatus {
+    Unknown,
+    Started,
+    Completed,
 }
 
-impl SignedHeader for SignedShardBlockHeader {
-    #[inline]
-    fn block_hash(&self) -> CryptoHash {
-        self.hash
-    }
-    #[inline]
-    fn index(&self) -> u64 {
-        self.body.index
-    }
-    #[inline]
-    fn parent_hash(&self) -> CryptoHash {
-        self.body.parent_hash
-    }
+pub struct ShardBlockChain {
+    pub chain: chain::BlockChain<SignedShardBlock>,
+    storage: Arc<storage::Storage>,
+    transaction_addresses: RwLock<HashMap<Vec<u8>, TransactionAddress>>,
 }
 
-impl SignedShardBlock {
-    pub fn new(
-        shard_id: ShardId,
-        index: u64,
-        parent_hash: CryptoHash,
-        merkle_root_state: MerkleHash,
-        transactions: Vec<Transaction>,
-        new_receipts: Vec<Transaction>,
-    ) -> Self {
-        let header = ShardBlockHeader {
-            shard_id,
-            index,
-            parent_hash,
-            merkle_root_state,
-        };
-        let hash = hash_struct(&header);
-        SignedShardBlock {
-            body: ShardBlock {
-                header,
-                transactions,
-                new_receipts,
-            },
-            hash,
-            signature: vec![],
-            authority_mask: vec![],
+impl ShardBlockChain {
+    pub fn new(genesis: SignedShardBlock, storage: Arc<storage::Storage>) -> Self {
+        let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
+        Self {
+            chain,
+            storage,
+            transaction_addresses: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn genesis(merkle_root_state: MerkleHash) -> SignedShardBlock {
-        SignedShardBlock::new(
-            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![]
+    pub fn insert_block(&self, block: &SignedShardBlock) {
+        self.chain.insert_block(block.clone());
+        self.update_for_inserted_block(&block.clone());
+    }
+
+    fn is_transaction_complete(
+        &self,
+        hash: &CryptoHash,
+        last_block: &SignedShardBlock,
+    ) -> TransactionStatus {
+        for receipt in last_block.body.new_receipts.iter() {
+            match receipt {
+                Transaction::Receipt(r) => {
+                    if r.nonce == hash.as_ref() {
+                        let next_index = last_block.body.header.index + 1;
+                        match self.chain.get_block(&BlockId::Number(next_index)) {
+                            Some(b) => return self.is_transaction_complete(hash, &b),
+                            None => return TransactionStatus::Started,
+                        };
+                    }
+                }
+                _ => panic!("non receipt in SignedShardBlock.new_receipts")
+            }
+        };
+        TransactionStatus::Completed
+    }
+
+    fn get_transaction_status_from_address(
+        &self,
+        hash: &CryptoHash,
+        address: &TransactionAddress,
+    ) -> TransactionStatus {
+        let block = self.chain.get_block(&BlockId::Hash(address.block_hash))
+            .expect("transaction address points to non-existent block");
+        self.is_transaction_complete(&hash, &block)
+    }
+
+    fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
+        let key = with_index(&hash, ExtrasIndex::TransactionAddress);
+        read_with_cache(
+            &self.storage.clone(),
+            storage::COL_EXTRA,
+            &self.transaction_addresses,
+            &key,
         )
     }
-}
 
-impl SignedBlock for SignedShardBlock {
-    type SignedHeader = SignedShardBlockHeader;
-
-    #[inline]
-    fn block_hash(&self) -> CryptoHash {
-        self.hash
-    }
-
-    fn header(&self) -> Self::SignedHeader {
-        SignedShardBlockHeader {
-            body: self.body.header.clone(),
-            hash: self.hash,
-            signature: self.signature.clone(),
-            authority_mask: self.authority_mask.clone(),
+    /// Get the address of transaction with given hash.
+    pub fn get_transaction_status(&self, hash: &CryptoHash) -> TransactionStatus {
+        match self.get_transaction_address(&hash) {
+            Some(a) => self.get_transaction_status_from_address(hash, &a),
+            None => TransactionStatus::Unknown,
         }
     }
 
-    fn add_signature(&mut self, signature: PartialSignature) {
-        self.signature.push(signature);
-    }
-
-    fn weight(&self) -> u128 {
-        1
+    pub fn update_for_inserted_block(&self, block: &SignedShardBlock) {
+        let updates: HashMap<Vec<u8>, TransactionAddress> = block.body.transactions.iter()
+            .enumerate()
+            .filter_map(|(i, transaction)| {
+                match transaction {
+                    Transaction::SignedTransaction(t) => {
+                        let key = with_index(
+                            &t.transaction_hash(),
+                            ExtrasIndex::TransactionAddress,
+                        );
+                        Some((key.to_vec(), TransactionAddress {
+                            block_hash: block.hash,
+                            index: i,
+                        }))
+                    }
+                    Transaction::Receipt(_) => None,
+                }
+            })
+            .collect();
+        extend_with_cache(
+            &self.storage.clone(),
+            storage::COL_EXTRA,
+            &self.transaction_addresses,
+            updates,
+        );
     }
 }
 
-pub type ShardBlockChain = chain::BlockChain<SignedShardBlock>;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use storage::test_utils::create_memory_db;
+    use primitives::types::SignedTransaction;
+    use primitives::types::ReceiptTransaction;
+    use primitives::types::AccountId;
+    use primitives::types::ReceiptBody;
+
+    fn get_chain() -> ShardBlockChain {
+        let genesis = SignedShardBlock::genesis(CryptoHash::default());
+        ShardBlockChain::new(genesis, Arc::new(create_memory_db()))
+    }
+
+    #[test]
+    fn test_get_transaction_status_unknown() {
+        let chain = get_chain();
+        let status = chain.get_transaction_status(&CryptoHash::default());
+        assert_eq!(status, TransactionStatus::Unknown);
+    }
+
+    #[test]
+    fn test_get_transaction_status_complete_no_receipts() {
+        let chain = get_chain();
+        let t = SignedTransaction::empty();
+        let transaction = Transaction::SignedTransaction(SignedTransaction::empty());
+        let block = SignedShardBlock::new(
+            0,
+            1,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![transaction],
+            vec![],
+        );
+        chain.insert_block(&block);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Completed);
+    }
+
+    #[test]
+    fn test_get_transaction_status_complete_with_receipts() {
+        let chain = get_chain();
+        let t = SignedTransaction::empty();
+        let transaction = Transaction::SignedTransaction(SignedTransaction::empty());
+        let receipt0 = Transaction::Receipt(ReceiptTransaction::new(
+            AccountId::default(),
+            AccountId::default(),
+            t.transaction_hash().into(),
+            ReceiptBody::Refund(0),
+        ));
+        let block1 = SignedShardBlock::new(
+            0,
+            1,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![transaction],
+            vec![receipt0],
+        );
+        chain.insert_block(&block1);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Started);
+
+        let receipt1 = Transaction::Receipt(ReceiptTransaction::new(
+            AccountId::default(),
+            AccountId::default(),
+            t.transaction_hash().into(),
+            ReceiptBody::Refund(0),
+        ));
+        let block2 = SignedShardBlock::new(
+            0,
+            2,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            vec![receipt1],
+        );
+        chain.insert_block(&block2);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Started);
+
+        let block3 = SignedShardBlock::new(
+            0,
+            3,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            vec![],
+        );
+        chain.insert_block(&block3);
+
+        let status = chain.get_transaction_status(&t.transaction_hash());
+        assert_eq!(status, TransactionStatus::Completed);
+    }
+
+    #[test]
+    fn test_get_transaction_address() {
+        let chain = get_chain();
+        let t = SignedTransaction::empty();
+        let transaction = Transaction::SignedTransaction(SignedTransaction::empty());
+        let block = SignedShardBlock::new(
+            0,
+            0,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![transaction],
+            vec![],
+        );
+        chain.insert_block(&block);
+        let address = chain.get_transaction_address(&t.transaction_hash());
+        let expected = TransactionAddress {
+            block_hash: block.hash,
+            index: 0,
+        };
+        assert_eq!(address, Some(expected.clone()));
+
+        let cache_key = with_index(
+            &t.transaction_hash(),
+            ExtrasIndex::TransactionAddress,
+        );
+        let read = chain.transaction_addresses.read();
+        let v = read.get(&cache_key.to_vec());
+        assert_eq!(v.unwrap(), &expected.clone());
+    }
+}

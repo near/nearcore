@@ -15,8 +15,8 @@ type BufferTypeIndex = u32;
 pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
 pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
 
-pub struct Runtime<'a> {
-    ext: &'a mut External,
+pub struct Runtime<'a, 'b> where 'b: 'a {
+    ext: &'a mut External<'b>,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
@@ -32,15 +32,15 @@ pub struct Runtime<'a> {
     pub logs: Vec<String>,
 }
 
-impl<'a> Runtime<'a> {
+impl<'a, 'b> Runtime<'a, 'b> {
     pub fn new(
-        ext: &'a mut External,
+        ext: &'a mut External<'b>,
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
         context: &'a RuntimeContext,
         gas_limit: Gas,
-    ) -> Runtime<'a> {
+    ) -> Runtime<'a, 'b> where 'b: 'a {
         Runtime {
             ext,
             input_data,
@@ -546,7 +546,7 @@ mod ext_impl {
 		{ $e: expr } => { { Ok(Some($e?)) } }
 	}
 
-    impl<'a> Externals for super::Runtime<'a> {
+    impl<'a, 'b> Externals for super::Runtime<'a, 'b> where 'b: 'a {
         fn invoke_index(
             &mut self,
             index: usize,

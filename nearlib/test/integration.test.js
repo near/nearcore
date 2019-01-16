@@ -1,4 +1,6 @@
-const InMemoryKeyStore = require('../test-tools/in_memory_key_store.js');
+const SimpleKeyStoreSigner = require('../signing/simple_key_store_signer.js');
+const InMemoryKeyStore = require('../signing/in_memory_key_store.js');
+const KeyPair = require('../signing/key_pair.js');
 const LocalNodeConnection = require('../local_node_connection')
 const NearClient = require('../nearclient');
 const Account = require('../account');
@@ -7,17 +9,19 @@ const fs = require('fs');
 
 
 const aliceAccountName = 'alice.near';
-const aliceKey = {
-    public_key: "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
-    secret_key: "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
-};
+const aliceKey = new KeyPair(
+   "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
+    "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
+);
 const test_key_store = new InMemoryKeyStore();
+const simple_key_store_signer = new SimpleKeyStoreSigner(test_key_store);
 test_key_store.setKey(aliceAccountName, aliceKey);
 const localNodeConnection = new LocalNodeConnection("http://localhost:3030");
-const nearClient = new NearClient(test_key_store, localNodeConnection);
+const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
 const TEST_MAX_RETRIES = 10;
+const TRANSACTION_COMPLETE_MAX_RETRIES = 100;
 
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -89,7 +93,7 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         data,
         "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
-    await waitForContractToDeploy("test_contract");
+    await waitForContractToDeploy(deployResult);
     const args = {
         "name": "trex"
     };
@@ -111,25 +115,23 @@ test('deploy contract and make function calls', async () => {
         "test_contract",
         "setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
-    const callViewFunctionGetValue = async () => {
-        return await nearjs.callViewFunction(
-            aliceAccountName,
-            "test_contract",
-            "getValue", // this is the function defined in hello.wasm file that we are calling
-            {});
-    };
-    const checkResult = (result) => {
-        expect(result).toEqual(setCallValue);
-        return true;
-    };
+    expect(scheduleResult.hash).not.toBeFalsy();
     await callUntilConditionIsMet(
-        callViewFunctionGetValue,
-        checkResult,
-        "Call getValue until result is equal to expected value");
+        async () => { return await nearClient.getTransactionStatus(scheduleResult.hash); },
+        (response) => { return response['status'] == 'Completed' },
+        "Call get transaction status until transaction is completed",
+        TRANSACTION_COMPLETE_MAX_RETRIES
+    );
+    const secondViewFunctionResult = await nearjs.callViewFunction(
+        aliceAccountName,
+        "test_contract",
+        "getValue", // this is the function defined in hello.wasm file that we are calling
+        {});
+    expect(secondViewFunctionResult).toEqual(setCallValue);
 });
 
-const callUntilConditionIsMet = async (functToPoll, condition, description) => {
-    for (let i = 0; i < TEST_MAX_RETRIES; i++) {
+const callUntilConditionIsMet = async (functToPoll, condition, description, maxRetries = TEST_MAX_RETRIES) => {
+    for (let i = 0; i < maxRetries; i++) {
         try {
             const response = await functToPoll();
             if (condition(response)) {
@@ -144,11 +146,12 @@ const callUntilConditionIsMet = async (functToPoll, condition, description) => {
     }
 };
 
-const waitForContractToDeploy = async (contractId) => {
+const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
-        async () => { return await account.viewAccount(contractId); },
-        (response) => { return response['code'] != '' },
-        "Call account status until contract is deployed"
+        async () => { return await nearClient.getTransactionStatus(deployResult.hash); },
+        (response) => { return response['status'] == 'Completed' },
+        "Call account status until contract is deployed",
+        TRANSACTION_COMPLETE_MAX_RETRIES
     );
 };
 
