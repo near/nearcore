@@ -321,7 +321,7 @@ impl Protocol {
                     _ => unimplemented!(),
                 }
             }
-            Message::Gossip(gossip) => self.on_gossip_message(gossip),
+            Message::Gossip(gossip) => self.on_gossip_message(*gossip),
         }
         Ok(())
     }

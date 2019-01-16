@@ -16,7 +16,7 @@ pub enum Message {
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<SignedBeaconBlock>),
     BlockAnnounce(BlockAnnounce<SignedBeaconBlock, SignedBeaconBlockHeader>),
-    Gossip(Gossip<ChainPayload>),
+    Gossip(Box<Gossip<ChainPayload>>),
 }
 
 /// status sent on connection

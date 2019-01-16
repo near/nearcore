@@ -160,7 +160,7 @@ pub fn spawn_network_tasks(
     let gossip_sender = gossip_rx.for_each(move |g| {
         println!("About to send gossip {:?}", g);
         if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
-            let m = Message::Gossip(g);
+            let m = Message::Gossip(Box::new(g));
             let data = Encode::encode(&m).expect("Error encoding message.");
             network_service.lock().send_custom_message(node_index, protocol_id, data);
         } else {
