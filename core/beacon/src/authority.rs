@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 
-use rand::{Rng, SeedableRng, StdRng};
+use rand::{SeedableRng, seq::SliceRandom, rngs::StdRng};
 use std::iter;
 use std::mem;
 
@@ -199,9 +199,10 @@ impl Authority {
             num_seats
         );
         // Shuffle duplicate proposals.
-        let seed: Vec<usize> = seed.as_ref().iter().map(|i| *i as usize).collect();
-        let mut rng: StdRng = SeedableRng::from_seed(seed.as_ref());
-        rng.shuffle(&mut dup_proposals);
+        let mut rng_seed = [0; 32];
+        rng_seed.copy_from_slice(seed.as_ref());
+        let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
+        dup_proposals.shuffle(&mut rng);
 
         // Distribute proposals into slots.
         let mut result = vec![];
@@ -395,7 +396,7 @@ mod test {
         );
         assert_eq!(
             authority.get_authorities(2).unwrap(),
-            vec![initial_authorities[2].clone(), initial_authorities[1].clone()]
+            vec![initial_authorities[1].clone(), initial_authorities[2].clone()]
         );
         assert_eq!(
             authority.get_authorities(3).unwrap(),
@@ -403,7 +404,7 @@ mod test {
         );
         assert_eq!(
             authority.get_authorities(4).unwrap(),
-            vec![initial_authorities[2].clone(), initial_authorities[1].clone()]
+            vec![initial_authorities[1].clone(), initial_authorities[2].clone()]
         );
         assert!(authority.get_authorities(5).is_err());
         let block1 = SignedBeaconBlock::new(1, bc.genesis_hash, vec![], CryptoHash::default());
@@ -417,11 +418,11 @@ mod test {
         authority.process_block_header(&header2);
         assert_eq!(
             authority.get_authorities(5).unwrap(),
-            vec![initial_authorities[2].clone(), initial_authorities[0].clone()]
+            vec![initial_authorities[0].clone(), initial_authorities[2].clone()]
         );
         assert_eq!(
             authority.get_authorities(6).unwrap(),
-            vec![initial_authorities[0].clone(), initial_authorities[1].clone()]
+            vec![initial_authorities[2].clone(), initial_authorities[1].clone()]
         );
     }
 
