@@ -1,14 +1,14 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use primitives::types::{ChainPayload, SignedTransaction, Transaction};
+use primitives::types::{ChainPayload, Transaction};
 
 // TODO(#265): Include transaction verification here.
-pub fn spawn_task(receiver: Receiver<SignedTransaction>, sender: Sender<ChainPayload>) {
+pub fn spawn_task(receiver: Receiver<Transaction>, sender: Sender<ChainPayload>) {
     let task = receiver
         .map(|t| {
             debug!(target: "consensus", "Received transaction! {:?}", t);
-            ChainPayload { body: vec![Transaction::SignedTransaction(t)] }
+            ChainPayload { body: vec![t] }
         })
         .forward(
             sender.sink_map_err(|err| error!("Error sending payload down the sink: {:?}", err)),
@@ -44,7 +44,7 @@ mod tests {
                 };
                 let t = TransactionBody::SendMoney(t);
                 let t = SignedTransaction { signature: DEFAULT_SIGNATURE, body: t };
-                transactions.push(t);
+                transactions.push(Transaction::SignedTransaction(t));
             }
 
             let expected: Vec<u64> = (0..10).collect();

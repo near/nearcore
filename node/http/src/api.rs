@@ -7,7 +7,7 @@ use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
 use primitives::types::{
     BlockId, CreateAccountTransaction, DeployContractTransaction,
-    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
+    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, Transaction,
     StakeTransaction, SwapKeyTransaction, TransactionBody,
 };
 use primitives::utils::bs58_vec2str;
@@ -23,7 +23,7 @@ use crate::types::{
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
-    submit_txn_sender: Sender<SignedTransaction>,
+    submit_txn_sender: Sender<Transaction>,
     beacon_chain: Arc<BeaconBlockChain>,
     shard_chain: Arc<ShardBlockChain>,
 }
@@ -31,7 +31,7 @@ pub struct HttpApi {
 impl HttpApi {
     pub fn new(
         state_db_viewer: StateDbViewer,
-        submit_txn_sender: Sender<SignedTransaction>,
+        submit_txn_sender: Sender<Transaction>,
         beacon_chain: Arc<BeaconBlockChain>,
         shard_chain: Arc<ShardBlockChain>,
     ) -> HttpApi {
@@ -179,7 +179,7 @@ impl HttpApi {
 
     pub fn submit_transaction(&self, r: SignedTransaction) -> Result<(), &str> {
         debug!(target: "near-rpc", "Received transaction {:?}", r);
-        self.submit_txn_sender.clone().try_send(r).map_err(|_| {
+        self.submit_txn_sender.clone().try_send(Transaction::SignedTransaction(r)).map_err(|_| {
             "transaction channel is full"
         })
     }

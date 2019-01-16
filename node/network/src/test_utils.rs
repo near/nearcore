@@ -110,7 +110,6 @@ pub fn get_test_protocol() -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeade
     let chain = Arc::new(BeaconBlockChain::new(genesis_block, storage));
     let (block_tx, _) = channel(1024);
     let (transaction_tx, _) = channel(1024);
-    let (receipt_tx, _) = channel(1024);
     let (message_tx, _) = channel(1024);
     let (gossip_tx, _) = channel(1024);
     Protocol::new(
@@ -118,7 +117,6 @@ pub fn get_test_protocol() -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeade
         chain,
         block_tx,
         transaction_tx,
-        receipt_tx,
         message_tx,
         gossip_tx,
     )

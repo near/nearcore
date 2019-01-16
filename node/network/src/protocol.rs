@@ -13,7 +13,7 @@ use crate::message::{self, Message};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
-    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    AccountId, BlockId, ChainPayload, Gossip, Transaction, UID,
 };
 
 /// time to wait (secs) for a request
@@ -81,10 +81,8 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     chain: Arc<BlockChain<B>>,
     /// Channel into which the protocol sends the new blocks.
     block_sender: Sender<B>,
-    /// Channel into which the protocol sends the received transactions.
-    transaction_sender: Sender<SignedTransaction>,
-    /// Channel into which the protocol sends the received receipts.
-    receipt_sender: Sender<ReceiptTransaction>,
+    /// Channel into which the protocol sends the received transactions and receipts.
+    transaction_sender: Sender<Transaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
     message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
@@ -98,8 +96,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         config: ProtocolConfig,
         chain: Arc<BlockChain<B>>,
         block_sender: Sender<B>,
-        transaction_sender: Sender<SignedTransaction>,
-        receipt_sender: Sender<ReceiptTransaction>,
+        transaction_sender: Sender<Transaction>,
         message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
         gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
@@ -111,7 +108,6 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             chain,
             block_sender,
             transaction_sender,
-            receipt_sender,
             message_sender,
             gossip_sender,
             authority_map: RwLock::new(HashMap::new()),
@@ -148,24 +144,13 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn on_transaction_message(&self, transaction: SignedTransaction) {
+    pub fn on_transaction_message(&self, transaction: Transaction) {
         let copied_tx = self.transaction_sender.clone();
         tokio::spawn(
             copied_tx
                 .send(transaction)
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the transactions {:?}", e)),
-        );
-    }
-
-    /// Note, we will not actually need this until we have shards.
-    fn on_receipt_message(&self, receipt: ReceiptTransaction) {
-        let copied_tx = self.receipt_sender.clone();
-        tokio::spawn(
-            copied_tx
-                .send(receipt)
-                .map(|_| ())
-                .map_err(|e| error!("Failure to send the receipts {:?}", e)),
         );
     }
 
@@ -292,10 +277,10 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
         match message {
             Message::Transaction(tx) => {
-                self.on_transaction_message(*tx);
+                self.on_transaction_message(Transaction::SignedTransaction(*tx));
             }
             Message::Receipt(receipt) => {
-                self.on_receipt_message(*receipt);
+                self.on_transaction_message(Transaction::Receipt(*receipt));
             }
             Message::Status(status) => {
                 self.on_status_message(peer, &status)?;

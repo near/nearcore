@@ -18,7 +18,7 @@ use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer};
 use primitives::traits::Signer;
 use primitives::types::{
-    AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    AccountId, ChainPayload, Gossip, Transaction, UID,
 };
 use shard::ShardBlockChain;
 use storage::StateDb;
@@ -28,7 +28,7 @@ use txflow::txflow_task::Control;
 const NETWORK_CONFIG_PATH: &str = "storage";
 
 fn spawn_rpc_server_task(
-    transactions_tx: Sender<SignedTransaction>,
+    transactions_tx: Sender<Transaction>,
     rpc_port: Option<u16>,
     shard_chain: &Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
@@ -50,8 +50,7 @@ fn spawn_network_tasks(
     test_network_key_seed: Option<u32>,
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
-    transactions_tx: Sender<SignedTransaction>,
-    receipts_tx: Sender<ReceiptTransaction>,
+    transactions_tx: Sender<Transaction>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     beacon_block_rx: Receiver<SignedBeaconBlock>,
@@ -64,7 +63,6 @@ fn spawn_network_tasks(
         beacon_chain,
         beacon_block_tx,
         transactions_tx,
-        receipts_tx,
         net_messages_tx.clone(),
         inc_gossip_tx,
     );
@@ -165,12 +163,11 @@ where
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
-        let (receipts_tx, receipts_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
             client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
-            receipts_tx.clone(),
+            transactions_tx.clone(),
             authority_tx,
             consensus_control_tx
         );
@@ -193,7 +190,6 @@ where
             client.beacon_chain.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),
-            receipts_tx.clone(),
             inc_gossip_tx.clone(),
             out_gossip_rx,
             beacon_block_announce_rx,
@@ -202,8 +198,7 @@ where
 
         // Spawn consensus tasks.
         let (payload_tx, payload_rx) = channel(1024);
-        adapters::signed_transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
-        adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
+        adapters::transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
 
         spawn_consensus_task_fn(
             inc_gossip_rx,
