@@ -23,15 +23,14 @@ extern crate txflow;
 use clap::{App, Arg};
 use std::path::PathBuf;
 use std::str::FromStr;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use primitives::types::ChainPayload;
+use std::time::Duration;
 use client::{chain_spec, ClientConfig, DEFAULT_LOG_LEVEL, DEFAULT_BASE_PATH};
 
 pub mod service;
 
-use crate::service::NetworkConfig;
+use crate::service::{NetworkConfig, DevNetConfig};
 
-pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
+pub fn get_service_configs() -> (NetworkConfig, ClientConfig, Option<DevNetConfig>) {
     let default_p2p_port = service::DEFAULT_P2P_PORT.to_string();
     let default_rpc_port = service::DEFAULT_RPC_PORT.to_string();
     let default_log_level = DEFAULT_LOG_LEVEL.to_string().to_lowercase();
@@ -100,19 +99,25 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
                 .takes_value(true),
         ).arg(
             Arg::with_name("account_id")
-            .value_name("ACCOUNT_ID")
-            .help("Set the account id of the node")
-            .takes_value(true)
-                // TODO(#282): Remove default account id from here.
-            .default_value("alice.near")
+                .value_name("ACCOUNT_ID")
+                .help("Set the account id of the node")
+                .takes_value(true)
+                    // TODO(#282): Remove default account id from here.
+                .default_value("alice.near")
         ).arg(
             Arg::with_name("public_key")
-              .short("k")
-              .long("public-key")
-              .value_name("PUBLIC_KEY")
-              .help("Sets public key to sign with, \
-                         can be omitted with 1 file in keystore")
-              .takes_value(true)
+                .short("k")
+                .long("public-key")
+                .value_name("PUBLIC_KEY")
+                .help("Sets public key to sign with, \
+                           can be omitted with 1 file in keystore")
+                .takes_value(true)
+        ).arg(
+            Arg::with_name("test_block_period")
+                .long("test-block-period")
+                .value_name("TEST_BLOCK_PERIOD")
+                .help("Sets the block production period for devnet, in milliseconds")
+                .takes_value(true)
         ).get_matches();
 
     let base_path = matches
@@ -159,6 +164,14 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
         .value_of("public_key")
         .map(String::from);
 
+    let block_period = matches
+        .value_of("test_block_period")
+        .map(|x| Duration::from_millis(x.parse::<u64>().unwrap()));
+
+    let devnet_cfg = block_period.map(|block_period| {
+        DevNetConfig { block_period }
+    });
+
     (NetworkConfig {
         p2p_port,
         rpc_port,
@@ -171,14 +184,15 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig) {
         public_key,
         chain_spec_path,
         log_level,
-    })
+    },
+    devnet_cfg)
 }
 
 pub fn run() {
-    let (network_cfg, client_cfg) = get_service_configs();
+    let (network_cfg, client_cfg, _) = get_service_configs();
     service::start_service(
         network_cfg,
         client_cfg,
-        txflow::txflow_task::spawn_task::<ChainPayload, BeaconWitnessSelector>
+        None,
     );
 }

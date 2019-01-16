@@ -180,7 +180,7 @@ impl Client {
         };
         let apply_result = self.runtime.write().apply(
             &apply_state,
-            &last_shard_block.body.new_receipts,
+            &[],
             transactions,
         );
         self.state_db.commit(apply_result.transaction).ok();
