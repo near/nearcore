@@ -1187,7 +1187,7 @@ mod tests {
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody,
     };
-    use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
+    use primitives::signature::{DEFAULT_SIGNATURE, get_key_pair, sign};
     use crate::state_viewer::AccountViewCallResult;
     use storage::test_utils::create_state_db;
     use crate::test_utils::*;
