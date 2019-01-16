@@ -113,7 +113,7 @@ fn read_with_cache<T: Clone + Decode>(
     }
 
     match storage.get(col, key) {
-        Ok(Some(value)) => Decode::decode(value.as_ref()).map(|value: T| {
+        Ok(Some(value)) => Decode::decode(value.as_ref()).ok().map(|value: T| {
             let mut write = cache.write();
             write.insert(key.to_vec(), value.clone());
             value

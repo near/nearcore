@@ -9,34 +9,7 @@ use crate::hash::CryptoHash;
 
 use super::signature;
 use super::types;
-
-// encode a type to byte array
-pub trait Encode {
-    fn encode(&self) -> Option<Vec<u8>>;
-}
-
-// decode from byte array
-pub trait Decode: Sized {
-    fn decode(data: &[u8]) -> Option<Self>;
-}
-
-impl<T> Encode for T
-where
-    T: Serialize,
-{
-    fn encode(&self) -> Option<Vec<u8>> {
-        bincode::serialize(&self).ok()
-    }
-}
-
-impl<T> Decode for T
-where
-    T: DeserializeOwned,
-{
-    fn decode(data: &[u8]) -> Option<Self> {
-        bincode::deserialize(data).ok()
-    }
-}
+pub use super::serialize::{Encode, Decode};
 
 /// Trait to abstract the way signing happens.
 /// Can be used to not keep private key in the given binary via cross-process communication.

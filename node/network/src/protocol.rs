@@ -287,7 +287,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
         let message: Message<B, Header, ChainPayload> =
-            Decode::decode(data).ok_or((peer, Severity::Bad("Cannot decode message.")))?;
+            Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
 
