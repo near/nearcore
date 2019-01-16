@@ -1,19 +1,22 @@
+use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, BlockId, SignedTransaction, ReceiptTransaction, Gossip};
+use primitives::types::{
+    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction,
+};
 
 pub type RequestId = u64;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum Message<B, H, P> {
+pub enum Message {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
     Transaction(Box<SignedTransaction>),
     Receipt(Box<ReceiptTransaction>),
     Status(Status),
     BlockRequest(BlockRequest),
-    BlockResponse(BlockResponse<B>),
-    BlockAnnounce(BlockAnnounce<B, H>),
-    Gossip(Gossip<P>),
+    BlockResponse(BlockResponse<SignedBeaconBlock>),
+    BlockAnnounce(BlockAnnounce<SignedBeaconBlock, SignedBeaconBlockHeader>),
+    Gossip(Box<Gossip<ChainPayload>>),
 }
 
 /// status sent on connection
