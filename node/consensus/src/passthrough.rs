@@ -9,8 +9,6 @@ use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 use std::time::Duration;
 
-const BLOCK_PERIOD: Duration = Duration::from_secs(1);
-
 #[allow(clippy::needless_pass_by_value)]
 pub fn spawn_consensus(
     _inc_gossip_rx: Receiver<Gossip<ChainPayload>>,
@@ -18,8 +16,9 @@ pub fn spawn_consensus(
     _out_gossip_tx: Sender<Gossip<ChainPayload>>,
     control_rx: Receiver<Control<BeaconWitnessSelector>>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
+    block_period: Duration
 ) {
-    let interval_stream = Interval::new_interval(BLOCK_PERIOD)
+    let interval_stream = Interval::new_interval(block_period)
         .map(|_| None as Option<ChainPayload>)
         .map_err(|_| ());
     let payload_stream = payload_rx.map(Some);

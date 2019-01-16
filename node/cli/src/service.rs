@@ -11,8 +11,8 @@ use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use beacon_chain_handler;
 use crate::chain_spec;
-use client::{Client, ClientConfig, ChainConsensusBlockBody};
-use consensus::adapters;
+use client::{Client, ClientConfig};
+use consensus::{adapters, passthrough::spawn_consensus};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer};
@@ -22,8 +22,8 @@ use primitives::types::{
 };
 use shard::ShardBlockChain;
 use storage::StateDb;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use txflow::txflow_task::Control;
+use txflow::txflow_task::spawn_task;
+use std::time::Duration;
 
 const NETWORK_CONFIG_PATH: &str = "storage";
 
@@ -115,22 +115,24 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(
+pub struct DevNetConfig {
+    /// how often devnet produces blocks, in milliseconds
+    pub block_period: Duration
+}
+
+impl Default for DevNetConfig {
+    fn default() -> Self {
+        DevNetConfig {
+            block_period: Duration::from_millis(100)
+        }
+    }
+}
+
+pub fn start_service(
     network_cfg: NetworkConfig,
     client_cfg: ClientConfig,
-    spawn_consensus_task_fn: S
-) where
-    S: Fn(
-            Receiver<Gossip<ChainPayload>>,
-            Receiver<ChainPayload>,
-            Sender<Gossip<ChainPayload>>,
-            Receiver<Control<BeaconWitnessSelector>>,
-            Sender<ChainConsensusBlockBody>,
-        ) -> ()
-        + Send
-        + Sync
-        + 'static,
-{
+    devnet_cfg: Option<DevNetConfig>,
+) {
     let chain_spec = chain_spec::read_or_default_chain_spec(&client_cfg.chain_spec_path);
     let boot_nodes = if chain_spec.boot_nodes.is_empty() {
         network_cfg.boot_nodes.clone()
@@ -206,13 +208,24 @@ pub fn start_service<S>(
         adapters::signed_transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
         adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
 
-        spawn_consensus_task_fn(
-            inc_gossip_rx,
-            payload_rx,
-            out_gossip_tx,
-            consensus_control_rx,
-            beacon_block_consensus_body_tx,
-        );
+        if let Some(devnet_cfg) = devnet_cfg {
+            spawn_consensus(
+                inc_gossip_rx,
+                payload_rx,
+                out_gossip_tx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx,
+                devnet_cfg.block_period,
+            );
+        } else {
+            spawn_task(
+                inc_gossip_rx,
+                payload_rx,
+                out_gossip_tx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx
+            );
+        }
         Ok(())
     }));
 }
