@@ -206,12 +206,9 @@ pub fn verify_transaction_signature(
 ) -> bool {
     let hash = transaction.transaction_hash();
     let hash = hash.as_ref();
-    for key in public_keys {
-        if verify(&hash, &transaction.signature, &key) {
-            return true
-        }
-    }
-    false
+    public_keys.iter().any(|key| {
+        verify(&hash, &transaction.signature, &key)
+    })
 }
 
 #[cfg(test)]
