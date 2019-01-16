@@ -43,7 +43,10 @@ fn test_service_ready() -> bool {
     let mut client_cfg = devnet::ClientConfig::default();
     client_cfg.base_path = base_path;
     client_cfg.log_level = log::LevelFilter::Off;
-    thread::spawn(|| { devnet::start_devnet(Some(network_cfg), Some(client_cfg)) });
+    let devnet_cfg = devnet::DevNetConfig { block_period: Duration::from_millis(5) };
+    thread::spawn(|| { 
+        devnet::start_devnet(Some(network_cfg), Some(client_cfg), Some(devnet_cfg))
+    });
     thread::sleep(Duration::from_secs(1));
     true
 }

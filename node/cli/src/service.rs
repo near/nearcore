@@ -11,8 +11,8 @@ use crate::chain_spec;
 use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
 use beacon_chain_handler;
-use client::{ChainConsensusBlockBody, Client, ClientConfig};
-use consensus::adapters;
+use client::{Client, ClientConfig};
+use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
 use node_runtime::state_viewer::StateDbViewer;
@@ -20,8 +20,8 @@ use primitives::traits::Signer;
 use primitives::types::{AccountId, ChainPayload, Gossip, Transaction, UID};
 use shard::ShardBlockChain;
 use storage::StateDb;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use txflow::txflow_task::Control;
+use txflow::txflow_task;
+use std::time::Duration;
 
 const NETWORK_CONFIG_PATH: &str = "storage";
 
@@ -110,22 +110,24 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(
+pub struct DevNetConfig {
+    /// how often devnet produces blocks
+    pub block_period: Duration
+}
+
+impl Default for DevNetConfig {
+    fn default() -> Self {
+        DevNetConfig {
+            block_period: Duration::from_millis(100)
+        }
+    }
+}
+
+pub fn start_service(
     network_cfg: NetworkConfig,
     client_cfg: ClientConfig,
-    spawn_consensus_task_fn: S,
-) where
-    S: Fn(
-            Receiver<Gossip<ChainPayload>>,
-            Receiver<ChainPayload>,
-            Sender<Gossip<ChainPayload>>,
-            Receiver<Control<BeaconWitnessSelector>>,
-            Sender<ChainConsensusBlockBody>,
-        ) -> ()
-        + Send
-        + Sync
-        + 'static,
-{
+    devnet_cfg: Option<DevNetConfig>,
+) {
     let chain_spec = chain_spec::read_or_default_chain_spec(&client_cfg.chain_spec_path);
     let boot_nodes = if chain_spec.boot_nodes.is_empty() {
         network_cfg.boot_nodes.clone()
@@ -198,13 +200,22 @@ pub fn start_service<S>(
         let (payload_tx, payload_rx) = channel(1024);
         adapters::transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
 
-        spawn_consensus_task_fn(
-            inc_gossip_rx,
-            payload_rx,
-            out_gossip_tx,
-            consensus_control_rx,
-            beacon_block_consensus_body_tx,
-        );
+        if let Some(devnet_cfg) = devnet_cfg {
+            passthrough::spawn_consensus(
+                payload_rx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx,
+                devnet_cfg.block_period,
+            );
+        } else {
+            txflow_task::spawn_task(
+                inc_gossip_rx,
+                payload_rx,
+                out_gossip_tx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx
+            );
+        }
         Ok(())
     }));
 }
