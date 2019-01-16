@@ -121,6 +121,18 @@ impl ShardBlockChain {
         }
     }
 
+    pub fn get_transaction(&self, hash: &CryptoHash) -> Option<Transaction> {
+        match self.get_transaction_address(&hash) {
+            Some(address) => {
+                let block_id = BlockId::Hash(address.block_hash);
+                let block = self.chain.get_block(&block_id)
+                    .expect("transaction address points to non-existent block");
+                block.body.transactions.get(address.index).cloned()
+            },
+            None => None,
+        }
+    }
+
     pub fn update_for_inserted_block(&self, block: &SignedShardBlock) {
         let updates: HashMap<Vec<u8>, TransactionAddress> = block.body.transactions.iter()
             .enumerate()

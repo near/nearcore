@@ -15,12 +15,12 @@ use shard::ShardBlockChain;
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, GetTransactionStatusRequest,
+    GetBlocksByIndexRequest, GetTransactionRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
     SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
     SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
-    SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
-    ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    SwapKeyRequest, TransactionResponse, TransactionStatusResponse,
+    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use primitives::signature::verify_transaction_signature;
 use primitives::hash::hash_struct;
@@ -50,6 +50,7 @@ impl HttpApi {
 
 pub enum RPCError {
     BadRequest(String),
+    NotFound,
     ServiceUnavailable(String),
 }
 
@@ -264,9 +265,20 @@ impl HttpApi {
         })
     }
 
+    pub fn get_transaction(
+        &self,
+        r: &GetTransactionRequest,
+    ) -> Result<TransactionResponse, RPCError> {
+        match self.shard_chain.get_transaction(&r.hash) {
+            Some(transaction) => Ok(TransactionResponse { transaction }),
+            None => Err(RPCError::NotFound),
+        }
+
+    }
+
     pub fn get_transaction_status(
         &self,
-        r: &GetTransactionStatusRequest,
+        r: &GetTransactionRequest,
     )-> Result<TransactionStatusResponse, ()> {
         let status = self.shard_chain.get_transaction_status(&r.hash);
         Ok(TransactionStatusResponse { status })

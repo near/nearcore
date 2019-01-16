@@ -273,18 +273,23 @@ pub struct SignedShardBlocksResponse {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GetTransactionStatusRequest {
+pub struct GetTransactionRequest {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct TransactionResponse {
+    pub transaction: Transaction,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct TransactionStatusResponse {
-    pub status: TransactionStatus
+    pub status: TransactionStatus,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct SubmitTransactionResponse {
     #[serde(with = "bs58_format")]
-    pub hash: CryptoHash
+    pub hash: CryptoHash,
 }
