@@ -1637,6 +1637,7 @@ dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "chain 0.0.1",
+ "client 0.1.0",
  "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p 0.1.0 (git+https://github.com/tomaka/libp2p-rs?rev=997d0163bc8a7e11559524ad8466bc3b1850c8ec)",

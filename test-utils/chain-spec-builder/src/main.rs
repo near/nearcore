@@ -44,7 +44,7 @@ fn main() {
         })
         .collect();
 
-    let mut chain_spec = node_runtime::test_utils::generate_test_chain_spec();
+    let (mut chain_spec, _) = node_runtime::test_utils::generate_test_chain_spec();
     chain_spec.boot_nodes = boot_nodes;
     let serialized = client::chain_spec::serialize_chain_spec(chain_spec);
     println!("{}", serialized);

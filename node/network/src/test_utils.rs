@@ -29,6 +29,7 @@ use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::get_key_pair;
 use primitives::traits::GenericResult;
 use primitives::types;
+use client::test_utils::get_client;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -101,15 +102,12 @@ pub fn get_noop_network_task() -> impl Future<Item = (), Error = ()> {
 }
 
 pub fn get_test_protocol() -> Protocol {
-    let storage = Arc::new(create_memory_db());
-    let genesis_block =
-        SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-    let chain = Arc::new(BeaconBlockChain::new(genesis_block, storage));
     let (block_tx, _) = channel(1024);
     let (transaction_tx, _) = channel(1024);
     let (message_tx, _) = channel(1024);
     let (gossip_tx, _) = channel(1024);
-    Protocol::new(ProtocolConfig::default(), chain, block_tx, transaction_tx, message_tx, gossip_tx)
+    let client = Arc::new(get_client());
+    Protocol::new(ProtocolConfig::default(), client, block_tx, transaction_tx, message_tx, gossip_tx)
 }
 
 pub fn get_test_authority_config(
