@@ -10,8 +10,8 @@ const fs = require('fs');
 
 const aliceAccountName = 'alice.near';
 const aliceKey = new KeyPair(
-   "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY",
-    "N3LfWXp5ag8eKSTu9yvksvN8VriNJqJT72StfE6471N8ef4qCfXT668jkuBdchMJVcrcUysriM8vN1ShfS8bJRY"
+    "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV",
+    "2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw"
 );
 const test_key_store = new InMemoryKeyStore();
 const simple_key_store_signer = new SimpleKeyStoreSigner(test_key_store);

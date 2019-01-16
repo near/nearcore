@@ -97,6 +97,8 @@ pub struct CallViewFunctionResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct PreparedTransactionBodyResponse {
     pub body: TransactionBody,
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize)]

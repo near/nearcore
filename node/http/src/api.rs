@@ -23,6 +23,7 @@ use crate::types::{
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use primitives::signature::verify_transaction_signature;
+use primitives::hash::hash_struct;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,
@@ -65,7 +66,7 @@ impl HttpApi {
             public_key: r.public_key.encode().unwrap(),
         });
         debug!(target: "near-rpc", "Create account transaction {:?}", r.new_account_id);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn deploy_contract(
@@ -80,7 +81,7 @@ impl HttpApi {
             public_key: r.public_key.encode().unwrap(),
         });
         debug!(target: "near-rpc", "Deploy contract transaction {:?}", r.contract_account_id);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn swap_key(
@@ -94,7 +95,7 @@ impl HttpApi {
             new_key: r.new_key.encode().unwrap(),
         });
         debug!(target: "near-rpc", "Swap key transaction {:?}", r.account);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn send_money(
@@ -109,7 +110,7 @@ impl HttpApi {
         });
         debug!(target: "near-rpc", "Send money transaction {:?}->{:?}, amount: {:?}",
                r.originator, r.receiver_account_id, r.amount);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn stake(
@@ -123,7 +124,7 @@ impl HttpApi {
         });
         debug!(target: "near-rpc", "Stake money transaction {:?}, amount: {:?}",
                r.originator, r.amount);
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn schedule_function_call(
@@ -140,7 +141,7 @@ impl HttpApi {
             args: r.args,
             amount: r.amount,
         });
-        Ok(PreparedTransactionBodyResponse { body })
+        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
     }
 
     pub fn view_account(

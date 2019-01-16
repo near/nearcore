@@ -20,15 +20,18 @@ class NearClient {
         const sender = args[senderKey];
         const nonce = await this.getNonce(sender);
         const response = await this.request(method, Object.assign({}, args, { nonce }));
-        const transaction = response.body;
-        const stringifiedTxn = JSON.stringify(transaction);
-        const message = Buffer.from(stringifiedTxn, 'utf8');
-        const signature = await this.signer.signTransaction(message, sender);
+        const signature = await this.signer.signTransaction(response.hash, sender);
         const signedTransaction = {
-            body: transaction,
+            body: response.body,
             signature: signature
         };
-        const submitResponse = await this.request('submit_transaction', signedTransaction);
+        var submitResponse;
+        try {
+            submitResponse = await this.request('submit_transaction', signedTransaction);
+        } catch(e) {
+            console.log(e.response.text)
+            throw (e)
+        }
         return submitResponse;
     };
 
