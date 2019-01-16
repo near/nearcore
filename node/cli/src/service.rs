@@ -12,7 +12,7 @@ use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader
 use beacon_chain_handler;
 use crate::chain_spec;
 use client::{Client, ClientConfig};
-use consensus::{adapters, passthrough::spawn_consensus};
+use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer};
@@ -22,7 +22,7 @@ use primitives::types::{
 };
 use shard::ShardBlockChain;
 use storage::StateDb;
-use txflow::txflow_task::spawn_task;
+use txflow::txflow_task;
 use std::time::Duration;
 
 const NETWORK_CONFIG_PATH: &str = "storage";
@@ -209,16 +209,14 @@ pub fn start_service(
         adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
 
         if let Some(devnet_cfg) = devnet_cfg {
-            spawn_consensus(
-                inc_gossip_rx,
+            passthrough::spawn_consensus(
                 payload_rx,
-                out_gossip_tx,
                 consensus_control_rx,
                 beacon_block_consensus_body_tx,
                 devnet_cfg.block_period,
             );
         } else {
-            spawn_task(
+            txflow_task::spawn_task(
                 inc_gossip_rx,
                 payload_rx,
                 out_gossip_tx,

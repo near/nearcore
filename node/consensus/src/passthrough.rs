@@ -2,18 +2,15 @@ use client::ChainConsensusBlockBody;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream, future};
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{MessageDataBody, SignedMessageData, ChainPayload, Gossip};
+use primitives::types::{MessageDataBody, SignedMessageData, ChainPayload};
 use std::collections::HashSet;
 use tokio::{self, timer::Interval};
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 use std::time::Duration;
 
-#[allow(clippy::needless_pass_by_value)]
 pub fn spawn_consensus(
-    _inc_gossip_rx: Receiver<Gossip<ChainPayload>>,
     payload_rx: Receiver<ChainPayload>,
-    _out_gossip_tx: Sender<Gossip<ChainPayload>>,
     control_rx: Receiver<Control<BeaconWitnessSelector>>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
     block_period: Duration
