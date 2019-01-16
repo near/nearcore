@@ -115,10 +115,11 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(network_cfg: NetworkConfig,
-                        client_cfg: ClientConfig,
-                        spawn_consensus_task_fn: S)
-where
+pub fn start_service<S>(
+    network_cfg: NetworkConfig,
+    client_cfg: ClientConfig,
+    spawn_consensus_task_fn: S
+) where
     S: Fn(
             Receiver<Gossip<ChainPayload>>,
             Receiver<ChainPayload>,

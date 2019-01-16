@@ -9,9 +9,8 @@ use std::os::raw::{c_char};
 use std::path::PathBuf;
 use std::str::FromStr;
 use node_cli::service;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use primitives::types::ChainPayload;
-
+use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 
 #[no_mangle]
 pub unsafe extern fn run_with_config(
