@@ -34,7 +34,7 @@ test_nearlib:
     script:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet
-    - cargo run --release --package=devnet &
+    - cargo run --release --package=devnet -- --test-block-period 1 &
     - ./scripts/waitonserver.sh
     - cd nearlib && npm install && npm test && cd ..
     - ./scripts/kill_devnet.sh
