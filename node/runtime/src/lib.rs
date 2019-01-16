@@ -963,8 +963,8 @@ impl Runtime {
         };
         if mana_accounting.mana_refund > 0 || mana_accounting.gas_used > 0 {
             let new_receipt = ReceiptTransaction::new(
-                mana_accounting.accounting_info.originator.clone(),
                 receipt.receiver.clone(),
+                mana_accounting.accounting_info.originator.clone(),
                 create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                 ReceiptBody::ManaAccounting(mana_accounting),
             );
@@ -1812,7 +1812,7 @@ mod tests {
             vec![],
             0,
             0,
-            accounting_info,
+            accounting_info.clone(),
         );
         let callback_info = CallbackInfo::new(callback_id.clone(), 0, alice_account());
         async_call.callback = Some(callback_info.clone());
@@ -1833,7 +1833,7 @@ mod tests {
             block_index,
             &mut logs,
         ).unwrap();
-        assert_eq!(new_receipts.len(), 1);
+        assert_eq!(new_receipts.len(), 2);
         if let Transaction::Receipt(new_receipt) = &new_receipts[0] {
             assert_eq!(new_receipt.originator, bob_account());
             assert_eq!(new_receipt.receiver, alice_account());
@@ -1844,7 +1844,19 @@ mod tests {
         } else {
             assert!(false);
         }
-
+        if let Transaction::Receipt(new_receipt) = &new_receipts[1] {
+            assert_eq!(new_receipt.originator, bob_account());
+            assert_eq!(new_receipt.receiver, alice_account());
+            if let ReceiptBody::ManaAccounting(ref mana_accounting) = new_receipt.body {
+                assert_eq!(mana_accounting.mana_refund, 0);
+                assert!(mana_accounting.gas_used > 0);
+                assert_eq!(mana_accounting.accounting_info, accounting_info);
+            } else {
+                assert!(false);
+            }
+        } else {
+            assert!(false);
+        }
     }
 
     #[test]
