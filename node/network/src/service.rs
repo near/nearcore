@@ -6,43 +6,42 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use beacon::authority::AuthorityStake;
-use futures::{Future, stream, Stream};
+use beacon::types::SignedBeaconBlock;
 use futures::sync::mpsc::Receiver;
+use futures::{stream, Future, Stream};
 use parking_lot::Mutex;
-use substrate_network_libp2p::{
-    Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
-    Service as NetworkService, ServiceEvent, Severity, start_service
-};
 pub use substrate_network_libp2p::NetworkConfiguration;
-use tokio::timer::Interval;
 use substrate_network_libp2p::Secret;
+use substrate_network_libp2p::{
+    start_service, Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
+    Service as NetworkService, ServiceEvent, Severity,
+};
+use tokio::timer::Interval;
 
-use chain::{SignedBlock, SignedHeader as BlockHeader};
 use crate::message::Message;
-use primitives::traits::Encode;
-use primitives::types::{ChainPayload, UID, Gossip};
 use crate::protocol::{self, Protocol, ProtocolConfig};
+use primitives::traits::Encode;
+use primitives::types::{ChainPayload, Gossip, UID};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
-pub fn new_network_service(protocol_config: &ProtocolConfig, net_config: NetworkConfiguration) -> NetworkService {
+pub fn new_network_service(
+    protocol_config: &ProtocolConfig,
+    net_config: NetworkConfiguration,
+) -> NetworkService {
     let version = [protocol::CURRENT_VERSION as u8];
     let registered = RegisteredProtocol::new(protocol_config.protocol_id, &version);
-    start_service(net_config, Some(registered))
-        .expect("Error starting network service")
+    start_service(net_config, Some(registered)).expect("Error starting network service")
 }
 
-pub fn spawn_network_tasks<B, Header>(
+pub fn spawn_network_tasks(
     network_service: Arc<Mutex<NetworkService>>,
-    protocol_: Protocol<B, Header>,
-    message_receiver: Receiver<(NodeIndex, Message<B, Header, ChainPayload>)>,
-    block_receiver: Receiver<B>,
+    protocol_: Protocol,
+    message_receiver: Receiver<(NodeIndex, Message)>,
+    block_receiver: Receiver<SignedBeaconBlock>,
     authority_receiver: Receiver<HashMap<UID, AuthorityStake>>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
-) where
-    B: SignedBlock,
-    Header: BlockHeader,
-{
+) {
     let protocol = Arc::new(protocol_);
     // Interval for performing maintenance on the protocol handler.
     let timer = Interval::new_interval(TICK_TIMEOUT)
@@ -56,36 +55,39 @@ pub fn spawn_network_tasks<B, Header>(
                 }
                 Ok(())
             }
-        }).then(|res| {
+        })
+        .then(|res| {
             match res {
                 Ok(()) => (),
                 Err(err) => error!("Error in the propagation timer: {:?}", err),
             };
             Ok(())
-        }).map(|_| ()).map_err(|_: ()| ());
+        })
+        .map(|_| ())
+        .map_err(|_: ()| ());
 
     // Handles messages coming from the network.
     let network = stream::poll_fn({
         let network_service1 = network_service.clone();
         move || network_service1.lock().poll()
-    }).for_each({
+    })
+    .for_each({
         let network_service1 = network_service.clone();
         let protocol1 = protocol.clone();
         move |event| {
             // debug!(target: "network", "event: {:?}", event);
             match event {
                 ServiceEvent::CustomMessage { node_index, data, .. } => {
-                    if let Err((node_index, severity))
-                    = protocol1.on_message(node_index, &data) {
+                    if let Err((node_index, severity)) = protocol1.on_message(node_index, &data) {
                         match severity {
                             Severity::Bad(err) => {
                                 error!("Banning bad node {:?}. {:?}", node_index, err);
                                 network_service1.lock().ban_node(node_index);
-                            },
+                            }
                             Severity::Useless(err) => {
                                 error!("Dropping useless node {:?}. {:?}", node_index, err);
                                 network_service1.lock().drop_node(node_index);
-                            },
+                            }
                             Severity::Timeout => {
                                 error!("Dropping timeouted node {:?}.", node_index);
                                 network_service1.lock().drop_node(node_index);
@@ -114,16 +116,21 @@ pub fn spawn_network_tasks<B, Header>(
             };
             Ok(())
         }
-    }).map(|_| ()).map_err(|_|());
+    })
+    .map(|_| ())
+    .map_err(|_| ());
 
     // Handles messages going into the network.
     let protocol_id = protocol.config.protocol_id;
     let network_service1 = network_service.clone();
-    let messages_handler = message_receiver.for_each(move |(node_index, m)| {
-        let data = Encode::encode(&m).expect("Error encoding message.");
-        network_service1.lock().send_custom_message(node_index, protocol_id, data);
-        Ok(())
-    }).map(|_| ()).map_err(|_|());
+    let messages_handler = message_receiver
+        .for_each(move |(node_index, m)| {
+            let data = Encode::encode(&m).expect("Error encoding message.");
+            network_service1.lock().send_custom_message(node_index, protocol_id, data);
+            Ok(())
+        })
+        .map(|_| ())
+        .map_err(|_| ());
 
     let protocol1 = protocol.clone();
     let block_announce_handler = block_receiver.for_each(move |block| {
@@ -131,34 +138,36 @@ pub fn spawn_network_tasks<B, Header>(
         Ok(())
     });
 
-    tokio::spawn(network.select(timer).and_then(|_| {
-        info!("Networking stopped");
-        Ok(())
-    }).map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)));
+    tokio::spawn(
+        network
+            .select(timer)
+            .and_then(|_| {
+                info!("Networking stopped");
+                Ok(())
+            })
+            .map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)),
+    );
 
     let protocol2 = protocol.clone();
     tokio::spawn(messages_handler);
     tokio::spawn(block_announce_handler);
-    tokio::spawn(
-        authority_receiver.for_each(move |map| {
-            protocol2.set_authority_map(map);
-            Ok(())
-        })
-    );
+    tokio::spawn(authority_receiver.for_each(move |map| {
+        protocol2.set_authority_map(map);
+        Ok(())
+    }));
 
     let protocol3 = protocol.clone();
-    let gossip_sender = gossip_rx
-        .for_each(move |g| {
-            println!("About to send gossip {:?}", g);
-            if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
-                let m = Message::Gossip::<B, Header, _>(g);
-                let data = Encode::encode(&m).expect("Error encoding message.");
-                network_service.lock().send_custom_message(node_index, protocol_id, data);
-            } else {
-                error!("Node Index not found for UID: {}", g.receiver_uid);
-            }
-            Ok(())
-        });
+    let gossip_sender = gossip_rx.for_each(move |g| {
+        println!("About to send gossip {:?}", g);
+        if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
+            let m = Message::Gossip(Box::new(g));
+            let data = Encode::encode(&m).expect("Error encoding message.");
+            network_service.lock().send_custom_message(node_index, protocol_id, data);
+        } else {
+            error!("Node Index not found for UID: {}", g.receiver_uid);
+        }
+        Ok(())
+    });
     tokio::spawn(gossip_sender);
 }
 
@@ -186,7 +195,7 @@ mod tests {
     #[test]
     fn test_parse_str_addr_dns() {
         let addr = "/dns4/node-0/tcp/30333/p2p/\
-        QmQZ8TjTqeDj3ciwr93EJ95hxfDsb9pEYDizUAbWpigtQN";
+                    QmQZ8TjTqeDj3ciwr93EJ95hxfDsb9pEYDizUAbWpigtQN";
         assert!(parse_str_addr(addr).is_ok());
     }
 }

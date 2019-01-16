@@ -7,14 +7,13 @@ use futures::{stream, Future, Sink};
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use beacon::authority::AuthorityStake;
-use chain::{BlockChain, SignedBlock, SignedHeader as BlockHeader};
 use crate::message::{self, Message};
+use beacon::authority::AuthorityStake;
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use chain::{SignedBlock, SignedHeader};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
-use primitives::types::{
-    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
-};
+use primitives::types::{AccountId, BlockId, ChainPayload, Gossip, Transaction, UID};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -68,7 +67,7 @@ pub(crate) struct PeerInfo {
     account_id: Option<AccountId>,
 }
 
-pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
+pub struct Protocol {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -78,29 +77,26 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     /// Info for authority peers.
     peer_account_info: RwLock<HashMap<AccountId, NodeIndex>>,
     /// Chain info, for read-only access.
-    chain: Arc<BlockChain<B>>,
+    chain: Arc<BeaconBlockChain>,
     /// Channel into which the protocol sends the new blocks.
-    block_sender: Sender<B>,
-    /// Channel into which the protocol sends the received transactions.
-    transaction_sender: Sender<SignedTransaction>,
-    /// Channel into which the protocol sends the received receipts.
-    receipt_sender: Sender<ReceiptTransaction>,
+    block_sender: Sender<SignedBeaconBlock>,
+    /// Channel into which the protocol sends the received transactions and receipts.
+    transaction_sender: Sender<Transaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
-    message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+    message_sender: Sender<(NodeIndex, Message)>,
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
     gossip_sender: Sender<Gossip<ChainPayload>>,
     /// map between authority uid and account id + public key.
     authority_map: RwLock<HashMap<UID, AuthorityStake>>,
 }
 
-impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
+impl Protocol {
     pub fn new(
         config: ProtocolConfig,
-        chain: Arc<BlockChain<B>>,
-        block_sender: Sender<B>,
-        transaction_sender: Sender<SignedTransaction>,
-        receipt_sender: Sender<ReceiptTransaction>,
-        message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+        chain: Arc<BeaconBlockChain>,
+        block_sender: Sender<SignedBeaconBlock>,
+        transaction_sender: Sender<Transaction>,
+        message_sender: Sender<(NodeIndex, Message)>,
         gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
         Self {
@@ -111,7 +107,6 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             chain,
             block_sender,
             transaction_sender,
-            receipt_sender,
             message_sender,
             gossip_sender,
             authority_map: RwLock::new(HashMap::new()),
@@ -148,24 +143,13 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn on_transaction_message(&self, transaction: SignedTransaction) {
+    pub fn on_transaction_message(&self, transaction: Transaction) {
         let copied_tx = self.transaction_sender.clone();
         tokio::spawn(
             copied_tx
                 .send(transaction)
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the transactions {:?}", e)),
-        );
-    }
-
-    /// Note, we will not actually need this until we have shards.
-    fn on_receipt_message(&self, receipt: ReceiptTransaction) {
-        let copied_tx = self.receipt_sender.clone();
-        tokio::spawn(
-            copied_tx
-                .send(receipt)
-                .map(|_| ())
-                .map_err(|e| error!("Failure to send the receipts {:?}", e)),
         );
     }
 
@@ -255,7 +239,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.send_message(peer, message);
     }
 
-    fn on_incoming_block(&self, block: B) {
+    fn on_incoming_block(&self, block: SignedBeaconBlock) {
         let copied_tx = self.block_sender.clone();
         tokio::spawn(
             copied_tx
@@ -265,7 +249,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         );
     }
 
-    pub fn on_outgoing_block(&self, block: &B) {
+    pub fn on_outgoing_block(&self, block: &SignedBeaconBlock) {
         let peers = self.peer_info.read();
         for peer in peers.keys() {
             let message = Message::BlockAnnounce(message::BlockAnnounce::Block(block.clone()));
@@ -273,7 +257,11 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         }
     }
 
-    fn on_block_response(&self, peer_id: NodeIndex, response: message::BlockResponse<B>) {
+    fn on_block_response(
+        &self,
+        peer_id: NodeIndex,
+        response: message::BlockResponse<SignedBeaconBlock>,
+    ) {
         let copied_tx = self.block_sender.clone();
         self.peer_info.write().entry(peer_id).and_modify(|e| e.request_timestamp = None);
         tokio::spawn(
@@ -285,17 +273,17 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     }
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
-        let message: Message<B, Header, ChainPayload> =
+        let message: Message =
             Decode::decode(data).ok_or((peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
 
         match message {
             Message::Transaction(tx) => {
-                self.on_transaction_message(*tx);
+                self.on_transaction_message(Transaction::SignedTransaction(*tx));
             }
             Message::Receipt(receipt) => {
-                self.on_receipt_message(*receipt);
+                self.on_transaction_message(Transaction::Receipt(*receipt));
             }
             Message::Status(status) => {
                 self.on_status_message(peer, &status)?;
@@ -333,17 +321,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                     _ => unimplemented!(),
                 }
             }
-            Message::Gossip(gossip) => self.on_gossip_message(gossip)
-
+            Message::Gossip(gossip) => self.on_gossip_message(*gossip),
         }
         Ok(())
     }
 
-    pub fn send_message(
-        &self,
-        receiver_index: NodeIndex,
-        message: Message<B, Header, ChainPayload>,
-    ) {
+    pub fn send_message(&self, receiver_index: NodeIndex, message: Message) {
         let copied_tx = self.message_sender.clone();
         tokio::spawn(
             copied_tx
@@ -380,10 +363,10 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         let auth_map = &*self.authority_map.read();
         auth_map
             .into_iter()
-            .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None })
-            .and_then(|account_id| {
-                self.peer_account_info.read().get(&account_id).cloned()
-            })
+            .find_map(
+                |(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None },
+            )
+            .and_then(|account_id| self.peer_account_info.read().get(&account_id).cloned())
     }
 }
 
@@ -397,11 +380,11 @@ mod tests {
     use futures::sync::mpsc::channel;
     use futures::{Sink, Stream};
 
-    use beacon::authority::Authority;
-    use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-    use primitives::traits::Encode;
-    use primitives::types::{ChainPayload, SignedTransaction};
     use crate::test_utils::{get_test_authority_config, get_test_protocol};
+    use beacon::authority::Authority;
+    use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+    use primitives::traits::Encode;
+    use primitives::types::SignedTransaction;
 
     use super::*;
 
@@ -410,8 +393,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = SignedTransaction::empty();
-        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> =
-            Message::Transaction(Box::new(tx));
+        let message: Message = Message::Transaction(Box::new(tx));
         let encoded = Encode::encode(&message).unwrap();
         let decoded = Decode::decode(&encoded).unwrap();
         assert_eq!(message, decoded);

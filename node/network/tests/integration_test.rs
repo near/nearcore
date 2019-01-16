@@ -9,7 +9,7 @@ extern crate futures;
 extern crate parking_lot;
 extern crate tokio;
 
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
 use futures::sync::mpsc::{channel, Receiver, Sender};
 use futures::{future, stream, Future, Sink, Stream};
 use network::message::Message;
@@ -20,7 +20,6 @@ use network::test_utils::{
 };
 use parking_lot::Mutex;
 use primitives::hash::CryptoHash;
-use primitives::types::ChainPayload;
 use std::sync::Arc;
 use std::thread;
 use std::time::{self, Duration};
@@ -61,23 +60,11 @@ fn spawn_simple_block_prod_task(
 fn get_test_protocol(
     chain: Arc<BeaconBlockChain>,
     block_tx: Sender<SignedBeaconBlock>,
-    message_tx: Sender<(
-        NodeIndex,
-        Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload>,
-    )>,
-) -> Protocol<SignedBeaconBlock, SignedBeaconBlockHeader> {
+    message_tx: Sender<(NodeIndex, Message)>,
+) -> Protocol {
     let (transaction_tx, _) = channel(1024);
-    let (receipt_tx, _) = channel(1024);
     let (gossip_tx, _) = channel(1024);
-    Protocol::new(
-        ProtocolConfig::default(),
-        chain,
-        block_tx,
-        transaction_tx,
-        receipt_tx,
-        message_tx,
-        gossip_tx,
-    )
+    Protocol::new(ProtocolConfig::default(), chain, block_tx, transaction_tx, message_tx, gossip_tx)
 }
 
 #[test]
