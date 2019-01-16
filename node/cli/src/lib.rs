@@ -113,10 +113,10 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig, Option<DevNetConfi
                            can be omitted with 1 file in keystore")
                 .takes_value(true)
         ).arg(
-            Arg::with_name("block_period")
-                .long("period")
-                .value_name("BLOCK_PERIOD")
-                .help("Sets the block production period for devnet")
+            Arg::with_name("test_block_period")
+                .long("test-block-period")
+                .value_name("TEST_BLOCK_PERIOD")
+                .help("Sets the block production period for devnet, in milliseconds")
                 .takes_value(true)
         ).get_matches();
 
@@ -165,7 +165,7 @@ pub fn get_service_configs() -> (NetworkConfig, ClientConfig, Option<DevNetConfi
         .map(String::from);
 
     let block_period = matches
-        .value_of("block_period")
+        .value_of("test_block_period")
         .map(|x| Duration::from_millis(x.parse::<u64>().unwrap()));
 
     let devnet_cfg = block_period.map(|block_period| {

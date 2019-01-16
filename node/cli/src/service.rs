@@ -116,7 +116,7 @@ impl Default for NetworkConfig {
 }
 
 pub struct DevNetConfig {
-    /// how often devnet produces blocks, in milliseconds
+    /// how often devnet produces blocks
     pub block_period: Duration
 }
 
