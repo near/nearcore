@@ -21,10 +21,11 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_http::types::{
-    SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedBeaconBlockResponse, SignedShardBlockResponse, SubmitTransactionResponse,
     ViewAccountResponse, ViewStateResponse,
 };
 use primitives::signer::write_key_file;
+use primitives::test_utils::get_key_pair_from_seed;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
@@ -49,7 +50,8 @@ fn test_service_ready() -> bool {
 
 fn get_public_key() -> String {
     let key_store_path = Path::new(KEY_STORE_PATH);
-    write_key_file(key_store_path)
+    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
+    write_key_file(key_store_path, public_key, secret_key)
 }
 
 lazy_static! {
@@ -154,8 +156,7 @@ fn test_send_money_inner() {
         .output()
         .expect("send_money command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
 test! { fn test_send_money() { test_send_money_inner() } }
@@ -198,8 +199,7 @@ fn test_set_get_values_inner() {
         .output()
         .expect("schedule_function_call command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     // It takes more than two nonce changes for the action to propagate.
     wait_for(&|| {
@@ -252,8 +252,7 @@ fn test_create_account_inner() {
     }).unwrap();
 
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     let output = Command::new("./scripts/rpc.py")
         .arg("view_account")
@@ -280,8 +279,7 @@ fn test_swap_key_inner() {
         .output()
         .expect("swap key command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
 test! { fn test_swap_key() { test_swap_key_inner() } }

@@ -1,19 +1,17 @@
 /**
  * Simple in-memory keystore for testing purposes.
  */
-
 class InMemoryKeyStore {
-
     constructor() {
         this.keys = {};
     }
 
-    async setKeyPair(accontId, key) {
-        this.keys[accontId] = key;
+    async setKey(accountId, key) {
+        this.keys[accountId] = key;
     }
 
-    async getKeyPair(accontId) {
-        return this.keys[accontId];
+    async getKey(accountId) {
+        return this.keys[accountId];
     }
 };
 

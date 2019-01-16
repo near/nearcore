@@ -14,10 +14,10 @@ use parking_lot::RwLock;
 use serde::{de::DeserializeOwned, Serialize};
 
 use primitives::hash::CryptoHash;
-use primitives::traits::{Decode, Encode, Signer};
+use primitives::traits::Signer;
 use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
-use storage::Storage;
+use storage::{read_with_cache, write_with_cache, Storage};
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
@@ -71,6 +71,7 @@ pub struct BlockChain<B: SignedBlock> {
     /// Genesis hash
     pub genesis_hash: CryptoHash,
     /// Best block key of current blockchain. Key length is CryptoHash length + "best" bytes.
+    /// This uses the genesis hash in order to support multiple chains.
     best_block_key: [u8; 36],
     /// Tip of the known chain.
     best_block_index: RwLock<BlockIndex<B>>,
@@ -82,44 +83,6 @@ pub struct BlockChain<B: SignedBlock> {
     // TODO: This doesn't handle forks at all and needs to be rewritten
     index_to_hash: RwLock<HashMap<Vec<u8>, CryptoHash>>,
     // TODO: state?
-}
-
-fn write_with_cache<T: Clone + Encode>(
-    storage: &Arc<Storage>,
-    col: Option<u32>,
-    cache: &RwLock<HashMap<Vec<u8>, T>>,
-    key: &[u8],
-    value: &T,
-) {
-    let data = Encode::encode(value).expect("Error serializing data");
-    cache.write().insert(key.to_vec(), value.clone());
-
-    let mut db_transaction = storage.transaction();
-    db_transaction.put(col, key, &data);
-    storage.write(db_transaction).expect("Database write failed");
-}
-
-fn read_with_cache<T: Clone + Decode>(
-    storage: &Arc<Storage>,
-    col: Option<u32>,
-    cache: &RwLock<HashMap<Vec<u8>, T>>,
-    key: &[u8],
-) -> Option<T> {
-    {
-        let read = cache.read();
-        if let Some(v) = read.get(key) {
-            return Some(v.clone());
-        }
-    }
-
-    match storage.get(col, key) {
-        Ok(Some(value)) => Decode::decode(value.as_ref()).map(|value: T| {
-            let mut write = cache.write();
-            write.insert(key.to_vec(), value.clone());
-            value
-        }),
-        _ => None,
-    }
 }
 
 impl<B: SignedBlock> BlockChain<B> {

@@ -9,6 +9,7 @@ use primitives::types::{
     TransactionBody,
 };
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+use shard::TransactionStatus;
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -96,6 +97,8 @@ pub struct CallViewFunctionResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct PreparedTransactionBodyResponse {
     pub body: TransactionBody,
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -267,4 +270,21 @@ pub struct GetBlocksByIndexRequest {
 #[derive(Serialize, Deserialize)]
 pub struct SignedShardBlocksResponse {
     pub blocks: Vec<SignedShardBlockResponse>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetTransactionStatusRequest {
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TransactionStatusResponse {
+    pub status: TransactionStatus
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SubmitTransactionResponse {
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash
 }

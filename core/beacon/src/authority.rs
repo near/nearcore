@@ -1,15 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 
-use rand::{Rng, SeedableRng, StdRng};
+use rand::{SeedableRng, seq::SliceRandom, rngs::StdRng};
 use std::iter;
 use std::mem;
 
-use chain::{BlockChain, SignedBlock};
+use chain::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::{AccountId, AuthorityMask, BlockId};
-use crate::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use crate::types::{BeaconBlockChain, SignedBeaconBlockHeader};
 
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -111,7 +111,7 @@ impl Authority {
     /// Initializes authorities from the config and the past blocks in the beaconchain.
     pub fn new(
         authority_config: AuthorityConfig,
-        blockchain: &BlockChain<SignedBeaconBlock>,
+        blockchain: &BeaconBlockChain,
     ) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
@@ -199,9 +199,10 @@ impl Authority {
             num_seats
         );
         // Shuffle duplicate proposals.
-        let seed: Vec<usize> = seed.as_ref().iter().map(|i| *i as usize).collect();
-        let mut rng: StdRng = SeedableRng::from_seed(seed.as_ref());
-        rng.shuffle(&mut dup_proposals);
+        let mut rng_seed = [0; 32];
+        rng_seed.copy_from_slice(seed.as_ref());
+        let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
+        dup_proposals.shuffle(&mut rng);
 
         // Distribute proposals into slots.
         let mut result = vec![];
@@ -330,9 +331,10 @@ impl Authority {
 mod test {
     use std::sync::Arc;
 
-    use chain::{SignedBlock, SignedHeader};
+    use crate::types::SignedBeaconBlock;
+    use chain::SignedHeader;
     use primitives::hash::CryptoHash;
-    use primitives::signature::get_keypair;
+    use primitives::signature::get_key_pair;
     use storage::test_utils::MemoryStorage;
 
     use super::*;
@@ -344,17 +346,17 @@ mod test {
     ) -> AuthorityConfig {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
-            let (public_key, _) = get_keypair();
+            let (public_key, _) = get_key_pair();
             initial_authorities.push(AuthorityStake { account_id: i.to_string(), public_key, amount: 100 });
         }
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BlockChain<SignedBeaconBlock> {
+    fn test_blockchain(num_blocks: u64) -> BeaconBlockChain {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BlockChain::new(last_block.clone(), storage);
+        let bc = BeaconBlockChain::new(last_block.clone(), storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
@@ -394,7 +396,7 @@ mod test {
         );
         assert_eq!(
             authority.get_authorities(2).unwrap(),
-            vec![initial_authorities[2].clone(), initial_authorities[1].clone()]
+            vec![initial_authorities[1].clone(), initial_authorities[2].clone()]
         );
         assert_eq!(
             authority.get_authorities(3).unwrap(),
@@ -402,7 +404,7 @@ mod test {
         );
         assert_eq!(
             authority.get_authorities(4).unwrap(),
-            vec![initial_authorities[2].clone(), initial_authorities[1].clone()]
+            vec![initial_authorities[1].clone(), initial_authorities[2].clone()]
         );
         assert!(authority.get_authorities(5).is_err());
         let block1 = SignedBeaconBlock::new(1, bc.genesis_hash, vec![], CryptoHash::default());
@@ -416,11 +418,11 @@ mod test {
         authority.process_block_header(&header2);
         assert_eq!(
             authority.get_authorities(5).unwrap(),
-            vec![initial_authorities[2].clone(), initial_authorities[0].clone()]
+            vec![initial_authorities[0].clone(), initial_authorities[2].clone()]
         );
         assert_eq!(
             authority.get_authorities(6).unwrap(),
-            vec![initial_authorities[0].clone(), initial_authorities[1].clone()]
+            vec![initial_authorities[2].clone(), initial_authorities[1].clone()]
         );
     }
 
