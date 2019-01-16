@@ -15,12 +15,13 @@
   },
   "devDependencies": {
     "browserify": "^16.2.3",
-    "jest": "^23.6.0"
+    "jest": "^23.6.0",
+    "uglifyify": "^5.0.1"
   },
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "build": "browserify exports.js -o dist/nearlib.js",
+    "build": "browserify exports.js -o dist/nearlib.js && browserify exports.js -g uglifyify -o dist/nearlib.min.js",
     "test": "jest test"
   },
   "author": "Evguenia Degtiareva"
