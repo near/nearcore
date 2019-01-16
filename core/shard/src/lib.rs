@@ -10,8 +10,9 @@ use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{
     AuthorityMask, MerkleHash, MultiSignature, PartialSignature,
-    Transaction, ShardId
+    ShardId
 };
+use transaction::Transaction;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {

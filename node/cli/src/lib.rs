@@ -24,7 +24,7 @@ use clap::{App, Arg};
 use std::path::PathBuf;
 use std::str::FromStr;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use primitives::types::ChainPayload;
+use transaction::ChainPayload;
 use client::{chain_spec, ClientConfig, DEFAULT_LOG_LEVEL, DEFAULT_BASE_PATH};
 
 pub mod service;

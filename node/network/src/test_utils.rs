@@ -27,6 +27,7 @@ use primitives::hash::{CryptoHash, hash_struct};
 use primitives::traits::GenericResult;
 use primitives::types;
 use primitives::signature::get_keypair;
+use transaction::ChainPayload;
 use crate::protocol::{CURRENT_VERSION, ProtocolConfig, Protocol};
 use self::storage::test_utils::create_memory_db;
 
@@ -74,8 +75,8 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     peer_id.to_base58()
 }
 
-pub fn fake_tx_message() -> Message<SignedBeaconBlock, SignedBeaconBlockHeader, types::ChainPayload> {
-    let tx = types::SignedTransaction::empty();
+pub fn fake_tx_message() -> Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> {
+    let tx = transaction::SignedTransaction::empty();
     Message::Transaction(Box::new(tx))
 }
 

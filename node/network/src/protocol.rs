@@ -13,8 +13,9 @@ use crate::message::{self, Message};
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
-    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    AccountId, BlockId, Gossip, UID,
 };
+use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -400,7 +401,7 @@ mod tests {
     use beacon::authority::Authority;
     use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
     use primitives::traits::Encode;
-    use primitives::types::{ChainPayload, SignedTransaction};
+    use transaction::{ChainPayload, SignedTransaction};
     use crate::test_utils::{get_test_authority_config, get_test_protocol};
 
     use super::*;

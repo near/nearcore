@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use node_cli::service;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use primitives::types::ChainPayload;
+use transaction::ChainPayload;
 
 
 #[no_mangle]

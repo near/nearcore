@@ -24,15 +24,16 @@ use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
-    AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
-    ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
-    PromiseId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
-    SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
-    FunctionCallTransaction, AccountingInfo, ManaAccounting, Mana, BlockIndex,
+    AccountId, MerkleHash, ReadablePublicKey,
+    Balance, ShardId, PromiseId,
+    AccountingInfo, ManaAccounting, Mana, BlockIndex,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
 };
+use transaction::{ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
+                  StakeTransaction, SendMoneyTransaction, CreateAccountTransaction, SignedTransaction, TransactionBody,
+                  SwapKeyTransaction, DeployContractTransaction, Transaction, FunctionCallTransaction};
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
@@ -1183,7 +1184,7 @@ mod tests {
     use std::sync::Arc;
 
     use primitives::hash::hash;
-    use primitives::types::{
+    use transaction::{
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody,
     };

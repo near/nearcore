@@ -5,11 +5,9 @@ use futures::sync::mpsc::Sender;
 use beacon::types::BeaconBlockChain;
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Encode;
-use primitives::types::{
-    BlockId, CreateAccountTransaction, DeployContractTransaction,
-    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
-    StakeTransaction, SwapKeyTransaction, TransactionBody,
-};
+use primitives::types::BlockId;
+use transaction::{CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
+                  StakeTransaction, SwapKeyTransaction, TransactionBody};
 use primitives::utils::bs58_vec2str;
 use shard::ShardBlockChain;
 use crate::types::{

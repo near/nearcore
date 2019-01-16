@@ -1,5 +1,6 @@
 use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, BlockId, SignedTransaction, ReceiptTransaction, Gossip};
+use primitives::types::{AccountId, BlockId, Gossip};
+use transaction::{SignedTransaction, ReceiptTransaction};
 
 pub type RequestId = u64;
 

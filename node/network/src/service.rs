@@ -20,7 +20,8 @@ use substrate_network_libp2p::Secret;
 use chain::{SignedBlock, SignedHeader as BlockHeader};
 use crate::message::Message;
 use primitives::traits::Encode;
-use primitives::types::{ChainPayload, UID, Gossip};
+use primitives::types::{UID, Gossip};
+use transaction::ChainPayload;
 use crate::protocol::{self, Protocol, ProtocolConfig};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);

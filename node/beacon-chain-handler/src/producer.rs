@@ -10,7 +10,8 @@ use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use beacon::authority::AuthorityStake;
 use client::{ChainConsensusBlockBody, Client};
-use primitives::types::{ReceiptTransaction, Transaction, UID};
+use primitives::types::UID;
+use transaction::{ReceiptTransaction, Transaction};
 use txflow::txflow_task::{Control, State};
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 

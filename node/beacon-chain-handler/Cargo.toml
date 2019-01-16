@@ -11,6 +11,7 @@ shard = { path = "../../core/shard" }
 chain = { path = "../../core/chain" }
 client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
+transaction = { path = "../../core/transaction" }
 node-runtime = { path = "../runtime" }
 storage = { path = "../../core/storage" }
 parking_lot = "0.6"

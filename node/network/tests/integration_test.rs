@@ -20,7 +20,7 @@ use network::test_utils::{
 };
 use parking_lot::Mutex;
 use primitives::hash::CryptoHash;
-use primitives::types::ChainPayload;
+use transaction::ChainPayload;
 use std::sync::Arc;
 use std::thread;
 use std::time::{self, Duration};

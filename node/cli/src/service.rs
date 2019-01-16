@@ -18,8 +18,9 @@ use node_http::api::HttpApi;
 use node_runtime::{state_viewer::StateDbViewer};
 use primitives::traits::Signer;
 use primitives::types::{
-    AccountId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    AccountId, Gossip, UID,
 };
+use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
 use shard::ShardBlockChain;
 use storage::StateDb;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;

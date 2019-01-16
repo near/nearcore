@@ -7,7 +7,7 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use primitives::hash::hash_struct;
 use primitives::signature::sign;
 use primitives::signer::{get_key_file, write_key_file};
-use primitives::types::{SignedTransaction, TransactionBody};
+use transaction::{SignedTransaction, TransactionBody};
 use std::path::PathBuf;
 use std::process;
 

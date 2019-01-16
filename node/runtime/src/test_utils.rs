@@ -5,7 +5,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use chain::BlockChain;
 use crate::chain_spec::ChainSpec;
 use primitives::signature::{PublicKey, get_keypair};
-use primitives::types::Transaction;
+use transaction::Transaction;
 use shard::SignedShardBlock;
 use crate::state_viewer::StateDbViewer;
 use storage::test_utils::create_memory_db;
