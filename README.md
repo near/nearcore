@@ -48,15 +48,6 @@ It will build the first time and then run:
 cargo run
 ```
 
-### Testing
-
-In order to run tests currently, you must setup the following:
-
-```bash
-# sudo may be required if you are not testing with a python virtual environment
-pip install bson
-```
-
 ### Logging
 
 For runnable apps (devnet, nearcore, etc.), you can use
@@ -85,7 +76,7 @@ DevNet is a development tool that runs WebAssembly and State transition without 
 First, generate key pair (saves a key pair into `keystore` folder to use with `rpc.py`):
 
 ```bash
-cargo run --package keystore -- keygen
+cargo run --package keystore -- keygen --test-seed alice.near
 ```
 
 Then build and run DevNet:

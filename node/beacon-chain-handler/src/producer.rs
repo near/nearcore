@@ -1,17 +1,17 @@
 //! ConsensusHandler consumes consensuses, retrieves the most recent state, computes the new
 //! state, signs it and puts in on the BeaconChain.
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use futures::{future, Future, Sink, stream, Stream};
 use futures::sync::mpsc::{Receiver, Sender};
-use futures::{future, stream, Future, Sink, Stream};
 
+use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
-use beacon::authority::AuthorityStake;
 use client::{ChainConsensusBlockBody, Client};
 use primitives::types::UID;
-use transaction::{ReceiptTransaction, Transaction};
+use transaction::Transaction;
 use txflow::txflow_task::{Control, State};
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 
@@ -19,7 +19,7 @@ pub fn spawn_block_producer(
     client: Arc<Client>,
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<SignedBeaconBlock>,
-    new_receipts_tx: Sender<ReceiptTransaction>,
+    new_receipts_tx: Sender<Transaction>,
     authority_tx: Sender<HashMap<UID, AuthorityStake>>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
@@ -39,25 +39,17 @@ pub fn spawn_block_producer(
 
                 // Redirect the receipts from the previous block for processing in the next one.
                 tokio::spawn({
-                    let receipts: Vec<_> = new_shard_block
-                        .body
-                        .new_receipts
-                        .iter()
-                        .filter_map(|t| match t {
-                            Transaction::Receipt(r) => Some(r.clone()),
-                            Transaction::SignedTransaction(_) => panic!("new_receipts field should contain receipts only.")
-                        })
-                        .collect();
                     new_receipts_tx
                         .clone()
-                        .send_all(stream::iter_ok(receipts))
+                        .send_all(stream::iter_ok(new_shard_block.body.new_receipts.to_vec()))
                         .map(|_| ())
                         .map_err(|e| error!("Error sending receipts: {}", e))
                 });
 
                 // Take care of changed authorities.
                 // Notify the network about the new set of UID -> AccountId.
-                let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(new_block.header().index());
+                let (owner_uid, uid_to_authority_map) =
+                    client.get_uid_to_authority_map(new_block.header().index());
                 tokio::spawn({
                     authority_tx
                         .clone()
@@ -78,7 +70,8 @@ pub fn spawn_block_producer(
                             starting_epoch: 0,
                             gossip_size: 1, // TODO: Use adaptive gossip size.
                             witness_selector,
-                        })}
+                        })
+                    }
                 };
                 tokio::spawn({
                     control_tx

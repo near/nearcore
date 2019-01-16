@@ -7,29 +7,29 @@ use futures::future;
 use futures::sync::mpsc::{channel, Receiver, Sender};
 use parking_lot::Mutex;
 
-use beacon::authority::AuthorityStake;
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use beacon_chain_handler;
 use crate::chain_spec;
-use client::{Client, ClientConfig, ChainConsensusBlockBody};
-use consensus::adapters;
+use beacon::authority::AuthorityStake;
+use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use beacon_chain_handler;
+use client::{Client, ClientConfig};
+use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
-use node_runtime::{state_viewer::StateDbViewer};
+use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Signer;
 use primitives::types::{
     AccountId, Gossip, UID,
 };
-use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
+use transaction::{ChainPayload, Transaction};
 use shard::ShardBlockChain;
 use storage::StateDb;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use txflow::txflow_task::Control;
+use txflow::txflow_task;
+use std::time::Duration;
 
 const NETWORK_CONFIG_PATH: &str = "storage";
 
 fn spawn_rpc_server_task(
-    transactions_tx: Sender<SignedTransaction>,
+    transactions_tx: Sender<Transaction>,
     rpc_port: Option<u16>,
     shard_chain: &Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
@@ -51,8 +51,7 @@ fn spawn_network_tasks(
     test_network_key_seed: Option<u32>,
     beacon_chain: Arc<BeaconBlockChain>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
-    transactions_tx: Sender<SignedTransaction>,
-    receipts_tx: Sender<ReceiptTransaction>,
+    transactions_tx: Sender<Transaction>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     beacon_block_rx: Receiver<SignedBeaconBlock>,
@@ -60,12 +59,11 @@ fn spawn_network_tasks(
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::new_with_default_id(account_id);
-    let protocol = Protocol::<_, SignedBeaconBlockHeader>::new(
+    let protocol = Protocol::new(
         protocol_config.clone(),
         beacon_chain,
         beacon_block_tx,
         transactions_tx,
-        receipts_tx,
         net_messages_tx.clone(),
         inc_gossip_tx,
     );
@@ -92,7 +90,6 @@ fn spawn_network_tasks(
     );
 }
 
-
 pub const DEFAULT_P2P_PORT: u16 = 30333;
 pub const DEFAULT_RPC_PORT: u16 = 3030;
 
@@ -116,21 +113,24 @@ impl Default for NetworkConfig {
     }
 }
 
-pub fn start_service<S>(network_cfg: NetworkConfig,
-                        client_cfg: ClientConfig,
-                        spawn_consensus_task_fn: S)
-where
-    S: Fn(
-            Receiver<Gossip<ChainPayload>>,
-            Receiver<ChainPayload>,
-            Sender<Gossip<ChainPayload>>,
-            Receiver<Control<BeaconWitnessSelector>>,
-            Sender<ChainConsensusBlockBody>,
-        ) -> ()
-        + Send
-        + Sync
-        + 'static,
-{
+pub struct DevNetConfig {
+    /// how often devnet produces blocks
+    pub block_period: Duration
+}
+
+impl Default for DevNetConfig {
+    fn default() -> Self {
+        DevNetConfig {
+            block_period: Duration::from_millis(100)
+        }
+    }
+}
+
+pub fn start_service(
+    network_cfg: NetworkConfig,
+    client_cfg: ClientConfig,
+    devnet_cfg: Option<DevNetConfig>,
+) {
     let chain_spec = chain_spec::read_or_default_chain_spec(&client_cfg.chain_spec_path);
     let boot_nodes = if chain_spec.boot_nodes.is_empty() {
         network_cfg.boot_nodes.clone()
@@ -166,14 +166,13 @@ where
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
-        let (receipts_tx, receipts_rx) = channel(1024);
         beacon_chain_handler::producer::spawn_block_producer(
             client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,
-            receipts_tx.clone(),
+            transactions_tx.clone(),
             authority_tx,
-            consensus_control_tx
+            consensus_control_tx,
         );
 
         // Create task that can import beacon chain blocks from other peers.
@@ -194,7 +193,6 @@ where
             client.beacon_chain.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),
-            receipts_tx.clone(),
             inc_gossip_tx.clone(),
             out_gossip_rx,
             beacon_block_announce_rx,
@@ -203,16 +201,24 @@ where
 
         // Spawn consensus tasks.
         let (payload_tx, payload_rx) = channel(1024);
-        adapters::signed_transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
-        adapters::receipt_transaction_to_payload::spawn_task(receipts_rx, payload_tx.clone());
+        adapters::transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
 
-        spawn_consensus_task_fn(
-            inc_gossip_rx,
-            payload_rx,
-            out_gossip_tx,
-            consensus_control_rx,
-            beacon_block_consensus_body_tx,
-        );
+        if let Some(devnet_cfg) = devnet_cfg {
+            passthrough::spawn_consensus(
+                payload_rx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx,
+                devnet_cfg.block_period,
+            );
+        } else {
+            txflow_task::spawn_task(
+                inc_gossip_rx,
+                payload_rx,
+                out_gossip_tx,
+                consensus_control_rx,
+                beacon_block_consensus_body_tx
+            );
+        }
         Ok(())
     }));
 }

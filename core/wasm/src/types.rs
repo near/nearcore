@@ -250,7 +250,7 @@ impl Default for Config {
             return_data_per_byte_cost: 1,
             max_stack_height: 64 * 1024,
             max_memory_pages: 32,
-            gas_limit: 128 * 1024,
+            gas_limit: 1024 * 1024,
         }
     }
 }

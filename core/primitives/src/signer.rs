@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process;
 
 use crate::hash;
-use crate::signature;
+use crate::signature::{self, PublicKey, SecretKey, get_key_pair};
 use crate::traits;
 use crate::types;
 
@@ -15,12 +15,15 @@ pub struct KeyFile {
     pub secret_key: signature::SecretKey,
 }
 
-pub fn write_key_file(key_store_path: &Path) -> String {
+pub fn write_key_file(
+    key_store_path: &Path,
+    public_key: PublicKey,
+    secret_key: SecretKey,
+) -> String {
     if !key_store_path.exists() {
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let (public_key, secret_key) = signature::get_keypair();
     let key_file = KeyFile { public_key, secret_key };
     let key_file_path = key_store_path.join(Path::new(&public_key.to_string()));
     let serialized = serde_json::to_string(&key_file).unwrap();
@@ -54,7 +57,8 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 
 pub fn get_or_create_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFile {
     if !key_store_path.exists() {
-        let new_public_key = write_key_file(key_store_path);
+        let (public_key, secret_key) = get_key_pair();
+        let new_public_key = write_key_file(key_store_path, public_key, secret_key);
         get_key_file(key_store_path, Some(new_public_key))
     } else {
         get_key_file(key_store_path, public_key)
@@ -80,7 +84,7 @@ impl InMemorySigner {
 
 impl Default for InMemorySigner {
     fn default() -> Self {
-        let (public_key, secret_key) = signature::get_keypair();
+        let (public_key, secret_key) = signature::get_key_pair();
         InMemorySigner { account_id: "alice".to_string(), public_key, secret_key }
     }
 }

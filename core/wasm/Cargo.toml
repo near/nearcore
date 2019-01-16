@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 wasmi = { version = "0.4.1" }
-pwasm-utils = "0.6.0"
+pwasm-utils = "0.6.2"
 parity-wasm = "0.31"
 log = "0.4"
 

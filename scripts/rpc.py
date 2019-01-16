@@ -15,11 +15,12 @@ except ImportError:
     from urllib.request import urlopen, Request
     from urllib.error import HTTPError, URLError
 
+
 # Data is empty string instead of None because method is
 # defined by whether or not data is None and cannot be
 # specified otherwise in py2
-def _post(url, data=""):
-    if data != "":
+def _post(url, data=''):
+    if data != '':
         data = json.dumps(data).encode('utf-8')
 
     request = Request(url, data=data)

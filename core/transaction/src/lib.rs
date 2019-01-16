@@ -4,10 +4,10 @@ extern crate serde_derive;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use primitives::traits::Payload;
 use primitives::hash::{CryptoHash, hash_struct};
-use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{AccountId, AccountingInfo, CallbackId, Balance, Mana, ManaAccounting, StructSignature};
+use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, verify};
+use primitives::traits::Payload;
+use primitives::types::{AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, StructSignature};
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
@@ -350,5 +350,39 @@ impl Payload for ChainPayload {
         Self {
             body: vec![]
         }
+    }
+}
+
+pub fn verify_transaction_signature(
+    transaction: &SignedTransaction,
+    public_keys: &Vec<PublicKey>,
+) -> bool {
+    let hash = transaction.transaction_hash();
+    let hash = hash.as_ref();
+    public_keys.iter().any(|key| {
+        verify(&hash, &transaction.signature, &key)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use primitives::signature::{get_key_pair, sign};
+
+    use super::*;
+
+    #[test]
+    fn test_verify_transaction() {
+        let (public_key, private_key) = get_key_pair();
+        let mut transaction = SignedTransaction::empty();
+        transaction.signature = sign(
+            &transaction.transaction_hash().as_ref(),
+            &private_key,
+        );
+        let (wrong_public_key, _) = get_key_pair();
+        let valid_keys = vec![public_key, wrong_public_key];
+        assert!(verify_transaction_signature(&transaction, &valid_keys));
+
+        let invalid_keys = vec![wrong_public_key];
+        assert!(!verify_transaction_signature(&transaction, &invalid_keys));
     }
 }
