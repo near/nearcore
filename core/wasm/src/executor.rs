@@ -54,6 +54,12 @@ pub fn execute<'a, 'b>(
         config.gas_limit,
     );
 
+    match method_name.get(0) {
+        Some(b'_') => return Err(Error::PrivateMethod),
+        None => return Err(Error::EmptyMethodName),
+        _ => (),
+    };
+
     // All public functions should start with `PUBLIC_FUNCTION_PREFIX` in WASM.
     let method_name = format!("{}{}", PUBLIC_FUNCTION_PREFIX, std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?);
 
