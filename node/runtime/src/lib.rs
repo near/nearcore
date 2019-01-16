@@ -963,8 +963,8 @@ impl Runtime {
         };
         if mana_accounting.mana_refund > 0 || mana_accounting.gas_used > 0 {
             let new_receipt = ReceiptTransaction::new(
-                mana_accounting.accounting_info.originator.clone(),
                 receipt.receiver.clone(),
+                mana_accounting.accounting_info.originator.clone(),
                 create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                 ReceiptBody::ManaAccounting(mana_accounting),
             );
@@ -1187,7 +1187,7 @@ mod tests {
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody,
     };
-    use primitives::signature::{DEFAULT_SIGNATURE, get_keypair, sign};
+    use primitives::signature::{DEFAULT_SIGNATURE, get_key_pair, sign};
     use crate::state_viewer::AccountViewCallResult;
     use storage::test_utils::create_state_db;
     use crate::test_utils::*;
@@ -1318,7 +1318,7 @@ mod tests {
     fn test_upload_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key, _) = get_keypair();
+        let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: 1,
@@ -1526,7 +1526,7 @@ mod tests {
     fn test_create_account() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key, _) = get_keypair();
+        let (pub_key, _) = get_key_pair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1574,7 +1574,7 @@ mod tests {
     fn test_create_account_failure_invalid_name() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key, _) = get_keypair();
+        let (pub_key, _) = get_key_pair();
         for invalid_account_name in vec![
                 "eve", // too short
                 "Alice.near", // capital letter
@@ -1619,7 +1619,7 @@ mod tests {
     fn test_create_account_failure_already_exists() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key, _) = get_keypair();
+        let (pub_key, _) = get_key_pair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1667,8 +1667,8 @@ mod tests {
     fn test_swap_key() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key1, secret_key1) = get_keypair();
-        let (pub_key2, _) = get_keypair();
+        let (pub_key1, secret_key1) = get_key_pair();
+        let (pub_key2, _) = get_key_pair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1812,7 +1812,7 @@ mod tests {
             vec![],
             0,
             0,
-            accounting_info,
+            accounting_info.clone(),
         );
         let callback_info = CallbackInfo::new(callback_id.clone(), 0, alice_account());
         async_call.callback = Some(callback_info.clone());
@@ -1833,7 +1833,7 @@ mod tests {
             block_index,
             &mut logs,
         ).unwrap();
-        assert_eq!(new_receipts.len(), 1);
+        assert_eq!(new_receipts.len(), 2);
         if let Transaction::Receipt(new_receipt) = &new_receipts[0] {
             assert_eq!(new_receipt.originator, bob_account());
             assert_eq!(new_receipt.receiver, alice_account());
@@ -1844,7 +1844,19 @@ mod tests {
         } else {
             assert!(false);
         }
-
+        if let Transaction::Receipt(new_receipt) = &new_receipts[1] {
+            assert_eq!(new_receipt.originator, bob_account());
+            assert_eq!(new_receipt.receiver, alice_account());
+            if let ReceiptBody::ManaAccounting(ref mana_accounting) = new_receipt.body {
+                assert_eq!(mana_accounting.mana_refund, 0);
+                assert!(mana_accounting.gas_used > 0);
+                assert_eq!(mana_accounting.accounting_info, accounting_info);
+            } else {
+                assert!(false);
+            }
+        } else {
+            assert!(false);
+        }
     }
 
     #[test]
@@ -1949,7 +1961,7 @@ mod tests {
     fn test_nonce_update_when_deploying_contract() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
-        let (pub_key, _) = get_keypair();
+        let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: 1,
@@ -1980,7 +1992,7 @@ mod tests {
     #[test]
     fn test_100_accounts() {
         let mut chain_spec = generate_test_chain_spec();
-        let public_key = get_keypair().0;
+        let public_key = get_key_pair().0;
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }

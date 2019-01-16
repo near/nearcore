@@ -15,8 +15,9 @@ class SimpleKeyStoreSigner {
      * @param {Buffer} message 
      * @param {string} senderAccountId 
      */
-    async signTransaction(message, senderAccountId) {
+    async signTransaction(hash, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
+        const message = bs58.decode(hash);
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(message, key)];
         return signature;

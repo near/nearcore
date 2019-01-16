@@ -3,8 +3,8 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use crate::chain_spec::ChainSpec;
-use primitives::signature::{PublicKey, get_keypair};
 use primitives::types::Transaction;
+use primitives::test_utils::get_key_pair_from_seed;
 use shard::SignedShardBlock;
 use crate::state_viewer::StateDbViewer;
 use storage::test_utils::create_memory_db;
@@ -14,14 +14,13 @@ use shard::ShardBlockChain;
 
 pub fn generate_test_chain_spec() -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let public_keys: Vec<PublicKey> = (0..3).map(|_| get_keypair().0).collect();
     ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), public_keys[0].to_string(), 100, 10),
-            ("bob.near".to_string(), public_keys[1].to_string(), 0, 10),
-            ("system".to_string(), public_keys[2].to_string(), 0, 0),
+            ("alice.near".to_string(), get_key_pair_from_seed("alice.near").0.to_string(), 100, 10),
+            ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_string(), 0, 10),
+            ("system".to_string(), get_key_pair_from_seed("system").0.to_string(), 0, 0),
         ],
-        initial_authorities: vec![("alice.near".to_string(), public_keys[0].to_string(), 50)],
+        initial_authorities: vec![("alice.near".to_string(), get_key_pair_from_seed("alice.near").0.to_string(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,

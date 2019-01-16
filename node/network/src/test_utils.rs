@@ -26,7 +26,7 @@ use beacon::authority::{AuthorityConfig, AuthorityStake};
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::get_keypair;
+use primitives::signature::get_key_pair;
 use primitives::traits::GenericResult;
 use primitives::types;
 
@@ -119,7 +119,7 @@ pub fn get_test_authority_config(
 ) -> AuthorityConfig {
     let mut initial_authorities = vec![];
     for i in 0..num_authorities {
-        let (public_key, _) = get_keypair();
+        let (public_key, _) = get_key_pair();
         initial_authorities.push(AuthorityStake {
             account_id: i.to_string(),
             public_key,
