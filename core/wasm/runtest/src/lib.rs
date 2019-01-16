@@ -97,13 +97,14 @@ mod tests {
     
     use super::*;
 
-    fn run(
+    fn run_with_filename(
         method_name: &[u8],
         input_data: &[u8],
         result_data: &[Option<Vec<u8>>],
         context: &RuntimeContext,
+        filename: &str,
     ) -> Result<ExecutionOutcome, Error> {
-        let wasm_binary = fs::read("res/wasm_with_mem.wasm").expect("Unable to read file");
+        let wasm_binary = fs::read(filename).expect("Unable to read file");
 
         let mut ext = MyExt::default();
         let config = Config::default();
@@ -116,6 +117,21 @@ mod tests {
             &mut ext,
             &config,
             &context,
+        )
+    }
+
+    fn run(
+        method_name: &[u8],
+        input_data: &[u8],
+        result_data: &[Option<Vec<u8>>],
+        context: &RuntimeContext,
+    ) -> Result<ExecutionOutcome, Error> {
+        run_with_filename(
+            method_name,
+            input_data,
+            result_data,
+            context,
+            "res/wasm_with_mem.wasm",
         )
     }
 
@@ -290,6 +306,27 @@ mod tests {
             _ => assert!(false, "Expected returned value"),
         };
     }
+
+    #[test]
+    fn test_studio_total_supply()  {
+        let input_data = b"{}";
+
+        let outcome = run_with_filename(
+            b"totalSupply",
+            input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+            "res/studio.wasm",
+        ).expect("ok");
+
+        println!("Gas used for simple call {}", outcome.gas_used);
+
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"{\"result\":\"1000000\"}"),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
 
     #[test]
     fn test_get_gas()  {
