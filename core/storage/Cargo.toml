@@ -9,7 +9,7 @@ serde = "1.0"
 serde_derive = "1.0"
 parity-rocksdb = "0.5"
 bincode = "1.0.0"
-parking_lot = "0.6"
+parking_lot = "0.7.1"
 byteorder = "1.2"
 elastic-array = { version = "0.10" }
 log = "0.4"
