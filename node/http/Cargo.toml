@@ -16,3 +16,4 @@ node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }
 shard = { path = "../../core/shard" }
+client = { path = "../../node/client" }

@@ -14,6 +14,7 @@ use shard::{ShardBlockChain, SignedShardBlock};
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
 use node_runtime::test_utils::generate_test_chain_spec;
+use node_runtime::state_viewer::StateDbViewer;
 
 /// Implements dummy client for testing. The differences with the real client:
 /// * It does not do the correct signing;
@@ -21,7 +22,7 @@ use node_runtime::test_utils::generate_test_chain_spec;
 pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Client {
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
-    let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
+    let runtime = RwLock::new(Runtime::new(state_db.clone()));
     let genesis_root = runtime.write().apply_genesis_state(
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
@@ -31,11 +32,12 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
     let shard_genesis = SignedShardBlock::genesis(genesis_root);
     let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
     let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
-    let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
+    let beacon_chain = BeaconBlockChain::new(genesis, storage.clone());
 
     let authority_config = get_authority_config(&chain_spec);
-    let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
+    let authority = RwLock::new(Authority::new(authority_config, &beacon_chain));
 
+    let statedb_viewer = StateDbViewer::new(shard_chain.clone(), state_db.clone());
     Client {
         account_id: signer.account_id.clone(),
         state_db,
@@ -43,7 +45,8 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
         runtime,
         shard_chain,
         beacon_chain,
-        signer: Arc::new(signer),
+        signer,
+        statedb_viewer,
         pending_beacon_blocks: RwLock::new(HashMap::new()),
         pending_shard_blocks: RwLock::new(HashMap::new()),
     }

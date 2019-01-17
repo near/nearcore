@@ -9,20 +9,17 @@ use parking_lot::Mutex;
 
 use crate::chain_spec;
 use beacon::authority::AuthorityStake;
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use beacon::types::SignedBeaconBlock;
 use beacon_chain_handler;
 use client::{Client, ClientConfig};
 use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
-use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Signer;
 use primitives::types::{
     AccountId, Gossip, UID,
 };
 use transaction::{ChainPayload, Transaction};
-use shard::ShardBlockChain;
-use storage::StateDb;
 use txflow::txflow_task;
 use std::time::Duration;
 
@@ -31,15 +28,11 @@ const NETWORK_CONFIG_PATH: &str = "storage";
 fn spawn_rpc_server_task(
     transactions_tx: Sender<Transaction>,
     rpc_port: Option<u16>,
-    shard_chain: &Arc<ShardBlockChain>,
-    state_db: Arc<StateDb>,
-    beacon_chain: Arc<BeaconBlockChain>,
+    client: Arc<Client>,
 ) {
-    let state_db_viewer = StateDbViewer::new(shard_chain.clone(), state_db);
     let rpc_port = rpc_port.unwrap_or(DEFAULT_P2P_PORT);
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_port));
-    let http_api =
-        HttpApi::new(state_db_viewer, transactions_tx, beacon_chain, shard_chain.clone());
+    let http_api = HttpApi::new(client, transactions_tx);
     node_http::server::spawn_server(http_api, http_addr);
 }
 
@@ -150,9 +143,7 @@ pub fn start_service(
         spawn_rpc_server_task(
             transactions_tx.clone(),
             Some(network_cfg.rpc_port),
-            &client.shard_chain,
-            client.state_db.clone(),
-            client.beacon_chain.clone(),
+            client.clone(),
         );
 
         // Create a task that receives new blocks from importer/producer

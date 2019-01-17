@@ -1711,6 +1711,7 @@ name = "node-http"
 version = "0.1.0"
 dependencies = [
  "beacon 0.0.1",
+ "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.12.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
