@@ -21,7 +21,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use beacon::authority::AuthorityStake;
 use crate::ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{PublicKey, Signature, verify};
+use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountId, MerkleHash, ReadablePublicKey,
@@ -293,15 +293,9 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         body: &SwapKeyTransaction,
-        signature: &Signature,
-        data: &[u8],
         account: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
-        // TODO: verify signature
         let cur_key = Decode::decode(&body.cur_key).map_err(|_| "cannot decode public key")?;
-        if !verify(data, signature, &cur_key) {
-            return Err("Invalid signature. Cannot swap key".to_string());
-        }
         let new_key = Decode::decode(&body.new_key).map_err(|_| "cannot decode public key")?;
         let num_keys = account.public_keys.len();
         account.public_keys.retain(|&x| x != cur_key);
@@ -463,13 +457,9 @@ impl Runtime {
                         )
                     },
                     TransactionBody::SwapKey(ref t) => {
-                        // this is super redundant. need to change when we add signature checks
-                        let data = transaction.body.encode().map_err(|_| "cannot encode body")?;
                         self.swap_key(
                             state_update,
                             t,
-                            &transaction.signature,
-                            &data,
                             &mut sender,
                         )
                     }

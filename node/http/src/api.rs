@@ -6,19 +6,22 @@ use primitives::hash::hash_struct;
 use primitives::traits::Encode;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
-use transaction::{CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
-                  StakeTransaction, SwapKeyTransaction, Transaction, TransactionBody, verify_transaction_signature};
+use transaction::{
+    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
+    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
+    Transaction, TransactionBody, verify_transaction_signature,
+};
 
 use client::Client;
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, GetTransactionStatusRequest,
+    GetBlocksByIndexRequest, GetTransactionRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
     SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
     SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
-    SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
-    ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    SwapKeyRequest, TransactionInfoResponse, TransactionStatusResponse,
+    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
 pub struct HttpApi {
@@ -34,6 +37,7 @@ impl HttpApi {
 
 pub enum RPCError {
     BadRequest(String),
+    NotFound,
     ServiceUnavailable(String),
 }
 
@@ -224,9 +228,24 @@ impl HttpApi {
         })
     }
 
+    pub fn get_transaction_info(
+        &self,
+        r: &GetTransactionRequest,
+    ) -> Result<TransactionInfoResponse, RPCError> {
+        match self.client.shard_chain.get_transaction_info(&r.hash) {
+            Some(info) => Ok(TransactionInfoResponse {
+                transaction: info.transaction.into(),
+                block_index: info.block_index,
+                status: info.status
+            }),
+            None => Err(RPCError::NotFound),
+        }
+
+    }
+
     pub fn get_transaction_status(
         &self,
-        r: &GetTransactionStatusRequest,
+        r: &GetTransactionRequest,
     ) -> Result<TransactionStatusResponse, ()> {
         let status = self.client.shard_chain.get_transaction_status(&r.hash);
         Ok(TransactionStatusResponse { status })

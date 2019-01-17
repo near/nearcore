@@ -11,10 +11,11 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+use chain::{SignedBlock, SignedHeader};
 use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
 use storage::{extend_with_cache, read_with_cache};
-use transaction::Transaction;
+use transaction::{SignedTransaction, Transaction};
 
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 
@@ -50,6 +51,13 @@ pub enum TransactionStatus {
     Unknown,
     Started,
     Completed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct SignedTransactionInfo {
+    pub transaction: SignedTransaction,
+    pub block_index: u64,
+    pub status: TransactionStatus,
 }
 
 pub struct ShardBlockChain {
@@ -120,6 +128,35 @@ impl ShardBlockChain {
         match self.get_transaction_address(&hash) {
             Some(a) => self.get_transaction_status_from_address(hash, &a),
             None => TransactionStatus::Unknown,
+        }
+    }
+
+    pub fn get_transaction_info(
+        &self,
+        hash: &CryptoHash,
+    ) -> Option<SignedTransactionInfo> {
+        match self.get_transaction_address(&hash) {
+            Some(address) => {
+                let block_id = BlockId::Hash(address.block_hash);
+                let block = self.chain.get_block(&block_id)
+                    .expect("transaction address points to non-existent block");
+                let transaction = block.body.transactions.get(address.index)
+                    .expect("transaction address points to invalid index inside block");
+                match transaction {
+                    Transaction::SignedTransaction(transaction) => {
+                        let status = self.is_transaction_complete(&hash, &block);
+                        Some(SignedTransactionInfo {
+                            transaction: transaction.clone(),
+                            block_index: block.header().index(),
+                            status,
+                        })
+                    }
+                    Transaction::Receipt(_) => {
+                        unreachable!("receipts should not have transaction addresses")
+                    }
+                }
+            },
+            None => None,
         }
     }
 
