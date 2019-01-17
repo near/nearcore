@@ -18,6 +18,7 @@ sha2 = "0.8.0"
 serde_json = "1.0"
 pairing = { git = "https://github.com/mmaker/pairing.git", rev = "a3bbecefe6c5d2f15c7126ea8b84930053929f20" }
 rand = "0.4"
+protobuf = "2.2.4"
 
 [dev-dependencies]
 serde_json = "1.0"

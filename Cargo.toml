@@ -23,7 +23,7 @@ txflow = { path = "./core/txflow" }
 client = { path = "./node/client" }
 
 [build-dependencies]
-protoc-rust = "2.0"
+protoc-rust = "2.2.4"
 
 [workspace]
 members = [

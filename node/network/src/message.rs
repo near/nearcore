@@ -1,36 +1,55 @@
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, BlockId, Gossip};
-use transaction::{SignedTransaction, ReceiptTransaction, ChainPayload};
+use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
+use primitives::types::{BlockId, Gossip};
+use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
+
+use near_protos::message as message_proto;
 
 pub type RequestId = u64;
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Message {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
     Transaction(Box<SignedTransaction>),
     Receipt(Box<ReceiptTransaction>),
-    Status(Status),
+    Status(message_proto::Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<SignedBeaconBlock>),
     BlockAnnounce(BlockAnnounce<SignedBeaconBlock, SignedBeaconBlockHeader>),
     Gossip(Box<Gossip<ChainPayload>>),
 }
 
-/// status sent on connection
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Status {
-    /// Protocol version.
-    pub version: u32,
-    /// Best block index.
-    pub best_index: u64,
-    /// Best block hash.
-    pub best_hash: CryptoHash,
-    /// Genesis hash.
-    pub genesis_hash: CryptoHash,
-    /// Account id.
-    pub account_id: Option<AccountId>,
+impl Encode for Message {
+    fn encode(&self) -> EncodeResult {
+        let mut m = message_proto::Message::new();
+        match &self {
+            Message::Transaction(t) => m.set_transaction(t.encode()?),
+            Message::Receipt(t) => m.set_receipt(t.encode()?),
+            Message::Status(status) => m.set_status(status.clone()),
+            Message::BlockRequest(req) => m.set_block_request(req.encode()?),
+            Message::BlockResponse(res) => m.set_block_response(res.encode()?),
+            Message::BlockAnnounce(ann) => m.set_block_announce(ann.encode()?),
+            Message::Gossip(gossip) => m.set_gossip(gossip.encode()?),
+        };
+        Ok(near_protos::encode(&m)?)
+    }
+}
+
+impl Decode for Message {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: message_proto::Message = near_protos::decode(bytes)?;
+        match m.message_type {
+            Some(message_proto::Message_oneof_message_type::transaction(t)) => Ok(Message::Transaction(Box::new(Decode::decode(&t)?))),
+            Some(message_proto::Message_oneof_message_type::receipt(t)) => Ok(Message::Receipt(Box::new(Decode::decode(&t)?))),
+            Some(message_proto::Message_oneof_message_type::status(status)) => Ok(Message::Status(status)),
+            Some(message_proto::Message_oneof_message_type::block_request(x)) => Ok(Message::BlockRequest(Decode::decode(&x)?)),
+            Some(message_proto::Message_oneof_message_type::block_response(x)) => Ok(Message::BlockResponse(Decode::decode(&x)?)),
+            Some(message_proto::Message_oneof_message_type::block_announce(x)) => Ok(Message::BlockAnnounce(Decode::decode(&x)?)),
+            Some(message_proto::Message_oneof_message_type::gossip(x)) => Ok(Message::Gossip(Decode::decode(&x)?)),
+            _ => Err("Found unknown type or empty Message at deserialization".to_string())
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

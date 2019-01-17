@@ -1,19 +1,19 @@
-use std::fs::rename;
 use protoc_rust::Customize;
+
+const PROTO_OUTPUT_DIR: &str = "core/protos/src";
 
 fn main() {
     let proto_files = [
-        ("message.proto", "node/network/src/message_proto.rs")];
-    for (input_file, out_name) in proto_files.iter() {
+        "message.proto", "transaction.proto"];
+    for input_file in proto_files.iter() {
         protoc_rust::run(protoc_rust::Args {
-            out_dir: "protos",
+            out_dir: PROTO_OUTPUT_DIR,
             input: &[&format!("protos/{}", input_file)],
             includes: &["protos"],
             customize: Customize {
+                expose_oneof: Some(true),
                 ..Default::default()
             },
         }).expect("protoc");
-        let prefix = &input_file[..input_file.len() - 6];
-        rename(format!("protos/{}.rs", prefix), out_name).expect("Failed to move the file");
     }
 }

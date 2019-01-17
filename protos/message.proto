@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "transaction.proto";
+
 message Status {
     uint32 version = 1;
     uint64 best_index = 2;
@@ -8,12 +10,14 @@ message Status {
     string account_id = 5;
 }
 
-enum MessageType {
-    TRANSACTION = 0;
-    RECEIPT = 1;
-    STATUS = 2;
-    BLOCK_REQUEST = 3;
-    BLOCK_RESPONSE = 4;
-    BLOKC_ANNOUNCE = 5;
-    GOSSIP = 6;
+message Message {
+    oneof message_type {
+        bytes transaction = 1;
+        bytes receipt = 2;
+        Status status = 3;
+        bytes block_request = 4;
+        bytes block_response = 5;
+        bytes block_announce = 6;
+        bytes gossip = 7;
+    }
 }

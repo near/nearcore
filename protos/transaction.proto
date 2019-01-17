@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+
+message Transaction {
+    string originator = 1;
+    string destination = 2;
+    // TODO: figure out how to represent uint128
+    uint64 amount = 3;
+    uint64 nonce = 4;
+    string method_name = 5;
+    bytes args = 6;
+    bytes signature = 7;
+}
