@@ -11,7 +11,6 @@ use crate::types::{
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use client::Client;
-use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::hash_struct;
 use primitives::signature::verify_transaction_signature;
 use primitives::traits::Encode;
@@ -122,8 +121,7 @@ impl HttpApi {
 
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
-        match StateDbViewer::new(self.client.shard_chain.clone(), self.client.state_db.clone())
-            .view_account(&r.account_id)
+        match self.client.statedb_viewer.view_account(&r.account_id)
         {
             Ok(r) => Ok(ViewAccountResponse {
                 account_id: r.account,
@@ -146,8 +144,7 @@ impl HttpApi {
             r.contract_account_id,
             r.method_name,
         );
-        match StateDbViewer::new(self.client.shard_chain.clone(), self.client.state_db.clone())
-            .call_function(&r.originator, &r.contract_account_id, &r.method_name, &r.args)
+        match self.client.statedb_viewer.call_function(&r.originator, &r.contract_account_id, &r.method_name, &r.args)
         {
             Ok(result) => Ok(CallViewFunctionResponse { result }),
             Err(e) => Err(e.to_string()),
@@ -160,8 +157,7 @@ impl HttpApi {
     ) -> Result<SubmitTransactionResponse, RPCError> {
         debug!(target: "near-rpc", "Received transaction {:?}", r);
         let originator = r.body.get_originator();
-        let public_keys =
-            StateDbViewer::new(self.client.shard_chain.clone(), self.client.state_db.clone())
+        let public_keys = self.client.statedb_viewer
                 .get_public_keys_for_account(&originator)
                 .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&r.clone(), &public_keys) {
@@ -180,7 +176,7 @@ impl HttpApi {
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
         let result =
-            StateDbViewer::new(self.client.shard_chain.clone(), self.client.state_db.clone())
+        self.client.statedb_viewer
                 .view_state(&r.contract_account_id);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),

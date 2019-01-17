@@ -14,6 +14,7 @@ use shard::{ShardBlockChain, SignedShardBlock};
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
 use node_runtime::test_utils::generate_test_chain_spec;
+use node_runtime::state_viewer::StateDbViewer;
 
 /// Implements dummy clien for testing. The differences with the real client:
 /// * It does not do the correct signing;
@@ -36,6 +37,7 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
     let authority_config = get_authority_config(&chain_spec);
     let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
 
+    let statedb_viewer = StateDbViewer::new(shard_chain.clone(), state_db.clone());
     Client {
         account_id: signer.account_id.clone(),
         state_db,
@@ -44,6 +46,7 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
         shard_chain,
         beacon_chain,
         signer: Arc::new(signer),
+        statedb_viewer,
         pending_beacon_blocks: RwLock::new(HashMap::new()),
         pending_shard_blocks: RwLock::new(HashMap::new()),
     }

@@ -32,6 +32,7 @@ use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader
 use chain::SignedBlock;
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
+use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
@@ -57,6 +58,7 @@ pub struct Client {
     pub shard_chain: Arc<ShardBlockChain>,
     pub beacon_chain: Arc<BeaconBlockChain>,
     pub signer: Arc<InMemorySigner>,
+    pub statedb_viewer: StateDbViewer,
 
     // TODO: The following logic might need to be hidden somewhere.
     /// Stores blocks that cannot be added yet.
@@ -137,6 +139,7 @@ impl Client {
         let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
 
         configure_logging(config.log_level);
+        let statedb_viewer = StateDbViewer::new(shard_chain.clone(), state_db.clone());
 
         Self {
             account_id: config.account_id.clone(),
@@ -146,6 +149,7 @@ impl Client {
             shard_chain,
             beacon_chain,
             signer,
+            statedb_viewer,
             pending_beacon_blocks: RwLock::new(HashMap::new()),
             pending_shard_blocks: RwLock::new(HashMap::new()),
         }
