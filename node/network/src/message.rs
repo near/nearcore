@@ -1,8 +1,7 @@
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::hash::CryptoHash;
-use primitives::types::{
-    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction,
-};
+use primitives::types::{AccountId, BlockId, Gossip};
+use transaction::{SignedTransaction, ReceiptTransaction, ChainPayload};
 
 pub type RequestId = u64;
 

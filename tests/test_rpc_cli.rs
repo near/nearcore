@@ -29,6 +29,7 @@ use primitives::test_utils::get_key_pair_from_seed;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
+const WASM_PATH: &str = "./tests/hello";
 const WAIT_FOR_RETRY: u64 = 500;
 const MAX_WAIT_FOR_RETRY: u32 = 5;
 
@@ -38,6 +39,12 @@ fn test_service_ready() -> bool {
     if base_path.exists() {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
+
+    Command::new("sh")
+        .arg("-c")
+        .arg(&format!("cd {} && npm install && npm run build", WASM_PATH))
+        .output()
+        .expect("build hello.wasm failed");
 
     let network_cfg = devnet::NetworkConfig::default();
     let mut client_cfg = devnet::ClientConfig::default();

@@ -1,22 +1,24 @@
-extern crate parking_lot;
 extern crate chain;
+extern crate parking_lot;
 extern crate primitives;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
 extern crate storage;
 
-pub mod types;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use primitives::hash::CryptoHash;
-use primitives::types::{BlockId, Transaction};
+use primitives::types::BlockId;
 use storage::{extend_with_cache, read_with_cache};
+use transaction::Transaction;
+
+pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+
+pub mod types;
 
 type H264 = [u8; 33];
 
@@ -151,12 +153,11 @@ impl ShardBlockChain {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use storage::test_utils::create_memory_db;
-    use primitives::types::SignedTransaction;
-    use primitives::types::ReceiptTransaction;
     use primitives::types::AccountId;
-    use primitives::types::ReceiptBody;
+    use storage::test_utils::create_memory_db;
+    use transaction::{ReceiptTransaction, SignedTransaction, ReceiptBody};
+
+    use super::*;
 
     fn get_chain() -> ShardBlockChain {
         let genesis = SignedShardBlock::genesis(CryptoHash::default());

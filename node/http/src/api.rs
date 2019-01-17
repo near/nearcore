@@ -2,24 +2,24 @@ use std::sync::Arc;
 
 use futures::sync::mpsc::Sender;
 
+use primitives::hash::hash_struct;
+use primitives::traits::Encode;
+use primitives::types::BlockId;
+use primitives::utils::bs58_vec2str;
+use transaction::{CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
+                  StakeTransaction, SwapKeyTransaction, Transaction, TransactionBody, verify_transaction_signature};
+
+use client::Client;
 use crate::types::{
-    CallViewFunctionRequest, CallViewFunctionResponse, CreateAccountRequest, DeployContractRequest,
-    GetBlockByHashRequest, GetBlocksByIndexRequest, GetTransactionStatusRequest,
-    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest, SendMoneyRequest,
-    SignedBeaconBlockResponse, SignedShardBlockResponse, SignedShardBlocksResponse, StakeRequest,
-    SubmitTransactionResponse, SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
+    CallViewFunctionRequest, CallViewFunctionResponse,
+    CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
+    GetBlocksByIndexRequest, GetTransactionStatusRequest,
+    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
+    SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
+    SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
-use client::Client;
-use primitives::hash::hash_struct;
-use primitives::signature::verify_transaction_signature;
-use primitives::traits::Encode;
-use primitives::types::{
-    BlockId, CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
-    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction, Transaction,
-    TransactionBody,
-};
-use primitives::utils::bs58_vec2str;
 
 pub struct HttpApi {
     client: Arc<Client>,

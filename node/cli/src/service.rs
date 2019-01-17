@@ -1,3 +1,4 @@
+
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
@@ -16,7 +17,10 @@ use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
 use primitives::traits::Signer;
-use primitives::types::{AccountId, ChainPayload, Gossip, Transaction, UID};
+use primitives::types::{
+    AccountId, Gossip, UID,
+};
+use transaction::{ChainPayload, Transaction};
 use txflow::txflow_task;
 use std::time::Duration;
 
