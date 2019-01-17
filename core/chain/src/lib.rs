@@ -260,7 +260,7 @@ impl<B: SignedBlock> BlockChain<B> {
 
     pub fn get_blocks_by_index(&self, start: u64, limit: u64) -> Result<Vec<B>, String> {
         let mut blocks = vec![];
-        let lower = cmp::max((start as i32) - (limit as i32), 0) as u64;
+        let lower = cmp::max((start as i32) - (limit as i32) + 1, 0) as u64;
         for i in lower..=start {
             match self.get_block(&BlockId::Number(i)) {
                 Some(block) => blocks.push(block),
