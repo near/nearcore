@@ -67,9 +67,9 @@ pub fn get_or_create_key_file(key_store_path: &Path, public_key: Option<String>)
 
 
 pub struct InMemorySigner {
-    account_id: types::AccountId,
-    public_key: signature::PublicKey,
-    secret_key: signature::SecretKey,
+    pub account_id: types::AccountId,
+    pub public_key: signature::PublicKey,
+    pub secret_key: signature::SecretKey,
 }
 
 impl InMemorySigner {

@@ -5,23 +5,25 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use beacon::authority::AuthorityStake;
-use beacon::types::SignedBeaconBlock;
+use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
-use futures::{stream, Future, Stream};
 use parking_lot::Mutex;
+use substrate_network_libp2p::{
+    Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol, Service as NetworkService,
+    ServiceEvent, Severity, start_service,
+};
 pub use substrate_network_libp2p::NetworkConfiguration;
 use substrate_network_libp2p::Secret;
-use substrate_network_libp2p::{
-    start_service, Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol,
-    Service as NetworkService, ServiceEvent, Severity,
-};
 use tokio::timer::Interval;
+
+use beacon::authority::AuthorityStake;
+use beacon::types::SignedBeaconBlock;
+use primitives::serialize::Encode;
+use primitives::types::{Gossip, UID};
+use transaction::ChainPayload;
 
 use crate::message::Message;
 use crate::protocol::{self, Protocol, ProtocolConfig};
-use primitives::traits::Encode;
-use primitives::types::{ChainPayload, Gossip, UID};
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 

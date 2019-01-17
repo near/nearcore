@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use kvdb::DBValue;
 
 use primitives::types::{
-    AccountId, AccountingInfo, AsyncCall, Balance, Callback, CallbackId,
-    CallbackInfo, Mana, PromiseId, ReceiptBody, ReceiptId, ReceiptTransaction,
-    Transaction,
+    AccountId, AccountingInfo, Balance, CallbackId,
+    Mana, PromiseId, ReceiptId,
 };
+use transaction::{AsyncCall, ReceiptTransaction, Callback, Transaction, CallbackInfo, ReceiptBody};
 use storage::{StateDbUpdate, StateDbUpdateIterator};
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 

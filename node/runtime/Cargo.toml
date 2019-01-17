@@ -17,6 +17,7 @@ primitives = { path = "../../core/primitives" }
 beacon = { path = "../../core/beacon" }
 shard = { path = "../../core/shard" }
 storage = { path = "../../core/storage" }
+transaction = { path = "../../core/transaction" }
 wasm = { path = "../../core/wasm" }
 
 [features]
