@@ -18,6 +18,7 @@ pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::types::{BlockId, Transaction};
 use storage::{extend_with_cache, read_with_cache};
+use primitives::types::SignedTransaction;
 
 type H264 = [u8; 33];
 
@@ -53,7 +54,7 @@ pub enum TransactionStatus {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SignedTransactionInfo {
-    pub transaction: Transaction,
+    pub transaction: SignedTransaction,
     pub block_index: u64,
     pub status: TransactionStatus,
 }
@@ -140,12 +141,19 @@ impl ShardBlockChain {
                     .expect("transaction address points to non-existent block");
                 let transaction = block.body.transactions.get(address.index)
                     .expect("transaction address points to invalid index inside block");
-                let status = self.is_transaction_complete(&hash, &block);
-                Some(SignedTransactionInfo {
-                    transaction: transaction.clone(),
-                    block_index: block.header().index(),
-                    status,
-                })
+                match transaction {
+                    Transaction::SignedTransaction(transaction) => {
+                        let status = self.is_transaction_complete(&hash, &block);
+                        Some(SignedTransactionInfo {
+                            transaction: transaction.clone(),
+                            block_index: block.header().index(),
+                            status,
+                        })
+                    }
+                    Transaction::Receipt(_) => {
+                        unreachable!("receipts should not have transaction addresses")
+                    }
+                }
             },
             None => None,
         }

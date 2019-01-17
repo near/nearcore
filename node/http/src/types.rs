@@ -5,8 +5,8 @@ use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
-    AccountId, AuthorityMask, Balance, MerkleHash, ShardId, Transaction,
-    TransactionBody,
+    AccountId, AuthorityMask, Balance, MerkleHash, ShardId, SignedTransaction,
+    Transaction, TransactionBody,
 };
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use shard::TransactionStatus;
@@ -228,17 +228,11 @@ pub struct SignedTransactionResponse {
     pub hash: CryptoHash,
 }
 
-impl From<Transaction> for SignedTransactionResponse {
-    fn from(transaction: Transaction) -> Self {
-        match transaction {
-            Transaction::SignedTransaction(transaction) => {
-                Self {
-                    body: transaction.body.clone(),
-                    hash: transaction.transaction_hash(),
-                }
-            }
-            // Receipts are not supported
-            _ => unreachable!()
+impl From<SignedTransaction> for SignedTransactionResponse {
+    fn from(transaction: SignedTransaction) -> Self {
+        Self {
+            body: transaction.body.clone(),
+            hash: transaction.transaction_hash(),
         }
     }
 }
@@ -246,7 +240,14 @@ impl From<Transaction> for SignedTransactionResponse {
 impl From<ShardBlock> for ShardBlockResponse {
     fn from(block: ShardBlock) -> Self {
         let transactions = block.transactions.into_iter()
-            .map(|x| x.into())
+            .filter_map(|x| {
+                match x {
+                    Transaction::SignedTransaction(t) => {
+                        Some(SignedTransactionResponse::from(t))
+                    },
+                    Transaction::Receipt(_) => None
+                }
+            })
             .collect();
         ShardBlockResponse {
             header: block.header.into(),
