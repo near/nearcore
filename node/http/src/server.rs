@@ -360,12 +360,12 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.get_shard_blocks_by_index(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -373,7 +373,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -387,7 +387,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.get_transaction_info(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -395,7 +395,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
@@ -409,7 +409,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.get_transaction_status(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
@@ -417,7 +417,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()
