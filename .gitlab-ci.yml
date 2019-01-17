@@ -12,6 +12,9 @@ variables:
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
 
+.setup_deps: &setup_deps
+    sudo apt install protobuf
+
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +10 -delete
 
@@ -22,6 +25,7 @@ test_cargo:
     stage: test
     before_script:
     - *setup_cache
+    - *setup_deps
     - rustup component add clippy
     script:
     - rustc --version && cargo --version
@@ -35,6 +39,7 @@ test_nearlib:
     stage: test
     before_script:
     - *setup_cache
+    - *setup_deps
     script:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet
