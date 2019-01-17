@@ -22,6 +22,9 @@ transaction = { path = "./core/transaction" }
 txflow = { path = "./core/txflow" }
 client = { path = "./node/client" }
 
+[build-dependencies]
+protoc-rust = "2.0"
+
 [workspace]
 members = [
     "core/primitives",

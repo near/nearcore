@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+message Status {
+    uint32 version = 1;
+    uint64 best_index = 2;
+    bytes best_hash = 3;
+    bytes genesis_hash = 4;
+    string account_id = 5;
+}
+
+enum MessageType {
+    TRANSACTION = 0;
+    RECEIPT = 1;
+    STATUS = 2;
+    BLOCK_REQUEST = 3;
+    BLOCK_RESPONSE = 4;
+    BLOKC_ANNOUNCE = 5;
+    GOSSIP = 6;
+}
