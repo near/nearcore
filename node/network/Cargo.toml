@@ -25,6 +25,7 @@ primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }
 chain = { path = "../../core/chain" }
 storage = { path = "../../core/storage", features=["test-utils"] }
+client = { path = "../../node/client" }
 
 [features]
 test-utils = []

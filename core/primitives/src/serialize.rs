@@ -1,8 +1,7 @@
 use serde::{de::DeserializeOwned, Serialize};
-use rlp::{Encodable, Decodable, Rlp, RlpStream, DecoderError};
 
 pub type EncodeType = Result<Vec<u8>, String>;
-pub type DecodeType<T> = Result<T, DecoderError>;
+pub type DecodeType<T> = Result<T, String>;
 
 // encode a type to byte array
 pub trait Encode {
@@ -28,6 +27,6 @@ impl<T> Decode for T
         T: DeserializeOwned,
 {
     fn decode(data: &[u8]) -> DecodeType<Self> {
-        bincode::deserialize(data).map_err(|_| DecoderError::Custom("Failed to deserialize"))
+        bincode::deserialize(data).map_err(|_| "Failed to deserialize".to_string())
     }
 }
