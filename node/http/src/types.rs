@@ -313,3 +313,10 @@ pub struct SubmitTransactionResponse {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct TransactionInfoResponse {
+    pub transaction: SignedTransactionResponse,
+    pub block_index: u64,
+    pub status: TransactionStatus,
+}

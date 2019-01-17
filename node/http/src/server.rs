@@ -381,11 +381,11 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                 }
             }))
         }
-        (&Method::POST, "/get_transaction") => {
+        (&Method::POST, "/get_transaction_info") => {
             Box::new(req.into_body().concat2().map(move |chunk| {
                 match serde_json::from_slice(&chunk) {
                     Ok(data) => {
-                        match http_api.get_transaction(&data) {
+                        match http_api.get_transaction_info(&data) {
                             Ok(response) => {
                                 Response::builder()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))

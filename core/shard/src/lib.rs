@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+use chain::{SignedBlock, SignedHeader};
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::types::{BlockId, Transaction};
@@ -48,6 +49,13 @@ pub enum TransactionStatus {
     Unknown,
     Started,
     Completed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct SignedTransactionInfo {
+    pub transaction: Transaction,
+    pub block_index: u64,
+    pub status: TransactionStatus,
 }
 
 pub struct ShardBlockChain {
@@ -121,13 +129,23 @@ impl ShardBlockChain {
         }
     }
 
-    pub fn get_transaction(&self, hash: &CryptoHash) -> Option<Transaction> {
+    pub fn get_transaction_info(
+        &self,
+        hash: &CryptoHash,
+    ) -> Option<SignedTransactionInfo> {
         match self.get_transaction_address(&hash) {
             Some(address) => {
                 let block_id = BlockId::Hash(address.block_hash);
                 let block = self.chain.get_block(&block_id)
                     .expect("transaction address points to non-existent block");
-                block.body.transactions.get(address.index).cloned()
+                let transaction = block.body.transactions.get(address.index)
+                    .expect("transaction address points to invalid index inside block");
+                let status = self.is_transaction_complete(&hash, &block);
+                Some(SignedTransactionInfo {
+                    transaction: transaction.clone(),
+                    block_index: block.header().index(),
+                    status,
+                })
             },
             None => None,
         }
