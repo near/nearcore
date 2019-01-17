@@ -17,7 +17,10 @@ use network::protocol::{Protocol, ProtocolConfig};
 use node_http::api::HttpApi;
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::traits::Signer;
-use primitives::types::{AccountId, ChainPayload, Gossip, Transaction, UID};
+use primitives::types::{
+    AccountId, Gossip, UID,
+};
+use transaction::{ChainPayload, Transaction};
 use shard::ShardBlockChain;
 use storage::StateDb;
 use txflow::txflow_task;

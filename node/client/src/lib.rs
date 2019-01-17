@@ -35,7 +35,8 @@ use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
-use primitives::types::{AccountId, BlockId, ChainPayload, ConsensusBlockBody, UID};
+use primitives::types::{AccountId, BlockId, ConsensusBlockBody, UID};
+use transaction::ChainPayload;
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
 

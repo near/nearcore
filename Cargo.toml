@@ -18,6 +18,7 @@ log = "0.4"
 node-cli = { path = "./node/cli" }
 node-runtime = { path = "./node/runtime" }
 primitives = { path = "./core/primitives" }
+transaction = { path = "./core/transaction" }
 txflow = { path = "./core/txflow" }
 client = { path = "./node/client" }
 

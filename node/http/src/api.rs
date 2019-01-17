@@ -4,14 +4,14 @@ use futures::sync::mpsc::Sender;
 
 use beacon::types::BeaconBlockChain;
 use node_runtime::state_viewer::StateDbViewer;
+use primitives::hash::hash_struct;
 use primitives::traits::Encode;
-use primitives::types::{
-    BlockId, CreateAccountTransaction, DeployContractTransaction,
-    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, Transaction,
-    StakeTransaction, SwapKeyTransaction, TransactionBody,
-};
+use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
 use shard::ShardBlockChain;
+use transaction::{CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction, SendMoneyTransaction, SignedTransaction,
+                  StakeTransaction, SwapKeyTransaction, Transaction, TransactionBody, verify_transaction_signature};
+
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
     CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
@@ -22,8 +22,6 @@ use crate::types::{
     SwapKeyRequest, TransactionStatusResponse, ViewAccountRequest,
     ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
-use primitives::signature::verify_transaction_signature;
-use primitives::hash::hash_struct;
 
 pub struct HttpApi {
     state_db_viewer: StateDbViewer,

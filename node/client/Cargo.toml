@@ -13,6 +13,7 @@ beacon = { path = "../../core/beacon" }
 chain = { path = "../../core/chain" }
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
+transaction = { path = "../../core/transaction" }
 shard = { path = "../../core/shard" }
 storage = { path = "../../core/storage" }
 

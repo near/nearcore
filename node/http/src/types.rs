@@ -5,9 +5,9 @@ use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
-    AccountId, AuthorityMask, Balance, MerkleHash, ShardId, Transaction,
-    TransactionBody,
+    AccountId, AuthorityMask, Balance, MerkleHash, ShardId
 };
+use transaction::{Transaction, TransactionBody};
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use shard::TransactionStatus;
 

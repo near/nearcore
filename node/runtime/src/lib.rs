@@ -24,15 +24,16 @@ use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{PublicKey, Signature, verify};
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
-    AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
-    ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
-    PromiseId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
-    SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
-    FunctionCallTransaction, AccountingInfo, ManaAccounting, Mana, BlockIndex,
+    AccountId, MerkleHash, ReadablePublicKey,
+    Balance, ShardId, PromiseId,
+    AccountingInfo, ManaAccounting, Mana, BlockIndex,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
 };
+use transaction::{ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
+                  StakeTransaction, SendMoneyTransaction, CreateAccountTransaction, SignedTransaction, TransactionBody,
+                  SwapKeyTransaction, DeployContractTransaction, Transaction, FunctionCallTransaction};
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
@@ -116,12 +117,12 @@ pub struct ApplyResult {
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| Decode::decode(&data))
+    state_update.get(key).and_then(|data| Decode::decode(&data).ok())
 }
 
 fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
     value
-        .encode()
+        .encode().ok()
         .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
         .unwrap_or_else(|| { debug!("set value failed"); })
 }
@@ -297,11 +298,11 @@ impl Runtime {
         account: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
         // TODO: verify signature
-        let cur_key = Decode::decode(&body.cur_key).ok_or("cannot decode public key")?;
+        let cur_key = Decode::decode(&body.cur_key).map_err(|_| "cannot decode public key")?;
         if !verify(data, signature, &cur_key) {
             return Err("Invalid signature. Cannot swap key".to_string());
         }
-        let new_key = Decode::decode(&body.new_key).ok_or("cannot decode public key")?;
+        let new_key = Decode::decode(&body.new_key).map_err(|_| "cannot decode public key")?;
         let num_keys = account.public_keys.len();
         account.public_keys.retain(|&x| x != cur_key);
         if account.public_keys.len() == num_keys {
@@ -326,7 +327,7 @@ impl Runtime {
         
         let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
         let args = Encode::encode(&(&body.public_key, &body.wasm_byte_array))
-            .ok_or("cannot encode args")?;
+            .map_err(|_| "cannot encode args")?;
         let receipt = ReceiptTransaction::new(
             body.originator.clone(),
             body.contract_id.clone(),
@@ -463,7 +464,7 @@ impl Runtime {
                     },
                     TransactionBody::SwapKey(ref t) => {
                         // this is super redundant. need to change when we add signature checks
-                        let data = transaction.body.encode().ok_or("cannot encode body")?;
+                        let data = transaction.body.encode().map_err(|_| "cannot encode body")?;
                         self.swap_key(
                             state_update,
                             t,
@@ -505,7 +506,7 @@ impl Runtime {
         }
         let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
        
-        let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
+        let public_key = Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -535,8 +536,8 @@ impl Runtime {
         account_id: &AccountId,
     ) -> Result<Vec<Transaction>, String> {
         let (public_key, code): (Vec<u8>, Vec<u8>) = 
-            Decode::decode(&call.args).ok_or("cannot decode public key")?;
-        let public_key = Decode::decode(&public_key).ok_or("cannot decode public key")?;
+            Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
+        let public_key = Decode::decode(&public_key).map_err(|_| "cannot decode public key")?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -839,8 +840,8 @@ impl Runtime {
                             );
                             Ok(vec![Transaction::Receipt(receipt)])
                         } else if async_call.method_name == b"deploy".to_vec() {
-                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).ok_or("cannot decode args")?;
-                            let pub_key = Decode::decode(&pub_key).ok_or("cannot decode public key")?;
+                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).map_err(|_| "cannot decode args")?;
+                            let pub_key = Decode::decode(&pub_key).map_err(|_| "cannot decode public key")?;
                             if receiver.public_keys.contains(&pub_key) {
                                 receiver.code_hash = hash(&code);
                                 set(
@@ -1183,7 +1184,7 @@ mod tests {
     use std::sync::Arc;
 
     use primitives::hash::hash;
-    use primitives::types::{
+    use transaction::{
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody,
     };

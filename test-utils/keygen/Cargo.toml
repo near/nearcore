@@ -6,7 +6,9 @@ edition = "2018"
 
 [dependencies]
 clap = "2.32.0"
-primitives = { path = "../../core/primitives" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
+
+primitives = { path = "../../core/primitives" }
+transaction = { path = "../../core/transaction" }

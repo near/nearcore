@@ -2,19 +2,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
+use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
-use futures::{stream, Future, Sink};
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use client::Client;
-use crate::message::{self, Message};
 use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
+use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
-use primitives::types::{AccountId, BlockId, ChainPayload, Gossip, Transaction, UID};
+use primitives::types::{
+    AccountId, BlockId, Gossip, UID,
+};
+use transaction::{ChainPayload, Transaction};
+
+use crate::message::{self, Message};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -275,7 +279,7 @@ impl Protocol {
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
         let message: Message =
-            Decode::decode(data).ok_or((peer, Severity::Bad("Cannot decode message.")))?;
+            Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
 
@@ -378,14 +382,15 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::sync::mpsc::channel;
     use futures::{Sink, Stream};
+    use futures::sync::mpsc::channel;
 
-    use crate::test_utils::{get_test_authority_config, get_test_protocol};
     use beacon::authority::Authority;
     use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
     use primitives::traits::Encode;
-    use primitives::types::SignedTransaction;
+    use transaction::SignedTransaction;
+
+    use crate::test_utils::{get_test_authority_config, get_test_protocol};
 
     use super::*;
 

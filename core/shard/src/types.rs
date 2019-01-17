@@ -1,13 +1,8 @@
-use primitives::hash::CryptoHash;
 use chain::SignedBlock;
-use primitives::types::MerkleHash;
-use primitives::types::PartialSignature;
-use primitives::hash::hash_struct;
-use primitives::types::Transaction;
-use primitives::types::ShardId;
-use primitives::types::AuthorityMask;
-use primitives::types::MultiSignature;
 use chain::SignedHeader;
+use primitives::hash::{CryptoHash, hash_struct};
+use primitives::types::{AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId};
+use transaction::Transaction;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {
