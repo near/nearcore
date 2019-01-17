@@ -24,11 +24,11 @@ use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 #[derive(PartialEq,Clone,Default)]
 pub struct Status {
     // message fields
-    pub version: u32,
-    pub best_index: u64,
-    pub best_hash: ::std::vec::Vec<u8>,
-    pub genesis_hash: ::std::vec::Vec<u8>,
-    pub account_id: ::std::string::String,
+    version: ::std::option::Option<u32>,
+    best_index: ::std::option::Option<u64>,
+    best_hash: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    genesis_hash: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    account_id: ::protobuf::SingularField<::std::string::String>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
@@ -39,117 +39,167 @@ impl Status {
         ::std::default::Default::default()
     }
 
-    // uint32 version = 1;
+    // required uint32 version = 1;
 
     pub fn clear_version(&mut self) {
-        self.version = 0;
+        self.version = ::std::option::Option::None;
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     // Param is passed by value, moved
     pub fn set_version(&mut self, v: u32) {
-        self.version = v;
+        self.version = ::std::option::Option::Some(v);
     }
 
     pub fn get_version(&self) -> u32 {
-        self.version
+        self.version.unwrap_or(0)
     }
 
-    // uint64 best_index = 2;
+    // required uint64 best_index = 2;
 
     pub fn clear_best_index(&mut self) {
-        self.best_index = 0;
+        self.best_index = ::std::option::Option::None;
+    }
+
+    pub fn has_best_index(&self) -> bool {
+        self.best_index.is_some()
     }
 
     // Param is passed by value, moved
     pub fn set_best_index(&mut self, v: u64) {
-        self.best_index = v;
+        self.best_index = ::std::option::Option::Some(v);
     }
 
     pub fn get_best_index(&self) -> u64 {
-        self.best_index
+        self.best_index.unwrap_or(0)
     }
 
-    // bytes best_hash = 3;
+    // required bytes best_hash = 3;
 
     pub fn clear_best_hash(&mut self) {
         self.best_hash.clear();
     }
 
+    pub fn has_best_hash(&self) -> bool {
+        self.best_hash.is_some()
+    }
+
     // Param is passed by value, moved
     pub fn set_best_hash(&mut self, v: ::std::vec::Vec<u8>) {
-        self.best_hash = v;
+        self.best_hash = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_best_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
-        &mut self.best_hash
+        if self.best_hash.is_none() {
+            self.best_hash.set_default();
+        }
+        self.best_hash.as_mut().unwrap()
     }
 
     // Take field
     pub fn take_best_hash(&mut self) -> ::std::vec::Vec<u8> {
-        ::std::mem::replace(&mut self.best_hash, ::std::vec::Vec::new())
+        self.best_hash.take().unwrap_or_else(|| ::std::vec::Vec::new())
     }
 
     pub fn get_best_hash(&self) -> &[u8] {
-        &self.best_hash
+        match self.best_hash.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
     }
 
-    // bytes genesis_hash = 4;
+    // required bytes genesis_hash = 4;
 
     pub fn clear_genesis_hash(&mut self) {
         self.genesis_hash.clear();
     }
 
+    pub fn has_genesis_hash(&self) -> bool {
+        self.genesis_hash.is_some()
+    }
+
     // Param is passed by value, moved
     pub fn set_genesis_hash(&mut self, v: ::std::vec::Vec<u8>) {
-        self.genesis_hash = v;
+        self.genesis_hash = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_genesis_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
-        &mut self.genesis_hash
+        if self.genesis_hash.is_none() {
+            self.genesis_hash.set_default();
+        }
+        self.genesis_hash.as_mut().unwrap()
     }
 
     // Take field
     pub fn take_genesis_hash(&mut self) -> ::std::vec::Vec<u8> {
-        ::std::mem::replace(&mut self.genesis_hash, ::std::vec::Vec::new())
+        self.genesis_hash.take().unwrap_or_else(|| ::std::vec::Vec::new())
     }
 
     pub fn get_genesis_hash(&self) -> &[u8] {
-        &self.genesis_hash
+        match self.genesis_hash.as_ref() {
+            Some(v) => &v,
+            None => &[],
+        }
     }
 
-    // string account_id = 5;
+    // optional string account_id = 5;
 
     pub fn clear_account_id(&mut self) {
         self.account_id.clear();
     }
 
+    pub fn has_account_id(&self) -> bool {
+        self.account_id.is_some()
+    }
+
     // Param is passed by value, moved
     pub fn set_account_id(&mut self, v: ::std::string::String) {
-        self.account_id = v;
+        self.account_id = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_account_id(&mut self) -> &mut ::std::string::String {
-        &mut self.account_id
+        if self.account_id.is_none() {
+            self.account_id.set_default();
+        }
+        self.account_id.as_mut().unwrap()
     }
 
     // Take field
     pub fn take_account_id(&mut self) -> ::std::string::String {
-        ::std::mem::replace(&mut self.account_id, ::std::string::String::new())
+        self.account_id.take().unwrap_or_else(|| ::std::string::String::new())
     }
 
     pub fn get_account_id(&self) -> &str {
-        &self.account_id
+        match self.account_id.as_ref() {
+            Some(v) => &v,
+            None => "",
+        }
     }
 }
 
 impl ::protobuf::Message for Status {
     fn is_initialized(&self) -> bool {
+        if self.version.is_none() {
+            return false;
+        }
+        if self.best_index.is_none() {
+            return false;
+        }
+        if self.best_hash.is_none() {
+            return false;
+        }
+        if self.genesis_hash.is_none() {
+            return false;
+        }
         true
     }
 
@@ -162,23 +212,23 @@ impl ::protobuf::Message for Status {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint32()?;
-                    self.version = tmp;
+                    self.version = ::std::option::Option::Some(tmp);
                 },
                 2 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.best_index = tmp;
+                    self.best_index = ::std::option::Option::Some(tmp);
                 },
                 3 => {
-                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.best_hash)?;
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.best_hash)?;
                 },
                 4 => {
-                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.genesis_hash)?;
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.genesis_hash)?;
                 },
                 5 => {
-                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.account_id)?;
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.account_id)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -192,20 +242,20 @@ impl ::protobuf::Message for Status {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if self.version != 0 {
-            my_size += ::protobuf::rt::value_size(1, self.version, ::protobuf::wire_format::WireTypeVarint);
+        if let Some(v) = self.version {
+            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
         }
-        if self.best_index != 0 {
-            my_size += ::protobuf::rt::value_size(2, self.best_index, ::protobuf::wire_format::WireTypeVarint);
+        if let Some(v) = self.best_index {
+            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
         }
-        if !self.best_hash.is_empty() {
-            my_size += ::protobuf::rt::bytes_size(3, &self.best_hash);
+        if let Some(ref v) = self.best_hash.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(3, &v);
         }
-        if !self.genesis_hash.is_empty() {
-            my_size += ::protobuf::rt::bytes_size(4, &self.genesis_hash);
+        if let Some(ref v) = self.genesis_hash.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(4, &v);
         }
-        if !self.account_id.is_empty() {
-            my_size += ::protobuf::rt::string_size(5, &self.account_id);
+        if let Some(ref v) = self.account_id.as_ref() {
+            my_size += ::protobuf::rt::string_size(5, &v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -213,20 +263,20 @@ impl ::protobuf::Message for Status {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if self.version != 0 {
-            os.write_uint32(1, self.version)?;
+        if let Some(v) = self.version {
+            os.write_uint32(1, v)?;
         }
-        if self.best_index != 0 {
-            os.write_uint64(2, self.best_index)?;
+        if let Some(v) = self.best_index {
+            os.write_uint64(2, v)?;
         }
-        if !self.best_hash.is_empty() {
-            os.write_bytes(3, &self.best_hash)?;
+        if let Some(ref v) = self.best_hash.as_ref() {
+            os.write_bytes(3, &v)?;
         }
-        if !self.genesis_hash.is_empty() {
-            os.write_bytes(4, &self.genesis_hash)?;
+        if let Some(ref v) = self.genesis_hash.as_ref() {
+            os.write_bytes(4, &v)?;
         }
-        if !self.account_id.is_empty() {
-            os.write_string(5, &self.account_id)?;
+        if let Some(ref v) = self.account_id.as_ref() {
+            os.write_string(5, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -270,27 +320,27 @@ impl ::protobuf::Message for Status {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
                     "version",
                     |m: &Status| { &m.version },
                     |m: &mut Status| { &mut m.version },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "best_index",
                     |m: &Status| { &m.best_index },
                     |m: &mut Status| { &mut m.best_index },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "best_hash",
                     |m: &Status| { &m.best_hash },
                     |m: &mut Status| { &mut m.best_hash },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "genesis_hash",
                     |m: &Status| { &m.genesis_hash },
                     |m: &mut Status| { &mut m.genesis_hash },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "account_id",
                     |m: &Status| { &m.account_id },
                     |m: &mut Status| { &mut m.account_id },
@@ -363,7 +413,7 @@ impl Message {
         ::std::default::Default::default()
     }
 
-    // bytes transaction = 1;
+    // optional bytes transaction = 1;
 
     pub fn clear_transaction(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -412,7 +462,7 @@ impl Message {
         }
     }
 
-    // bytes receipt = 2;
+    // optional bytes receipt = 2;
 
     pub fn clear_receipt(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -461,7 +511,7 @@ impl Message {
         }
     }
 
-    // .Status status = 3;
+    // optional .Status status = 3;
 
     pub fn clear_status(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -510,7 +560,7 @@ impl Message {
         }
     }
 
-    // bytes block_request = 4;
+    // optional bytes block_request = 4;
 
     pub fn clear_block_request(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -559,7 +609,7 @@ impl Message {
         }
     }
 
-    // bytes block_response = 5;
+    // optional bytes block_response = 5;
 
     pub fn clear_block_response(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -608,7 +658,7 @@ impl Message {
         }
     }
 
-    // bytes block_announce = 6;
+    // optional bytes block_announce = 6;
 
     pub fn clear_block_announce(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -657,7 +707,7 @@ impl Message {
         }
     }
 
-    // bytes gossip = 7;
+    // optional bytes gossip = 7;
 
     pub fn clear_gossip(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -958,9 +1008,9 @@ impl ::protobuf::reflect::ProtobufValue for Message {
 
 static file_descriptor_proto_data: &'static [u8] = b"\
     \n\rmessage.proto\x1a\x11transaction.proto\"\xa0\x01\n\x06Status\x12\x18\
-    \n\x07version\x18\x01\x20\x01(\rR\x07version\x12\x1d\n\nbest_index\x18\
-    \x02\x20\x01(\x04R\tbestIndex\x12\x1b\n\tbest_hash\x18\x03\x20\x01(\x0cR\
-    \x08bestHash\x12!\n\x0cgenesis_hash\x18\x04\x20\x01(\x0cR\x0bgenesisHash\
+    \n\x07version\x18\x01\x20\x02(\rR\x07version\x12\x1d\n\nbest_index\x18\
+    \x02\x20\x02(\x04R\tbestIndex\x12\x1b\n\tbest_hash\x18\x03\x20\x02(\x0cR\
+    \x08bestHash\x12!\n\x0cgenesis_hash\x18\x04\x20\x02(\x0cR\x0bgenesisHash\
     \x12\x1d\n\naccount_id\x18\x05\x20\x01(\tR\taccountId\"\x8f\x02\n\x07Mes\
     sage\x12\"\n\x0btransaction\x18\x01\x20\x01(\x0cH\0R\x0btransaction\x12\
     \x1a\n\x07receipt\x18\x02\x20\x01(\x0cH\0R\x07receipt\x12!\n\x06status\
@@ -968,7 +1018,7 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x18\x04\x20\x01(\x0cH\0R\x0cblockRequest\x12'\n\x0eblock_response\x18\
     \x05\x20\x01(\x0cH\0R\rblockResponse\x12'\n\x0eblock_announce\x18\x06\
     \x20\x01(\x0cH\0R\rblockAnnounce\x12\x18\n\x06gossip\x18\x07\x20\x01(\
-    \x0cH\0R\x06gossipB\x0e\n\x0cmessage_typeb\x06proto3\
+    \x0cH\0R\x06gossipB\x0e\n\x0cmessage_type\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

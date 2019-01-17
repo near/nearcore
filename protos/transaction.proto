@@ -1,13 +1,13 @@
-syntax = "proto3";
+syntax = "proto2";
 
 
 message Transaction {
-    string originator = 1;
-    string destination = 2;
+    required string originator = 1;
+    required string destination = 2;
     // TODO: figure out how to represent uint128
-    uint64 amount = 3;
-    uint64 nonce = 4;
-    string method_name = 5;
-    bytes args = 6;
-    bytes signature = 7;
+    required uint64 amount = 3;
+    required uint64 nonce = 4;
+    required string method_name = 5;
+    required bytes args = 6;
+    required bytes signature = 7;
 }

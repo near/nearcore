@@ -1,13 +1,13 @@
-syntax = "proto3";
+syntax = "proto2";
 
 import "transaction.proto";
 
 message Status {
-    uint32 version = 1;
-    uint64 best_index = 2;
-    bytes best_hash = 3;
-    bytes genesis_hash = 4;
-    string account_id = 5;
+    required uint32 version = 1;
+    required uint64 best_index = 2;
+    required bytes best_hash = 3;
+    required bytes genesis_hash = 4;
+    optional string account_id = 5;
 }
 
 message Message {

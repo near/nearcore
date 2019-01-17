@@ -176,10 +176,10 @@ impl Protocol {
         status: &message_proto::Status,
     ) -> Result<(), (NodeIndex, Severity)> {
         debug!(target: "network", "Status message received from {:?}: {:?}", peer, status);
-        if status.version != CURRENT_VERSION {
+        if status.get_version() != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if CryptoHash::new(&status.genesis_hash) != self.client.beacon_chain.genesis_hash {
+        if CryptoHash::new(&status.get_genesis_hash()) != self.client.beacon_chain.genesis_hash {
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
@@ -188,11 +188,11 @@ impl Protocol {
         let mut next_request_id = 0;
         let mut block_request = None;
         let mut request_timestamp = None;
-        if status.best_index > best_index {
+        if status.get_best_index() > best_index {
             let request = message::BlockRequest {
                 id: next_request_id,
                 from: BlockId::Number(best_index + 1),
-                to: Some(BlockId::Number(status.best_index)),
+                to: Some(BlockId::Number(status.get_best_index())),
                 max: Some(MAX_BLOCK_DATA_RESPONSE),
             };
             block_request = Some(request.clone());
@@ -203,16 +203,16 @@ impl Protocol {
         }
 
         let peer_info = PeerInfo {
-            protocol_version: status.version,
-            best_hash: CryptoHash::new(&status.best_hash),
-            best_index: status.best_index,
+            protocol_version: status.get_version(),
+            best_hash: CryptoHash::new(&status.get_best_hash()),
+            best_index: status.get_best_index(),
             request_timestamp,
             block_request,
             next_request_id,
-            account_id: if !status.account_id.is_empty() { Some(status.account_id.clone()) } else { None },
+            account_id: if !status.has_account_id() { Some(status.get_account_id().to_string()) } else { None },
         };
-        if !status.account_id.is_empty() {
-            self.peer_account_info.write().insert(status.account_id.clone(), peer);
+        if !status.has_account_id() {
+            self.peer_account_info.write().insert(status.get_account_id().to_string(), peer);
         }
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);
