@@ -18,8 +18,8 @@ use crate::types::{
     GetBlocksByIndexRequest, GetTransactionRequest,
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
     SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
-    SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
-    SwapKeyRequest, TransactionResponse, TransactionStatusResponse,
+    SignedShardBlocksResponse, SignedTransactionResponse, StakeRequest,
+    SubmitTransactionResponse, SwapKeyRequest, TransactionStatusResponse,
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use primitives::signature::verify_transaction_signature;
@@ -268,9 +268,9 @@ impl HttpApi {
     pub fn get_transaction(
         &self,
         r: &GetTransactionRequest,
-    ) -> Result<TransactionResponse, RPCError> {
+    ) -> Result<SignedTransactionResponse, RPCError> {
         match self.shard_chain.get_transaction(&r.hash) {
-            Some(transaction) => Ok(TransactionResponse { transaction }),
+            Some(transaction) => Ok(transaction.into()),
             None => Err(RPCError::NotFound),
         }
 

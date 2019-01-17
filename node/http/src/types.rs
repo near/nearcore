@@ -216,16 +216,41 @@ impl From<ShardBlockHeader> for ShardBlockHeaderResponse {
 pub struct ShardBlockResponse {
     pub header: ShardBlockHeaderResponse,
     // TODO(#301): should have a bs58 format for TransactionResponse
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<SignedTransactionResponse>,
     // TODO(#301): should have a bs58 format for TransactionResponse
     pub new_receipts: Vec<Transaction>,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct SignedTransactionResponse {
+    pub body: TransactionBody,
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash,
+}
+
+impl From<Transaction> for SignedTransactionResponse {
+    fn from(transaction: Transaction) -> Self {
+        match transaction {
+            Transaction::SignedTransaction(transaction) => {
+                Self {
+                    body: transaction.body.clone(),
+                    hash: transaction.transaction_hash(),
+                }
+            }
+            // Receipts are not supported
+            _ => unreachable!()
+        }
+    }
+}
+
 impl From<ShardBlock> for ShardBlockResponse {
     fn from(block: ShardBlock) -> Self {
+        let transactions = block.transactions.into_iter()
+            .map(|x| x.into())
+            .collect();
         ShardBlockResponse {
             header: block.header.into(),
-            transactions: block.transactions,
+            transactions,
             new_receipts: block.new_receipts,
         }
     }
@@ -276,11 +301,6 @@ pub struct SignedShardBlocksResponse {
 pub struct GetTransactionRequest {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct TransactionResponse {
-    pub transaction: Transaction,
 }
 
 #[derive(Serialize, Deserialize)]
