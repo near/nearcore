@@ -85,7 +85,7 @@ test('create account with a new key and then view account returns the created ac
         checkConditionFunc, 
         "Call view account until result matches expected value");
     const aliceAccountAfterCreation = await account.viewAccount(aliceAccountName);
-    expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation - amount);
+    expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
 });
 
 test('deploy contract and make function calls', async () => {
