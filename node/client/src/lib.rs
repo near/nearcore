@@ -15,6 +15,7 @@ extern crate env_logger;
 extern crate serde_json;
 
 pub mod chain_spec;
+pub mod test_utils;
 
 use std::collections::HashMap;
 use std::io;

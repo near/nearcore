@@ -4,6 +4,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use crate::chain_spec::ChainSpec;
 use primitives::types::Transaction;
+use primitives::signer::InMemorySigner;
 use primitives::test_utils::get_key_pair_from_seed;
 use shard::SignedShardBlock;
 use crate::state_viewer::StateDbViewer;
@@ -12,20 +13,27 @@ use storage::StateDb;
 use super::{Runtime, ApplyResult, ApplyState};
 use shard::ShardBlockChain;
 
-pub fn generate_test_chain_spec() -> ChainSpec {
+pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    ChainSpec {
+    let account_id = "alice.near";
+    let key_pair = get_key_pair_from_seed(account_id);
+    let signer = InMemorySigner {
+        account_id: account_id.to_string(),
+        public_key: key_pair.0,
+        secret_key: key_pair.1,
+    };
+    (ChainSpec {
         accounts: vec![
             ("alice.near".to_string(), get_key_pair_from_seed("alice.near").0.to_string(), 100, 10),
             ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_string(), 0, 10),
             ("system".to_string(), get_key_pair_from_seed("system").0.to_string(), 0, 0),
         ],
-        initial_authorities: vec![("alice.near".to_string(), get_key_pair_from_seed("alice.near").0.to_string(), 50)],
+        initial_authorities: vec![(account_id.to_string(), key_pair.0.to_string(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
         boot_nodes: vec![],
-    }
+    }, signer)
 }
 
 pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, StateDbViewer) {
@@ -49,7 +57,7 @@ pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -
 }
 
 pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
-    let chain_spec = generate_test_chain_spec();
+    let (chain_spec, _) = generate_test_chain_spec();
     get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec)
 }
 

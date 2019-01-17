@@ -24,6 +24,7 @@ substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", 
 primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
 storage = { path = "../../core/storage", features=["test-utils"] }
+client = { path = "../../node/client" }
 
 [features]
 test-utils = []

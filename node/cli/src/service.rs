@@ -46,7 +46,7 @@ fn spawn_network_tasks(
     p2p_port: Option<u16>,
     boot_nodes: Vec<String>,
     test_network_key_seed: Option<u32>,
-    beacon_chain: Arc<BeaconBlockChain>,
+    client: Arc<Client>,
     beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<Transaction>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
@@ -58,7 +58,7 @@ fn spawn_network_tasks(
     let protocol_config = ProtocolConfig::new_with_default_id(account_id);
     let protocol = Protocol::new(
         protocol_config.clone(),
-        beacon_chain,
+        client,
         beacon_block_tx,
         transactions_tx,
         net_messages_tx.clone(),
@@ -187,7 +187,7 @@ pub fn start_service(
             Some(network_cfg.p2p_port),
             boot_nodes,
             network_cfg.test_network_key_seed,
-            client.beacon_chain.clone(),
+            client.clone(),
             beacon_block_tx.clone(),
             transactions_tx.clone(),
             inc_gossip_tx.clone(),

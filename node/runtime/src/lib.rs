@@ -1991,7 +1991,7 @@ mod tests {
 
     #[test]
     fn test_100_accounts() {
-        let mut chain_spec = generate_test_chain_spec();
+        let (mut chain_spec, _) = generate_test_chain_spec();
         let public_key = get_key_pair().0;
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
