@@ -75,17 +75,19 @@ pub fn encode_int(val: i32) -> [u8; 4] {
 }
 
 impl Runtime {
-    pub fn apply_all(
+    pub fn apply_all_vec(
         &mut self,
         apply_state: ApplyState,
         transactions: Vec<Transaction>,
-    ) -> ApplyResult {
+    ) -> Vec<ApplyResult> {
         let mut cur_apply_state = apply_state;
         let mut cur_transactions = transactions;
+        let mut results = vec![];
         loop {
             let apply_result = self.apply(&cur_apply_state, &[], cur_transactions);
+            results.push(apply_result.clone());
             if apply_result.new_receipts.is_empty() {
-                return apply_result;
+                return results;
             }
             self.state_db.commit(apply_result.transaction).unwrap();
             cur_apply_state = ApplyState {
@@ -96,5 +98,13 @@ impl Runtime {
             };
             cur_transactions = apply_result.new_receipts;
         }
+    }
+
+    pub fn apply_all(
+        &mut self,
+        apply_state: ApplyState,
+        transactions: Vec<Transaction>,
+    ) -> ApplyResult {
+        self.apply_all_vec(apply_state, transactions).pop().unwrap()
     }
 }
