@@ -110,6 +110,7 @@ pub struct ApplyState {
     pub parent_block_hash: CryptoHash,
 }
 
+#[derive(Clone)]
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
@@ -1284,7 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_smart_contract() {
+    fn test_smart_contract_simple() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -1302,16 +1303,61 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
+        let apply_results = runtime.apply_all_vec(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(apply_result.filtered_transactions.len(), 1);
-        assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_ne!(root, apply_result.root);
+        // 3 results: signedTx, It's Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Mana sucessfully executed
+        assert_eq!(apply_results[2].filtered_transactions.len(), 1);
+        // Checking final root
+        assert_ne!(root, apply_results[2].root);
     }
 
     #[test]
-    fn test_simple_smart_contract_with_args() {
+    fn test_smart_contract_bad_method_name() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
+            nonce: 1,
+            originator: alice_account(),
+            contract_id: bob_account(),
+            method_name: b"_run_test".to_vec(),
+            args: vec![],
+            amount: 0,
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_results = runtime.apply_all_vec(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
+        );
+        // 3 results: signedTx, It's Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt failed to execute.
+        assert_eq!(apply_results[1].filtered_transactions.len(), 0);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Mana sucessfully executed
+        assert_eq!(apply_results[2].filtered_transactions.len(), 1);
+        // Checking final root
+        assert_ne!(root, apply_results[2].root);
+    }
+
+    #[test]
+    fn test_smart_contract_with_args() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -1329,12 +1375,21 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
-            apply_state, vec![Transaction::SignedTransaction(transaction)],
+        let apply_results = runtime.apply_all_vec(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(apply_result.filtered_transactions.len(), 1);
-        assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_ne!(root, apply_result.root);
+        // 3 results: signedTx, It's Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Mana sucessfully executed
+        assert_eq!(apply_results[2].filtered_transactions.len(), 1);
+        // Checking final root
+        assert_ne!(root, apply_results[2].root);
     }
 
     #[test]
