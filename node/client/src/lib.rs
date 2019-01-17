@@ -32,6 +32,7 @@ use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader
 use chain::SignedBlock;
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
+use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
@@ -53,11 +54,12 @@ pub struct Client {
 
     // State-shared objects.
     pub state_db: Arc<StateDb>,
-    pub authority: Arc<RwLock<Authority>>,
-    pub runtime: Arc<RwLock<Runtime>>,
+    pub authority: RwLock<Authority>,
+    pub runtime: RwLock<Runtime>,
     pub shard_chain: Arc<ShardBlockChain>,
-    pub beacon_chain: Arc<BeaconBlockChain>,
-    pub signer: Arc<InMemorySigner>,
+    pub beacon_chain: BeaconBlockChain,
+    pub signer: InMemorySigner,
+    pub statedb_viewer: StateDbViewer,
 
     // TODO: The following logic might need to be hidden somewhere.
     /// Stores blocks that cannot be added yet.
@@ -116,7 +118,7 @@ impl Client {
     pub fn new(config: &ClientConfig, chain_spec: &ChainSpec) -> Self {
         let storage = get_storage(&config.base_path);
         let state_db = Arc::new(StateDb::new(storage.clone()));
-        let runtime = Arc::new(RwLock::new(Runtime::new(state_db.clone())));
+        let runtime = RwLock::new(Runtime::new(state_db.clone()));
         let genesis_root = runtime.write().apply_genesis_state(
             &chain_spec.accounts,
             &chain_spec.genesis_wasm,
@@ -126,18 +128,19 @@ impl Client {
         let shard_genesis = SignedShardBlock::genesis(genesis_root);
         let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
         let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
-        let beacon_chain = Arc::new(BeaconBlockChain::new(genesis, storage.clone()));
+        let beacon_chain = BeaconBlockChain::new(genesis, storage.clone());
         let mut key_file_path = config.base_path.to_path_buf();
         key_file_path.push(KEY_STORE_PATH);
-        let signer = Arc::new(InMemorySigner::from_key_file(
+        let signer = InMemorySigner::from_key_file(
             config.account_id.clone(),
             key_file_path.as_path(),
             config.public_key.clone(),
-        ));
+        );
         let authority_config = chain_spec::get_authority_config(&chain_spec);
-        let authority = Arc::new(RwLock::new(Authority::new(authority_config, &beacon_chain)));
+        let authority = RwLock::new(Authority::new(authority_config, &beacon_chain));
 
         configure_logging(config.log_level);
+        let statedb_viewer = StateDbViewer::new(shard_chain.clone(), state_db.clone());
 
         Self {
             account_id: config.account_id.clone(),
@@ -147,6 +150,7 @@ impl Client {
             shard_chain,
             beacon_chain,
             signer,
+            statedb_viewer,
             pending_beacon_blocks: RwLock::new(HashMap::new()),
             pending_shard_blocks: RwLock::new(HashMap::new()),
         }
@@ -201,10 +205,10 @@ impl Client {
         );
         let authority_mask: Vec<bool> =
             authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
-        let signature = shard_block.sign(&*self.signer);
+        let signature = shard_block.sign(&self.signer);
         shard_block.add_signature(signature);
         shard_block.authority_mask = authority_mask.clone();
-        let signature = block.sign(&*self.signer);
+        let signature = block.sign(&self.signer);
         block.add_signature(signature);
         block.authority_mask = authority_mask;
         self.shard_chain.insert_block(&shard_block.clone());
