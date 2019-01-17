@@ -2,6 +2,7 @@ use protobuf::Message;
 
 pub mod transaction;
 pub mod message;
+pub mod txflow;
 
 
 pub fn encode<T: Message>(m: &T) -> Result<Vec<u8>, String> {

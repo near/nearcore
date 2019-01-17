@@ -20,5 +20,7 @@ pairing = { git = "https://github.com/mmaker/pairing.git", rev = "a3bbecefe6c5d2
 rand = "0.4"
 protobuf = "2.2.4"
 
+near-protos = { path = "../protos" }
+
 [dev-dependencies]
 serde_json = "1.0"

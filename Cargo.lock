@@ -1994,6 +1994,7 @@ dependencies = [
  "exonum_sodiumoxide 0.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-protos 0.1.0",
  "pairing 0.14.1 (git+https://github.com/mmaker/pairing.git?rev=a3bbecefe6c5d2f15c7126ea8b84930053929f20)",
  "protobuf 2.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",

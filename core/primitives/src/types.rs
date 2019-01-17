@@ -2,8 +2,11 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
+use near_protos::txflow as txflow_proto;
+
 use crate::hash::CryptoHash;
-use crate::signature::{PublicKey, Signature};
+use crate::signature::{PublicKey, Signature, DEFAULT_SIGNATURE};
+use crate::serialize::{Encode, Decode, EncodeResult, DecodeResult};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -81,13 +84,13 @@ pub type TxFlowHash = u64;
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
-#[derive(Hash, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, PartialEq, Eq)]
 pub struct Endorsement {
     pub epoch: u64,
     pub signature: MultiSignature,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 /// Not signed data representing TxFlow message.
 pub struct MessageDataBody<P> {
     pub owner_uid: UID,
@@ -128,7 +131,41 @@ impl<P: Hash> PartialEq for MessageDataBody<P> {
 
 impl<P: Hash> Eq for MessageDataBody<P> {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl<P: Encode> Encode for MessageDataBody<P> {
+    fn encode(&self) -> EncodeResult {
+        let mut m = txflow_proto::MessageDataBody::new();
+        m.set_owner_uid(self.owner_uid);
+        for p in self.parents.iter() {
+            m.mut_parents().push(p.clone());
+        }
+        m.set_epoch(self.epoch);
+        m.set_payload(self.payload.encode()?);
+        for e in self.endorsements.iter() {
+            let mut endorsement = txflow_proto::Endorsement::new();
+            endorsement.set_epoch(e.epoch);
+            // TODO: fix when mutli signature is BLS.
+            endorsement.set_signature(e.signature[0].as_ref().to_vec());
+            m.mut_endorsements().push(endorsement);
+        }
+        near_protos::encode(&m)
+    }
+}
+
+impl<P: Decode> Decode for MessageDataBody<P> {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: txflow_proto::MessageDataBody = near_protos::decode(bytes)?;
+        Ok(MessageDataBody {
+            owner_uid: m.get_owner_uid(),
+            parents: m.get_parents().iter().cloned().collect(),
+            epoch: m.get_epoch(),
+            payload: Decode::decode(m.get_payload())?,
+            // TODO: fix when mutli signature is BLS.
+            endorsements: m.get_endorsements().iter().map(|x| Endorsement { epoch: x.get_epoch(), signature: vec![DEFAULT_SIGNATURE] }).collect(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SignedMessageData<P> {
     /// Signature of the hash.
     pub owner_sig: StructSignature,
@@ -157,21 +194,65 @@ impl<P> PartialEq for SignedMessageData<P> {
 
 impl<P> Eq for SignedMessageData<P> {}
 
+impl<P: Encode> Encode for SignedMessageData<P> {
+    fn encode(&self) -> EncodeResult {
+        let mut m = txflow_proto::SignedMessageData::new();
+        m.set_owner_sig(self.owner_sig.as_ref().to_vec());
+        m.set_hash(self.hash.clone());
+        m.set_body(self.body.encode()?);
+        near_protos::encode(&m)
+    }
+}
+
+impl<P: Decode> Decode for SignedMessageData<P> {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: txflow_proto::SignedMessageData = near_protos::decode(bytes)?;
+        Ok(SignedMessageData {
+            owner_sig: DEFAULT_SIGNATURE,
+            hash: m.get_hash(),
+            body: Decode::decode(m.get_body())?
+        })
+    }
+}
+
 #[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConsensusBlockHeader {
     pub body_hash: CryptoHash,
     pub prev_block_body_hash: CryptoHash,
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq)]
 pub struct ConsensusBlockBody<P> {
     /// TxFlow messages that constitute that consensus block together with the endorsements.
     pub messages: Vec<SignedMessageData<P>>,
 }
 
+impl<P: Encode> Encode for ConsensusBlockBody<P> {
+    fn encode(&self) -> EncodeResult {
+        let mut m = txflow_proto::ConsensusBlockBody::new();
+        for message in self.messages.iter() {
+            m.mut_messages().push(message.encode()?);
+        }
+        near_protos::encode(&m)
+    }
+}
+
+impl<P: Decode> Decode for ConsensusBlockBody<P> {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: txflow_proto::ConsensusBlockBody = near_protos::decode(bytes)?;
+        let mut messages = vec![];
+        for x in m.get_messages().iter() {
+            messages.push(Decode::decode(x)?);
+        }
+        Ok(ConsensusBlockBody {
+            messages
+        })
+    }
+}
+
 // Gossip-specific structs.
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq)]
 pub enum GossipBody<P> {
     /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
     Unsolicited(SignedMessageData<P>),
@@ -184,10 +265,63 @@ pub enum GossipBody<P> {
 }
 
 /// A single unit of communication between the TxFlow participants.
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq)]
 pub struct Gossip<P> {
     pub sender_uid: UID,
     pub receiver_uid: UID,
     pub sender_sig: StructSignature,
     pub body: GossipBody<P>,
+}
+
+impl<P: Encode> Encode for Gossip<P> {
+    fn encode(&self) -> EncodeResult {
+        let mut m = txflow_proto::Gossip::new();
+        m.set_sender_uid(self.sender_uid);
+        m.set_receiver_uid(self.receiver_uid);
+        m.set_sender_sig(self.sender_sig.as_ref().to_vec());
+        match &self.body {
+            GossipBody::Unsolicited(message) => m.set_unsolicited(message.encode()?),
+            GossipBody::UnsolicitedReply(reply) => m.set_unsolicited_reply(reply.encode()?),
+            GossipBody::Fetch(fetch) => {
+                let mut f = txflow_proto::Fetch::new();
+                for x in fetch.iter() {
+                    f.mut_hashes().push(x.clone());
+                }
+                m.set_fetch(f);
+            },
+            GossipBody::FetchReply(fetch_reply) => {
+                let mut f = txflow_proto::FetchReply::new();
+                for x in fetch_reply.iter() {
+                    f.mut_messages().push(x.encode()?);
+                }
+                m.set_fetch_reply(f);
+            }
+        };
+        near_protos::encode(&m)
+    }
+}
+
+impl<P: Decode> Decode for Gossip<P> {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: txflow_proto::Gossip = near_protos::decode(bytes)?;
+        let body = match &m.body {
+            Some(txflow_proto::Gossip_oneof_body::unsolicited(message)) => GossipBody::Unsolicited(Decode::decode(&message)?),
+            Some(txflow_proto::Gossip_oneof_body::unsolicited_reply(message)) => GossipBody::UnsolicitedReply(Decode::decode(&message)?),
+            Some(txflow_proto::Gossip_oneof_body::fetch(fetch)) => GossipBody::Fetch(fetch.get_hashes().iter().map(|m| m.clone()).collect()),
+            Some(txflow_proto::Gossip_oneof_body::fetch_reply(reply)) => {
+                let mut messages = vec![];
+                for m in reply.get_messages().iter() {
+                    messages.push(Decode::decode(m)?);
+                }
+                GossipBody::FetchReply(messages)
+            },
+            _ => return Err("Failed to deserialize Gossip".to_string())
+        };
+        Ok(Gossip {
+            sender_uid: m.get_sender_uid(),
+            receiver_uid: m.get_receiver_uid(),
+            sender_sig: DEFAULT_SIGNATURE,
+            body,
+        })
+    }
 }

@@ -46,7 +46,7 @@ impl Decode for Message {
             Some(message_proto::Message_oneof_message_type::block_request(x)) => Ok(Message::BlockRequest(Decode::decode(&x)?)),
             Some(message_proto::Message_oneof_message_type::block_response(x)) => Ok(Message::BlockResponse(Decode::decode(&x)?)),
             Some(message_proto::Message_oneof_message_type::block_announce(x)) => Ok(Message::BlockAnnounce(Decode::decode(&x)?)),
-            Some(message_proto::Message_oneof_message_type::gossip(x)) => Ok(Message::Gossip(Decode::decode(&x)?)),
+            Some(message_proto::Message_oneof_message_type::gossip(x)) => Ok(Message::Gossip(Box::new(Decode::decode(&x)?))),
             _ => Err("Found unknown type or empty Message at deserialization".to_string())
         }
     }
