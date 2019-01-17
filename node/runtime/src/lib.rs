@@ -861,8 +861,8 @@ impl Runtime {
                             );
                             Ok(vec![Transaction::Receipt(receipt)])
                         } else if async_call.method_name == SYSTEM_METHOD_DEPLOY {
-                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).map_err("cannot decode args")?;
-                            let pub_key = Decode::decode(&pub_key).map_err("cannot decode public key")?;
+                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).map_err(|_| "cannot decode args".to_string())?;
+                            let pub_key = Decode::decode(&pub_key).map_err(|_| "cannot decode public key".to_string())?;
                             // TODO(#413): Fix security of contract deploy.
                             if receiver.public_keys.contains(&pub_key) {
                                 receiver.code_hash = hash(&code);
