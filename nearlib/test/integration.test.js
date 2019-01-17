@@ -58,15 +58,17 @@ test('create account and then view account returns the created account', async (
 
 test('create account with a new key and then view account returns the created account', async () => {
     const newAccountName = await generateUniqueString("create.randomkey.test");
+    const amount = 2;
+    const aliceAccountBeforeCreation = await account.viewAccount(aliceAccountName);
     const createAccountResponse = await account.createAccountWithRandomKey(
         newAccountName,
-        2,
+        amount,
         aliceAccountName);
     expect(createAccountResponse["key"]).not.toBeFalsy();
     const expctedAccount = {
         nonce: 0,
         account_id: newAccountName,
-        amount: 2,
+        amount: amount,
         code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
         stake: 0,
     };
@@ -82,6 +84,8 @@ test('create account with a new key and then view account returns the created ac
         viewAccountFunc,
         checkConditionFunc, 
         "Call view account until result matches expected value");
+    const aliceAccountAfterCreation = await account.viewAccount(aliceAccountName);
+    expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
 });
 
 test('deploy contract and make function calls', async () => {

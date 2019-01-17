@@ -5,10 +5,12 @@ use bencher::Bencher;
 
 extern crate primitives;
 extern crate node_runtime;
+extern crate transaction;
 
 use primitives::hash::CryptoHash;
 use primitives::signature::{DEFAULT_SIGNATURE, get_key_pair};
-use primitives::types::{TransactionBody, SendMoneyTransaction, SignedTransaction, Transaction};
+
+use transaction::{TransactionBody, SendMoneyTransaction, SignedTransaction, Transaction};
 use node_runtime::ApplyState;
 use node_runtime::test_utils::{generate_test_chain_spec, get_runtime_and_state_db_viewer_from_chain_spec};
 
