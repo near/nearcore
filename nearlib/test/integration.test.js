@@ -35,6 +35,7 @@ test('create account and then view account returns the created account', async (
     const newAccountName = await generateUniqueString("create.account.test");
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+    await waitForTransactionToComplete(createAccountResponse);
     const expctedAccount = {
         nonce: 0,
         account_id: newAccountName,
@@ -42,18 +43,8 @@ test('create account and then view account returns the created account', async (
         code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
         stake: 0,
     };
-
-    const viewAccountFunc = async () => {
-        return await account.viewAccount(newAccountName);
-    };
-    const checkConditionFunc = (result) => {
-        expect(result).toEqual(expctedAccount);
-        return true;
-    }
-    await callUntilConditionIsMet(
-        viewAccountFunc,
-        checkConditionFunc, 
-        "Call view account until result matches expected value");
+    const result = await account.viewAccount(newAccountName);
+    expect(result).toEqual(expctedAccount);
 });
 
 test('create account with a new key and then view account returns the created account', async () => {
@@ -64,6 +55,7 @@ test('create account with a new key and then view account returns the created ac
         newAccountName,
         amount,
         aliceAccountName);
+    await waitForTransactionToComplete(createAccountResponse);
     expect(createAccountResponse["key"]).not.toBeFalsy();
     const expctedAccount = {
         nonce: 0,
@@ -72,18 +64,8 @@ test('create account with a new key and then view account returns the created ac
         code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
         stake: 0,
     };
-
-    const viewAccountFunc = async () => {
-        return await account.viewAccount(newAccountName);
-    };
-    const checkConditionFunc = (result) => {
-        expect(result).toEqual(expctedAccount);
-        return true;
-    }
-    await callUntilConditionIsMet(
-        viewAccountFunc,
-        checkConditionFunc, 
-        "Call view account until result matches expected value");
+    const result = await account.viewAccount(newAccountName);
+    expect(result).toEqual(expctedAccount);
     const aliceAccountAfterCreation = await account.viewAccount(aliceAccountName);
     expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
 });
@@ -120,12 +102,7 @@ test('deploy contract and make function calls', async () => {
         "setValue", // this is the function defined in hello.wasm file that we are calling
         setArgs);
     expect(scheduleResult.hash).not.toBeFalsy();
-    await callUntilConditionIsMet(
-        async () => { return await nearClient.getTransactionStatus(scheduleResult.hash); },
-        (response) => { return response['status'] == 'Completed' },
-        "Call get transaction status until transaction is completed",
-        TRANSACTION_COMPLETE_MAX_RETRIES
-    );
+    await waitForTransactionToComplete(scheduleResult);
     const secondViewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
         "test_contract",
@@ -147,8 +124,28 @@ const callUntilConditionIsMet = async (functToPoll, condition, description, maxR
                 fail('exceeded number of retries for ' + description + ". Last error " + e.toString());
             }
         }
+        await sleep(500);
     }
+    fail('exceeded number of retries for ' + description);
 };
+
+const waitForTransactionToComplete = async (submitTransactionResult) => {
+    expect(submitTransactionResult.hash).not.toBeFalsy();
+    console.log("Waiting for transaction" + submitTransactionResult.hash);
+    await callUntilConditionIsMet(
+        async () => { return await nearClient.getTransactionStatus(submitTransactionResult.hash); },
+        (response) => {
+            if (response['status'] == 'Completed') {
+                console.log("Transaction " + submitTransactionResult.hash + " completed");
+                return true;
+            } else {
+                return false;
+            }
+        },
+        "Call get transaction status until transaction is completed",
+        TRANSACTION_COMPLETE_MAX_RETRIES
+    );
+}
 
 const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
@@ -159,13 +156,11 @@ const waitForContractToDeploy = async (deployResult) => {
     );
 };
 
-const waitForNonceToIncrease = async (initialAccount) => {
-    await callUntilConditionIsMet(
-        async () => { return await account.viewAccount(initialAccount['account_id']); },
-        (response) => { return response['nonce'] != initialAccount['nonce'] },
-        "Call view account until nonce increases"
-    );
-};
+function sleep(time) {
+    return new Promise(function (resolve, reject) {
+      setTimeout(resolve, time);
+    });
+}
 
 // Generate some unique string with a given prefix using the alice nonce. 
 const generateUniqueString = async (prefix) => {
