@@ -12,7 +12,7 @@ use primitives::traits::Payload;
 use primitives::types::{AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, StructSignature};
 
 /// const does not allow function call, so have to resort to this
-fn system_account() -> AccountId {
+pub fn system_account() -> AccountId {
     "system".to_string()
 }
 

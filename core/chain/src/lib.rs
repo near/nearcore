@@ -11,18 +11,19 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use serde::{de::DeserializeOwned, Serialize};
 
+use near_protos::block as block_proto;
 use primitives::hash::CryptoHash;
 use primitives::traits::Signer;
 use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
+use primitives::serialize::{Encode, Decode, EncodeResult, DecodeResult};
 use storage::{read_with_cache, write_with_cache, Storage};
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
 /// Trait that abstracts ``Header"
-pub trait SignedHeader: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
+pub trait SignedHeader: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'static
 {
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -36,7 +37,7 @@ pub trait SignedHeader: Debug + Clone + Send + Sync + Serialize + DeserializeOwn
 
 /// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
 /// and shard-chain blocks.
-pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
+pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'static {
     type SignedHeader: SignedHeader;
 
     /// Returns signed header for given block.
@@ -57,11 +58,30 @@ pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwne
 }
 
 /// A block plus its "virtual" fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct BlockIndex<B> {
     pub block: B,
     // Note: zero weight indicates orphan-chain (ancestry cannot be traced to genesis)
     pub cumulative_weight: u128,
+}
+
+impl<B: Encode> Encode for BlockIndex<B> {
+    fn encode(&self) -> EncodeResult {
+        let mut m = block_proto::BlockIndex::new();
+        m.set_block(self.block.encode()?);
+        m.set_cumulative_weight(self.cumulative_weight as u64);
+        near_protos::encode(&m)
+    }
+}
+
+impl<B: Decode> Decode for BlockIndex<B> {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: block_proto::BlockIndex = near_protos::decode(bytes)?;
+        Ok(BlockIndex {
+            block: Decode::decode(m.get_block())?,
+            cumulative_weight: m.get_cumulative_weight() as u128
+        })
+    }
 }
 
 /// General BlockChain container.

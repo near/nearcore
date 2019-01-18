@@ -223,6 +223,7 @@ pub struct ShardBlockResponse {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedTransactionResponse {
+    #[serde(with = "transaction_format")]
     pub body: TransactionBody,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,

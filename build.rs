@@ -4,7 +4,7 @@ const PROTO_OUTPUT_DIR: &str = "core/protos/src";
 
 fn main() {
     let proto_files = [
-        "message.proto", "transaction.proto", "txflow.proto"];
+        "message.proto", "transaction.proto", "txflow.proto", "block.proto"];
     for input_file in proto_files.iter() {
         protoc_rust::run(protoc_rust::Args {
             out_dir: PROTO_OUTPUT_DIR,
