@@ -41,7 +41,7 @@ test_nearlib:
     - cargo run --release --package=devnet -- --test-block-period 1 &
     - ./scripts/waitonserver.sh
     - *build_wasm
-    - cd nearlib && npm install && npm test && cd ..
+    - cd nearlib && npm install && npm run build && npm test && cd ..
     - ./scripts/kill_devnet.sh
     after_script:
     - *cleanup_obsolete_cache
