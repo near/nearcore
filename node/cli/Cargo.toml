@@ -11,7 +11,7 @@ log = "0.4"
 tokio = "0.1.11"
 
 beacon = { path = "../../core/beacon" }
-beacon-chain-handler = { path = "../beacon-chain-handler" }
+coroutines = { path = "../coroutines" }
 consensus = { path = "../../node/consensus" }
 shard = { path = "../../core/shard" }
 chain = { path = "../../core/chain" }

@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use crate::chain_spec;
 use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
-use beacon_chain_handler;
+use coroutines;
 use client::{Client, ClientConfig};
 use consensus::{adapters, passthrough};
 use network::protocol::{Protocol, ProtocolConfig};
@@ -157,7 +157,7 @@ pub fn start_service(
         let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
-        beacon_chain_handler::producer::spawn_block_producer(
+        coroutines::producer::spawn_block_producer(
             client.clone(),
             beacon_block_consensus_body_rx,
             beacon_block_announce_tx,

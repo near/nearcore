@@ -1,5 +1,5 @@
 extern crate beacon;
-extern crate beacon_chain_handler;
+extern crate coroutines;
 extern crate chain;
 extern crate clap;
 extern crate client;

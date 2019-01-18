@@ -33,7 +33,7 @@ members = [
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
-    "node/beacon-chain-handler",
+    "node/coroutines",
     "node/cli",
     "node/client",
     "node/consensus",
