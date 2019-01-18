@@ -19,7 +19,6 @@ class KeyPair {
     }
 
     static async fromRandomSeed() {
-        const response = {};
         var newKeypair = nacl.sign.keyPair()
         const result = new KeyPair(
             KeyPair.encodeBufferInBs58(newKeypair.publicKey),

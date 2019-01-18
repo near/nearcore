@@ -23,6 +23,10 @@ const nearjs = new Near(nearClient);
 const TEST_MAX_RETRIES = 10;
 const TRANSACTION_COMPLETE_MAX_RETRIES = 100;
 
+test('test creating default config', async () => {
+    // Make sure createDefaultConfig doesn't crash.
+    Near.createDefaultConfig();
+});
 
 test('view pre-defined account works and returns correct name', async () => {
     // We do not want to check the other properties of this account since we create other accounts
