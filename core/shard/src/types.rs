@@ -1,8 +1,9 @@
 use chain::SignedBlock;
 use chain::SignedHeader;
 use near_protos::block as block_proto;
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::{CryptoHash, hash, hash_struct};
 use primitives::types::{AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId};
+use primitives::signature::Signature;
 use primitives::serialize::{Encode, Decode, EncodeResult, DecodeResult};
 use transaction::Transaction;
 
@@ -63,6 +64,18 @@ impl Encode for ShardBlockHeader {
     }
 }
 
+impl Decode for ShardBlockHeader {
+    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+        let m: block_proto::ShardBlockHeader = near_protos::decode(bytes)?;
+        Ok(ShardBlockHeader {
+            parent_hash: CryptoHash::new(m.get_parent_hash()),
+            shard_id: m.get_shard_id(),
+            index: m.get_index(),
+            merkle_root_state: CryptoHash::new(m.get_merkle_root_state())
+        })
+    }
+}
+
 impl Encode for SignedShardBlockHeader {
     fn encode(&self) -> EncodeResult {
         let mut m = block_proto::SignedShardBlockHeader::new();
@@ -77,7 +90,18 @@ impl Encode for SignedShardBlockHeader {
 
 impl Decode for SignedShardBlockHeader {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        Err("WTF".to_string())
+        let m: block_proto::SignedShardBlockHeader = near_protos::decode(bytes)?;
+        let mut authority_mask = vec![];
+        for x in m.get_authority_mask() {
+            authority_mask.push(*x);
+        }
+        let hash = hash(m.get_body());
+        Ok(SignedShardBlockHeader {
+            body: Decode::decode(m.get_body())?,
+            hash,
+            authority_mask,
+            signature: vec![Signature::new(m.get_signature())]
+        })
     }
 }
 
@@ -144,12 +168,49 @@ impl SignedBlock for SignedShardBlock {
 
 impl Encode for SignedShardBlock {
     fn encode(&self) -> EncodeResult {
-        Ok(vec![])
+        let mut m = block_proto::SignedShardBlock::new();
+        m.set_header(self.body.header.encode()?);
+        for t in self.body.transactions.iter() {
+            m.mut_transactions().push(t.encode()?);
+        }
+        for t in self.body.new_receipts.iter() {
+            m.mut_new_receipts().push(t.encode()?);
+        }
+        for x in self.authority_mask.iter() {
+            m.mut_authority_mask().push(*x);
+        }
+        m.set_signature(self.signature[0].as_ref().to_vec());
+        near_protos::encode(&m)
     }
 }
 
 impl Decode for SignedShardBlock {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        Err("WTF".to_string())
+        let m: block_proto::SignedShardBlock = near_protos::decode(bytes)?;
+        let mut transactions = vec![];
+        for t in m.get_transactions().iter() {
+            transactions.push(Decode::decode(t)?);
+        }
+        let mut new_receipts = vec![];
+        for t in m.get_new_receipts().iter() {
+            new_receipts.push(Decode::decode(t)?);
+        }
+        let body = ShardBlock {
+            header: Decode::decode(m.get_header())?,
+            transactions,
+            new_receipts,
+        };
+        let mut authority_mask = vec![];
+        for x in m.get_authority_mask() {
+            authority_mask.push(*x);
+        }
+        let hash = hash(m.get_header());
+        Ok(SignedShardBlock {
+            body,
+            hash,
+            authority_mask,
+            // TODO: change when BLS is introduced.
+            signature: vec![Signature::new(m.get_signature())]
+        })
     }
 }

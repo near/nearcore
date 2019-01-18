@@ -1,8 +1,6 @@
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate storage;
 
 use std::cmp;

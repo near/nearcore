@@ -62,8 +62,11 @@ impl SecretKey {
 }
 
 impl Signature {
-    pub fn new(bytes: &[u8; 64]) -> Signature {
-        let signature = sodiumoxide::crypto::sign::ed25519::Signature(bytes.clone());
+    pub fn new(bytes: &[u8]) -> Signature {
+        assert!(bytes.len() == sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES);
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        array.copy_from_slice(bytes);
+        let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
         Signature(signature)
     }
 
