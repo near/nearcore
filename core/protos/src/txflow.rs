@@ -22,12 +22,15 @@ use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Endorsement {
     // message fields
     epoch: ::std::option::Option<u64>,
     signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -240,6 +243,7 @@ impl ::protobuf::reflect::ProtobufValue for Endorsement {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct MessageDataBody {
     // message fields
     owner_uid: ::std::option::Option<u64>,
@@ -248,7 +252,9 @@ pub struct MessageDataBody {
     payload: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     endorsements: ::protobuf::RepeatedField<Endorsement>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -590,13 +596,16 @@ impl ::protobuf::reflect::ProtobufValue for MessageDataBody {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedMessageData {
     // message fields
     body: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     hash: ::std::option::Option<u64>,
     owner_sig: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -863,11 +872,14 @@ impl ::protobuf::reflect::ProtobufValue for SignedMessageData {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct ConsensusBlockBody {
     // message fields
     messages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1025,11 +1037,14 @@ impl ::protobuf::reflect::ProtobufValue for ConsensusBlockBody {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Fetch {
     // message fields
     hashes: ::std::vec::Vec<u64>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1187,11 +1202,14 @@ impl ::protobuf::reflect::ProtobufValue for Fetch {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct FetchReply {
     // message fields
     messages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1349,6 +1367,7 @@ impl ::protobuf::reflect::ProtobufValue for FetchReply {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Gossip {
     // message fields
     sender_uid: ::std::option::Option<u64>,
@@ -1357,11 +1376,14 @@ pub struct Gossip {
     // message oneof groups
     pub body: ::std::option::Option<Gossip_oneof_body>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
 #[derive(Clone,PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub enum Gossip_oneof_body {
     unsolicited(::std::vec::Vec<u8>),
     unsolicited_reply(::std::vec::Vec<u8>),

@@ -22,6 +22,7 @@ use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct ShardBlockHeader {
     // message fields
     parent_hash: ::protobuf::SingularField<::std::vec::Vec<u8>>,
@@ -29,7 +30,9 @@ pub struct ShardBlockHeader {
     index: ::std::option::Option<u64>,
     merkle_root_state: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -337,13 +340,16 @@ impl ::protobuf::reflect::ProtobufValue for ShardBlockHeader {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedShardBlockHeader {
     // message fields
     body: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     authority_mask: ::std::vec::Vec<bool>,
     signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -607,6 +613,7 @@ impl ::protobuf::reflect::ProtobufValue for SignedShardBlockHeader {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedShardBlock {
     // message fields
     header: ::protobuf::SingularField<::std::vec::Vec<u8>>,
@@ -615,7 +622,9 @@ pub struct SignedShardBlock {
     authority_mask: ::std::vec::Vec<bool>,
     signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -959,12 +968,15 @@ impl ::protobuf::reflect::ProtobufValue for SignedShardBlock {
 }
 
 #[derive(PartialEq,Clone,Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct BlockIndex {
     // message fields
     block: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     cumulative_weight: ::std::option::Option<u64>,
     // special fields
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
+    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 

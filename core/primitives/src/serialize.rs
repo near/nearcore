@@ -36,6 +36,25 @@ impl Encode for protobuf::Message {
     }
 }
 
+pub mod proto_format {
+    use super::{Encode, Decode};
+    use base64;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S, T>(s: T, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer, T: Encode {
+        let bytes = s.encode().map_err(|_| serde::ser::Error::custom("Encoding proto failed".to_string()))?;
+        serializer.serialize_str(&base64::encode(&bytes))
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+        where D: Deserializer<'de>, T: Decode {
+        let s = String::deserialize(deserializer)?;
+        let bytes = base64::decode(&s).map_err(|_| serde::de::Error::custom("Decoding base64 failed".to_string()))?;
+        Ok(T::decode(&bytes).map_err(|_| serde::de::Error::custom("Decoding proto failed"))?)
+    }
+}
+
 //impl<T> Decode for T where T: protobuf::Message {
 //    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
 //        let m = Self::new();

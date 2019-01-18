@@ -329,45 +329,45 @@ impl ReceiptTransaction {
     }
 }
 
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub enum Transaction {
     SignedTransaction(SignedTransaction),
     Receipt(ReceiptTransaction),
 }
 
-impl Encode for Transaction {
-    fn encode(&self) -> EncodeResult {
-        let mut m = transaction_proto::Transaction::new();
-        match &self {
-            Transaction::SignedTransaction(t) => {
-                m.set_signature(t.signature.as_ref().to_vec());
-                m.set_originator(t.body.get_originator());
-                m.set_nonce(t.body.get_nonce());
-                match &t.body {
-                    TransactionBody::CreateAccount(t) => {
-                        m.set_destination(system_account());
-//                        m.set_args();
-                    },
-                    _ => {}
-                }
-            },
-            Transaction::Receipt(r) => {
-                m.set_originator(r.originator.clone());
-                m.set_destination(r.receiver.clone());
-                // m.set_nonce(r.nonce);
-            }
-        }
-        near_protos::encode(&m)
-    }
-}
-
-impl Decode for Transaction {
-    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: transaction_proto::Transaction = near_protos::decode(bytes)?;
-        Err("WTF".to_string())
-        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
-    }
-}
+//impl Encode for Transaction {
+//    fn encode(&self) -> EncodeResult {
+//        let mut m = transaction_proto::Transaction::new();
+//        match &self {
+//            Transaction::SignedTransaction(t) => {
+//                m.set_signature(t.signature.as_ref().to_vec());
+//                m.set_originator(t.body.get_originator());
+//                m.set_nonce(t.body.get_nonce());
+//                match &t.body {
+//                    TransactionBody::CreateAccount(t) => {
+//                        m.set_destination(system_account());
+////                        m.set_args();
+//                    },
+//                    _ => {}
+//                }
+//            },
+//            Transaction::Receipt(r) => {
+//                m.set_originator(r.originator.clone());
+//                m.set_destination(r.receiver.clone());
+//                // m.set_nonce(r.nonce);
+//            }
+//        }
+//        near_protos::encode(&m)
+//    }
+//}
+//
+//impl Decode for Transaction {
+//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+//        let m: transaction_proto::Transaction = near_protos::decode(bytes)?;
+//        Err("WTF".to_string())
+//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
+//    }
+//}
 
 #[derive(Hash, Debug, PartialEq, Eq, Clone)]
 pub struct ChainPayload {
