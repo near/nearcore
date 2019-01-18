@@ -33,7 +33,7 @@ use primitives::utils::{
 };
 use transaction::{ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
                   StakeTransaction, SendMoneyTransaction, CreateAccountTransaction, SignedTransaction, TransactionBody,
-                  SwapKeyTransaction, DeployContractTransaction, Transaction, FunctionCallTransaction};
+                  SwapKeyTransaction, DeployContractTransaction, Transaction, FunctionCallTransaction, system_account};
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
@@ -54,11 +54,6 @@ const COL_LOGS: &[u8] = &[5];
 
 const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
 const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
-
-// const does not allow function call, so have to resort to this
-fn system_account() -> AccountId {
-    "system".to_string()
-}
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]

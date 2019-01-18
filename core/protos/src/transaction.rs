@@ -501,13 +501,177 @@ impl ::protobuf::reflect::ProtobufValue for Transaction {
     }
 }
 
+#[derive(PartialEq,Clone,Default)]
+pub struct ChainPayload {
+    // message fields
+    transactions: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl ChainPayload {
+    pub fn new() -> ChainPayload {
+        ::std::default::Default::default()
+    }
+
+    // repeated bytes transactions = 1;
+
+    pub fn clear_transactions(&mut self) {
+        self.transactions.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_transactions(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.transactions = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_transactions(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.transactions
+    }
+
+    // Take field
+    pub fn take_transactions(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.transactions, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_transactions(&self) -> &[::std::vec::Vec<u8>] {
+        &self.transactions
+    }
+}
+
+impl ::protobuf::Message for ChainPayload {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.transactions)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        for value in &self.transactions {
+            my_size += ::protobuf::rt::bytes_size(1, &value);
+        };
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        for v in &self.transactions {
+            os.write_bytes(1, &v)?;
+        };
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> ChainPayload {
+        ChainPayload::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "transactions",
+                    |m: &ChainPayload| { &m.transactions },
+                    |m: &mut ChainPayload| { &mut m.transactions },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<ChainPayload>(
+                    "ChainPayload",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static ChainPayload {
+        static mut instance: ::protobuf::lazy::Lazy<ChainPayload> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ChainPayload,
+        };
+        unsafe {
+            instance.get(ChainPayload::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for ChainPayload {
+    fn clear(&mut self) {
+        self.clear_transactions();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for ChainPayload {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for ChainPayload {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
     \n\x11transaction.proto\"\xd0\x01\n\x0bTransaction\x12\x1e\n\noriginator\
     \x18\x01\x20\x02(\tR\noriginator\x12\x20\n\x0bdestination\x18\x02\x20\
     \x02(\tR\x0bdestination\x12\x16\n\x06amount\x18\x03\x20\x02(\x04R\x06amo\
     unt\x12\x14\n\x05nonce\x18\x04\x20\x02(\x04R\x05nonce\x12\x1f\n\x0bmetho\
     d_name\x18\x05\x20\x02(\tR\nmethodName\x12\x12\n\x04args\x18\x06\x20\x02\
-    (\x0cR\x04args\x12\x1c\n\tsignature\x18\x07\x20\x02(\x0cR\tsignature\
+    (\x0cR\x04args\x12\x1c\n\tsignature\x18\x07\x20\x02(\x0cR\tsignature\"2\
+    \n\x0cChainPayload\x12\"\n\x0ctransactions\x18\x01\x20\x03(\x0cR\x0ctran\
+    sactions\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

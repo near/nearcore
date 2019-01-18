@@ -62,6 +62,11 @@ impl SecretKey {
 }
 
 impl Signature {
+    pub fn new(bytes: &[u8; 64]) -> Signature {
+        let signature = sodiumoxide::crypto::sign::ed25519::Signature(bytes.clone());
+        Signature(signature)
+    }
+
     pub fn from(s: &str) -> Signature {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
         let bytes = bs58::decode(s).into_vec().expect("Failed to convert signature from base58");
