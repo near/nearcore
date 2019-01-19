@@ -7,14 +7,13 @@ use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
-    AccountId, BlockId, Gossip, UID,
+    AccountId, BlockId, Gossip, UID, AuthorityStake
 };
 use transaction::{ChainPayload, Transaction};
 
@@ -367,7 +366,7 @@ impl Protocol {
     pub fn get_node_index_by_uid(&self, uid: UID) -> Option<NodeIndex> {
         let auth_map = &*self.authority_map.read();
         auth_map
-            .into_iter()
+            .iter()
             .find_map(
                 |(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None },
             )

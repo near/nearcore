@@ -10,3 +10,4 @@ serde_json = "1.0.0"
 network = { path = "../../node/network" }
 client = { path = "../../node/client" }
 node-runtime = { path = "../../node/runtime" }
+configs = { path = "../../node/configs" }

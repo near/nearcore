@@ -6,48 +6,33 @@ extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-extern crate shard;
-extern crate storage;
-#[macro_use]
-extern crate serde_derive;
-extern crate env_logger;
-#[cfg_attr(test, macro_use)]
-extern crate serde_json;
 
-pub mod chain_spec;
 pub mod test_utils;
 
 use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use parking_lot::RwLock;
 
-use beacon::authority::{Authority, AuthorityStake};
+use beacon::authority::Authority;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::SignedBlock;
-use node_runtime::chain_spec::ChainSpec;
+use configs::authority::get_authority_config;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
-use primitives::types::{AccountId, BlockId, ConsensusBlockBody, UID};
+use primitives::types::{AccountId, BlockId, ConsensusBlockBody, UID, AuthorityStake};
 use transaction::ChainPayload;
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
-
-pub struct ClientConfig {
-    pub base_path: PathBuf,
-    pub account_id: AccountId,
-    pub public_key: Option<String>,
-    pub chain_spec_path: Option<PathBuf>,
-    pub log_level: log::LevelFilter,
-}
+use configs::ClientConfig;
 
 pub struct Client {
     pub account_id: AccountId,
@@ -87,17 +72,6 @@ fn configure_logging(log_level: log::LevelFilter) {
 pub const DEFAULT_BASE_PATH: &str = ".";
 pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 
-impl Default for ClientConfig {
-    fn default() -> Self {
-        Self {
-            base_path: PathBuf::from(DEFAULT_BASE_PATH),
-            account_id: String::from("alice"),
-            public_key: None,
-            chain_spec_path: None,
-            log_level: DEFAULT_LOG_LEVEL,
-        }
-    }
-}
 
 const STORAGE_PATH: &str = "storage/db";
 const KEY_STORE_PATH: &str = "storage/keystore";
@@ -115,7 +89,8 @@ fn get_storage(base_path: &Path) -> Arc<Storage> {
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
-    pub fn new(config: &ClientConfig, chain_spec: &ChainSpec) -> Self {
+    pub fn new(config: &ClientConfig) -> Self {
+        let chain_spec = &config.chain_spec;
         let storage = get_storage(&config.base_path);
         let state_db = Arc::new(StateDb::new(storage.clone()));
         let runtime = RwLock::new(Runtime::new(state_db.clone()));
@@ -136,7 +111,7 @@ impl Client {
             key_file_path.as_path(),
             config.public_key.clone(),
         );
-        let authority_config = chain_spec::get_authority_config(&chain_spec);
+        let authority_config = get_authority_config(&chain_spec);
         let authority = RwLock::new(Authority::new(authority_config, &beacon_chain));
 
         configure_logging(config.log_level);

@@ -191,3 +191,24 @@ pub struct Gossip<P> {
     pub sender_sig: StructSignature,
     pub body: GossipBody<P>,
 }
+
+
+/// Stores authority and its stake.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuthorityStake {
+    /// Account that stakes money.
+    pub account_id: AccountId,
+    /// Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// Stake / weight of the authority.
+    pub amount: u64,
+}
+
+impl PartialEq for AuthorityStake {
+    fn eq(&self, other: &Self) -> bool {
+        self.account_id == other.account_id
+            && self.public_key == other.public_key
+    }
+}
+
+impl Eq for AuthorityStake {}

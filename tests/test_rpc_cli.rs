@@ -46,13 +46,13 @@ fn test_service_ready() -> bool {
         .output()
         .expect("build hello.wasm failed");
 
-    let network_cfg = devnet::NetworkConfig::default();
-    let mut client_cfg = devnet::ClientConfig::default();
+    let mut client_cfg = configs::ClientConfig::default();
     client_cfg.base_path = base_path;
     client_cfg.log_level = log::LevelFilter::Off;
-    let devnet_cfg = devnet::DevNetConfig { block_period: Duration::from_millis(5) };
-    thread::spawn(|| { 
-        devnet::start_devnet(Some(network_cfg), Some(client_cfg), Some(devnet_cfg))
+    let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
+    let rpc_cfg = configs::RPCConfig::default();
+    thread::spawn(|| {
+        devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
     });
     thread::sleep(Duration::from_secs(1));
     true

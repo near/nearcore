@@ -18,7 +18,7 @@ use substrate_network_libp2p::{
 };
 use tokio::timer::Interval;
 
-use beacon::authority::{AuthorityConfig, AuthorityStake};
+use configs::AuthorityConfig;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::{SignedBlock, SignedHeader};
 use client::test_utils::get_client;
@@ -121,7 +121,7 @@ pub fn get_test_authority_config(
     let mut initial_authorities = vec![];
     for i in 0..num_authorities {
         let (public_key, _) = get_key_pair();
-        initial_authorities.push(AuthorityStake {
+        initial_authorities.push(types::AuthorityStake {
             account_id: i.to_string(),
             public_key,
             amount: 100,

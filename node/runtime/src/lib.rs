@@ -18,7 +18,6 @@ use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use beacon::authority::AuthorityStake;
 use crate::ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::PublicKey;
@@ -26,7 +25,7 @@ use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountId, MerkleHash, ReadablePublicKey,
     Balance, ShardId, PromiseId,
-    AccountingInfo, ManaAccounting, Mana, BlockIndex,
+    AccountingInfo, ManaAccounting, Mana, BlockIndex, AuthorityStake,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
@@ -38,7 +37,6 @@ use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
 
-pub mod chain_spec;
 pub mod test_utils;
 pub mod state_viewer;
 mod tx_stakes;

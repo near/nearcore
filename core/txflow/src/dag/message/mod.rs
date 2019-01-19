@@ -399,7 +399,7 @@ impl<'a, P: Payload> Message<'a, P> {
     ) -> Option<(&u64, &'a Message<'a, P>)> {
         // This is quite inefficient, but we are making changes to TxFlow algorithm anyway.
         (&prev.approved_representatives.messages_by_epoch)
-            .into_iter()
+            .iter()
             // Filter out representatives that are already publishable.
             .filter_map(|(epoch, repr_group)| {
                 if self.approved_publishable_epochs.contains_epoch(*epoch) {

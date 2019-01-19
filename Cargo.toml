@@ -8,14 +8,8 @@ edition = "2018"
 name = "nearcore"
 path = "node/src/main.rs"
 
-[lib]
-name = "nearlib"
-crate-type = ["staticlib"]
-path = "node/src/lib.rs"
-
 [dependencies]
 log = "0.4"
-node-cli = { path = "./node/cli" }
 node-runtime = { path = "./node/runtime" }
 primitives = { path = "./core/primitives" }
 transaction = { path = "./core/transaction" }
@@ -28,21 +22,20 @@ members = [
     "core/storage",
     "core/txflow",
     "core/chain",
-    "core/beacon",
     "core/shard",
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
-    "node/beacon-chain-handler",
-    "node/cli",
+    "node/beacon",
+    "node/coroutines",
+    "node/configs",
     "node/client",
     "node/consensus",
     "node/http",
     "node/runtime",
     "node/network",
+    "node/devnet",
     "test-utils/chain-spec-builder",
-    "test-utils/devnet",
-    "test-utils/node",
     "test-utils/keygen"
 ]
 exclude = [
@@ -55,7 +48,8 @@ log = "0.4.6"
 rand = "0.6.1"
 serde_json = "1.0.0"
 
+devnet = { path = "./node/devnet" }
 keystore = { path = "./test-utils/keygen" }
-devnet = { path = "./test-utils/devnet" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
+configs = { path = "./node/configs" }

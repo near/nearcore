@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
-    AccountId, AuthorityMask, Balance, MerkleHash, ShardId,
+    AccountId, AuthorityMask, Balance, MerkleHash, ShardId, AuthorityStake
 };
 use transaction::{SignedTransaction, Transaction, TransactionBody};
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};

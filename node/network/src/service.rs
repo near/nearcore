@@ -1,7 +1,4 @@
 use std::collections::HashMap;
-use std::iter;
-use std::mem;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,17 +6,15 @@ use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
 use parking_lot::Mutex;
 use substrate_network_libp2p::{
-    Multiaddr, NodeIndex, Protocol as NetworkProtocol, RegisteredProtocol, Service as NetworkService,
+    NodeIndex, RegisteredProtocol, Service as NetworkService,
     ServiceEvent, Severity, start_service,
 };
 pub use substrate_network_libp2p::NetworkConfiguration;
-use substrate_network_libp2p::Secret;
 use tokio::timer::Interval;
 
-use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
 use primitives::serialize::Encode;
-use primitives::types::{Gossip, UID};
+use primitives::types::{Gossip, UID, AuthorityStake};
 use transaction::ChainPayload;
 
 use crate::message::Message;
@@ -171,23 +166,6 @@ pub fn spawn_network_tasks(
         Ok(())
     });
     tokio::spawn(gossip_sender);
-}
-
-pub fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
-    iter::once(NetworkProtocol::Ip4(ip_addr))
-        .chain(iter::once(NetworkProtocol::Tcp(port)))
-        .collect()
-}
-
-pub fn get_test_secret_from_network_key_seed(test_network_key_seed: u32) -> Secret {
-    // 0 is an invalid secret so we increment all values by 1
-    let bytes: [u8; 4] = unsafe { mem::transmute(test_network_key_seed + 1) };
-
-    let mut array = [0; 32];
-    for (count, b) in bytes.iter().enumerate() {
-        array[array.len() - count - 1] = *b;
-    }
-    array
 }
 
 #[cfg(test)]

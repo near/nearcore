@@ -11,6 +11,7 @@ serde = "1.0"
 serde_derive = "1.0"
 parking_lot = "0.7.1"
 
-primitives = { path = "../primitives" }
-storage = { path = "../storage" }
-chain = { path = "../chain" }
+primitives = { path = "../../core/primitives" }
+storage = { path = "../../core/storage" }
+chain = { path = "../../core/chain" }
+configs = { path = "../configs" }
