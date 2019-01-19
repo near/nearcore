@@ -52,7 +52,7 @@ fn test_service_ready() -> bool {
     let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
     let rpc_cfg = configs::RPCConfig::default();
     thread::spawn(|| {
-        devnet::start_from_configs(&client_cfg, devnet_cfg, rpc_cfg);
+        devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
     });
     thread::sleep(Duration::from_secs(1));
     true

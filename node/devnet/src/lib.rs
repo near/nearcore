@@ -13,10 +13,10 @@ use transaction::Transaction;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
-    start_from_configs(&client_cfg, devnet_cfg, rpc_cfg);
+    start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
 }
 
-pub fn start_from_configs(client_cfg: &ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
+pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
     let client = Arc::new(Client::new(&client_cfg));
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.

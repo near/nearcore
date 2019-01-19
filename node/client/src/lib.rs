@@ -6,8 +6,6 @@ extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-#[test]
-extern crate serde_json;
 
 pub mod test_utils;
 
