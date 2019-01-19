@@ -107,6 +107,7 @@ test('deploy contract and make function calls', async () => {
         "hello", // this is the function defined in hello.wasm file that we are calling
         args);
     expect(viewFunctionResult).toEqual("hello trex");
+    await testThatViewFunctionWithNonExistingAccountFails(args);
 
     var setCallValue = await generateUniqueString("setCallPrefix");
     const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
@@ -133,6 +134,20 @@ test('deploy contract and make function calls', async () => {
         {});
     expect(secondViewFunctionResult).toEqual(setCallValue);
 });
+
+const testThatViewFunctionWithNonExistingAccountFails = async (args) => {
+    try {
+        const viewFunctionResult = await nearjs.callViewFunction(
+            "garbage",
+            "test_contract",
+            "hello", // this is the function defined in hello.wasm file that we are calling
+            args);
+    } catch (_) {
+        // This is expected. 
+        return;
+    }
+    fail('Call view function with garbage originator account id worked. It should have failed');
+}
 
 const callUntilConditionIsMet = async (functToPoll, condition, description, maxRetries = TEST_MAX_RETRIES) => {
     for (let i = 0; i < maxRetries; i++) {
