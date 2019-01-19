@@ -202,7 +202,7 @@ pub mod bs58_signature_format {
 
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,
-    public_keys: &Vec<PublicKey>,
+    public_keys: &[PublicKey],
 ) -> bool {
     let hash = transaction.transaction_hash();
     let hash = hash.as_ref();
