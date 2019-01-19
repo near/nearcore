@@ -9,32 +9,28 @@ name = "nearcore"
 path = "node/src/main.rs"
 
 [dependencies]
-log = "0.4"
-node-runtime = { path = "./node/runtime" }
-primitives = { path = "./core/primitives" }
-transaction = { path = "./core/transaction" }
-txflow = { path = "./core/txflow" }
-client = { path = "./node/client" }
+testnet = { path = "./node/testnet" }
 
 [workspace]
 members = [
+    "core/chain",
     "core/primitives",
+    "core/shard",
     "core/storage",
     "core/txflow",
-    "core/chain",
-    "core/shard",
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
     "node/beacon",
-    "node/coroutines",
-    "node/configs",
     "node/client",
+    "node/configs",
     "node/consensus",
-    "node/http",
-    "node/runtime",
-    "node/network",
+    "node/coroutines",
     "node/devnet",
+    "node/http",
+    "node/network",
+    "node/runtime",
+    "node/testnet",
     "test-utils/chain-spec-builder",
     "test-utils/keygen"
 ]

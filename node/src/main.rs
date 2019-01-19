@@ -1,2 +1,3 @@
 fn main() {
+    testnet::start();
 }
