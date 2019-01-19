@@ -1,16 +1,20 @@
 [package]
-name = "devnet"
+name = "testnet"
 version = "0.1.0"
 edition = "2018"
 
 [dependencies]
 futures = "0.1.25"
+parking_lot = "0.7.1"
 tokio = "0.1.11"
 
-client = { path = "../../node/client" }
+beacon = { path = "../beacon" }
+client = { path = "../client" }
 configs = { path = "../configs" }
-consensus = { path = "../../node/consensus" }
+consensus = { path = "../consensus" }
 coroutines = { path = "../coroutines" }
+network = { path = "../network" }
 node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }
+txflow = { path = "../../core/txflow" }
