@@ -33,7 +33,9 @@ pub fn spawn_block_producer(
                     .clone()
                     .send(new_block.clone())
                     .map(|_| ())
-                    .map_err(|e| error!("Error sending block: {}", e))
+                    // TODO: In DevNet this will silently fail, because there is no network and so
+                    // the announcements cannot be make. In TestNet the failure should not be silent.
+                    .map_err(|_| ())
             });
 
             let control = get_control(&*client, new_block.header().index());
