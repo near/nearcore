@@ -7,39 +7,9 @@ use std::mem;
 
 use chain::SignedBlock;
 use primitives::hash::CryptoHash;
-use primitives::signature::PublicKey;
-use primitives::types::{AccountId, AuthorityMask, BlockId};
+use primitives::types::{AuthorityMask, BlockId, AuthorityStake};
+use configs::AuthorityConfig;
 use crate::types::{BeaconBlockChain, SignedBeaconBlockHeader};
-
-/// Stores authority and its stake.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AuthorityStake {
-    /// Account that stakes money.
-    pub account_id: AccountId,
-    /// Public key of the proposed authority.
-    pub public_key: PublicKey,
-    /// Stake / weight of the authority.
-    pub amount: u64,
-}
-
-impl PartialEq for AuthorityStake {
-    fn eq(&self, other: &Self) -> bool {
-        self.account_id == other.account_id
-        && self.public_key == other.public_key
-    }
-}
-
-impl Eq for AuthorityStake {}
-
-/// Configure the authority rotation.
-pub struct AuthorityConfig {
-    /// List of initial proposals at genesis block.
-    pub initial_proposals: Vec<AuthorityStake>,
-    /// Authority epoch length.
-    pub epoch_length: u64,
-    /// Number of seats per slot.
-    pub num_seats_per_slot: u64,
-}
 
 type Epoch = u64;
 type Slot = u64;

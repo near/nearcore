@@ -2,12 +2,12 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::chain_spec::get_authority_config;
+use configs::authority::get_authority_config;
 use crate::Client;
 use beacon::authority::Authority;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
 use chain::SignedBlock;
-use node_runtime::chain_spec::ChainSpec;
+use configs::ChainSpec;
 use node_runtime::Runtime;
 use primitives::signer::InMemorySigner;
 use shard::{ShardBlockChain, SignedShardBlock};

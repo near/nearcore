@@ -10,7 +10,7 @@ use storage::StateDb;
 use storage::test_utils::create_memory_db;
 use transaction::Transaction;
 
-use crate::chain_spec::ChainSpec;
+use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
 
 use super::{ApplyResult, ApplyState, Runtime};

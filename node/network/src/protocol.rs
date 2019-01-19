@@ -7,14 +7,13 @@ use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
-    AccountId, BlockId, Gossip, UID,
+    AccountId, BlockId, Gossip, UID, AuthorityStake
 };
 use transaction::{ChainPayload, Transaction};
 

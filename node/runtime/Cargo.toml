@@ -14,11 +14,12 @@ kvdb = "0.1"
 
 chain = { path = "../../core/chain" }
 primitives = { path = "../../core/primitives" }
-beacon = { path = "../../core/beacon" }
+beacon = { path = "../../node/beacon" }
 shard = { path = "../../core/shard" }
 storage = { path = "../../core/storage" }
 transaction = { path = "../../core/transaction" }
 wasm = { path = "../../core/wasm" }
+configs = { path = "../configs" }
 
 [features]
 test-utils = []

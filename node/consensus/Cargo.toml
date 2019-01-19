@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 network = { path = "../network" }
-beacon = { path = "../../core/beacon" }
+beacon = { path = "../../node/beacon" }
 client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }

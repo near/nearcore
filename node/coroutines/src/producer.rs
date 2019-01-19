@@ -3,16 +3,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::future::Either;
+//use futures::future::Either;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{stream, Future, Sink, Stream};
 
 use crate::control_builder::get_control;
-use beacon::authority::AuthorityStake;
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use client::{ChainConsensusBlockBody, Client};
-use primitives::types::UID;
+use primitives::types::{UID, AuthorityStake};
 use transaction::Transaction;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
@@ -22,7 +21,7 @@ pub fn spawn_block_producer(
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<SignedBeaconBlock>,
     new_receipts_tx: Sender<Transaction>,
-    _authority_tx: Sender<HashMap<UID, AuthorityStake>>,
+    _authority_tx: &Sender<HashMap<UID, AuthorityStake>>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
     let task = receiver
@@ -38,10 +37,10 @@ pub fn spawn_block_producer(
             });
 
             let control = get_control(&*client, new_block.header().index());
-            let needs_receipt_rerouting = match control {
-                Control::Stop => false,
-                Control::Reset(_) => true,
-            };
+//            let needs_receipt_rerouting = match control {
+//                Control::Stop => false,
+//                Control::Reset(_) => true,
+//            };
             let txflow_task = control_tx
                 .clone()
                 .send(control)
