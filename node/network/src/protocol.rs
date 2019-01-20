@@ -379,7 +379,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     pub fn get_node_index_by_uid(&self, uid: UID) -> Option<NodeIndex> {
         let auth_map = &*self.authority_map.read();
         auth_map
-            .into_iter()
+            .iter()
             .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None })
             .and_then(|account_id| {
                 self.peer_account_info.read().get(&account_id).cloned()
