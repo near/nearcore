@@ -1,6 +1,8 @@
 const NearClient = require('./nearclient');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_keystore');
+const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
+const KeyPair = require("./signing/key_pair");
 
 /*
  * This is javascript library for interacting with blockchain.
@@ -15,7 +17,7 @@ class Near {
      */
     static createDefaultConfig(nodeUrl = "http://localhost:3030") {
         return new Near(new NearClient(
-            new BrowserLocalStorageKeystore(),
+            new SimpleKeyStoreSigner(new BrowserLocalStorageKeystore()),
             new LocalNodeConnection(nodeUrl)
         ));
     };
