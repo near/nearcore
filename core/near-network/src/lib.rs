@@ -13,9 +13,7 @@ use ::serde_derive::{Serialize, Deserialize};
 use ::rand::{thread_rng, seq::IteratorRandom};
 use ::parking_lot::RwLock;
 use std::sync::Arc;
-
-mod codec;
-use crate::codec::Codec;
+use ::tokio_serde_cbor::Codec;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 /// Information about a peer
@@ -81,7 +79,7 @@ impl ConnectionHandler {
         self,
         addr: SocketAddr,
         sender: Sender<ServiceEvent>,
-        stream: SplitStream<Framed<TcpStream, Codec>>
+        stream: SplitStream<Framed<TcpStream, Codec<ServiceEvent, ServiceEvent>>>
     ) {
         let task = stream.for_each(move |event| {
             match event {

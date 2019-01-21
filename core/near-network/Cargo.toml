@@ -14,5 +14,6 @@ serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6"
 parking_lot = "0.7"
+tokio-serde-cbor = "0.3"
 
 primitives = { path = "../../core/primitives"}
