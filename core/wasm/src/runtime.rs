@@ -201,7 +201,8 @@ impl<'a, 'b> Runtime<'a, 'b> {
     }
 
     /// Gets iterator for keys with given prefix
-    fn storage_iter(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+    #[allow(dead_code)]
+    fn storage_iter(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let prefix_ptr: u32 = args.nth_checked(0)?;
         let prefix = self.read_buffer(prefix_ptr)?;
         let id = self
