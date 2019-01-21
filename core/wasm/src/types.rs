@@ -97,6 +97,15 @@ pub enum RuntimeError {
     StackOverflow,
     /// Unknown buffer type index for reading or writing
     UnknownBufferTypeIndex,
+    /// Invalid account id
+    InvalidAccountId,
+    /// Creating a promise with a private method. The method name starts with '_'.
+    PrivateMethod,
+    /// Creating a callback with an empty method name.
+    EmptyMethodName,
+    /// Creating a promise with an empty method name and 0 amount.
+    /// It's considered useless waste of mana
+    EmptyMethodNameWithZeroAmount,
     /// Panic with message
     Panic(String),
 }
@@ -159,6 +168,10 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::StackOverflow => write!(f, "Stack overflow"),
             RuntimeError::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
             RuntimeError::UnknownBufferTypeIndex => write!(f, "Unknown buffer type index"),
+            RuntimeError::InvalidAccountId => write!(f, "Invalid AccountID"),
+            RuntimeError::PrivateMethod => write!(f, "Creating a promise with a private method"),
+            RuntimeError::EmptyMethodName => write!(f, "Creating a callback with an empty method name"),
+            RuntimeError::EmptyMethodNameWithZeroAmount => write!(f, "Creating a promise with an empty method name and 0 amount"),
             RuntimeError::Panic(ref msg) => write!(f, "Panic: {}", msg),
         }
     }
@@ -250,7 +263,7 @@ impl Default for Config {
             return_data_per_byte_cost: 1,
             max_stack_height: 64 * 1024,
             max_memory_pages: 32,
-            gas_limit: 128 * 1024,
+            gas_limit: 1024 * 1024,
         }
     }
 }

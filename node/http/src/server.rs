@@ -10,7 +10,7 @@ use hyper::http::response::Builder;
 use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 
-use crate::api::HttpApi;
+use crate::api::{HttpApi, RPCError};
 
 type BoxFut = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 
@@ -20,6 +20,18 @@ fn build_response() -> Builder {
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Headers", "Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
     builder
+}
+
+fn generate_error_response(error: RPCError) -> Response<Body> {
+    let (body, error_code) = match error {
+        RPCError::BadRequest(msg) => (Body::from(msg), StatusCode::BAD_REQUEST),
+        RPCError::NotFound => (Body::from(""), StatusCode::NOT_FOUND),
+        RPCError::ServiceUnavailable(msg) => (Body::from(msg), StatusCode::SERVICE_UNAVAILABLE),
+    };
+    build_response()
+        .status(error_code)
+        .body(body)
+        .unwrap()
 }
 
 fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
@@ -169,18 +181,13 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
             Box::new(req.into_body().concat2().map(move |chunk| {
                 match serde_json::from_slice(&chunk) {
                     Ok(data) => {
-                        match http_api.submit_transaction(data) {
+                        match http_api.submit_transaction(&data) {
                             Ok(response) => {
                                 build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
-                            Err(e) => {
-                                build_response()
-                                    .status(StatusCode::SERVICE_UNAVAILABLE)
-                                    .body(Body::from(e.to_string()))
-                                    .unwrap()
-                            }
+                            Err(e) => generate_error_response(e)
                         }
                     }
                     Err(e) => {
@@ -353,12 +360,12 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                     Ok(data) => {
                         match http_api.get_shard_blocks_by_index(&data) {
                             Ok(response) => {
-                                Response::builder()
+                                build_response()
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
                             Err(e) => {
-                                Response::builder()
+                                build_response()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from(e.to_string()))
                                     .unwrap()
@@ -366,7 +373,51 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                         }
                     }
                     Err(e) => {
-                        Response::builder()
+                        build_response()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()
+                    }
+                }
+            }))
+        }
+        (&Method::POST, "/get_transaction_info") => {
+            Box::new(req.into_body().concat2().map(move |chunk| {
+                match serde_json::from_slice(&chunk) {
+                    Ok(data) => {
+                        match http_api.get_transaction_info(&data) {
+                            Ok(response) => {
+                                build_response()
+                                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                                    .unwrap()
+                            }
+                            Err(e) => generate_error_response(e)
+                        }
+                    }
+                    Err(e) => {
+                        build_response()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::from(e.to_string()))
+                            .unwrap()
+                    }
+                }
+            }))
+        }
+        (&Method::POST, "/get_transaction_status") => {
+            Box::new(req.into_body().concat2().map(move |chunk| {
+                match serde_json::from_slice(&chunk) {
+                    Ok(data) => {
+                        match http_api.get_transaction_status(&data) {
+                            Ok(response) => {
+                                build_response()
+                                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                                    .unwrap()
+                            }
+                            Err(_) => unreachable!()
+                        }
+                    }
+                    Err(e) => {
+                        build_response()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Body::from(e.to_string()))
                             .unwrap()

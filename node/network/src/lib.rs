@@ -18,6 +18,7 @@ extern crate env_logger;
 extern crate rand;
 extern crate chain;
 extern crate beacon;
+extern crate client;
 
 pub mod error;
 pub mod message;

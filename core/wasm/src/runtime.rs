@@ -6,6 +6,7 @@ use crate::types::{RuntimeError as Error, ReturnData, RuntimeContext};
 
 use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
 use primitives::hash::hash;
+use primitives::utils::is_valid_account_id;
 use std::collections::HashSet;
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -106,7 +107,11 @@ impl<'a, 'b> Runtime<'a, 'b> {
 
     fn read_and_parse_account_id(&self, offset: u32) -> Result<AccountId> {
         let buf = self.read_buffer(offset)?;
-        AccountId::from_utf8(buf).map_err(|_| Error::BadUtf8)
+        let account_id = AccountId::from_utf8(buf).map_err(|_| Error::BadUtf8)?;
+        if !is_valid_account_id(&account_id) {
+            return Err(Error::InvalidAccountId);
+        }
+        Ok(account_id)
     }
 
     fn charge_gas(&mut self, gas_amount: Gas) -> bool {
@@ -213,6 +218,13 @@ impl<'a, 'b> Runtime<'a, 'b> {
 
         let account_id = self.read_and_parse_account_id(account_id_ptr)?;
         let method_name = self.read_buffer(method_name_ptr)?;
+
+        match method_name.get(0) {
+            Some(b'_') => return Err(Error::PrivateMethod),
+            None if amount == 0 => return Err(Error::EmptyMethodNameWithZeroAmount),
+            _ => (),
+        };
+
         let arguments = self.read_buffer(arguments_ptr)?;
 
         // Charging separately reserved mana + 1 to call this promise.
@@ -242,6 +254,9 @@ impl<'a, 'b> Runtime<'a, 'b> {
 
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.read_buffer(method_name_ptr)?;
+        if method_name.is_empty() {
+            return Err(Error::EmptyMethodName);
+        }
         let arguments = self.read_buffer(arguments_ptr)?;
 
         // Charging separately reserved mana + N to add callback for the promise.

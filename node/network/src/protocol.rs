@@ -2,19 +2,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
+use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
-use futures::{stream, Future, Sink};
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use beacon::authority::AuthorityStake;
-use chain::{BlockChain, SignedBlock, SignedHeader as BlockHeader};
-use crate::message::{self, Message};
+use beacon::types::SignedBeaconBlock;
+use chain::{SignedBlock, SignedHeader};
+use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{
-    AccountId, BlockId, ChainPayload, Gossip, ReceiptTransaction, SignedTransaction, UID,
+    AccountId, BlockId, Gossip, UID, AuthorityStake
 };
+use transaction::{ChainPayload, Transaction};
+
+use crate::message::{self, Message};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -68,7 +71,7 @@ pub(crate) struct PeerInfo {
     account_id: Option<AccountId>,
 }
 
-pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
+pub struct Protocol {
     // TODO: add more fields when we need them
     pub config: ProtocolConfig,
     /// Peers that are in the handshaking process.
@@ -77,30 +80,27 @@ pub struct Protocol<B: SignedBlock, Header: BlockHeader> {
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     /// Info for authority peers.
     peer_account_info: RwLock<HashMap<AccountId, NodeIndex>>,
-    /// Chain info, for read-only access.
-    chain: Arc<BlockChain<B>>,
+    /// Client, for read-only access.
+    client: Arc<Client>,
     /// Channel into which the protocol sends the new blocks.
-    block_sender: Sender<B>,
-    /// Channel into which the protocol sends the received transactions.
-    transaction_sender: Sender<SignedTransaction>,
-    /// Channel into which the protocol sends the received receipts.
-    receipt_sender: Sender<ReceiptTransaction>,
+    block_sender: Sender<SignedBeaconBlock>,
+    /// Channel into which the protocol sends the received transactions and receipts.
+    transaction_sender: Sender<Transaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
-    message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+    message_sender: Sender<(NodeIndex, Message)>,
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
     gossip_sender: Sender<Gossip<ChainPayload>>,
     /// map between authority uid and account id + public key.
     authority_map: RwLock<HashMap<UID, AuthorityStake>>,
 }
 
-impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
+impl Protocol {
     pub fn new(
         config: ProtocolConfig,
-        chain: Arc<BlockChain<B>>,
-        block_sender: Sender<B>,
-        transaction_sender: Sender<SignedTransaction>,
-        receipt_sender: Sender<ReceiptTransaction>,
-        message_sender: Sender<(NodeIndex, Message<B, Header, ChainPayload>)>,
+        client: Arc<Client>,
+        block_sender: Sender<SignedBeaconBlock>,
+        transaction_sender: Sender<Transaction>,
+        message_sender: Sender<(NodeIndex, Message)>,
         gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
         Self {
@@ -108,10 +108,9 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
             peer_account_info: RwLock::new(HashMap::new()),
-            chain,
+            client,
             block_sender,
             transaction_sender,
-            receipt_sender,
             message_sender,
             gossip_sender,
             authority_map: RwLock::new(HashMap::new()),
@@ -125,12 +124,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
-        let best_block_header = self.chain.best_block().header();
+        let best_block_header = self.client.beacon_chain.best_block().header();
         let status = message::Status {
             version: CURRENT_VERSION,
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
-            genesis_hash: self.chain.genesis_hash,
+            genesis_hash: self.client.beacon_chain.genesis_hash,
             account_id: self.config.account_id.clone(),
         };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
@@ -148,24 +147,13 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn on_transaction_message(&self, transaction: SignedTransaction) {
+    pub fn on_transaction_message(&self, transaction: Transaction) {
         let copied_tx = self.transaction_sender.clone();
         tokio::spawn(
             copied_tx
                 .send(transaction)
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the transactions {:?}", e)),
-        );
-    }
-
-    /// Note, we will not actually need this until we have shards.
-    fn on_receipt_message(&self, receipt: ReceiptTransaction) {
-        let copied_tx = self.receipt_sender.clone();
-        tokio::spawn(
-            copied_tx
-                .send(receipt)
-                .map(|_| ())
-                .map_err(|e| error!("Failure to send the receipts {:?}", e)),
         );
     }
 
@@ -188,12 +176,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         if status.version != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if status.genesis_hash != self.chain.genesis_hash {
+        if status.genesis_hash != self.client.beacon_chain.genesis_hash {
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.chain.best_index();
+        let best_index = self.client.beacon_chain.best_index();
         let mut next_request_id = 0;
         let mut block_request = None;
         let mut request_timestamp = None;
@@ -232,12 +220,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         let mut blocks = Vec::new();
         let mut id = request.from;
         let max = std::cmp::min(request.max.unwrap_or(u64::max_value()), MAX_BLOCK_DATA_RESPONSE);
-        while let Some(block) = self.chain.get_block(&id) {
+        while let Some(block) = self.client.beacon_chain.get_block(&id) {
             blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
             }
-            let header = self.chain.get_header(&id).unwrap();
+            let header = self.client.beacon_chain.get_header(&id).unwrap();
             let block_index = header.index();
             let block_hash = header.block_hash();
             let reach_end = match request.to {
@@ -255,7 +243,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         self.send_message(peer, message);
     }
 
-    fn on_incoming_block(&self, block: B) {
+    fn on_incoming_block(&self, block: SignedBeaconBlock) {
         let copied_tx = self.block_sender.clone();
         tokio::spawn(
             copied_tx
@@ -265,7 +253,7 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         );
     }
 
-    pub fn on_outgoing_block(&self, block: &B) {
+    pub fn on_outgoing_block(&self, block: &SignedBeaconBlock) {
         let peers = self.peer_info.read();
         for peer in peers.keys() {
             let message = Message::BlockAnnounce(message::BlockAnnounce::Block(block.clone()));
@@ -273,7 +261,11 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
         }
     }
 
-    fn on_block_response(&self, peer_id: NodeIndex, response: message::BlockResponse<B>) {
+    fn on_block_response(
+        &self,
+        peer_id: NodeIndex,
+        response: message::BlockResponse<SignedBeaconBlock>,
+    ) {
         let copied_tx = self.block_sender.clone();
         self.peer_info.write().entry(peer_id).and_modify(|e| e.request_timestamp = None);
         tokio::spawn(
@@ -285,17 +277,17 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
     }
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
-        let message: Message<B, Header, ChainPayload> =
-            Decode::decode(data).ok_or((peer, Severity::Bad("Cannot decode message.")))?;
+        let message: Message =
+            Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
 
         match message {
             Message::Transaction(tx) => {
-                self.on_transaction_message(*tx);
+                self.on_transaction_message(Transaction::SignedTransaction(*tx));
             }
             Message::Receipt(receipt) => {
-                self.on_receipt_message(*receipt);
+                self.on_transaction_message(Transaction::Receipt(*receipt));
             }
             Message::Status(status) => {
                 self.on_status_message(peer, &status)?;
@@ -333,17 +325,12 @@ impl<B: SignedBlock, Header: BlockHeader> Protocol<B, Header> {
                     _ => unimplemented!(),
                 }
             }
-            Message::Gossip(gossip) => self.on_gossip_message(gossip)
-
+            Message::Gossip(gossip) => self.on_gossip_message(*gossip),
         }
         Ok(())
     }
 
-    pub fn send_message(
-        &self,
-        receiver_index: NodeIndex,
-        message: Message<B, Header, ChainPayload>,
-    ) {
+    pub fn send_message(&self, receiver_index: NodeIndex, message: Message) {
         let copied_tx = self.message_sender.clone();
         tokio::spawn(
             copied_tx
@@ -394,13 +381,14 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::sync::mpsc::channel;
     use futures::{Sink, Stream};
+    use futures::sync::mpsc::channel;
 
     use beacon::authority::Authority;
-    use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
+    use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
     use primitives::traits::Encode;
-    use primitives::types::{ChainPayload, SignedTransaction};
+    use transaction::SignedTransaction;
+
     use crate::test_utils::{get_test_authority_config, get_test_protocol};
 
     use super::*;
@@ -410,8 +398,7 @@ mod tests {
     #[test]
     fn test_serialization() {
         let tx = SignedTransaction::empty();
-        let message: Message<SignedBeaconBlock, SignedBeaconBlockHeader, ChainPayload> =
-            Message::Transaction(Box::new(tx));
+        let message: Message = Message::Transaction(Box::new(tx));
         let encoded = Encode::encode(&message).unwrap();
         let decoded = Decode::decode(&encoded).unwrap();
         assert_eq!(message, decoded);

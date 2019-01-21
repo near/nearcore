@@ -1,7 +1,7 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use primitives::types::{ChainPayload, Transaction, ReceiptTransaction};
+use transaction::{ChainPayload, Transaction, ReceiptTransaction};
 
 pub fn spawn_task(receiver: Receiver<ReceiptTransaction>, sender: Sender<ChainPayload>) {
     let task = receiver
@@ -19,7 +19,7 @@ mod tests {
     use super::*;
     use futures::{lazy, stream};
     use futures::sync::mpsc::channel;
-    use primitives::types::{Transaction, ReceiptTransaction, ReceiptBody};
+    use transaction::{Transaction, ReceiptTransaction, ReceiptBody};
 
     #[test]
     fn pass_through() {

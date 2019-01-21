@@ -4,6 +4,7 @@
 
 ![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
 <a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
+[![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
 
 NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
 
@@ -47,15 +48,6 @@ It will build the first time and then run:
 cargo run
 ```
 
-### Testing
-
-In order to run tests currently, you must setup the following:
-
-```bash
-# sudo may be required if you are not testing with a python virtual environment
-pip install bson
-```
-
 ### Logging
 
 For runnable apps (devnet, nearcore, etc.), you can use
@@ -84,7 +76,7 @@ DevNet is a development tool that runs WebAssembly and State transition without 
 First, generate key pair (saves a key pair into `keystore` folder to use with `rpc.py`):
 
 ```bash
-cargo run --package keystore -- keygen
+cargo run --package keystore -- keygen --test-seed alice.near
 ```
 
 Then build and run DevNet:

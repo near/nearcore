@@ -8,40 +8,30 @@ edition = "2018"
 name = "nearcore"
 path = "node/src/main.rs"
 
-[lib]
-name = "nearlib"
-crate-type = ["staticlib"]
-path = "node/src/lib.rs"
-
 [dependencies]
-log = "0.4"
-node-cli = { path = "./node/cli" }
-node-runtime = { path = "./node/runtime" }
-primitives = { path = "./core/primitives" }
-txflow = { path = "./core/txflow" }
-client = { path = "./node/client" }
+testnet = { path = "./node/testnet" }
 
 [workspace]
 members = [
+    "core/chain",
     "core/primitives",
+    "core/shard",
     "core/storage",
     "core/txflow",
-    "core/chain",
-    "core/beacon",
-    "core/shard",
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
-    "node/beacon-chain-handler",
-    "node/cli",
+    "node/beacon",
     "node/client",
+    "node/configs",
     "node/consensus",
+    "node/coroutines",
+    "node/devnet",
     "node/http",
-    "node/runtime",
     "node/network",
+    "node/runtime",
+    "node/testnet",
     "test-utils/chain-spec-builder",
-    "test-utils/devnet",
-    "test-utils/node",
     "test-utils/keygen"
 ]
 exclude = [
@@ -54,7 +44,8 @@ log = "0.4.6"
 rand = "0.6.1"
 serde_json = "1.0.0"
 
+devnet = { path = "./node/devnet" }
 keystore = { path = "./test-utils/keygen" }
-devnet = { path = "./test-utils/devnet" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
+configs = { path = "./node/configs" }

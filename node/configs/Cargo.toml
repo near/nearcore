@@ -1,0 +1,17 @@
+[package]
+name = "configs"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+clap = "2.32"
+env_logger = "0.6.0"
+log = "0.4"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+
+primitives = { path = "../../core/primitives" }
+libp2p = { git = "https://github.com/tomaka/libp2p-rs", rev = "997d0163bc8a7e11559524ad8466bc3b1850c8ec", default-features = false, features = ["secio-rsa", "secio-secp256k1"] }
+substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "2db35a0c6e87fc4450a77da548ef6e2db8b0d057" }
+

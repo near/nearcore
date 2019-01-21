@@ -21,13 +21,15 @@ use rand::Rng;
 use serde_json::Value;
 
 use node_http::types::{
-    SignedBeaconBlockResponse, SignedShardBlockResponse,
+    SignedBeaconBlockResponse, SignedShardBlockResponse, SubmitTransactionResponse,
     ViewAccountResponse, ViewStateResponse,
 };
 use primitives::signer::write_key_file;
+use primitives::test_utils::get_key_pair_from_seed;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
+const WASM_PATH: &str = "./tests/hello";
 const WAIT_FOR_RETRY: u64 = 500;
 const MAX_WAIT_FOR_RETRY: u32 = 5;
 
@@ -38,18 +40,28 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    let network_cfg = devnet::NetworkConfig::default();
-    let mut client_cfg = devnet::ClientConfig::default();
+    Command::new("sh")
+        .arg("-c")
+        .arg(&format!("cd {} && npm install && npm run build", WASM_PATH))
+        .output()
+        .expect("build hello.wasm failed");
+
+    let mut client_cfg = configs::ClientConfig::default();
     client_cfg.base_path = base_path;
     client_cfg.log_level = log::LevelFilter::Off;
-    thread::spawn(|| { devnet::start_devnet(Some(network_cfg), Some(client_cfg)) });
+    let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
+    let rpc_cfg = configs::RPCConfig::default();
+    thread::spawn(|| {
+        devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
+    });
     thread::sleep(Duration::from_secs(1));
     true
 }
 
 fn get_public_key() -> String {
     let key_store_path = Path::new(KEY_STORE_PATH);
-    write_key_file(key_store_path)
+    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
+    write_key_file(key_store_path, public_key, secret_key)
 }
 
 lazy_static! {
@@ -107,7 +119,7 @@ fn deploy_contract() -> Result<(String, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
 
-    let output = Command::new("./scripts/rpc.py")
+    Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg(contract_name.as_str())
         .arg("tests/hello.wasm")
@@ -117,8 +129,14 @@ fn deploy_contract() -> Result<(String, String), String> {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("deploy command failed to process");
-    check_result(output)?;
 
+    wait_for(&|| {
+        let result = check_result(view_account(Some(&contract_name)));
+        result.and_then(|res| {
+            let new_account: Value = serde_json::from_str(&res).unwrap();
+            if new_account != Value::Null { Ok(()) } else { Err("Account not created".to_string()) }
+        })
+    }).unwrap();
     let result = wait_for(&|| check_result(view_account(Some(&contract_name))))?;
     Ok((result, contract_name))
 }
@@ -147,8 +165,7 @@ fn test_send_money_inner() {
         .output()
         .expect("send_money command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
 test! { fn test_send_money() { test_send_money_inner() } }
@@ -191,8 +208,7 @@ fn test_set_get_values_inner() {
         .output()
         .expect("schedule_function_call command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     // It takes more than two nonce changes for the action to propagate.
     wait_for(&|| {
@@ -235,9 +251,17 @@ test! { fn test_view_state() { test_view_state_inner() } }
 fn test_create_account_inner() {
     if !*DEVNET_STARTED { panic!() }
     let output = create_account("eve.near");
+
+    wait_for(&|| {
+        let check_result = check_result(view_account(Some("eve.near")));
+        check_result.and_then(|res| {
+            let new_account: Value = serde_json::from_str(&res).unwrap();
+            if new_account != Value::Null { Ok(()) } else { Err("Nonce didn't change".to_string()) }
+        })
+    }).unwrap();
+
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     let output = Command::new("./scripts/rpc.py")
         .arg("view_account")
@@ -264,8 +288,7 @@ fn test_swap_key_inner() {
         .output()
         .expect("swap key command failed to process");
     let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data, Value::Null);
+    let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
 test! { fn test_swap_key() { test_swap_key_inner() } }
