@@ -906,8 +906,25 @@ impl Runtime {
                         );
                         Ok(vec![])
                     },
-                    ReceiptBody::ManaAccounting(_mana_accounting) => {
-                        // TODO(#259): Refund mana and charge gas
+                    ReceiptBody::ManaAccounting(mana_accounting) => {
+                        let key = get_tx_stake_key(
+                            &mana_accounting.accounting_info.originator,
+                            &mana_accounting.accounting_info.contract_id,
+                        );
+                        let tx_total_stake: Option<TxTotalStake> = get(state_update, &key);
+                        if let Some(mut tx_total_stake) = tx_total_stake {
+                            let config = TxStakeConfig::default();
+                            tx_total_stake.update(block_index, &config);
+                            tx_total_stake.refund_mana_and_charge_gas(
+                                mana_accounting.mana_refund,
+                                mana_accounting.gas_used,
+                                &config,
+                            );
+                            set(state_update, &key, &tx_total_stake);
+                        } else {
+                            // TODO(#445): Figure out what to do when the TxStake doesn't exist during mana accounting
+                            panic!("TX stake doesn't exist when mana accounting arrived");
+                        }
                         Ok(vec![])
                     }
                 }
@@ -1798,7 +1815,7 @@ mod tests {
                 0,
                 AccountingInfo {
                     originator: alice_account(),
-                    contract_id: Some(bob_account()),
+                    contract_id: None,
                 },
             ))
         );
@@ -1808,12 +1825,19 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
+        let apply_results = runtime.apply_all_vec(
             apply_state, vec![Transaction::Receipt(receipt)]
         );
-        assert_eq!(apply_result.filtered_transactions.len(), 1);
-        assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_eq!(root, apply_result.root);
+        // 2 results: Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 2);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        assert_eq!(root, apply_results[0].root);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].filtered_transactions.len(), 1);
+        // Change in mana and gas
+        assert_ne!(root, apply_results[1].root);
     }
 
     #[test]
@@ -1832,7 +1856,7 @@ mod tests {
                 0,
                 AccountingInfo {
                     originator: alice_account(),
-                    contract_id: Some(bob_account()),
+                    contract_id: None,
                 },
             ))
         );
@@ -1842,13 +1866,21 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
+        let mut apply_results = runtime.apply_all_vec(
             apply_state, vec![Transaction::Receipt(receipt)]
         );
-        assert_eq!(apply_result.filtered_transactions.len(), 1);
-        assert_eq!(apply_result.new_receipts.len(), 0);
+        // 2 results: Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 2);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
         // New root contains a log
-        assert_ne!(root, apply_result.root);
+        assert_ne!(root, apply_results[0].root);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].filtered_transactions.len(), 1);
+        // Change in mana and gas
+        assert_ne!(apply_results[0].root, apply_results[1].root);
+        let apply_result = apply_results.pop().unwrap();
         runtime.state_db.commit(apply_result.transaction).unwrap();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), apply_result.root);
         let log: Vec<u8> = get(&mut state_update, &logs_key(&nonce))
