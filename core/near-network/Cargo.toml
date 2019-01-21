@@ -13,8 +13,6 @@ log = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6"
+parking_lot = "0.7"
 
 primitives = { path = "../../core/primitives"}
-
-[dev-dependencies]
-parking_lot = "0.7"
