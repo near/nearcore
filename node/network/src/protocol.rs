@@ -367,10 +367,10 @@ impl Protocol {
         let auth_map = &*self.authority_map.read();
         auth_map
             .iter()
-            .find_map(
-                |(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None },
-            )
-            .and_then(|account_id| self.peer_account_info.read().get(&account_id).cloned())
+            .find_map(|(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None })
+            .and_then(|account_id| {
+                self.peer_account_info.read().get(&account_id).cloned()
+            })
     }
 }
 

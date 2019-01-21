@@ -46,8 +46,8 @@ impl WitnessSelector for BeaconWitnessSelector {
         self.other_witnesses
             .iter()
             .choose_multiple(&mut thread_rng(), sample_size)
-            .into_iter()
-            .cloned()
+            .iter()
+            .map(|&&x| x)
             .collect()
     }
 }
