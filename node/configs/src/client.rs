@@ -4,8 +4,8 @@ use std::str::FromStr;
 use clap::{Arg, ArgMatches};
 
 use crate::chain_spec::read_or_default_chain_spec;
-use primitives::types::AccountId;
 use crate::chain_spec::ChainSpec;
+use primitives::types::AccountId;
 
 const DEFAULT_BASE_PATH: &str = ".";
 const DEFAULT_LOG_LEVEL: &str = "Info";
@@ -22,7 +22,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
-            account_id: String::from("alice"),
+            account_id: String::from("alice.near"),
             public_key: None,
             chain_spec: read_or_default_chain_spec(&None),
             log_level: log::LevelFilter::Info,
