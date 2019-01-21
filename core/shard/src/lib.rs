@@ -1,22 +1,25 @@
-extern crate parking_lot;
 extern crate chain;
+extern crate parking_lot;
 extern crate primitives;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
 extern crate storage;
 
-pub mod types;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+use chain::{SignedBlock, SignedHeader};
 use primitives::hash::CryptoHash;
-use primitives::types::{BlockId, Transaction};
+use primitives::types::BlockId;
 use storage::{extend_with_cache, read_with_cache};
+use transaction::{SignedTransaction, Transaction};
+
+pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+
+pub mod types;
 
 type H264 = [u8; 33];
 
@@ -48,6 +51,13 @@ pub enum TransactionStatus {
     Unknown,
     Started,
     Completed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct SignedTransactionInfo {
+    pub transaction: SignedTransaction,
+    pub block_index: u64,
+    pub status: TransactionStatus,
 }
 
 pub struct ShardBlockChain {
@@ -121,6 +131,35 @@ impl ShardBlockChain {
         }
     }
 
+    pub fn get_transaction_info(
+        &self,
+        hash: &CryptoHash,
+    ) -> Option<SignedTransactionInfo> {
+        match self.get_transaction_address(&hash) {
+            Some(address) => {
+                let block_id = BlockId::Hash(address.block_hash);
+                let block = self.chain.get_block(&block_id)
+                    .expect("transaction address points to non-existent block");
+                let transaction = block.body.transactions.get(address.index)
+                    .expect("transaction address points to invalid index inside block");
+                match transaction {
+                    Transaction::SignedTransaction(transaction) => {
+                        let status = self.is_transaction_complete(&hash, &block);
+                        Some(SignedTransactionInfo {
+                            transaction: transaction.clone(),
+                            block_index: block.header().index(),
+                            status,
+                        })
+                    }
+                    Transaction::Receipt(_) => {
+                        unreachable!("receipts should not have transaction addresses")
+                    }
+                }
+            },
+            None => None,
+        }
+    }
+
     pub fn update_for_inserted_block(&self, block: &SignedShardBlock) {
         let updates: HashMap<Vec<u8>, TransactionAddress> = block.body.transactions.iter()
             .enumerate()
@@ -151,12 +190,11 @@ impl ShardBlockChain {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use storage::test_utils::create_memory_db;
-    use primitives::types::SignedTransaction;
-    use primitives::types::ReceiptTransaction;
     use primitives::types::AccountId;
-    use primitives::types::ReceiptBody;
+    use storage::test_utils::create_memory_db;
+    use transaction::{ReceiptTransaction, SignedTransaction, ReceiptBody};
+
+    use super::*;
 
     fn get_chain() -> ShardBlockChain {
         let genesis = SignedShardBlock::genesis(CryptoHash::default());

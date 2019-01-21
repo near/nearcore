@@ -18,26 +18,25 @@ use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use beacon::authority::AuthorityStake;
 use crate::ext::RuntimeExt;
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{PublicKey, Signature, verify};
+use primitives::signature::PublicKey;
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
-    AccountId, MerkleHash, ReadablePublicKey, SignedTransaction, TransactionBody,
-    ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
-    PromiseId, StakeTransaction, SendMoneyTransaction, CreateAccountTransaction,
-    SwapKeyTransaction, DeployContractTransaction, Balance, Transaction, ShardId,
-    FunctionCallTransaction, AccountingInfo, ManaAccounting, Mana, BlockIndex,
+    AccountId, MerkleHash, ReadablePublicKey,
+    Balance, ShardId, PromiseId,
+    AccountingInfo, ManaAccounting, Mana, BlockIndex, AuthorityStake,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
 };
+use transaction::{ReceiptTransaction, ReceiptBody, AsyncCall, CallbackResult, CallbackInfo, Callback,
+                  StakeTransaction, SendMoneyTransaction, CreateAccountTransaction, SignedTransaction, TransactionBody,
+                  SwapKeyTransaction, DeployContractTransaction, Transaction, FunctionCallTransaction};
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{RuntimeContext, ReturnData};
 
-pub mod chain_spec;
 pub mod test_utils;
 pub mod state_viewer;
 mod tx_stakes;
@@ -50,6 +49,9 @@ const COL_CODE: &[u8] = &[2];
 const COL_TX_STAKE: &[u8] = &[3];
 const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 const COL_LOGS: &[u8] = &[5];
+
+const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
+const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
 
 // const does not allow function call, so have to resort to this
 fn system_account() -> AccountId {
@@ -106,6 +108,7 @@ pub struct ApplyState {
     pub parent_block_hash: CryptoHash,
 }
 
+#[derive(Clone)]
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
@@ -116,12 +119,12 @@ pub struct ApplyResult {
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| Decode::decode(&data))
+    state_update.get(key).and_then(|data| Decode::decode(&data).ok())
 }
 
 fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
     value
-        .encode()
+        .encode().ok()
         .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
         .unwrap_or_else(|| { debug!("set value failed"); })
 }
@@ -183,6 +186,9 @@ impl Runtime {
         sender: &mut Account,
         accounting_info: AccountingInfo,
     ) -> Result<Vec<Transaction>, String> {
+        if transaction.amount == 0 {
+            return Err("Sending 0 amount of money".to_string());
+        }
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
             set(state_update, &account_id_to_bytes(COL_ACCOUNT, &transaction.originator), sender);
@@ -191,7 +197,8 @@ impl Runtime {
                 transaction.receiver.clone(),
                 hash.into(),
                 ReceiptBody::NewCall(AsyncCall::new(
-                    b"deposit".to_vec(),
+                    // Empty method name is used for deposit
+                    vec![],
                     vec![],
                     transaction.amount,
                     0,
@@ -268,7 +275,7 @@ impl Runtime {
                 body.new_account_id.clone(),
                 new_nonce,
                 ReceiptBody::NewCall(AsyncCall::new(
-                    b"create_account".to_vec(),
+                    SYSTEM_METHOD_CREATE_ACCOUNT.to_vec(),
                     body.public_key.clone(),
                     body.amount,
                     0,
@@ -292,16 +299,10 @@ impl Runtime {
         &self,
         state_update: &mut StateDbUpdate,
         body: &SwapKeyTransaction,
-        signature: &Signature,
-        data: &[u8],
         account: &mut Account,
     ) -> Result<Vec<Transaction>, String> {
-        // TODO: verify signature
-        let cur_key = Decode::decode(&body.cur_key).ok_or("cannot decode public key")?;
-        if !verify(data, signature, &cur_key) {
-            return Err("Invalid signature. Cannot swap key".to_string());
-        }
-        let new_key = Decode::decode(&body.new_key).ok_or("cannot decode public key")?;
+        let cur_key = Decode::decode(&body.cur_key).map_err(|_| "cannot decode public key")?;
+        let new_key = Decode::decode(&body.new_key).map_err(|_| "cannot decode public key")?;
         let num_keys = account.public_keys.len();
         account.public_keys.retain(|&x| x != cur_key);
         if account.public_keys.len() == num_keys {
@@ -326,13 +327,13 @@ impl Runtime {
         
         let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
         let args = Encode::encode(&(&body.public_key, &body.wasm_byte_array))
-            .ok_or("cannot encode args")?;
+            .map_err(|_| "cannot encode args")?;
         let receipt = ReceiptTransaction::new(
             body.originator.clone(),
             body.contract_id.clone(),
             new_nonce,
             ReceiptBody::NewCall(AsyncCall::new(
-                b"deploy".to_vec(),
+                SYSTEM_METHOD_DEPLOY.to_vec(),
                 args,
                 0,
                 0,
@@ -390,6 +391,9 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<Transaction>, String> {
         let sender_account_id = transaction.body.get_originator();
+        if !is_valid_account_id(&sender_account_id) {
+            return Err("Invalid originator account_id".to_string());
+        }
         let sender: Option<Account> =
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id));
         match sender {
@@ -408,6 +412,11 @@ impl Runtime {
                     &sender
                 );
                 let contract_id = transaction.body.get_contract_id();
+                if let Some(ref contract_id) = contract_id {
+                    if !is_valid_account_id(&contract_id) {
+                        return Err("Invalid contract_id".to_string());
+                    }
+                }
                 let mana = transaction.body.get_mana();
                 let accounting_info = self.try_charge_mana(
                     state_update,
@@ -462,13 +471,9 @@ impl Runtime {
                         )
                     },
                     TransactionBody::SwapKey(ref t) => {
-                        // this is super redundant. need to change when we add signature checks
-                        let data = transaction.body.encode().ok_or("cannot encode body")?;
                         self.swap_key(
                             state_update,
                             t,
-                            &transaction.signature,
-                            &data,
                             &mut sender,
                         )
                     }
@@ -505,7 +510,7 @@ impl Runtime {
         }
         let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
        
-        let public_key = Decode::decode(&call.args).ok_or("cannot decode public key")?;
+        let public_key = Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -535,8 +540,8 @@ impl Runtime {
         account_id: &AccountId,
     ) -> Result<Vec<Transaction>, String> {
         let (public_key, code): (Vec<u8>, Vec<u8>) = 
-            Decode::decode(&call.args).ok_or("cannot decode public key")?;
-        let public_key = Decode::decode(&public_key).ok_or("cannot decode public key")?;
+            Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
+        let public_key = Decode::decode(&public_key).map_err(|_| "cannot decode public key")?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -818,14 +823,19 @@ impl Runtime {
                 match &receipt.body {
                     ReceiptBody::NewCall(async_call) => {
                         amount = async_call.amount;
-                        if async_call.method_name == b"deposit".to_vec() {
-                            self.deposit(
-                                state_update,
-                                async_call.amount,
-                                &receipt.receiver,
-                                &mut receiver
-                            )
-                        } else if async_call.method_name == b"create_account".to_vec() {
+                        if async_call.method_name.is_empty() {
+                            if amount > 0 {
+                                self.deposit(
+                                    state_update,
+                                    async_call.amount,
+                                    &receipt.receiver,
+                                    &mut receiver
+                                )
+                            } else {
+                                // Transfered amount is 0. Weird.
+                                Ok(vec![])
+                            }
+                        } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                             debug!(
                                 target: "runtime",
                                 "Account {} already exists",
@@ -838,9 +848,10 @@ impl Runtime {
                                 ReceiptBody::Refund(async_call.amount)
                             );
                             Ok(vec![Transaction::Receipt(receipt)])
-                        } else if async_call.method_name == b"deploy".to_vec() {
-                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).ok_or("cannot decode args")?;
-                            let pub_key = Decode::decode(&pub_key).ok_or("cannot decode public key")?;
+                        } else if async_call.method_name == SYSTEM_METHOD_DEPLOY {
+                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).map_err(|_| "cannot decode args".to_string())?;
+                            let pub_key = Decode::decode(&pub_key).map_err(|_| "cannot decode public key".to_string())?;
+                            // TODO(#413): Fix security of contract deploy.
                             if receiver.public_keys.contains(&pub_key) {
                                 receiver.code_hash = hash(&code);
                                 set(
@@ -906,13 +917,14 @@ impl Runtime {
                 let err = Err(format!("receiver {} does not exist", receipt.receiver));
                 if let ReceiptBody::NewCall(call) = &receipt.body {
                     amount = call.amount;
-                    if call.method_name == b"create_account".to_vec() {
+                    if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                         self.system_create_account(
                             state_update,
                             &call,
                             &receipt.receiver,
                         )
-                    } else if call.method_name == b"deploy".to_vec() {
+                    } else if call.method_name == SYSTEM_METHOD_DEPLOY {
+                        // TODO(#413): Fix security of contract deploy.
                         self.system_deploy(
                             state_update,
                             &call,
@@ -1183,7 +1195,7 @@ mod tests {
     use std::sync::Arc;
 
     use primitives::hash::hash;
-    use primitives::types::{
+    use transaction::{
         DeployContractTransaction, FunctionCallTransaction,
         TransactionBody,
     };
@@ -1261,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_smart_contract() {
+    fn test_smart_contract_simple() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -1279,16 +1291,61 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
+        let apply_results = runtime.apply_all_vec(
             apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(apply_result.filtered_transactions.len(), 1);
-        assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_ne!(root, apply_result.root);
+        // 3 results: signedTx, It's Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Mana sucessfully executed
+        assert_eq!(apply_results[2].filtered_transactions.len(), 1);
+        // Checking final root
+        assert_ne!(root, apply_results[2].root);
     }
 
     #[test]
-    fn test_simple_smart_contract_with_args() {
+    fn test_smart_contract_bad_method_name() {
+        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
+        let root = viewer.get_root();
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
+            nonce: 1,
+            originator: alice_account(),
+            contract_id: bob_account(),
+            method_name: b"_run_test".to_vec(),
+            args: vec![],
+            amount: 0,
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_results = runtime.apply_all_vec(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
+        );
+        // 3 results: signedTx, It's Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt failed to execute.
+        assert_eq!(apply_results[1].filtered_transactions.len(), 0);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Mana sucessfully executed
+        assert_eq!(apply_results[2].filtered_transactions.len(), 1);
+        // Checking final root
+        assert_ne!(root, apply_results[2].root);
+    }
+
+    #[test]
+    fn test_smart_contract_with_args() {
         let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
         let root = viewer.get_root();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -1306,12 +1363,21 @@ mod tests {
             parent_block_hash: CryptoHash::default(),
             block_index: 0
         };
-        let apply_result = runtime.apply_all(
-            apply_state, vec![Transaction::SignedTransaction(transaction)],
+        let apply_results = runtime.apply_all_vec(
+            apply_state, vec![Transaction::SignedTransaction(transaction)]
         );
-        assert_eq!(apply_result.filtered_transactions.len(), 1);
-        assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_ne!(root, apply_result.root);
+        // 3 results: signedTx, It's Receipt, Mana receipt
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].filtered_transactions.len(), 1);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Mana sucessfully executed
+        assert_eq!(apply_results[2].filtered_transactions.len(), 1);
+        // Checking final root
+        assert_ne!(root, apply_results[2].root);
     }
 
     #[test]
@@ -1991,7 +2057,7 @@ mod tests {
 
     #[test]
     fn test_100_accounts() {
-        let mut chain_spec = generate_test_chain_spec();
+        let (mut chain_spec, _) = generate_test_chain_spec();
         let public_key = get_key_pair().0;
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));

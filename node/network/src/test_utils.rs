@@ -6,29 +6,33 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::{future, Future};
 use futures::stream::Stream;
 use futures::sync::mpsc::channel;
-use futures::{future, Future};
-use libp2p::{secio, Multiaddr};
+use libp2p::{Multiaddr, secio};
 use parking_lot::RwLock;
 use rand::Rng;
 use substrate_network_libp2p::{
-    start_service, NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol, Secret,
-    Service as NetworkService,
+    NetworkConfiguration, PeerId, ProtocolId, RegisteredProtocol, Secret, Service as NetworkService,
+    start_service,
 };
 use tokio::timer::Interval;
 
-use self::storage::test_utils::create_memory_db;
-use crate::error::Error;
-use crate::message::Message;
-use crate::protocol::{Protocol, ProtocolConfig, CURRENT_VERSION};
-use beacon::authority::{AuthorityConfig, AuthorityStake};
+use configs::AuthorityConfig;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::{SignedBlock, SignedHeader};
-use primitives::hash::{hash_struct, CryptoHash};
+use client::test_utils::get_client;
+use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signature::get_key_pair;
 use primitives::traits::GenericResult;
 use primitives::types;
+use transaction::{ChainPayload, SignedTransaction};
+
+use crate::error::Error;
+use crate::message::Message;
+use crate::protocol::{CURRENT_VERSION, Protocol, ProtocolConfig};
+
+use self::storage::test_utils::create_memory_db;
 
 pub fn parse_addr(addr: &str) -> Multiaddr {
     addr.parse().expect("cannot parse address")
@@ -75,7 +79,7 @@ pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
 }
 
 pub fn fake_tx_message() -> Message {
-    let tx = types::SignedTransaction::empty();
+    let tx = SignedTransaction::empty();
     Message::Transaction(Box::new(tx))
 }
 
@@ -101,15 +105,12 @@ pub fn get_noop_network_task() -> impl Future<Item = (), Error = ()> {
 }
 
 pub fn get_test_protocol() -> Protocol {
-    let storage = Arc::new(create_memory_db());
-    let genesis_block =
-        SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-    let chain = Arc::new(BeaconBlockChain::new(genesis_block, storage));
     let (block_tx, _) = channel(1024);
     let (transaction_tx, _) = channel(1024);
     let (message_tx, _) = channel(1024);
     let (gossip_tx, _) = channel(1024);
-    Protocol::new(ProtocolConfig::default(), chain, block_tx, transaction_tx, message_tx, gossip_tx)
+    let client = Arc::new(get_client());
+    Protocol::new(ProtocolConfig::default(), client, block_tx, transaction_tx, message_tx, gossip_tx)
 }
 
 pub fn get_test_authority_config(
@@ -120,7 +121,7 @@ pub fn get_test_authority_config(
     let mut initial_authorities = vec![];
     for i in 0..num_authorities {
         let (public_key, _) = get_key_pair();
-        initial_authorities.push(AuthorityStake {
+        initial_authorities.push(types::AuthorityStake {
             account_id: i.to_string(),
             public_key,
             amount: 100,

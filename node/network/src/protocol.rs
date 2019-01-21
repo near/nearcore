@@ -2,18 +2,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
+use futures::{Future, Sink, stream};
 use futures::sync::mpsc::Sender;
-use futures::{stream, Future, Sink};
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
-use crate::message::{self, Message};
-use beacon::authority::AuthorityStake;
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
+use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
-use primitives::types::{AccountId, BlockId, ChainPayload, Gossip, Transaction, UID};
+use primitives::types::{
+    AccountId, BlockId, Gossip, UID, AuthorityStake
+};
+use transaction::{ChainPayload, Transaction};
+
+use crate::message::{self, Message};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -76,8 +80,8 @@ pub struct Protocol {
     peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
     /// Info for authority peers.
     peer_account_info: RwLock<HashMap<AccountId, NodeIndex>>,
-    /// Chain info, for read-only access.
-    chain: Arc<BeaconBlockChain>,
+    /// Client, for read-only access.
+    client: Arc<Client>,
     /// Channel into which the protocol sends the new blocks.
     block_sender: Sender<SignedBeaconBlock>,
     /// Channel into which the protocol sends the received transactions and receipts.
@@ -93,7 +97,7 @@ pub struct Protocol {
 impl Protocol {
     pub fn new(
         config: ProtocolConfig,
-        chain: Arc<BeaconBlockChain>,
+        client: Arc<Client>,
         block_sender: Sender<SignedBeaconBlock>,
         transaction_sender: Sender<Transaction>,
         message_sender: Sender<(NodeIndex, Message)>,
@@ -104,7 +108,7 @@ impl Protocol {
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
             peer_account_info: RwLock::new(HashMap::new()),
-            chain,
+            client,
             block_sender,
             transaction_sender,
             message_sender,
@@ -120,12 +124,12 @@ impl Protocol {
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
-        let best_block_header = self.chain.best_block().header();
+        let best_block_header = self.client.beacon_chain.best_block().header();
         let status = message::Status {
             version: CURRENT_VERSION,
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
-            genesis_hash: self.chain.genesis_hash,
+            genesis_hash: self.client.beacon_chain.genesis_hash,
             account_id: self.config.account_id.clone(),
         };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
@@ -172,12 +176,12 @@ impl Protocol {
         if status.version != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if status.genesis_hash != self.chain.genesis_hash {
+        if status.genesis_hash != self.client.beacon_chain.genesis_hash {
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.chain.best_index();
+        let best_index = self.client.beacon_chain.best_index();
         let mut next_request_id = 0;
         let mut block_request = None;
         let mut request_timestamp = None;
@@ -216,12 +220,12 @@ impl Protocol {
         let mut blocks = Vec::new();
         let mut id = request.from;
         let max = std::cmp::min(request.max.unwrap_or(u64::max_value()), MAX_BLOCK_DATA_RESPONSE);
-        while let Some(block) = self.chain.get_block(&id) {
+        while let Some(block) = self.client.beacon_chain.get_block(&id) {
             blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
             }
-            let header = self.chain.get_header(&id).unwrap();
+            let header = self.client.beacon_chain.get_header(&id).unwrap();
             let block_index = header.index();
             let block_hash = header.block_hash();
             let reach_end = match request.to {
@@ -274,7 +278,7 @@ impl Protocol {
 
     pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
         let message: Message =
-            Decode::decode(data).ok_or((peer, Severity::Bad("Cannot decode message.")))?;
+            Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
 
@@ -362,7 +366,7 @@ impl Protocol {
     pub fn get_node_index_by_uid(&self, uid: UID) -> Option<NodeIndex> {
         let auth_map = &*self.authority_map.read();
         auth_map
-            .into_iter()
+            .iter()
             .find_map(
                 |(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None },
             )
@@ -377,14 +381,15 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::sync::mpsc::channel;
     use futures::{Sink, Stream};
+    use futures::sync::mpsc::channel;
 
-    use crate::test_utils::{get_test_authority_config, get_test_protocol};
     use beacon::authority::Authority;
     use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
     use primitives::traits::Encode;
-    use primitives::types::SignedTransaction;
+    use transaction::SignedTransaction;
+
+    use crate::test_utils::{get_test_authority_config, get_test_protocol};
 
     use super::*;
 

@@ -1,0 +1,16 @@
+[package]
+name = "devnet"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+futures = "0.1.25"
+tokio = "0.1.11"
+
+client = { path = "../../node/client" }
+configs = { path = "../configs" }
+consensus = { path = "../../node/consensus" }
+coroutines = { path = "../coroutines" }
+node-http = { path = "../http" }
+primitives = { path = "../../core/primitives" }
+transaction = { path = "../../core/transaction" }

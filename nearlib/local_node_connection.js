@@ -8,7 +8,6 @@ class LocalNodeConnection {
     async request(methodName, params) {
         const response = await superagent
             .post(`${this.baseUrl}/${methodName}`)
-            .use(require('superagent-logger'))
             .send(params);
         return JSON.parse(response.text);
     };

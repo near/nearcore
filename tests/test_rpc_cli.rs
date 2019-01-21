@@ -29,6 +29,7 @@ use primitives::test_utils::get_key_pair_from_seed;
 
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
+const WASM_PATH: &str = "./tests/hello";
 const WAIT_FOR_RETRY: u64 = 500;
 const MAX_WAIT_FOR_RETRY: u32 = 5;
 
@@ -39,13 +40,19 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    let network_cfg = devnet::NetworkConfig::default();
-    let mut client_cfg = devnet::ClientConfig::default();
+    Command::new("sh")
+        .arg("-c")
+        .arg(&format!("cd {} && npm install && npm run build", WASM_PATH))
+        .output()
+        .expect("build hello.wasm failed");
+
+    let mut client_cfg = configs::ClientConfig::default();
     client_cfg.base_path = base_path;
     client_cfg.log_level = log::LevelFilter::Off;
-    let devnet_cfg = devnet::DevNetConfig { block_period: Duration::from_millis(5) };
-    thread::spawn(|| { 
-        devnet::start_devnet(Some(network_cfg), Some(client_cfg), Some(devnet_cfg))
+    let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
+    let rpc_cfg = configs::RPCConfig::default();
+    thread::spawn(|| {
+        devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
     });
     thread::sleep(Duration::from_secs(1));
     true
