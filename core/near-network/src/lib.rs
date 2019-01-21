@@ -55,11 +55,9 @@ impl ConnectionHandler {
         let (sink, stream) = Framed::new(stream, Codec::new()).split();
         // spawn the task that forwards what receiver receives to send through sink
         tokio::spawn(
-            sink.send_all(
-                receiver.map_err(|e| Error::new(ErrorKind::BrokenPipe, format!("{:?}", e)))
-            )
-            .map(|_| ())
-            .map_err(|e| error!("Error when forwarding: {:?}", e))
+            receiver
+                .forward(sink.sink_map_err(|e| error!("Error sending data the sink: {}", e)))
+                .map(|_| ())
         );
         self.spawn_event_task(addr, sender.clone(), stream);
         sender
@@ -91,7 +89,7 @@ impl ConnectionHandler {
                             .clone()
                             .send(network_message)
                             .map(|_| ())
-                            .map_err(|e| error!("Error sending network message: {:?}", e))
+                            .map_err(|e| error!("Error sending network message: {}", e))
                     );
                 }
                 ServiceEvent::NodeClosed { peer_id } => {
@@ -107,7 +105,7 @@ impl ConnectionHandler {
                 }
             };
             Ok(())
-        }).map_err(|e| error!("Error when receiving: {:?}", e));
+        }).map_err(|e| error!("Error when receiving: {}", e));
         tokio::spawn(task);
     }
 }
