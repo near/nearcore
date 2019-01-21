@@ -1,26 +1,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
-use futures::{Future, stream, Stream};
 use futures::sync::mpsc::Receiver;
+use futures::{stream, Future, Stream};
 use parking_lot::Mutex;
-use substrate_network_libp2p::{
-    NodeIndex, RegisteredProtocol, Service as NetworkService,
-    ServiceEvent, Severity, start_service,
-};
 pub use substrate_network_libp2p::NetworkConfiguration;
-use tokio::timer::Interval;
+use substrate_network_libp2p::{
+    start_service, NodeIndex, RegisteredProtocol, Service as NetworkService, ServiceEvent, Severity,
+};
 
 use beacon::types::SignedBeaconBlock;
 use primitives::serialize::Encode;
-use primitives::types::{Gossip, UID, AuthorityStake};
+use primitives::types::{AuthorityStake, Gossip, UID};
+use shard::SignedShardBlock;
 use transaction::ChainPayload;
 
 use crate::message::Message;
 use crate::protocol::{self, Protocol, ProtocolConfig};
-
-const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub fn new_network_service(
     protocol_config: &ProtocolConfig,
@@ -35,33 +31,11 @@ pub fn spawn_network_tasks(
     network_service: Arc<Mutex<NetworkService>>,
     protocol_: Protocol,
     message_receiver: Receiver<(NodeIndex, Message)>,
-    block_receiver: Receiver<SignedBeaconBlock>,
+    outgoing_block_tx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
     authority_receiver: Receiver<HashMap<UID, AuthorityStake>>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
 ) {
     let protocol = Arc::new(protocol_);
-    // Interval for performing maintenance on the protocol handler.
-    let timer = Interval::new_interval(TICK_TIMEOUT)
-        .for_each({
-            let network_service1 = network_service.clone();
-            let protocol1 = protocol.clone();
-            move |_| {
-                for timed_out in protocol1.maintain_peers() {
-                    error!("Dropping timeouted node {:?}.", timed_out);
-                    network_service1.lock().drop_node(timed_out);
-                }
-                Ok(())
-            }
-        })
-        .then(|res| {
-            match res {
-                Ok(()) => (),
-                Err(err) => error!("Error in the propagation timer: {:?}", err),
-            };
-            Ok(())
-        })
-        .map(|_| ())
-        .map_err(|_: ()| ());
 
     // Handles messages coming from the network.
     let network = stream::poll_fn({
@@ -130,20 +104,12 @@ pub fn spawn_network_tasks(
         .map_err(|_| ());
 
     let protocol1 = protocol.clone();
-    let block_announce_handler = block_receiver.for_each(move |block| {
-        protocol1.on_outgoing_block(&block);
+    let block_announce_handler = outgoing_block_tx.for_each(move |blocks| {
+        protocol1.on_outgoing_blocks(blocks);
         Ok(())
     });
 
-    tokio::spawn(
-        network
-            .select(timer)
-            .and_then(|_| {
-                info!("Networking stopped");
-                Ok(())
-            })
-            .map_err(|(e, _)| debug!("Networking/Maintenance error {:?}", e)),
-    );
+    tokio::spawn(network);
 
     let protocol2 = protocol.clone();
     tokio::spawn(messages_handler);

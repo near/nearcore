@@ -7,26 +7,27 @@ edition = "2018"
 [dependencies]
 bincode = { "version" = "1.0", features = ["i128"] }
 byteorder = "1.2.7"
-futures = "0.1"
-tokio = "0.1"
-serde = "1.0"
-serde_json = "1.0"
-serde_derive = "1.0"
 bytes = "0.2"
-parking_lot = "0.7.1"
-log = "0.4"
 env_logger = "0.5"
+futures = "0.1"
+log = "0.4"
+parking_lot = "0.7.1"
 rand = "0.5"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+tokio = "0.1"
 
 beacon = { path = "../../node/beacon" }
-libp2p = { git = "https://github.com/tomaka/libp2p-rs", rev = "997d0163bc8a7e11559524ad8466bc3b1850c8ec", default-features = false, features = ["secio-rsa", "secio-secp256k1"] }
-substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "2db35a0c6e87fc4450a77da548ef6e2db8b0d057" }
-primitives = { path = "../../core/primitives" }
-transaction = { path = "../../core/transaction" }
 chain = { path = "../../core/chain" }
-storage = { path = "../../core/storage", features=["test-utils"] }
 client = { path = "../../node/client" }
 configs = { path = "../configs" }
+libp2p = { git = "https://github.com/tomaka/libp2p-rs", rev = "997d0163bc8a7e11559524ad8466bc3b1850c8ec", default-features = false, features = ["secio-rsa", "secio-secp256k1"] }
+primitives = { path = "../../core/primitives" }
+shard = { path = "../../core/shard" }
+storage = { path = "../../core/storage", features=["test-utils"] }
+substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "2db35a0c6e87fc4450a77da548ef6e2db8b0d057" }
+transaction = { path = "../../core/transaction" }
 
 [features]
 test-utils = []

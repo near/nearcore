@@ -12,6 +12,7 @@ use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use client::{ChainConsensusBlockBody, Client};
 use primitives::types::{AuthorityStake, UID};
+use shard::SignedShardBlock;
 use transaction::Transaction;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
@@ -19,26 +20,26 @@ use txflow::txflow_task::Control;
 pub fn spawn_block_producer(
     client: Arc<Client>,
     receiver: Receiver<ChainConsensusBlockBody>,
-    block_announce_tx: Sender<SignedBeaconBlock>,
+    block_announce_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
     new_receipts_tx: Sender<Transaction>,
     _authority_tx: &Sender<HashMap<UID, AuthorityStake>>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
     let task = receiver
         .for_each(move |body| {
-            let (new_block, new_shard_block) = client.produce_block(body);
+            let (new_beacon_block, new_shard_block) = client.produce_block(body);
             // Send beacon block to network
             tokio::spawn({
                 block_announce_tx
                     .clone()
-                    .send(new_block.clone())
+                    .send((new_beacon_block.clone(), new_shard_block.clone()))
                     .map(|_| ())
                     // TODO: In DevNet this will silently fail, because there is no network and so
                     // the announcements cannot be make. In TestNet the failure should not be silent.
                     .map_err(|_| ())
             });
 
-            let control = get_control(&*client, new_block.header().index());
+            let control = get_control(&*client, new_beacon_block.header().index());
             let needs_receipt_rerouting = match control {
                 Control::Stop => false,
                 Control::Reset(_) => true,

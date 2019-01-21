@@ -16,5 +16,6 @@ coroutines = { path = "../coroutines" }
 network = { path = "../network" }
 node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
+shard = { path = "../../core/shard" }
 transaction = { path = "../../core/transaction" }
 txflow = { path = "../../core/txflow" }
