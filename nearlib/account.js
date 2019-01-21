@@ -27,8 +27,7 @@ class Account {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
         const createAccountResult = await this.createAccount(
             newAccountId, keyWithRandomSeed.getPublicKey(), amount, originatorAccountId);
-        createAccountResult["key"] = keyWithRandomSeed;
-        return createAccountResult;
+        return { key: keyWithRandomSeed, ...createAccountResult }
     };
 
     /**

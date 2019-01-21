@@ -135,7 +135,7 @@ const waitForTransactionToComplete = async (submitTransactionResult) => {
     await callUntilConditionIsMet(
         async () => { return await nearClient.getTransactionStatus(submitTransactionResult.hash); },
         (response) => {
-            if (response['status'] == 'Completed') {
+            if (response.status == 'Completed') {
                 console.log("Transaction " + submitTransactionResult.hash + " completed");
                 return true;
             } else {
