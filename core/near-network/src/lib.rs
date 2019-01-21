@@ -6,6 +6,8 @@ use std::io::{Error, ErrorKind};
 use ::tokio::net::{TcpStream, TcpListener};
 use ::tokio_codec::{Framed};
 use ::tokio::prelude::stream::SplitStream;
+use ::tokio::timer::Interval;
+use std::time::Duration;
 use ::futures::sync::mpsc::{channel, Sender};
 use ::futures::{Stream, Future, Sink};
 use ::log::error;
@@ -158,12 +160,22 @@ pub struct Service {
     peer_info: Arc<RwLock<HashMap<PeerId, Peer>>>,
     /// number of peers to gossip
     gossip_num: usize,
+    /// gossip frequency
+    gossip_period: Duration,
     /// channel that sends custom message for further processing
     message_tx: Sender<NetworkMessage>,
 }
 
 impl Service {
-    pub fn new(addr: &str, peer_id: PeerId, message_tx: Sender<NetworkMessage>) -> Self {
+    pub fn init(addr: &str, peer_id: PeerId, message_tx: Sender<NetworkMessage>) {
+        let mut service = Self::new(addr, peer_id, message_tx);
+        tokio::spawn(futures::lazy(move || {
+            service.spawn_background_tasks();
+            Ok(())
+        }));
+    }
+
+    fn new(addr: &str, peer_id: PeerId, message_tx: Sender<NetworkMessage>) -> Self {
         let addr = addr.parse::<SocketAddr>().expect("Incorrect address");
         let listener = TcpListener::bind(&addr).expect("Cannot bind to address");
         Service {
@@ -175,19 +187,23 @@ impl Service {
             peer_state: Arc::new(RwLock::new(HashMap::new())),
             peer_info: Arc::new(RwLock::new(HashMap::new())),
             gossip_num: 3,
+            gossip_period: Duration::from_secs(10),
             message_tx
         }
     }
 
-    pub fn new_with_account_id(
+    pub fn init_account_id(
         addr: &str, 
         peer_id: PeerId,
         message_tx: Sender<NetworkMessage>,
         account_id: AccountId,
-    ) -> Self {
+    ) {
         let mut service = Self::new(addr, peer_id, message_tx);
         service.account_id = Some(account_id);
-        service
+        tokio::spawn(futures::lazy(move || {
+            service.spawn_background_tasks();
+            Ok(())
+        }));
     }
 
     fn get_connection_handler(&self) -> ConnectionHandler {
@@ -221,7 +237,7 @@ impl Service {
         Ok(())
     }
 
-    pub fn spawn_listening_task(&mut self) {
+    fn spawn_listening_task(&mut self) {
         let peer_state = self.peer_state.clone();
         let connection_handler = self.get_connection_handler();
         let peer_id = self.peer_id;
@@ -235,6 +251,44 @@ impl Service {
             Ok(())
         }).map_err(|e| error!("Error when listening: {:?}", e));
         tokio::spawn(task);
+    }
+
+    /// gossip account info to some of peers
+    // TODO: find efficient way of gossiping. Maybe store what has been gossiped to each peer?
+    fn spawn_gossip_task(&self) {
+        let connected_peers = self.connected_peers.clone();
+        let account_to_peer = self.account_to_peer.clone();
+        let gossip_num = self.gossip_num;
+        let task = Interval::new_interval(self.gossip_period)
+        .map_err(|e| error!("Timer error: {}", e))
+        .for_each(move |_| {
+            let mut rng = thread_rng();
+            let connected_peers = connected_peers.read();
+            for peer_id in connected_peers.keys().choose_multiple(&mut rng, gossip_num) {
+                // peer_id must exist, so we force unwrap here
+                let sender = connected_peers.get(peer_id).unwrap().clone();
+                let account_to_peer = account_to_peer.read();
+                let event = ServiceEvent::AccountInfo {
+                    peer_id: *peer_id,
+                    info: account_to_peer.clone()
+                };
+                tokio::spawn(
+                    sender
+                        .send(event)
+                        .map(|_| ())
+                        .map_err(|e| error!("Error sending account info: {:?}", e))
+                );
+            }
+            Ok(())
+        });
+        tokio::spawn(task);
+    }
+
+    /// spawn all background tasks, including listening on port,
+    /// gossiping to peers periodically, etc. Must be used in a task
+    fn spawn_background_tasks(&mut self) {
+        self.spawn_listening_task();
+        self.spawn_gossip_task();
     }
 
     /// sending message to peer. Must be used in a task
@@ -251,28 +305,6 @@ impl Service {
         } else {
             // TODO: route through peers
             unimplemented!("unknown peer")
-        }
-    }
-
-    /// gossip account info to some of peers
-    // TODO: find efficient way of gossiping. Maybe store what has been gossiped to each peer?
-    pub fn gossip_account_info(&self) {
-        let mut rng = thread_rng();
-        let connected_peers = self.connected_peers.read();
-        for peer_id in connected_peers.keys().choose_multiple(&mut rng, self.gossip_num) {
-            // peer_id must exist, so we force unwrap here
-            let sender = connected_peers.get(peer_id).unwrap().clone();
-            let account_to_peer = self.account_to_peer.read();
-            let event = ServiceEvent::AccountInfo {
-                peer_id: self.peer_id,
-                info: account_to_peer.clone()
-            };
-            tokio::spawn(
-                sender
-                    .send(event)
-                    .map(|_| ())
-                    .map_err(|e| error!("Error sending account info: {:?}", e))
-            );
         }
     }
 
@@ -325,6 +357,7 @@ mod tests {
     use std::time::Duration;
     use std::sync::Arc;
     use parking_lot::Mutex;
+    use ::tokio::timer::Interval;
 
     impl Peer {
         fn new(addr: SocketAddr, id: PeerId, account_id: Option<AccountId>) -> Self {
@@ -372,16 +405,20 @@ mod tests {
         let service1 = Arc::new(Mutex::new(Service::new(addr1.clone(), peer_id1, message_tx1)));
         let service2 = Arc::new(Mutex::new(Service::new(addr2.clone(), peer_id2, message_tx2)));
         let peer = Peer::new(addr1.parse::<SocketAddr>().unwrap(), peer_id1, None);
+        let timeout = Duration::from_secs(5);
         let message_queue = Arc::new(Mutex::new(vec![]));
         thread::spawn({
             let queue = message_queue.clone();
             move || {
-                tokio::run(
-                    message_rx2.for_each(move |m| {
-                        queue.clone().lock().push(m);
+                let task = Interval::new_interval(timeout)
+                    .map(|_| None)
+                    .map_err(|e| println!("{}", e))
+                    .select(message_rx2.map(Some))
+                    .for_each(move |m| {
+                        queue.lock().push(m);
                         Ok(())
-                    })
-                )
+                    });
+                tokio::run(task);
             }
         });
         
@@ -428,6 +465,8 @@ mod tests {
         }
 
         let message = message_queue.lock().pop().unwrap();
+        assert!(message.is_some());
+        let message = message.unwrap();
         assert_eq!(message.data, b"hello".to_vec());
         assert_eq!(message.peer_id, peer_id1);
     }
