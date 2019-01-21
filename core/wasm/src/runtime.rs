@@ -200,6 +200,17 @@ impl<'a, 'b> Runtime<'a, 'b> {
         Ok(())
     }
 
+    /// Gets iterator for keys with given prefix
+    fn storage_iter(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let prefix_ptr: u32 = args.nth_checked(0)?;
+        let prefix = self.read_buffer(prefix_ptr)?;
+        let id = self
+            .ext
+            .storage_iter(&prefix)
+            .map_err(|_| Error::StorageUpdateError)?;
+        Ok(RuntimeValue::I32(id as i32))
+    }
+
     fn gas(&mut self, args: &RuntimeArgs) -> Result<()> {
         let gas_amount: u32 = args.nth_checked(0)?;
         if self.charge_gas(Gas::from(gas_amount)) {
