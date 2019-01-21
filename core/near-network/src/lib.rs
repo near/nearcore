@@ -17,23 +17,13 @@ use ::tokio_serde_cbor::Codec;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 /// Information about a peer
-pub struct Peer {
+struct Peer {
     /// address of peer
     addr: SocketAddr,
     /// peer id
     id: PeerId,
     /// account id, peer may not always have one
     account_id: Option<AccountId>,
-}
-
-impl Peer {
-    pub fn new(addr: SocketAddr, id: PeerId, account_id: Option<AccountId>) -> Self {
-        Peer {
-            addr,
-            id,
-            account_id
-        }
-    }
 }
 
 /// unique identifier for nodes on the network
@@ -91,7 +81,7 @@ impl ConnectionHandler {
                         *e = ConnectionState::Connected;
                     });
                     self.connected_peers.write().insert(peer_id, sender.clone());
-                    let peer = Peer::new(addr, peer_id, account_id);
+                    let peer = Peer { addr, id: peer_id, account_id };
                     self.peer_info.write().insert(peer_id, peer);
                 }
                 ServiceEvent::Message { peer_id, data } => {
@@ -213,11 +203,13 @@ impl Service {
     }
 
     /// try to dial peer, if we are already connected to the peer or are waiting to connect,
-    /// do nothing. Otherwise we create a future that represents the connection and put it
-    /// to the pending connection queue
-    pub fn dial(&self, addr: SocketAddr) {
+    /// returns error. Otherwise we spawn a task that initiates the connection
+    pub fn dial(&self, addr: SocketAddr) -> Result<(), Error> {
         if self.peer_state.read().contains_key(&addr) {
-            return;
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Already dialed peer on addr: {}", addr)
+            ));
         }
         self.peer_state.write().insert(addr, ConnectionState::Pending);
         let connection_handler = self.get_connection_handler();
@@ -228,6 +220,7 @@ impl Service {
             Self::send_handshake_message(sender, peer_id, account_id);
         }).map_err(|_| ());
         tokio::spawn(task);
+        Ok(())
     }
 
     pub fn spawn_listening_task(&mut self) {
@@ -247,21 +240,19 @@ impl Service {
     }
 
     /// sending message to peer. Must be used in a task
-    pub fn send_message(&self, peer: &PeerId, data: Vec<u8>) {
+    pub fn send_message(&self, peer: &PeerId, data: Vec<u8>) -> impl Future<Item = (), Error = ()> {
         if let Some(sender) = self.connected_peers.write().get(&peer) {
             let sender = sender.clone();
             let message_event = ServiceEvent::Message {
                 peer_id: self.peer_id,
                 data,
             };
-            tokio::spawn(
-                sender.send(message_event)
+            sender.send(message_event)
                 .map(|_| ())
                 .map_err(|e| error!("Error sending message: {:?}", e))
-            );
         } else {
             // TODO: route through peers
-            unimplemented!("not connected to peer");
+            unimplemented!("unknown peer")
         }
     }
 
@@ -337,6 +328,12 @@ mod tests {
     use std::sync::Arc;
     use parking_lot::Mutex;
 
+    impl Peer {
+        fn new(addr: SocketAddr, id: PeerId, account_id: Option<AccountId>) -> Self {
+            Peer { addr, id, account_id}
+        }
+    }
+
     #[test]
     fn test_two_peers() {
         let addr1 = "127.0.0.1:3000";
@@ -355,7 +352,7 @@ mod tests {
             move || {
                 service1.lock().spawn_listening_task();
                 service2.lock().spawn_listening_task();
-                service2.lock().dial(peer.addr);
+                service2.lock().dial(peer.addr).unwrap();
                 Ok(())
             }
         });
@@ -397,7 +394,7 @@ mod tests {
             move || {
                 service1.lock().spawn_listening_task();
                 service2.lock().spawn_listening_task();
-                service2.lock().dial(peer.addr);
+                service2.lock().dial(peer.addr).unwrap();
                 Ok(()) 
             }
         });
@@ -421,7 +418,7 @@ mod tests {
                 futures::lazy({
                     let service = service1.clone();
                     move || {
-                        service.lock().send_message(&peer, message);
+                        tokio::spawn(service.lock().send_message(&peer, message));
                         Ok(())
                     }
                 })
