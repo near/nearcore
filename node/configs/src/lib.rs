@@ -6,16 +6,16 @@ extern crate serde_json;
 
 use clap::App;
 
+pub mod authority;
+pub mod chain_spec;
 mod client;
 mod devnet;
 pub mod network;
 mod rpc;
-pub mod chain_spec;
-pub mod authority;
 
 pub use crate::{
-    client::ClientConfig, devnet::DevNetConfig, network::NetworkConfig, rpc::RPCConfig,
-    chain_spec::ChainSpec, authority::AuthorityConfig
+    authority::AuthorityConfig, chain_spec::ChainSpec, client::ClientConfig, devnet::DevNetConfig,
+    network::NetworkConfig, rpc::RPCConfig,
 };
 
 pub fn get_testnet_configs() -> (ClientConfig, NetworkConfig, RPCConfig) {

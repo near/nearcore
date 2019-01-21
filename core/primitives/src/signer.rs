@@ -85,7 +85,7 @@ impl InMemorySigner {
 impl Default for InMemorySigner {
     fn default() -> Self {
         let (public_key, secret_key) = signature::get_key_pair();
-        InMemorySigner { account_id: "alice".to_string(), public_key, secret_key }
+        InMemorySigner { account_id: "alice.near".to_string(), public_key, secret_key }
     }
 }
 

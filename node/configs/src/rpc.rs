@@ -8,9 +8,7 @@ pub struct RPCConfig {
 
 impl Default for RPCConfig {
     fn default() -> Self {
-        Self {
-            rpc_port: DEFAULT_RPC_PORT.parse::<u16>().unwrap()
-        }
+        Self { rpc_port: DEFAULT_RPC_PORT.parse::<u16>().unwrap() }
     }
 }
 

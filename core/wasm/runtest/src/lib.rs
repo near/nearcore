@@ -155,7 +155,7 @@ mod tests {
         RuntimeContext::new(
             balance,
             amount,
-            &"alice".to_string(),
+            &"alice.near".to_string(),
             &"bob".to_string(),
             mana,
             123,
@@ -385,7 +385,7 @@ mod tests {
         .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice"),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice.near"),
             _ => assert!(false, "Expected returned value"),
         };
     }

@@ -1,11 +1,11 @@
 use clap::{Arg, ArgMatches};
 use std::iter;
-use std::net::Ipv4Addr;
 use std::mem;
+use std::net::Ipv4Addr;
 
 use crate::ClientConfig;
-use substrate_network_libp2p::{NetworkConfiguration, Protocol, Secret};
 use libp2p::Multiaddr;
+use substrate_network_libp2p::{NetworkConfiguration, Protocol, Secret};
 
 const DEFAULT_P2P_PORT: &str = "30333";
 const NETWORK_CONFIG_PATH: &str = "storage";
@@ -76,10 +76,8 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
     network_config_path.push(NETWORK_CONFIG_PATH);
     network_config.net_config_path = Some(network_config_path.to_string_lossy().to_string());
     network_config.boot_nodes = boot_nodes;
-    network_config.listen_addresses =
-        vec![get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
+    network_config.listen_addresses = vec![get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
 
-    network_config.use_secret =
-        test_network_key_seed.map(get_test_secret_from_network_key_seed);
+    network_config.use_secret = test_network_key_seed.map(get_test_secret_from_network_key_seed);
     network_config
 }

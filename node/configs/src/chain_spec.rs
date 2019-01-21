@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::types::{AccountId, ReadablePublicKey, Balance};
+use primitives::types::{AccountId, Balance, ReadablePublicKey};
 
 /// Specification of the blockchain in general.
 pub struct ChainSpec {
@@ -67,12 +67,11 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpe
     }
 }
 
-
 #[test]
 fn test_deserialize() {
     let data = json!({
-        "accounts": [["alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100, 10]],
-        "initial_authorities": [("alice", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
+        "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100, 10]],
+        "initial_authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,
         "beacon_chain_num_seats_per_slot": 100,
@@ -81,6 +80,6 @@ fn test_deserialize() {
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(
         spec.initial_authorities[0],
-        ("alice".to_string(), "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50)
+        ("alice.near".to_string(), "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string(), 50)
     );
 }

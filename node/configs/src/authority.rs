@@ -12,7 +12,6 @@ pub struct AuthorityConfig {
     pub num_seats_per_slot: u64,
 }
 
-
 pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
     let initial_authorities: Vec<AuthorityStake> = chain_spec
         .initial_authorities
