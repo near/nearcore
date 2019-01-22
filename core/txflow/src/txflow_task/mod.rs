@@ -302,6 +302,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         let witness_ptr = self.witness_selector() as *const W;
         // Since we are controlling the creation of the DAG by encapsulating it here
         // this code is safe.
+        println!("Initializing DAG for beacon block index {}", self.state.as_ref().unwrap().beacon_block_index);
         self.dag = Some(Box::new(DAG::new(
             self.owner_uid(),
             self.state.as_ref().unwrap().beacon_block_index,
@@ -322,12 +323,14 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 // Independently on whether we were stopped or not, if we receive a reset signal we
                 // reset the state and the dag.
                 Ok(Async::Ready(Some(Control::Reset(state)))) => {
+                    println!("Received Reset control for beacon block index {}", state.beacon_block_index);
                     self.state = Some(state);
                     self.init_dag();
                     break;
                 }
                 // Stop command received.
                 Ok(Async::Ready(Some(Control::Stop))) => {
+                    println!("Received Stop control");
                     if self.state.is_some() {
                         self.state = None;
                         self.dag = None;

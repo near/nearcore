@@ -21,7 +21,7 @@ pub fn spawn_block_producer(
     new_receipts_tx: Sender<Transaction>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
-    let control = get_control(&*client, client.beacon_chain.best_block().header().index());
+    let control = get_control(&*client, client.beacon_chain.best_block().header().index() + 1);
     let kickoff_task = control_tx
         .clone()
         .send(control)
@@ -42,7 +42,7 @@ pub fn spawn_block_producer(
                         .map_err(|_| ())
                 });
 
-                let control = get_control(&*client, new_beacon_block.header().index());
+                let control = get_control(&*client, new_beacon_block.header().index() + 1);
                 let needs_receipt_rerouting = match control {
                     Control::Stop => false,
                     Control::Reset(_) => true,
