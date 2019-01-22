@@ -11,6 +11,10 @@ message TransactionBody {
     required bytes args = 6;
 }
 
+message Transaction {
+    required bytes body = 1;
+    required bytes signature = 2;
+}
 
 message ChainPayload {
     repeated bytes transactions = 1;
