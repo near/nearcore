@@ -28,7 +28,6 @@ use node_runtime::state_viewer::StateDbViewer;
 use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::traits::Signer;
 use primitives::types::{AccountId, AuthorityStake, BlockId, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
@@ -173,8 +172,8 @@ impl Client {
             apply_result.authority_proposals,
             shard_block.block_hash(),
         );
-        let authority_mask: Vec<bool> =
-            authorities.iter().map(|a| a.account_id == self.signer.account_id()).collect();
+        // TODO: We should have a proper mask computation once we have a correct consensus.
+        let authority_mask: Vec<bool> = authorities.iter().map(|_| true).collect();
         let signature = shard_block.sign(&self.signer);
         shard_block.add_signature(signature);
         shard_block.authority_mask = authority_mask.clone();

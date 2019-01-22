@@ -34,6 +34,7 @@ pub fn spawn_consensus(
                         payload,
                         endorsements: vec![],
                     },
+                    beacon_block_index: 0,  // Not used by the DevNet.
                 };
                 acc.push(message);
                 Either::A(future::ok((control_rx, acc)))

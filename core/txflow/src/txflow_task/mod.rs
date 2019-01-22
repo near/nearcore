@@ -29,6 +29,8 @@ pub struct State<W: WitnessSelector> {
     /// The size of the random sample of witnesses that we draw every time we gossip.
     pub gossip_size: usize,
     pub witness_selector: Box<W>,
+    /// Index of the beacon block which this TxFlow is currently building.
+    pub beacon_block_index: u64,
 }
 
 /// An enum that we use to start and stop the TxFlow task.
@@ -220,6 +222,10 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         message_sender: UID,
         requires_reply: bool,
     ) {
+        // Check whether this is a stray message from a different index.
+        if message.beacon_block_index != self.state.as_ref().unwrap().beacon_block_index {
+            return;
+        }
         // Check one of the optimistic scenarios when we already know this message.
         if self.dag_as_ref().contains_message(message.hash)
             || self.blocked_messages.contains_key(&message.hash)
@@ -296,9 +302,12 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         let witness_ptr = self.witness_selector() as *const W;
         // Since we are controlling the creation of the DAG by encapsulating it here
         // this code is safe.
-        self.dag = Some(Box::new(DAG::new(self.owner_uid(), self.starting_epoch(), unsafe {
-            &*witness_ptr
-        })));
+        self.dag = Some(Box::new(DAG::new(
+            self.owner_uid(),
+            self.state.as_ref().unwrap().beacon_block_index,
+            self.starting_epoch(),
+            unsafe { &*witness_ptr },
+        )));
     }
 }
 
@@ -492,9 +501,9 @@ mod tests {
     use futures::Stream;
     use std::collections::HashSet;
 
+    use crate::testing_utils::FakePayload;
     use primitives::traits::WitnessSelector;
     use primitives::types::UID;
-    use crate::testing_utils::FakePayload;
 
     struct FakeWitnessSelector {}
 

@@ -119,6 +119,7 @@ pub fn spawn_all(num_witnesses: u64) {
                     starting_epoch,
                     gossip_size,
                     witness_selector,
+                    beacon_block_index: 0,
                 }))
                 .map(|_| ())
                 .map_err(|e| println!("Error sending control {}", e));

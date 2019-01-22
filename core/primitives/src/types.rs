@@ -135,6 +135,7 @@ pub struct SignedMessageData<P> {
     /// Hash of the body.
     pub hash: TxFlowHash,
     pub body: MessageDataBody<P>,
+    pub beacon_block_index: u64,
 }
 
 impl<P> Hash for SignedMessageData<P> {

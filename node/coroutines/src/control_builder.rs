@@ -18,6 +18,7 @@ pub fn get_control(client: &Client, block_index: u64) -> Control<BeaconWitnessSe
                 starting_epoch: 0,
                 gossip_size: 1, // TODO: Use adaptive gossip size.
                 witness_selector,
+                beacon_block_index: block_index,
             })
         }
     }
