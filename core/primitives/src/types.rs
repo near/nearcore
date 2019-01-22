@@ -201,7 +201,7 @@ impl<P: Encode> Encode for SignedMessageData<P> {
     fn encode(&self) -> EncodeResult {
         let mut m = txflow_proto::SignedMessageData::new();
         m.set_owner_sig(self.owner_sig.as_ref().to_vec());
-        m.set_hash(self.hash.clone());
+        m.set_hash(self.hash);
         m.set_body(self.body.encode()?);
         encode_proto(&m)
     }
@@ -310,7 +310,7 @@ impl<P: Decode> Decode for Gossip<P> {
         let body = match &m.body {
             Some(txflow_proto::Gossip_oneof_body::unsolicited(message)) => GossipBody::Unsolicited(Decode::decode(&message)?),
             Some(txflow_proto::Gossip_oneof_body::unsolicited_reply(message)) => GossipBody::UnsolicitedReply(Decode::decode(&message)?),
-            Some(txflow_proto::Gossip_oneof_body::fetch(fetch)) => GossipBody::Fetch(fetch.get_hashes().iter().map(|m| m.clone()).collect()),
+            Some(txflow_proto::Gossip_oneof_body::fetch(fetch)) => GossipBody::Fetch(fetch.get_hashes().to_vec()),
             Some(txflow_proto::Gossip_oneof_body::fetch_reply(reply)) => {
                 let mut messages = vec![];
                 for m in reply.get_messages().iter() {

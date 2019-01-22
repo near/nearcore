@@ -79,7 +79,7 @@ impl<B: Decode> Decode for BlockIndex<B> {
         let m: block_proto::BlockIndex = decode_proto(bytes)?;
         Ok(BlockIndex {
             block: Decode::decode(m.get_block())?,
-            cumulative_weight: m.get_cumulative_weight() as u128
+            cumulative_weight: u128::from(m.get_cumulative_weight())
         })
     }
 }
