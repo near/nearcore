@@ -261,10 +261,15 @@ impl Client {
         (part_add, part_pending)
     }
 
+    pub fn import_blocks(&self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) -> Option<SignedBeaconBlock> {
+        self.pending_shard_blocks.write().insert(shard_block.hash, shard_block);
+        self.import_beacon_block(beacon_block)
+    }
+
     /// Attempts to import a beacon block. Fails to import if there are no known parent blocks.
     /// If succeeds might unlock more blocks that were waiting for this parent. If import changes
     /// the best block then it returns it, otherwise it returns None.
-    pub fn import_beacon_block(
+    fn import_beacon_block(
         &self,
         beacon_block: SignedBeaconBlock,
     ) -> Option<SignedBeaconBlock> {

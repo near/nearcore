@@ -45,8 +45,8 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
         );
 
         // Create task that can import beacon chain blocks from other peers.
-        let (incoming_block_tx, _) = channel(1024);
-        // TODO: Re-enable once we have correct shard block fetching and announcement.
+        let (incoming_block_tx, incominb_block_rx) = channel(1024);
+        coroutines::importer::spawn_block_importer(client.clone(), incominb_block_rx);
 
         // Spawn the network tasks.
         // Note, that network and RPC are using the same channels
