@@ -34,6 +34,19 @@ $ rustup component add clippy-preview
 
 You may need to activate the environment via `. ~/.cargo/env` to use `cargo`.
 
+
+### Install dependencies
+
+Mac OS:
+```bash
+brew install protobuf
+```
+
+Ubuntu:
+```bash
+apt-get install protobuf-compiler
+```
+
 ### Build & Run from source code
 
 ```bash
