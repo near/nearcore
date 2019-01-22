@@ -1,6 +1,5 @@
 //! ConsensusHandler consumes consensuses, retrieves the most recent state, computes the new
 //! state, signs it and puts in on the BeaconChain.
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::future::Either;
@@ -11,7 +10,6 @@ use crate::control_builder::get_control;
 use beacon::types::SignedBeaconBlock;
 use chain::{SignedBlock, SignedHeader};
 use client::{ChainConsensusBlockBody, Client};
-use primitives::types::{AuthorityStake, UID};
 use shard::SignedShardBlock;
 use transaction::Transaction;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
@@ -22,7 +20,6 @@ pub fn spawn_block_producer(
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
     new_receipts_tx: Sender<Transaction>,
-    _authority_tx: &Sender<HashMap<UID, AuthorityStake>>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
     let task = receiver

@@ -1,5 +1,4 @@
 //! Starts TestNet either from args or the provided configs.
-use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
@@ -12,7 +11,7 @@ use client::Client;
 use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
 use network::protocol::{Protocol, ProtocolConfig};
-use primitives::types::{AccountId, AuthorityStake, Gossip, UID};
+use primitives::types::{AccountId, Gossip};
 use shard::SignedShardBlock;
 use transaction::{ChainPayload, Transaction};
 use txflow::txflow_task;
@@ -29,9 +28,6 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
         let (transactions_tx, transactions_rx) = channel(1024);
         spawn_rpc_server_task(transactions_tx.clone(), &rpc_cfg, client.clone());
 
-        // Create a task that receives new blocks from importer/producer
-        // and send the authority information to consensus
-        let (authority_tx, authority_rx) = channel(1024);
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
 
         // Create a task that consumes the consensuses
@@ -45,7 +41,6 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
             beacon_block_consensus_body_rx,
             outgoing_block_tx,
             transactions_tx.clone(),
-            &authority_tx,
             consensus_control_tx,
         );
 
@@ -67,7 +62,6 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
             out_gossip_rx,
             incoming_block_tx,
             outgoing_block_rx,
-            authority_rx,
         );
 
         // Spawn consensus tasks.
@@ -103,7 +97,6 @@ fn spawn_network_tasks(
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     incoming_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
     outgoing_block_rx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
-    authority_rx: Receiver<HashMap<UID, AuthorityStake>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let protocol_config = ProtocolConfig::new_with_default_id(Some(account_id));
@@ -122,7 +115,6 @@ fn spawn_network_tasks(
         protocol,
         net_messages_rx,
         outgoing_block_rx,
-        authority_rx,
         out_gossip_rx,
     );
 }

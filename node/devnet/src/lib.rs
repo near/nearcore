@@ -25,7 +25,6 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
 
         // Create a task that receives new blocks from importer/producer
         // and send the authority information to consensus
-        let (authority_tx, _) = channel(1024);
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
 
         // Create a task that consumes the consensuses
@@ -39,7 +38,6 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
             beacon_block_consensus_body_rx,
             outgoing_block_tx,
             transactions_tx.clone(),
-            &authority_tx,
             consensus_control_tx,
         );
 

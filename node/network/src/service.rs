@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::sync::mpsc::Receiver;
@@ -11,7 +10,7 @@ use substrate_network_libp2p::{
 
 use beacon::types::SignedBeaconBlock;
 use primitives::serialize::Encode;
-use primitives::types::{AuthorityStake, Gossip, UID};
+use primitives::types::Gossip;
 use shard::SignedShardBlock;
 use transaction::ChainPayload;
 
@@ -32,7 +31,6 @@ pub fn spawn_network_tasks(
     protocol_: Protocol,
     message_receiver: Receiver<(NodeIndex, Message)>,
     outgoing_block_tx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
-    authority_receiver: Receiver<HashMap<UID, AuthorityStake>>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
 ) {
     let protocol = Arc::new(protocol_);
@@ -111,13 +109,8 @@ pub fn spawn_network_tasks(
 
     tokio::spawn(network);
 
-    let protocol2 = protocol.clone();
     tokio::spawn(messages_handler);
     tokio::spawn(block_announce_handler);
-    tokio::spawn(authority_receiver.for_each(move |map| {
-        protocol2.set_authority_map(map);
-        Ok(())
-    }));
 
     let protocol3 = protocol.clone();
     let gossip_sender = gossip_rx.for_each(move |g| {

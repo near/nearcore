@@ -21,18 +21,18 @@ use parking_lot::RwLock;
 
 use beacon::authority::Authority;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use chain::SignedBlock;
+use chain::{SignedBlock, SignedHeader};
 use configs::authority::get_authority_config;
-use node_runtime::{ApplyState, Runtime};
+use configs::ClientConfig;
 use node_runtime::state_viewer::StateDbViewer;
+use node_runtime::{ApplyState, Runtime};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
-use primitives::types::{AccountId, BlockId, ConsensusBlockBody, UID, AuthorityStake};
-use transaction::ChainPayload;
+use primitives::types::{AccountId, AuthorityStake, BlockId, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::{StateDb, Storage};
-use configs::ClientConfig;
+use transaction::ChainPayload;
 
 pub struct Client {
     pub account_id: AccountId,
@@ -71,7 +71,6 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 pub const DEFAULT_BASE_PATH: &str = ".";
 pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
-
 
 const STORAGE_PATH: &str = "storage/db";
 const KEY_STORE_PATH: &str = "storage/keystore";
@@ -158,11 +157,7 @@ impl Client {
             block_index: last_block.body.header.index + 1,
             shard_id,
         };
-        let apply_result = self.runtime.write().apply(
-            &apply_state,
-            &[],
-            transactions,
-        );
+        let apply_result = self.runtime.write().apply(&apply_state, &[], transactions);
         self.state_db.commit(apply_result.transaction).ok();
         let mut shard_block = SignedShardBlock::new(
             shard_id,
@@ -332,11 +327,10 @@ impl Client {
         &self,
         block_index: u64,
     ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
-        let next_authorities = self
-            .authority
-            .read()
-            .get_authorities(block_index)
-            .unwrap_or_else(|_| panic!("Failed to get authorities for block index {}", block_index));
+        let next_authorities =
+            self.authority.read().get_authorities(block_index).unwrap_or_else(|_| {
+                panic!("Failed to get authorities for block index {}", block_index)
+            });
 
         let mut uid_to_authority_map = HashMap::new();
         let mut owner_uid = None;
@@ -347,5 +341,10 @@ impl Client {
             uid_to_authority_map.insert(index as UID, authority);
         }
         (owner_uid, uid_to_authority_map)
+    }
+
+    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<UID, AuthorityStake> {
+        let index = self.beacon_chain.best_block().header().index();
+        self.get_uid_to_authority_map(index).1
     }
 }
