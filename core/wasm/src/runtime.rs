@@ -201,7 +201,6 @@ impl<'a, 'b> Runtime<'a, 'b> {
     }
 
     /// Gets iterator for keys with given prefix
-    #[allow(dead_code)]
     fn storage_iter(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let prefix_ptr: u32 = args.nth_checked(0)?;
         let prefix = self.read_buffer(prefix_ptr)?;
@@ -210,6 +209,45 @@ impl<'a, 'b> Runtime<'a, 'b> {
             .storage_iter(&prefix)
             .map_err(|_| Error::StorageUpdateError)?;
         Ok(RuntimeValue::I32(id as i32))
+    }
+
+    /// Advances iterator. Returns true if iteration isn't finished yet.
+    fn storage_iter_next(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let id: u32 = args.nth_checked(0)?;
+        let key = self
+            .ext
+            .storage_iter_next(id)
+            .map_err(|_| Error::StorageUpdateError)?;
+        Ok(RuntimeValue::I32(!key.is_none() as i32))
+    }
+
+    /// Returns length of next key in iterator or 0 if there is no next value.
+    fn storage_iter_peek_len(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let id: u32 = args.nth_checked(0)?;
+        let key = self
+            .ext
+            .storage_iter_peek(id)
+            .map_err(|_| Error::StorageUpdateError)?;
+        match key {
+            Some(key) => Ok(RuntimeValue::I32(key.len() as i32)),
+            None => Ok(RuntimeValue::I32(0))
+        }
+    }
+
+    /// Writes next key in iterator to given buffer.
+    fn storage_iter_peek_into(&'b mut self, args: &RuntimeArgs) -> Result<()> {
+        let id: u32 = args.nth_checked(0)?;
+        let key_ptr: u32 = args.nth_checked(1)?;
+        let key = self
+            .ext
+            .storage_iter_peek(id)
+            .map_err(|_| Error::StorageUpdateError)?;
+        if let Some(buf) = key {
+            self.memory
+                .set(key_ptr, &buf)
+                .map_err(|_| Error::MemoryAccessViolation)?;
+        }
+        Ok(())
     }
 
     fn gas(&mut self, args: &RuntimeArgs) -> Result<()> {
@@ -583,6 +621,10 @@ mod ext_impl {
                 STORAGE_WRITE_FUNC => void!(self.storage_write(&args)),
                 STORAGE_READ_LEN_FUNC => some!(self.storage_read_len(&args)),
                 STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(&args)),
+                STORAGE_ITER_FUNC => some!(self.storage_iter(&args)),
+                STORAGE_ITER_NEXT_FUNC => void!(self.storage_iter_next(&args)),
+                STORAGE_ITER_PEEK_LEN_FUNC => some!(self.storage_iter_peek_len(&args)),
+                STORAGE_ITER_PEEK_INTO_FUNC => void!(self.storage_iter_peek_into(&args)),
                 GAS_FUNC => void!(self.gas(&args)),
                 PROMISE_CREATE_FUNC => some!(self.promise_create(&args)),
                 PROMISE_THEN_FUNC => some!(self.promise_then(&args)),

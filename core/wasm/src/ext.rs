@@ -5,6 +5,10 @@ pub mod ids {
     pub const STORAGE_READ_LEN_FUNC: usize = 100;
     pub const STORAGE_READ_INTO_FUNC: usize = 110;
     pub const STORAGE_WRITE_FUNC: usize = 120;
+    pub const STORAGE_ITER_FUNC: usize = 130;
+    pub const STORAGE_ITER_NEXT_FUNC: usize = 131;
+    pub const STORAGE_ITER_PEEK_LEN_FUNC: usize = 132;
+    pub const STORAGE_ITER_PEEK_INTO_FUNC: usize = 133;
     // TODO(#350): Refactor all reads and writes into generic reads. 
     /// Generic data read. Returns the length of the buffer for the type/key.
     pub const READ_LEN_FUNC: usize = 140;
@@ -86,6 +90,8 @@ pub trait External<'a> {
     fn storage_iter(&'a mut self, prefix: &[u8]) -> Result<u32>;
 
     fn storage_iter_next(&mut self, id: u32) -> Result<Option<Vec<u8>>>;
+
+    fn storage_iter_peek(&mut self, id: u32) -> Result<Option<&Vec<u8>>>;
 
     fn promise_create(
         &mut self,

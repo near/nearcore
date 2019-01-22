@@ -11,6 +11,7 @@ extern crate primitives;
 extern crate serde;
 
 use std::collections::{BTreeMap, HashMap};
+use std::iter::Peekable;
 use std::sync::Arc;
 
 pub use kvdb::{DBValue, DBTransaction, KeyValueDB};
@@ -106,8 +107,8 @@ impl StateDbUpdate {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())))
     }
-    pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<Box<StateDbUpdateIterator<'a>>, String> {
-        StateDbUpdateIterator::new(self, prefix).map(Box::new)
+    pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<Box<Peekable<StateDbUpdateIterator<'a>>>, String> {
+        StateDbUpdateIterator::new(self, prefix).map(|it| it.peekable()).map(Box::new)
     }
 }
 

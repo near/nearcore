@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::Peekable;
 
 use kvdb::DBValue;
 
@@ -21,7 +22,7 @@ pub struct RuntimeExt<'a> {
     accounting_info: AccountingInfo,
     nonce: u64,
     transaction_hash: &'a [u8],
-    iters: HashMap<u32, Box<StateDbUpdateIterator<'a>>>,
+    iters: HashMap<u32, Box<Peekable<StateDbUpdateIterator<'a>>>>,
     last_iter_id: u32,
 }
 
@@ -104,6 +105,14 @@ impl<'a> External<'a> for RuntimeExt<'a> {
         if result.is_none() {
             self.iters.remove(&id);
         }
+        Ok(result)
+    }
+
+    fn storage_iter_peek(&mut self, id: u32) -> ExtResult<Option<&Vec<u8>>> {
+        let result = match self.iters.get_mut(&id) {
+            Some(iter) => iter.peek(),
+            None => return Err(ExtError::TrieIteratorMissing),
+        };
         Ok(result)
     }
 
