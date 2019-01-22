@@ -85,7 +85,9 @@ impl Encode for SignedShardBlockHeader {
         for x in self.authority_mask.iter() {
             m.mut_authority_mask().push(*x);
         }
-        m.set_signature(self.signature[0].as_ref().to_vec());
+        if !self.signature.is_empty() {
+            m.set_signature(self.signature[0].as_ref().to_vec());
+        } else { m.set_signature(vec![]) }
         encode_proto(&m)
     }
 }
@@ -183,7 +185,7 @@ impl Encode for SignedShardBlock {
         }
         if !self.signature.is_empty() {
             m.set_signature(self.signature[0].as_ref().to_vec());
-        }
+        } else { m.set_signature(vec![]) }
         encode_proto(&m)
     }
 }
