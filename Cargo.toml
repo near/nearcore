@@ -21,6 +21,7 @@ members = [
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
+    "core/near-network",
     "node/beacon",
     "node/client",
     "node/configs",
