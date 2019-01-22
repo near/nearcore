@@ -134,7 +134,7 @@ impl Client {
     pub fn produce_block(
         &self,
         body: ChainConsensusBlockBody,
-    ) -> (SignedBeaconBlock, SignedShardBlock) {
+    ) -> Option<(SignedBeaconBlock, SignedShardBlock)> {
         // TODO: verify signature
         let transactions =
             body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
@@ -181,15 +181,21 @@ impl Client {
         let signature = block.sign(&self.signer);
         block.add_signature(signature);
         block.authority_mask = authority_mask;
-        self.shard_chain.insert_block(&shard_block.clone());
-        self.beacon_chain.insert_block(block.clone());
-        info!(target: "block_producer", "Block body: {:?}", block.body);
-        info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
-        io::stdout().flush().expect("Could not flush stdout");
 
-        // Update the authority.
-        self.update_authority(&block.header());
-        (block, shard_block)
+        if self.beacon_chain.is_known(&block.hash) {
+            info!("The block was already imported, before we managed to produce it.");
+            io::stdout().flush().expect("Could not flush stdout");
+            None
+        } else {
+            self.shard_chain.insert_block(&shard_block.clone());
+            self.beacon_chain.insert_block(block.clone());
+            info!(target: "block_producer", "Block body: {:?}", block.body);
+            info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
+            io::stdout().flush().expect("Could not flush stdout");
+            // Update the authority.
+            self.update_authority(&block.header());
+            Some((block, shard_block))
+        }
     }
 
     // Block importer code.
