@@ -1,7 +1,9 @@
+use std::io;
+
 use serde::{de::DeserializeOwned, Serialize};
 
-pub type EncodeResult = Result<Vec<u8>, String>;
-pub type DecodeResult<T> = Result<T, String>;
+pub type EncodeResult = Result<Vec<u8>, io::Error>;
+pub type DecodeResult<T> = Result<T, io::Error>;
 
 // encode a type to byte array
 pub trait Encode {
@@ -15,7 +17,8 @@ pub trait Decode: Sized {
 
 impl<T: Serialize> Encode for T {
     fn encode(&self) -> EncodeResult {
-        bincode::serialize(&self).map_err(|_| "Failed to serialize".to_string())
+        bincode::serialize(&self)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
     }
 }
 
@@ -24,14 +27,23 @@ impl<T> Decode for T
         T: DeserializeOwned,
 {
     fn decode(data: &[u8]) -> DecodeResult<Self> {
-        bincode::deserialize(data).map_err(|_| "Failed to deserialize".to_string())
+        bincode::deserialize(data)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
     }
+}
+
+pub fn encode_proto<T: protobuf::Message>(m: &T) -> EncodeResult {
+    m.write_to_bytes().map_err(|e| e.into())
+}
+
+pub fn decode_proto<T: protobuf::Message>(bytes: &[u8]) -> DecodeResult<T> {
+    protobuf::parse_from_bytes(bytes).map_err(|e| e.into())
 }
 
 impl Encode for protobuf::Message {
     fn encode(&self) -> EncodeResult {
         let mut bytes = Vec::new();
-        self.write_to_writer(&mut bytes).map_err(|_| "Protobuf write failed")?;
+        self.write_to_writer(&mut bytes)?;
         Ok(bytes)
     }
 }

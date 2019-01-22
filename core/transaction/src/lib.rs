@@ -10,6 +10,8 @@ use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
 use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, verify};
 use primitives::traits::Payload;
 use primitives::types::{AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, StructSignature};
+use primitives::serialize::decode_proto;
+use primitives::serialize::encode_proto;
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId {
@@ -357,13 +359,13 @@ pub enum Transaction {
 //                // m.set_nonce(r.nonce);
 //            }
 //        }
-//        near_protos::encode(&m)
+//        encode_proto(&m)
 //    }
 //}
 //
 //impl Decode for Transaction {
 //    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: transaction_proto::Transaction = near_protos::decode(bytes)?;
+//        let m: transaction_proto::Transaction = decode_proto(bytes)?;
 //        Err("WTF".to_string())
 //        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
 //    }
@@ -397,13 +399,13 @@ impl Payload for ChainPayload {
 impl Encode for ChainPayload {
     fn encode(&self) -> EncodeResult {
         let m = transaction_proto::ChainPayload::new();
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl Decode for ChainPayload {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: transaction_proto::ChainPayload = near_protos::decode(bytes)?;
+        let m: transaction_proto::ChainPayload = decode_proto(&bytes)?;
         let mut body = vec![];
         for t in m.get_transactions().iter() {
             body.push(Decode::decode(t)?);

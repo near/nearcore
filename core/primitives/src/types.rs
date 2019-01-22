@@ -1,12 +1,15 @@
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::io;
 
 use near_protos::txflow as txflow_proto;
 
 use crate::hash::CryptoHash;
 use crate::signature::{PublicKey, Signature, DEFAULT_SIGNATURE};
-use crate::serialize::{Encode, Decode, EncodeResult, DecodeResult};
+use crate::serialize::{
+    decode_proto, encode_proto, Encode, Decode, EncodeResult, DecodeResult
+};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -147,13 +150,13 @@ impl<P: Encode> Encode for MessageDataBody<P> {
             endorsement.set_signature(e.signature[0].as_ref().to_vec());
             m.mut_endorsements().push(endorsement);
         }
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl<P: Decode> Decode for MessageDataBody<P> {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: txflow_proto::MessageDataBody = near_protos::decode(bytes)?;
+        let m: txflow_proto::MessageDataBody = decode_proto(bytes)?;
         Ok(MessageDataBody {
             owner_uid: m.get_owner_uid(),
             parents: m.get_parents().iter().cloned().collect(),
@@ -200,13 +203,13 @@ impl<P: Encode> Encode for SignedMessageData<P> {
         m.set_owner_sig(self.owner_sig.as_ref().to_vec());
         m.set_hash(self.hash.clone());
         m.set_body(self.body.encode()?);
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl<P: Decode> Decode for SignedMessageData<P> {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: txflow_proto::SignedMessageData = near_protos::decode(bytes)?;
+        let m: txflow_proto::SignedMessageData = decode_proto(bytes)?;
         Ok(SignedMessageData {
             owner_sig: DEFAULT_SIGNATURE,
             hash: m.get_hash(),
@@ -233,13 +236,13 @@ impl<P: Encode> Encode for ConsensusBlockBody<P> {
         for message in self.messages.iter() {
             m.mut_messages().push(message.encode()?);
         }
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl<P: Decode> Decode for ConsensusBlockBody<P> {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: txflow_proto::ConsensusBlockBody = near_protos::decode(bytes)?;
+        let m: txflow_proto::ConsensusBlockBody = decode_proto(bytes)?;
         let mut messages = vec![];
         for x in m.get_messages().iter() {
             messages.push(Decode::decode(x)?);
@@ -297,13 +300,13 @@ impl<P: Encode> Encode for Gossip<P> {
                 m.set_fetch_reply(f);
             }
         };
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl<P: Decode> Decode for Gossip<P> {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: txflow_proto::Gossip = near_protos::decode(bytes)?;
+        let m: txflow_proto::Gossip = decode_proto(bytes)?;
         let body = match &m.body {
             Some(txflow_proto::Gossip_oneof_body::unsolicited(message)) => GossipBody::Unsolicited(Decode::decode(&message)?),
             Some(txflow_proto::Gossip_oneof_body::unsolicited_reply(message)) => GossipBody::UnsolicitedReply(Decode::decode(&message)?),
@@ -315,7 +318,7 @@ impl<P: Decode> Decode for Gossip<P> {
                 }
                 GossipBody::FetchReply(messages)
             },
-            _ => return Err("Failed to deserialize Gossip".to_string())
+            _ => return Err(io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
         };
         Ok(Gossip {
             sender_uid: m.get_sender_uid(),

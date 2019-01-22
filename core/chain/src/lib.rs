@@ -17,6 +17,8 @@ use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
 use primitives::serialize::{Encode, Decode, EncodeResult, DecodeResult};
 use storage::{read_with_cache, write_with_cache, Storage};
+use primitives::serialize::encode_proto;
+use primitives::serialize::decode_proto;
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
@@ -68,13 +70,13 @@ impl<B: Encode> Encode for BlockIndex<B> {
         let mut m = block_proto::BlockIndex::new();
         m.set_block(self.block.encode()?);
         m.set_cumulative_weight(self.cumulative_weight as u64);
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl<B: Decode> Decode for BlockIndex<B> {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: block_proto::BlockIndex = near_protos::decode(bytes)?;
+        let m: block_proto::BlockIndex = decode_proto(bytes)?;
         Ok(BlockIndex {
             block: Decode::decode(m.get_block())?,
             cumulative_weight: m.get_cumulative_weight() as u128

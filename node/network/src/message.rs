@@ -1,5 +1,9 @@
+use std::io;
+
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
+use primitives::serialize::{
+    decode_proto, encode_proto, Decode, DecodeResult, Encode, EncodeResult
+};
 use primitives::types::{BlockId, Gossip};
 use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
 
@@ -32,13 +36,13 @@ impl Encode for Message {
             Message::BlockAnnounce(ann) => m.set_block_announce(ann.encode()?),
             Message::Gossip(gossip) => m.set_gossip(gossip.encode()?),
         };
-        Ok(near_protos::encode(&m)?)
+        Ok(encode_proto(&m)?)
     }
 }
 
 impl Decode for Message {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: message_proto::Message = near_protos::decode(bytes)?;
+        let m: message_proto::Message = decode_proto(bytes)?;
         match m.message_type {
             Some(message_proto::Message_oneof_message_type::transaction(t)) => Ok(Message::Transaction(Box::new(Decode::decode(&t)?))),
             Some(message_proto::Message_oneof_message_type::receipt(t)) => Ok(Message::Receipt(Box::new(Decode::decode(&t)?))),
@@ -47,7 +51,7 @@ impl Decode for Message {
             Some(message_proto::Message_oneof_message_type::block_response(x)) => Ok(Message::BlockResponse(Decode::decode(&x)?)),
             Some(message_proto::Message_oneof_message_type::block_announce(x)) => Ok(Message::BlockAnnounce(Decode::decode(&x)?)),
             Some(message_proto::Message_oneof_message_type::gossip(x)) => Ok(Message::Gossip(Box::new(Decode::decode(&x)?))),
-            _ => Err("Found unknown type or empty Message at deserialization".to_string())
+            _ => Err(io::Error::new(io::ErrorKind::Other, "Found unknown type or empty Message at deserialization"))
         }
     }
 }

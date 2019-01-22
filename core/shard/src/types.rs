@@ -6,6 +6,8 @@ use primitives::types::{AuthorityMask, MerkleHash, MultiSignature, PartialSignat
 use primitives::signature::Signature;
 use primitives::serialize::{Encode, Decode, EncodeResult, DecodeResult};
 use transaction::Transaction;
+use primitives::serialize::encode_proto;
+use primitives::serialize::decode_proto;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardBlockHeader {
@@ -60,13 +62,13 @@ impl Encode for ShardBlockHeader {
         m.set_shard_id(self.shard_id);
         m.set_index(self.index);
         m.set_merkle_root_state(self.merkle_root_state.as_ref().to_vec());
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl Decode for ShardBlockHeader {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: block_proto::ShardBlockHeader = near_protos::decode(bytes)?;
+        let m: block_proto::ShardBlockHeader = decode_proto(bytes)?;
         Ok(ShardBlockHeader {
             parent_hash: CryptoHash::new(m.get_parent_hash()),
             shard_id: m.get_shard_id(),
@@ -84,13 +86,13 @@ impl Encode for SignedShardBlockHeader {
             m.mut_authority_mask().push(*x);
         }
         m.set_signature(self.signature[0].as_ref().to_vec());
-        near_protos::encode(&m)
+        encode_proto(&m)
     }
 }
 
 impl Decode for SignedShardBlockHeader {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: block_proto::SignedShardBlockHeader = near_protos::decode(bytes)?;
+        let m: block_proto::SignedShardBlockHeader = decode_proto(bytes)?;
         let mut authority_mask = vec![];
         for x in m.get_authority_mask() {
             authority_mask.push(*x);
@@ -179,14 +181,16 @@ impl Encode for SignedShardBlock {
         for x in self.authority_mask.iter() {
             m.mut_authority_mask().push(*x);
         }
-        m.set_signature(self.signature[0].as_ref().to_vec());
-        near_protos::encode(&m)
+        if !self.signature.is_empty() {
+            m.set_signature(self.signature[0].as_ref().to_vec());
+        }
+        encode_proto(&m)
     }
 }
 
 impl Decode for SignedShardBlock {
     fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: block_proto::SignedShardBlock = near_protos::decode(bytes)?;
+        let m: block_proto::SignedShardBlock = decode_proto(bytes)?;
         let mut transactions = vec![];
         for t in m.get_transactions().iter() {
             transactions.push(Decode::decode(t)?);
