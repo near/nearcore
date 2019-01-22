@@ -23,7 +23,7 @@ use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
-pub struct Transaction {
+pub struct TransactionBody {
     // message fields
     originator: ::protobuf::SingularField<::std::string::String>,
     destination: ::protobuf::SingularField<::std::string::String>,
@@ -38,8 +38,8 @@ pub struct Transaction {
     pub cached_size: ::protobuf::CachedSize,
 }
 
-impl Transaction {
-    pub fn new() -> Transaction {
+impl TransactionBody {
+    pub fn new() -> TransactionBody {
         ::std::default::Default::default()
     }
 
@@ -226,7 +226,7 @@ impl Transaction {
     }
 }
 
-impl ::protobuf::Message for Transaction {
+impl ::protobuf::Message for TransactionBody {
     fn is_initialized(&self) -> bool {
         if self.originator.is_none() {
             return false;
@@ -363,8 +363,8 @@ impl ::protobuf::Message for Transaction {
         Self::descriptor_static()
     }
 
-    fn new() -> Transaction {
-        Transaction::new()
+    fn new() -> TransactionBody {
+        TransactionBody::new()
     }
 
     fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
@@ -377,36 +377,36 @@ impl ::protobuf::Message for Transaction {
                 let mut fields = ::std::vec::Vec::new();
                 fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "originator",
-                    |m: &Transaction| { &m.originator },
-                    |m: &mut Transaction| { &mut m.originator },
+                    |m: &TransactionBody| { &m.originator },
+                    |m: &mut TransactionBody| { &mut m.originator },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "destination",
-                    |m: &Transaction| { &m.destination },
-                    |m: &mut Transaction| { &mut m.destination },
+                    |m: &TransactionBody| { &m.destination },
+                    |m: &mut TransactionBody| { &mut m.destination },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "amount",
-                    |m: &Transaction| { &m.amount },
-                    |m: &mut Transaction| { &mut m.amount },
+                    |m: &TransactionBody| { &m.amount },
+                    |m: &mut TransactionBody| { &mut m.amount },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "nonce",
-                    |m: &Transaction| { &m.nonce },
-                    |m: &mut Transaction| { &mut m.nonce },
+                    |m: &TransactionBody| { &m.nonce },
+                    |m: &mut TransactionBody| { &mut m.nonce },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "method_name",
-                    |m: &Transaction| { &m.method_name },
-                    |m: &mut Transaction| { &mut m.method_name },
+                    |m: &TransactionBody| { &m.method_name },
+                    |m: &mut TransactionBody| { &mut m.method_name },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "args",
-                    |m: &Transaction| { &m.args },
-                    |m: &mut Transaction| { &mut m.args },
+                    |m: &TransactionBody| { &m.args },
+                    |m: &mut TransactionBody| { &mut m.args },
                 ));
-                ::protobuf::reflect::MessageDescriptor::new::<Transaction>(
-                    "Transaction",
+                ::protobuf::reflect::MessageDescriptor::new::<TransactionBody>(
+                    "TransactionBody",
                     fields,
                     file_descriptor_proto()
                 )
@@ -414,18 +414,18 @@ impl ::protobuf::Message for Transaction {
         }
     }
 
-    fn default_instance() -> &'static Transaction {
-        static mut instance: ::protobuf::lazy::Lazy<Transaction> = ::protobuf::lazy::Lazy {
+    fn default_instance() -> &'static TransactionBody {
+        static mut instance: ::protobuf::lazy::Lazy<TransactionBody> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const Transaction,
+            ptr: 0 as *const TransactionBody,
         };
         unsafe {
-            instance.get(Transaction::new)
+            instance.get(TransactionBody::new)
         }
     }
 }
 
-impl ::protobuf::Clear for Transaction {
+impl ::protobuf::Clear for TransactionBody {
     fn clear(&mut self) {
         self.clear_originator();
         self.clear_destination();
@@ -437,13 +437,13 @@ impl ::protobuf::Clear for Transaction {
     }
 }
 
-impl ::std::fmt::Debug for Transaction {
+impl ::std::fmt::Debug for TransactionBody {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-impl ::protobuf::reflect::ProtobufValue for Transaction {
+impl ::protobuf::reflect::ProtobufValue for TransactionBody {
     fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
         ::protobuf::reflect::ProtobufValueRef::Message(self)
     }
@@ -615,9 +615,9 @@ impl ::protobuf::reflect::ProtobufValue for ChainPayload {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x11transaction.proto\"x\n\x0bTransaction\x12\x12\n\noriginator\x18\
-    \x01\x20\x02(\t\x12\x13\n\x0bdestination\x18\x02\x20\x02(\t\x12\x0e\n\
-    \x06amount\x18\x03\x20\x02(\x04\x12\r\n\x05nonce\x18\x04\x20\x02(\x04\
+    \n\x11transaction.proto\"|\n\x0fTransactionBody\x12\x12\n\noriginator\
+    \x18\x01\x20\x02(\t\x12\x13\n\x0bdestination\x18\x02\x20\x02(\t\x12\x0e\
+    \n\x06amount\x18\x03\x20\x02(\x04\x12\r\n\x05nonce\x18\x04\x20\x02(\x04\
     \x12\x13\n\x0bmethod_name\x18\x05\x20\x02(\t\x12\x0c\n\x04args\x18\x06\
     \x20\x02(\x0c\"$\n\x0cChainPayload\x12\x14\n\x0ctransactions\x18\x01\x20\
     \x03(\x0c\

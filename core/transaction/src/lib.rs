@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::fmt;
+use std::{fmt, io};
 use std::hash::{Hash, Hasher};
 
 use near_protos::transaction as transaction_proto;
@@ -342,13 +342,12 @@ pub enum Transaction {
 //        let mut m = transaction_proto::Transaction::new();
 //        match &self {
 //            Transaction::SignedTransaction(t) => {
-//                m.set_signature(t.signature.as_ref().to_vec());
 //                m.set_originator(t.body.get_originator());
 //                m.set_nonce(t.body.get_nonce());
 //                match &t.body {
 //                    TransactionBody::CreateAccount(t) => {
 //                        m.set_destination(system_account());
-////                        m.set_args();
+//                        m.set_args(vec![]);
 //                    },
 //                    _ => {}
 //                }
@@ -366,7 +365,7 @@ pub enum Transaction {
 //impl Decode for Transaction {
 //    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
 //        let m: transaction_proto::Transaction = decode_proto(bytes)?;
-//        Err("WTF".to_string())
+//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
 //        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
 //    }
 //}

@@ -1,7 +1,7 @@
 syntax = "proto2";
 
 
-message Transaction {
+message TransactionBody {
     required string originator = 1;
     required string destination = 2;
     // TODO: figure out how to represent uint128
