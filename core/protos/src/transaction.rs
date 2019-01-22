@@ -31,7 +31,6 @@ pub struct Transaction {
     nonce: ::std::option::Option<u64>,
     method_name: ::protobuf::SingularField<::std::string::String>,
     args: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -225,42 +224,6 @@ impl Transaction {
             None => &[],
         }
     }
-
-    // required bytes signature = 7;
-
-    pub fn clear_signature(&mut self) {
-        self.signature.clear();
-    }
-
-    pub fn has_signature(&self) -> bool {
-        self.signature.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_signature(&mut self, v: ::std::vec::Vec<u8>) {
-        self.signature = ::protobuf::SingularField::some(v);
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_signature(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.signature.is_none() {
-            self.signature.set_default();
-        }
-        self.signature.as_mut().unwrap()
-    }
-
-    // Take field
-    pub fn take_signature(&mut self) -> ::std::vec::Vec<u8> {
-        self.signature.take().unwrap_or_else(|| ::std::vec::Vec::new())
-    }
-
-    pub fn get_signature(&self) -> &[u8] {
-        match self.signature.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
-    }
 }
 
 impl ::protobuf::Message for Transaction {
@@ -281,9 +244,6 @@ impl ::protobuf::Message for Transaction {
             return false;
         }
         if self.args.is_none() {
-            return false;
-        }
-        if self.signature.is_none() {
             return false;
         }
         true
@@ -319,9 +279,6 @@ impl ::protobuf::Message for Transaction {
                 6 => {
                     ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.args)?;
                 },
-                7 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature)?;
-                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -352,9 +309,6 @@ impl ::protobuf::Message for Transaction {
         if let Some(ref v) = self.args.as_ref() {
             my_size += ::protobuf::rt::bytes_size(6, &v);
         }
-        if let Some(ref v) = self.signature.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(7, &v);
-        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -378,9 +332,6 @@ impl ::protobuf::Message for Transaction {
         }
         if let Some(ref v) = self.args.as_ref() {
             os.write_bytes(6, &v)?;
-        }
-        if let Some(ref v) = self.signature.as_ref() {
-            os.write_bytes(7, &v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -454,11 +405,6 @@ impl ::protobuf::Message for Transaction {
                     |m: &Transaction| { &m.args },
                     |m: &mut Transaction| { &mut m.args },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
-                    "signature",
-                    |m: &Transaction| { &m.signature },
-                    |m: &mut Transaction| { &mut m.signature },
-                ));
                 ::protobuf::reflect::MessageDescriptor::new::<Transaction>(
                     "Transaction",
                     fields,
@@ -487,7 +433,6 @@ impl ::protobuf::Clear for Transaction {
         self.clear_nonce();
         self.clear_method_name();
         self.clear_args();
-        self.clear_signature();
         self.unknown_fields.clear();
     }
 }
@@ -670,12 +615,12 @@ impl ::protobuf::reflect::ProtobufValue for ChainPayload {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x11transaction.proto\"\x8b\x01\n\x0bTransaction\x12\x12\n\noriginator\
-    \x18\x01\x20\x02(\t\x12\x13\n\x0bdestination\x18\x02\x20\x02(\t\x12\x0e\
-    \n\x06amount\x18\x03\x20\x02(\x04\x12\r\n\x05nonce\x18\x04\x20\x02(\x04\
+    \n\x11transaction.proto\"x\n\x0bTransaction\x12\x12\n\noriginator\x18\
+    \x01\x20\x02(\t\x12\x13\n\x0bdestination\x18\x02\x20\x02(\t\x12\x0e\n\
+    \x06amount\x18\x03\x20\x02(\x04\x12\r\n\x05nonce\x18\x04\x20\x02(\x04\
     \x12\x13\n\x0bmethod_name\x18\x05\x20\x02(\t\x12\x0c\n\x04args\x18\x06\
-    \x20\x02(\x0c\x12\x11\n\tsignature\x18\x07\x20\x02(\x0c\"$\n\x0cChainPay\
-    load\x12\x14\n\x0ctransactions\x18\x01\x20\x03(\x0c\
+    \x20\x02(\x0c\"$\n\x0cChainPayload\x12\x14\n\x0ctransactions\x18\x01\x20\
+    \x03(\x0c\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

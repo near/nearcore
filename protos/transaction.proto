@@ -9,7 +9,6 @@ message Transaction {
     required uint64 nonce = 4;
     required string method_name = 5;
     required bytes args = 6;
-    required bytes signature = 7;
 }
 
 
