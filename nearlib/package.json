@@ -7,22 +7,25 @@
     "url": "git@:nearprotocol/nearcore.git"
   },
   "homepage": "https://github.com/nearprotocol/nearcore",
-  "main": "near.js",
+  "main": "index.js",
   "dependencies": {
     "bs58": "^4.0.1",
-    "superagent": "^4.1.0",
+    "node-fetch": "^2.3.0",
     "tweetnacl": "^1.0.0"
   },
   "devDependencies": {
     "browserify": "^16.2.3",
+    "eslint": "^5.12.1",
     "jest": "^23.6.0",
     "uglifyify": "^5.0.1"
   },
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "build": "browserify exports.js -o dist/nearlib.js && browserify exports.js -g uglifyify -o dist/nearlib.min.js",
-    "test": "jest test"
+    "build": "browserify browser-exports.js -i node-fetch -o dist/nearlib.js && browserify browser-exports.js -i node-fetch -g uglifyify -o dist/nearlib.min.js",
+    "test": "jest test",
+    "lint": "eslint .",
+    "fix": "eslint . --fix"
   },
   "author": "Evguenia Degtiareva"
 }

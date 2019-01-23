@@ -1,22 +1,15 @@
-const SimpleKeyStoreSigner = require('../signing/simple_key_store_signer.js');
-const InMemoryKeyStore = require('../signing/in_memory_key_store.js');
-const KeyPair = require('../signing/key_pair.js');
-const LocalNodeConnection = require('../local_node_connection')
-const NearClient = require('../nearclient');
-const Account = require('../account');
-const Near = require('../near');
+const { Account, SimpleKeyStoreSigner, InMemoryKeyStore, KeyPair, LocalNodeConnection, NearClient, Near } = require('../');
 const fs = require('fs');
-
 
 const aliceAccountName = 'alice.near';
 const aliceKey = new KeyPair(
-    "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV",
-    "2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw"
+    '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
+    '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
 );
 const test_key_store = new InMemoryKeyStore();
 const simple_key_store_signer = new SimpleKeyStoreSigner(test_key_store);
 test_key_store.setKey(aliceAccountName, aliceKey);
-const localNodeConnection = new LocalNodeConnection("http://localhost:3030");
+const localNodeConnection = new LocalNodeConnection('http://localhost:3030');
 const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
@@ -36,7 +29,7 @@ test('view pre-defined account works and returns correct name', async () => {
 });
 
 test('create account and then view account returns the created account', async () => {
-    const newAccountName = await generateUniqueString("create.account.test");
+    const newAccountName = await generateUniqueString('create.account.test');
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
     await waitForTransactionToComplete(createAccountResponse);
@@ -52,7 +45,7 @@ test('create account and then view account returns the created account', async (
 });
 
 test('create account with a new key and then view account returns the created account', async () => {
-    const newAccountName = await generateUniqueString("create.randomkey.test");
+    const newAccountName = await generateUniqueString('create.randomkey.test');
     const amount = 2;
     const aliceAccountBeforeCreation = await account.viewAccount(aliceAccountName);
     const createAccountResponse = await account.createAccountWithRandomKey(
@@ -60,7 +53,7 @@ test('create account with a new key and then view account returns the created ac
         amount,
         aliceAccountName);
     await waitForTransactionToComplete(createAccountResponse);
-    expect(createAccountResponse["key"]).not.toBeFalsy();
+    expect(createAccountResponse['key']).not.toBeFalsy();
     const expctedAccount = {
         nonce: 0,
         account_id: newAccountName,
@@ -77,39 +70,37 @@ test('create account with a new key and then view account returns the created ac
 test('deploy contract and make function calls', async () => {
     // See README.md for details about this contract source code location.
     const data = [...fs.readFileSync('../tests/hello.wasm')];
-    const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
-        "test_contract",
+        'test_contract',
         data);
     await waitForContractToDeploy(deployResult);
     const args = {
-        "name": "trex"
+        'name': 'trex'
     };
     const viewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
-        "test_contract",
-        "hello", // this is the function defined in hello.wasm file that we are calling
+        'test_contract',
+        'hello', // this is the function defined in hello.wasm file that we are calling
         args);
-    expect(viewFunctionResult).toEqual("hello trex");
+    expect(viewFunctionResult).toEqual('hello trex');
 
-    var setCallValue = await generateUniqueString("setCallPrefix");
-    const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
+    var setCallValue = await generateUniqueString('setCallPrefix');
     const setArgs = {
-        "value": setCallValue
+        'value': setCallValue
     };
     const scheduleResult = await nearjs.scheduleFunctionCall(
         0,
         aliceAccountName,
-        "test_contract",
-        "setValue", // this is the function defined in hello.wasm file that we are calling
+        'test_contract',
+        'setValue', // this is the function defined in hello.wasm file that we are calling
         setArgs);
     expect(scheduleResult.hash).not.toBeFalsy();
     await waitForTransactionToComplete(scheduleResult);
     const secondViewFunctionResult = await nearjs.callViewFunction(
         aliceAccountName,
-        "test_contract",
-        "getValue", // this is the function defined in hello.wasm file that we are calling
+        'test_contract',
+        'getValue', // this is the function defined in hello.wasm file that we are calling
         {});
     expect(secondViewFunctionResult).toEqual(setCallValue);
 });
@@ -119,12 +110,12 @@ const callUntilConditionIsMet = async (functToPoll, condition, description, maxR
         try {
             const response = await functToPoll();
             if (condition(response)) {
-                console.log("Success " + description + " in " + (i + 1) + " attempts.");
+                console.log('Success ' + description + ' in ' + (i + 1) + ' attempts.');
                 return response;
             }
         } catch (e) {
             if (i == TEST_MAX_RETRIES - 1) {
-                fail('exceeded number of retries for ' + description + ". Last error " + e.toString());
+                fail('exceeded number of retries for ' + description + '. Last error ' + e.toString());
             }
         }
         await sleep(500);
@@ -134,34 +125,34 @@ const callUntilConditionIsMet = async (functToPoll, condition, description, maxR
 
 const waitForTransactionToComplete = async (submitTransactionResult) => {
     expect(submitTransactionResult.hash).not.toBeFalsy();
-    console.log("Waiting for transaction " + submitTransactionResult.hash);
+    console.log('Waiting for transaction', submitTransactionResult.hash);
     await callUntilConditionIsMet(
         async () => { return await nearjs.getTransactionStatus(submitTransactionResult.hash); },
         (response) => {
             if (response.status == 'Completed') {
-                console.log("Transaction " + submitTransactionResult.hash + " completed");
+                console.log('Transaction ' + submitTransactionResult.hash + ' completed');
                 return true;
             } else {
                 return false;
             }
         },
-        "Call get transaction status until transaction is completed",
+        'Call get transaction status until transaction is completed',
         TRANSACTION_COMPLETE_MAX_RETRIES
     );
-}
+};
 
 const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
         async () => { return await nearjs.getTransactionStatus(deployResult.hash); },
-        (response) => { return response['status'] == 'Completed' },
-        "Call account status until contract is deployed",
+        (response) => { return response['status'] == 'Completed'; },
+        'Call account status until contract is deployed',
         TRANSACTION_COMPLETE_MAX_RETRIES
     );
 };
 
 function sleep(time) {
-    return new Promise(function (resolve, reject) {
-      setTimeout(resolve, time);
+    return new Promise(function (resolve) {
+        setTimeout(resolve, time);
     });
 }
 

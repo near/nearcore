@@ -1,5 +1,5 @@
 const NearClient = require('./nearclient');
-const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_keystore');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
 const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
 
@@ -20,12 +20,12 @@ class Near {
      * Generate a default configuration for nearlib
      * @param {string} nodeUrl url of the near node to connect to
      */
-    static createDefaultConfig(nodeUrl = "http://localhost:3030") {
+    static createDefaultConfig(nodeUrl = 'http://localhost:3030') {
         return new Near(new NearClient(
             new SimpleKeyStoreSigner(new BrowserLocalStorageKeystore()),
             new LocalNodeConnection(nodeUrl)
         ));
-    };
+    }
 
     /**
      * Calls a view function. Returns the same value that the function returns.
@@ -47,7 +47,7 @@ class Near {
         });
         const json = JSON.parse(Buffer.from(response.result).toString());
         return json.result;
-    };
+    }
 
     /**
      * Schedules an asynchronous function call. Returns a hash which can be used to
@@ -70,7 +70,7 @@ class Near {
             method_name: methodName,
             args: serializedArgs
         });
-    };
+    }
 
     /**
      *  Deploys a smart contract to the block chain
