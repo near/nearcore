@@ -52,7 +52,7 @@ module.exports = {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
     },
     initDefault: async function() {
-        const studioConfig = this.getConfig();
+        const studioConfig = await this.getConfig();
         return nearlib.Near.createDefaultConfig(studioConfig.nodeUrl);
     }, 
     getOrCreateDevUser: async function () {
