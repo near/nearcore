@@ -16,8 +16,8 @@ type BufferTypeIndex = u32;
 pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
 pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
 
-pub struct Runtime<'a, 'b> where 'b: 'a {
-    ext: &'a mut External<'b>,
+pub struct Runtime<'a> {
+    ext: &'a mut External,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
@@ -33,15 +33,15 @@ pub struct Runtime<'a, 'b> where 'b: 'a {
     pub logs: Vec<String>,
 }
 
-impl<'a, 'b> Runtime<'a, 'b> {
+impl<'a> Runtime<'a> {
     pub fn new(
-        ext: &'a mut External<'b>,
+        ext: &'a mut External,
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
         context: &'a RuntimeContext,
         gas_limit: Gas,
-    ) -> Runtime<'a, 'b> where 'b: 'a {
+    ) -> Runtime<'a> {
         Runtime {
             ext,
             input_data,
@@ -201,7 +201,7 @@ impl<'a, 'b> Runtime<'a, 'b> {
     }
 
     /// Gets iterator for keys with given prefix
-    fn storage_iter(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+    fn storage_iter(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let prefix_ptr: u32 = args.nth_checked(0)?;
         let prefix = self.read_buffer(prefix_ptr)?;
         let id = self
@@ -212,7 +212,7 @@ impl<'a, 'b> Runtime<'a, 'b> {
     }
 
     /// Advances iterator. Returns true if iteration isn't finished yet.
-    fn storage_iter_next(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+    fn storage_iter_next(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let id: u32 = args.nth_checked(0)?;
         let key = self
             .ext
@@ -222,7 +222,7 @@ impl<'a, 'b> Runtime<'a, 'b> {
     }
 
     /// Returns length of next key in iterator or 0 if there is no next value.
-    fn storage_iter_peek_len(&'b mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+    fn storage_iter_peek_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
         let id: u32 = args.nth_checked(0)?;
         let key = self
             .ext
@@ -235,7 +235,7 @@ impl<'a, 'b> Runtime<'a, 'b> {
     }
 
     /// Writes next key in iterator to given buffer.
-    fn storage_iter_peek_into(&'b mut self, args: &RuntimeArgs) -> Result<()> {
+    fn storage_iter_peek_into(&mut self, args: &RuntimeArgs) -> Result<()> {
         let id: u32 = args.nth_checked(0)?;
         let key_ptr: u32 = args.nth_checked(1)?;
         let key = self
@@ -611,7 +611,7 @@ mod ext_impl {
 		{ $e: expr } => { { Ok(Some($e?)) } }
 	}
 
-    impl<'a, 'b> Externals for super::Runtime<'a, 'b> where 'b: 'a {
+    impl<'a> Externals for super::Runtime<'a> {
         fn invoke_index(
             &mut self,
             index: usize,
