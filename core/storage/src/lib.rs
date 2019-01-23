@@ -107,14 +107,14 @@ impl StateDbUpdate {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())))
     }
-    pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<Box<Peekable<StateDbUpdateIterator<'a>>>, String> {
-        StateDbUpdateIterator::new(self, prefix).map(|it| it.peekable()).map(Box::new)
+    pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<StateDbUpdateIterator<'a>, String> {
+        StateDbUpdateIterator::new(self, prefix)
     }
 }
 
 struct MergeIter<'a, I: Iterator<Item=(&'a Vec<u8>, &'a Option<Vec<u8>>)>> {
-    left: std::iter::Peekable<I>,
-    right: std::iter::Peekable<I>
+    left: Peekable<I>,
+    right: Peekable<I>
 }
 
 impl<'a, I: Iterator<Item=(&'a Vec<u8>, &'a Option<Vec<u8>>)>> Iterator for MergeIter<'a, I> {
@@ -149,8 +149,8 @@ type MergeBTreeRange<'a> = MergeIter<'a, std::collections::btree_map::Range<'a, 
 
 pub struct StateDbUpdateIterator<'a> {
     prefix: Vec<u8>,
-    trie_iter: std::iter::Peekable<trie::TrieIterator<'a>>,
-    overlay_iter: std::iter::Peekable<MergeBTreeRange<'a>>,
+    trie_iter: Peekable<trie::TrieIterator<'a>>,
+    overlay_iter: Peekable<MergeBTreeRange<'a>>,
 }
 
 impl<'a> StateDbUpdateIterator<'a> {

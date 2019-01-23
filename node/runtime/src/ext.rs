@@ -22,7 +22,7 @@ pub struct RuntimeExt<'a> {
     accounting_info: AccountingInfo,
     nonce: u64,
     transaction_hash: &'a [u8],
-    iters: HashMap<u32, Box<Peekable<StateDbUpdateIterator<'a>>>>,
+    iters: HashMap<u32, Peekable<StateDbUpdateIterator<'a>>>,
     last_iter_id: u32,
 }
 
@@ -98,7 +98,7 @@ impl<'a> External for RuntimeExt<'a> {
             // shrinks the lifetime to the lifetime of `self`.
             unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
                 .iter(prefix)
-                .map_err(|_| ExtError::TrieIteratorError)?,
+                .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
