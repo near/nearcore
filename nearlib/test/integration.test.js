@@ -70,7 +70,6 @@ test('create account with a new key and then view account returns the created ac
 test('deploy contract and make function calls', async () => {
     // See README.md for details about this contract source code location.
     const data = [...fs.readFileSync('../tests/hello.wasm')];
-    const initialAccount = await account.viewAccount(aliceAccountName);
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
         'test_contract',
@@ -88,7 +87,6 @@ test('deploy contract and make function calls', async () => {
     expect(viewFunctionResult).toEqual('hello trex');
 
     var setCallValue = await generateUniqueString('setCallPrefix');
-    const accountBeforeScheduleCall = await account.viewAccount(aliceAccountName);
     const setArgs = {
         'value': setCallValue
     };
@@ -154,7 +152,7 @@ const waitForContractToDeploy = async (deployResult) => {
 };
 
 function sleep(time) {
-    return new Promise(function (resolve, reject) {
+    return new Promise(function (resolve) {
         setTimeout(resolve, time);
     });
 }
