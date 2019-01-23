@@ -25,7 +25,7 @@ export class GlobalStorage {
   keys(prefix: string): string[] {
     let result: string[] = [];
     let iterId = storage_iter(near.utf8(prefix));
-    for (;;) {
+    do {
       let len = storage_iter_peek_len(iterId);
       if (len > 0) {
         let buf = new Uint8Array(len);
@@ -33,8 +33,7 @@ export class GlobalStorage {
         let key = String.fromUTF8(buf.buffer.data, buf.byteLength);
         result.push(key);
       }
-      storage_iter_next(iterId);
-    }
+    } while (storage_iter_next(iterId));
     return result;
   }
   setItem(key: string, value: string): void {
@@ -218,7 +217,7 @@ declare function storage_iter_next(id: u32): u32;
 @external("env", "storage_iter_peek_len")
 declare function storage_iter_peek_len(id: u32): usize;
 @external("env", "storage_iter_peek_into")
-declare function storage_iter_peek_into(id: u32, value: usize): usize;
+declare function storage_iter_peek_into(id: u32, value: usize): void;
 
 @external("env", "input_read_len")
 declare function input_read_len(): usize;
