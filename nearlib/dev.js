@@ -4,7 +4,7 @@ module.exports = {
     getConfig: async function() {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
     },
-    initDefault: async function() {
+    connect: async function(nodeUrl) {
         const studioConfig = await this.getConfig();
         return nearlib.Near.createDefaultConfig(studioConfig.nodeUrl);
     }, 
