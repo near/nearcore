@@ -218,7 +218,7 @@ impl<'a> Runtime<'a> {
             .ext
             .storage_iter_next(id)
             .map_err(|_| Error::StorageUpdateError)?;
-        Ok(RuntimeValue::I32(!key.is_none() as i32))
+        Ok(RuntimeValue::I32(key.is_some() as i32))
     }
 
     /// Returns length of next key in iterator or 0 if there is no next value.
