@@ -13,7 +13,7 @@ class NearClient {
             account_id: account_id,
         });
         return viewAccountResponse;
-    };
+    }
 
     async submitTransaction (method, args) {
         const senderKey = 'originator';
@@ -29,11 +29,11 @@ class NearClient {
         try {
             submitResponse = await this.request('submit_transaction', signedTransaction);
         } catch(e) {
-            console.log(e.response.text)
-            throw (e)
+            console.log(e.response.text);
+            throw (e);
         }
         return submitResponse;
-    };
+    }
 
     async getTransactionStatus (transaction_hash) {
         const transactionStatusResponse = await this.request('get_transaction_status', {
@@ -44,11 +44,11 @@ class NearClient {
 
     async getNonce (account_id) {
         return (await this.viewAccount(account_id)).nonce + 1;
-    };
+    }
 
     async request (methodName, params) {
         return await this.nearConnection.request(methodName, params);
-    };
+    }
 }
 
 module.exports = NearClient;

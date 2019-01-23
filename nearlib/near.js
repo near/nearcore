@@ -14,12 +14,12 @@ class Near {
     /**
      * Default setup for browser
      */
-    static createDefaultConfig(nodeUrl = "http://localhost:3030") {
+    static createDefaultConfig(nodeUrl = 'http://localhost:3030') {
         return new Near(new NearClient(
             new SimpleKeyStoreSigner(new BrowserLocalStorageKeystore()),
             new LocalNodeConnection(nodeUrl)
         ));
-    };
+    }
 
     /**
      * Calls a view function. Returns the same value that the function returns.
@@ -37,7 +37,7 @@ class Near {
         });
         const json = JSON.parse(Buffer.from(response.result).toString());
         return json.result;
-    };
+    }
 
     /**
      * Schedules an asynchronous function call.
@@ -54,7 +54,7 @@ class Near {
             method_name: methodName,
             args: serializedArgs
         });
-    };
+    }
 
     /**
      * Deploys a contract.
@@ -67,7 +67,7 @@ class Near {
             public_key: publicKey
         });
     }
-};
+}
 
 module.exports = Near; 
 

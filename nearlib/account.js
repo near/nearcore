@@ -1,4 +1,4 @@
-const KeyPair = require("./signing/key_pair");
+const KeyPair = require('./signing/key_pair');
 
 class Account {
     constructor(nearClient) {
@@ -16,9 +16,9 @@ class Account {
             public_key: publicKey,
         };
 
-        const transactionResponse = await this.nearClient.submitTransaction("create_account", createAccountParams);
+        const transactionResponse = await this.nearClient.submitTransaction('create_account', createAccountParams);
         return transactionResponse;
-    };
+    }
 
     /**
      * Generate a key from a random seed and create a new account with this key.
@@ -27,14 +27,14 @@ class Account {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
         const createAccountResult = await this.createAccount(
             newAccountId, keyWithRandomSeed.getPublicKey(), amount, originatorAccountId);
-        return { key: keyWithRandomSeed, ...createAccountResult }
-    };
+        return { key: keyWithRandomSeed, ...createAccountResult };
+    }
 
     /**
      * Retrieves account data by plain-text account id. 
      */
     async viewAccount (account_id) {
         return await this.nearClient.viewAccount(account_id);
-    };
-};
+    }
+}
 module.exports = Account;

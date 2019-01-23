@@ -10,7 +10,7 @@ class LocalNodeConnection {
             .post(`${this.baseUrl}/${methodName}`)
             .send(params);
         return JSON.parse(response.text);
-    };
+    }
 }
 
 module.exports = LocalNodeConnection;
