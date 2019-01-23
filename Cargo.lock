@@ -334,6 +334,7 @@ dependencies = [
  "configs 0.1.0",
  "network 0.0.1",
  "node-runtime 0.0.1",
+ "primitives 0.1.0",
  "serde_json 1.0.36 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1650,23 +1651,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-network"
-version = "0.1.0"
-dependencies = [
- "bytes 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
- "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "primitives 0.1.0",
- "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio-codec 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio-serde-cbor 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "nearcore"
 version = "0.1.0"
 dependencies = [
@@ -1705,17 +1689,17 @@ dependencies = [
  "configs 0.1.0",
  "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
- "libp2p 0.1.0 (git+https://github.com/tomaka/libp2p-rs?rev=997d0163bc8a7e11559524ad8466bc3b1850c8ec)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
- "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "storage 0.0.1",
- "substrate-network-libp2p 0.1.0 (git+https://github.com/nearprotocol/substrate?rev=2db35a0c6e87fc4450a77da548ef6e2db8b0d057)",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio-codec 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio-serde-cbor 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "transaction 0.1.0",
 ]
 

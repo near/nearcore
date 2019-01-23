@@ -5,6 +5,7 @@ extern crate node_runtime;
 extern crate serde_json;
 
 use clap::{App, Arg};
+use ::primitives::hash::hash_struct;
 
 fn main() {
     let matches = App::new("chain-spec-builder")
@@ -35,12 +36,9 @@ fn main() {
 
             let test_network_key_seed: &str = &d[2];
             let test_network_key_seed = test_network_key_seed.parse::<u32>().unwrap();
-            let secret = configs::network::get_test_secret_from_network_key_seed(
-                test_network_key_seed
-            );
-            let key = network::test_utils::raw_key_to_peer_id(secret);
+            let key = hash_struct(&test_network_key_seed);
 
-            format!("/dns4/{}/tcp/{}/p2p/{}", host, port, key.to_base58())
+            format!("/dns4/{}/tcp/{}/p2p/{}", host, port, key)
         })
         .collect();
 

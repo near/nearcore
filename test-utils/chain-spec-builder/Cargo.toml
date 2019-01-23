@@ -11,3 +11,4 @@ network = { path = "../../node/network" }
 client = { path = "../../node/client" }
 node-runtime = { path = "../../node/runtime" }
 configs = { path = "../../node/configs" }
+primitives = { path = "../../core/primitives" }

@@ -2,22 +2,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
-use futures::{Future, Sink, stream};
-use futures::sync::mpsc::Sender;
-use parking_lot::RwLock;
-use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
+use ::futures::{Future, Sink, stream};
+use ::futures::sync::mpsc::Sender;
+use ::parking_lot::RwLock;
+use ::log::{debug, error, trace};
 
-use beacon::types::SignedBeaconBlock;
-use chain::{SignedBlock, SignedHeader};
-use client::Client;
-use primitives::hash::CryptoHash;
-use primitives::traits::Decode;
-use primitives::types::{
-    AccountId, BlockId, Gossip, UID, AuthorityStake
+use ::beacon::types::SignedBeaconBlock;
+use ::chain::{SignedBlock, SignedHeader};
+use ::client::Client;
+use ::primitives::hash::CryptoHash;
+use ::primitives::traits::Decode;
+use ::primitives::types::{
+    AccountId, BlockId, Gossip, UID, AuthorityStake, PeerId
 };
-use transaction::{ChainPayload, Transaction};
+use ::transaction::{ChainPayload, Transaction};
 
 use crate::message::{self, Message};
+use crate::service::Severity;
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -27,30 +28,6 @@ const MAX_BLOCK_DATA_RESPONSE: u64 = 128;
 
 /// current version of the protocol
 pub(crate) const CURRENT_VERSION: u32 = 1;
-
-#[derive(Clone)]
-pub struct ProtocolConfig {
-    /// Account id that runs on given machine.
-    pub account_id: Option<AccountId>,
-    /// Config information goes here.
-    pub protocol_id: ProtocolId,
-}
-
-impl ProtocolConfig {
-    pub fn new(account_id: Option<AccountId>, protocol_id: ProtocolId) -> ProtocolConfig {
-        ProtocolConfig { account_id, protocol_id }
-    }
-
-    pub fn new_with_default_id(account_id: Option<AccountId>) -> ProtocolConfig {
-        ProtocolConfig { account_id, protocol_id: ProtocolId::default() }
-    }
-}
-
-impl Default for ProtocolConfig {
-    fn default() -> Self {
-        ProtocolConfig::new(None, ProtocolId::default())
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -72,14 +49,14 @@ pub(crate) struct PeerInfo {
 }
 
 pub struct Protocol {
-    // TODO: add more fields when we need them
-    pub config: ProtocolConfig,
+    /// account id of the node running protocol
+    account_id: Option<AccountId>,
     /// Peers that are in the handshaking process.
-    handshaking_peers: RwLock<HashMap<NodeIndex, time::Instant>>,
+    handshaking_peers: RwLock<HashMap<PeerId, time::Instant>>,
     /// Info about peers.
-    peer_info: RwLock<HashMap<NodeIndex, PeerInfo>>,
+    peer_info: RwLock<HashMap<PeerId, PeerInfo>>,
     /// Info for authority peers.
-    peer_account_info: RwLock<HashMap<AccountId, NodeIndex>>,
+    peer_account_info: RwLock<HashMap<AccountId, PeerId>>,
     /// Client, for read-only access.
     client: Arc<Client>,
     /// Channel into which the protocol sends the new blocks.
@@ -87,7 +64,7 @@ pub struct Protocol {
     /// Channel into which the protocol sends the received transactions and receipts.
     transaction_sender: Sender<Transaction>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
-    message_sender: Sender<(NodeIndex, Message)>,
+    message_sender: Sender<Result<(PeerId, Message), (PeerId, Severity)>>,
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
     gossip_sender: Sender<Gossip<ChainPayload>>,
     /// map between authority uid and account id + public key.
@@ -96,15 +73,15 @@ pub struct Protocol {
 
 impl Protocol {
     pub fn new(
-        config: ProtocolConfig,
+        account_id: Option<AccountId>,
         client: Arc<Client>,
         block_sender: Sender<SignedBeaconBlock>,
         transaction_sender: Sender<Transaction>,
-        message_sender: Sender<(NodeIndex, Message)>,
+        message_sender: Sender<Result<(PeerId, Message), (PeerId, Severity)>>,
         gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
         Self {
-            config,
+            account_id,
             handshaking_peers: RwLock::new(HashMap::new()),
             peer_info: RwLock::new(HashMap::new()),
             peer_account_info: RwLock::new(HashMap::new()),
@@ -117,12 +94,12 @@ impl Protocol {
         }
     }
 
-    pub fn get_node_by_account_id(&self, account_id: &AccountId) -> Option<NodeIndex> {
+    pub fn get_node_by_account_id(&self, account_id: &AccountId) -> Option<PeerId> {
         let peer_account_info = self.peer_account_info.read();
         peer_account_info.get(account_id).cloned()
     }
 
-    pub fn on_peer_connected(&self, peer: NodeIndex) {
+    pub fn on_peer_connected(&self, peer: PeerId) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         let best_block_header = self.client.beacon_chain.best_block().header();
         let status = message::Status {
@@ -130,14 +107,14 @@ impl Protocol {
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
             genesis_hash: self.client.beacon_chain.genesis_hash,
-            account_id: self.config.account_id.clone(),
+            account_id: self.account_id.clone(),
         };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
         let message = Message::Status(status);
         self.send_message(peer, message);
     }
 
-    pub fn on_peer_disconnected(&self, peer: NodeIndex) {
+    pub fn on_peer_disconnected(&self, peer: PeerId) {
         if let Some(peer_info) = self.peer_info.read().get(&peer) {
             if let Some(account_id) = peer_info.account_id.clone() {
                 self.peer_account_info.write().remove(&account_id);
@@ -169,15 +146,15 @@ impl Protocol {
 
     fn on_status_message(
         &self,
-        peer: NodeIndex,
+        peer: PeerId,
         status: &message::Status,
-    ) -> Result<(), (NodeIndex, Severity)> {
+    ) -> Result<(), (PeerId, Severity)> {
         debug!(target: "network", "Status message received from {:?}: {:?}", peer, status);
         if status.version != CURRENT_VERSION {
-            return Err((peer, Severity::Bad("Peer uses incompatible version.")));
+            return Err((peer, Severity::Bad("Peer uses incompatible version.".to_string())));
         }
         if status.genesis_hash != self.client.beacon_chain.genesis_hash {
-            return Err((peer, Severity::Bad("Peer has different genesis hash.")));
+            return Err((peer, Severity::Bad("Peer has different genesis hash.".to_string())));
         }
 
         // request blocks to catch up if necessary
@@ -216,7 +193,7 @@ impl Protocol {
         Ok(())
     }
 
-    fn on_block_request(&self, peer: NodeIndex, request: message::BlockRequest) {
+    fn on_block_request(&self, peer: PeerId, request: message::BlockRequest) {
         let mut blocks = Vec::new();
         let mut id = request.from;
         let max = std::cmp::min(request.max.unwrap_or(u64::max_value()), MAX_BLOCK_DATA_RESPONSE);
@@ -263,7 +240,7 @@ impl Protocol {
 
     fn on_block_response(
         &self,
-        peer_id: NodeIndex,
+        peer_id: PeerId,
         response: message::BlockResponse<SignedBeaconBlock>,
     ) {
         let copied_tx = self.block_sender.clone();
@@ -276,9 +253,9 @@ impl Protocol {
         );
     }
 
-    pub fn on_message(&self, peer: NodeIndex, data: &[u8]) -> Result<(), (NodeIndex, Severity)> {
-        let message: Message =
-            Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
+    pub fn on_message(&self, peer: PeerId, data: &[u8]) -> Result<(), (PeerId, Severity)> {
+        let message: Message = Decode::decode(data)
+            .map_err(|_| (peer, Severity::Bad("Cannot decode message.".to_string())))?;
 
         debug!(target: "network", "message received: {:?}", message);
 
@@ -298,10 +275,10 @@ impl Protocol {
                     let mut peers = self.peer_info.write();
                     let peer_info = peers
                         .get_mut(&peer)
-                        .ok_or((peer, Severity::Bad("Unexpected packet received from peer")))?;
+                        .ok_or((peer, Severity::Bad("Unexpected packet received from peer".to_string())))?;
                     peer_info.block_request.take().ok_or((
                         peer,
-                        Severity::Bad("Unexpected response packet received from peer"),
+                        Severity::Bad("Unexpected response packet received from peer".to_string()),
                     ))?
                 };
                 if request.id != response.id {
@@ -322,7 +299,7 @@ impl Protocol {
                     message::BlockAnnounce::Block(b) => {
                         self.on_incoming_block(b);
                     }
-                    _ => unimplemented!(),
+                    _ => unimplemented!("received header announcement"),
                 }
             }
             Message::Gossip(gossip) => self.on_gossip_message(*gossip),
@@ -330,18 +307,28 @@ impl Protocol {
         Ok(())
     }
 
-    pub fn send_message(&self, receiver_index: NodeIndex, message: Message) {
+    pub fn send_message(&self, peer: PeerId, message: Message) {
         let copied_tx = self.message_sender.clone();
         tokio::spawn(
             copied_tx
-                .send((receiver_index, message))
+                .send(Ok((peer, message)))
+                .map(|_| ())
+                .map_err(|e| error!("Failure to send the message {}", e)),
+        );
+    }
+
+    pub fn report_peer(&self, peer: PeerId, severity: Severity) {
+        let copied_tx = self.message_sender.clone();
+        tokio::spawn(
+            copied_tx
+                .send(Err((peer, severity)))
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the message {:?}", e)),
         );
     }
 
-    /// Returns the list of peers that have timedout.
-    pub fn maintain_peers(&self) -> Vec<NodeIndex> {
+    /// Returns the list of peers that have timed out.
+    pub fn maintain_peers(&self) -> Vec<PeerId> {
         let cur_time = time::Instant::now();
         let mut aborting = Vec::new();
         let peer_info = self.peer_info.read();
@@ -352,7 +339,7 @@ impl Protocol {
             .chain(handshaking_peers.iter())
         {
             if (cur_time - *time_stamp).as_secs() > REQUEST_WAIT {
-                trace!(target: "sync", "Timeout {}", *peer);
+                trace!(target: "network", "Timeout {}", *peer);
                 aborting.push(*peer);
             }
         }
@@ -363,7 +350,7 @@ impl Protocol {
         *self.authority_map.write() = authority_map;
     }
 
-    pub fn get_node_index_by_uid(&self, uid: UID) -> Option<NodeIndex> {
+    pub fn get_peer_id_by_uid(&self, uid: UID) -> Option<PeerId> {
         let auth_map = &*self.authority_map.read();
         auth_map
             .iter()

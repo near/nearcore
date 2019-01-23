@@ -5,14 +5,14 @@ use std::collections::HashMap;
 
 use futures::sync::mpsc::{channel, Sender, Receiver};
 use futures::future;
-use parking_lot::Mutex;
 
 use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use client::Client;
 use consensus::adapters::transaction_to_payload;
 use transaction::{ChainPayload, Transaction};
 use primitives::types::{AccountId, AuthorityStake, Gossip, UID};
-use network::protocol::{Protocol, ProtocolConfig};
+use network::protocol::Protocol;
+use network::service::Service;
 use beacon::types::SignedBeaconBlock;
 use txflow::txflow_task;
 
@@ -105,9 +105,9 @@ fn spawn_network_tasks(
     authority_rx: Receiver<HashMap<UID, AuthorityStake>>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
-    let protocol_config = ProtocolConfig::new_with_default_id(Some(account_id));
+    let (event_tx, event_rx) = channel(1024);
     let protocol = Protocol::new(
-        protocol_config.clone(),
+        Some(account_id),
         client,
         beacon_block_tx,
         transactions_tx,
@@ -115,13 +115,17 @@ fn spawn_network_tasks(
         inc_gossip_tx,
     );
 
-    let network_service = network::service::new_network_service(&protocol_config, network_cfg);
-    network::service::spawn_network_tasks(
-        Arc::new(Mutex::new(network_service)),
+    tokio::spawn(
+        futures::lazy(move || {
+            Service::init(network_cfg, event_tx, net_messages_rx);
+            Ok(())
+        })
+    );
+    network::spawn_network_tasks(
         protocol,
-        net_messages_rx,
         beacon_block_rx,
         authority_rx,
         out_gossip_rx,
+        event_rx,
     );
 }

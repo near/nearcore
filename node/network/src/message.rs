@@ -1,3 +1,4 @@
+use ::serde_derive::{Serialize, Deserialize};
 use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::hash::CryptoHash;
 use primitives::types::{AccountId, BlockId, Gossip};
