@@ -38,7 +38,6 @@ pub fn fake_tx_message() -> Message {
 pub fn init_logger(debug: bool) {
     let mut builder = env_logger::Builder::new();
     if debug {
-        builder.filter(Some("sub-libp2p"), log::LevelFilter::Debug);
         builder.filter(Some("network"), log::LevelFilter::Debug);
     }
     builder.filter(None, log::LevelFilter::Info);
