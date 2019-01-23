@@ -25,8 +25,8 @@ use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Endorsement {
     // message fields
-    epoch: ::std::option::Option<u64>,
-    signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    pub epoch: u64,
+    pub signature: ::std::vec::Vec<u8>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -39,70 +39,50 @@ impl Endorsement {
         ::std::default::Default::default()
     }
 
-    // required uint64 epoch = 1;
+    // uint64 epoch = 1;
 
     pub fn clear_epoch(&mut self) {
-        self.epoch = ::std::option::Option::None;
-    }
-
-    pub fn has_epoch(&self) -> bool {
-        self.epoch.is_some()
+        self.epoch = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_epoch(&mut self, v: u64) {
-        self.epoch = ::std::option::Option::Some(v);
+        self.epoch = v;
     }
 
     pub fn get_epoch(&self) -> u64 {
-        self.epoch.unwrap_or(0)
+        self.epoch
     }
 
-    // required bytes signature = 2;
+    // bytes signature = 2;
 
     pub fn clear_signature(&mut self) {
         self.signature.clear();
     }
 
-    pub fn has_signature(&self) -> bool {
-        self.signature.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_signature(&mut self, v: ::std::vec::Vec<u8>) {
-        self.signature = ::protobuf::SingularField::some(v);
+        self.signature = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_signature(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.signature.is_none() {
-            self.signature.set_default();
-        }
-        self.signature.as_mut().unwrap()
+        &mut self.signature
     }
 
     // Take field
     pub fn take_signature(&mut self) -> ::std::vec::Vec<u8> {
-        self.signature.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.signature, ::std::vec::Vec::new())
     }
 
     pub fn get_signature(&self) -> &[u8] {
-        match self.signature.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.signature
     }
 }
 
 impl ::protobuf::Message for Endorsement {
     fn is_initialized(&self) -> bool {
-        if self.epoch.is_none() {
-            return false;
-        }
-        if self.signature.is_none() {
-            return false;
-        }
         true
     }
 
@@ -115,10 +95,10 @@ impl ::protobuf::Message for Endorsement {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.epoch = ::std::option::Option::Some(tmp);
+                    self.epoch = tmp;
                 },
                 2 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.signature)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -132,11 +112,11 @@ impl ::protobuf::Message for Endorsement {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(v) = self.epoch {
-            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.epoch != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.epoch, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.signature.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(2, &v);
+        if !self.signature.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(2, &self.signature);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -144,11 +124,11 @@ impl ::protobuf::Message for Endorsement {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.epoch {
-            os.write_uint64(1, v)?;
+        if self.epoch != 0 {
+            os.write_uint64(1, self.epoch)?;
         }
-        if let Some(ref v) = self.signature.as_ref() {
-            os.write_bytes(2, &v)?;
+        if !self.signature.is_empty() {
+            os.write_bytes(2, &self.signature)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -192,12 +172,12 @@ impl ::protobuf::Message for Endorsement {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "epoch",
                     |m: &Endorsement| { &m.epoch },
                     |m: &mut Endorsement| { &mut m.epoch },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "signature",
                     |m: &Endorsement| { &m.signature },
                     |m: &mut Endorsement| { &mut m.signature },
@@ -246,11 +226,11 @@ impl ::protobuf::reflect::ProtobufValue for Endorsement {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct MessageDataBody {
     // message fields
-    owner_uid: ::std::option::Option<u64>,
-    parents: ::std::vec::Vec<u64>,
-    epoch: ::std::option::Option<u64>,
-    payload: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    endorsements: ::protobuf::RepeatedField<Endorsement>,
+    pub owner_uid: u64,
+    pub parents: ::std::vec::Vec<u64>,
+    pub epoch: u64,
+    pub payload: ::std::vec::Vec<u8>,
+    pub endorsements: ::protobuf::RepeatedField<Endorsement>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -263,23 +243,19 @@ impl MessageDataBody {
         ::std::default::Default::default()
     }
 
-    // required uint64 owner_uid = 1;
+    // uint64 owner_uid = 1;
 
     pub fn clear_owner_uid(&mut self) {
-        self.owner_uid = ::std::option::Option::None;
-    }
-
-    pub fn has_owner_uid(&self) -> bool {
-        self.owner_uid.is_some()
+        self.owner_uid = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_owner_uid(&mut self, v: u64) {
-        self.owner_uid = ::std::option::Option::Some(v);
+        self.owner_uid = v;
     }
 
     pub fn get_owner_uid(&self) -> u64 {
-        self.owner_uid.unwrap_or(0)
+        self.owner_uid
     }
 
     // repeated uint64 parents = 2;
@@ -307,59 +283,45 @@ impl MessageDataBody {
         &self.parents
     }
 
-    // required uint64 epoch = 3;
+    // uint64 epoch = 3;
 
     pub fn clear_epoch(&mut self) {
-        self.epoch = ::std::option::Option::None;
-    }
-
-    pub fn has_epoch(&self) -> bool {
-        self.epoch.is_some()
+        self.epoch = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_epoch(&mut self, v: u64) {
-        self.epoch = ::std::option::Option::Some(v);
+        self.epoch = v;
     }
 
     pub fn get_epoch(&self) -> u64 {
-        self.epoch.unwrap_or(0)
+        self.epoch
     }
 
-    // required bytes payload = 4;
+    // bytes payload = 4;
 
     pub fn clear_payload(&mut self) {
         self.payload.clear();
     }
 
-    pub fn has_payload(&self) -> bool {
-        self.payload.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_payload(&mut self, v: ::std::vec::Vec<u8>) {
-        self.payload = ::protobuf::SingularField::some(v);
+        self.payload = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_payload(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.payload.is_none() {
-            self.payload.set_default();
-        }
-        self.payload.as_mut().unwrap()
+        &mut self.payload
     }
 
     // Take field
     pub fn take_payload(&mut self) -> ::std::vec::Vec<u8> {
-        self.payload.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.payload, ::std::vec::Vec::new())
     }
 
     pub fn get_payload(&self) -> &[u8] {
-        match self.payload.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.payload
     }
 
     // repeated .Endorsement endorsements = 5;
@@ -390,15 +352,6 @@ impl MessageDataBody {
 
 impl ::protobuf::Message for MessageDataBody {
     fn is_initialized(&self) -> bool {
-        if self.owner_uid.is_none() {
-            return false;
-        }
-        if self.epoch.is_none() {
-            return false;
-        }
-        if self.payload.is_none() {
-            return false;
-        }
         for v in &self.endorsements {
             if !v.is_initialized() {
                 return false;
@@ -416,7 +369,7 @@ impl ::protobuf::Message for MessageDataBody {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.owner_uid = ::std::option::Option::Some(tmp);
+                    self.owner_uid = tmp;
                 },
                 2 => {
                     ::protobuf::rt::read_repeated_uint64_into(wire_type, is, &mut self.parents)?;
@@ -426,10 +379,10 @@ impl ::protobuf::Message for MessageDataBody {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.epoch = ::std::option::Option::Some(tmp);
+                    self.epoch = tmp;
                 },
                 4 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.payload)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.payload)?;
                 },
                 5 => {
                     ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.endorsements)?;
@@ -446,17 +399,17 @@ impl ::protobuf::Message for MessageDataBody {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(v) = self.owner_uid {
-            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.owner_uid != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.owner_uid, ::protobuf::wire_format::WireTypeVarint);
         }
         for value in &self.parents {
             my_size += ::protobuf::rt::value_size(2, *value, ::protobuf::wire_format::WireTypeVarint);
         };
-        if let Some(v) = self.epoch {
-            my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.epoch != 0 {
+            my_size += ::protobuf::rt::value_size(3, self.epoch, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.payload.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(4, &v);
+        if !self.payload.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(4, &self.payload);
         }
         for value in &self.endorsements {
             let len = value.compute_size();
@@ -468,17 +421,17 @@ impl ::protobuf::Message for MessageDataBody {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.owner_uid {
-            os.write_uint64(1, v)?;
+        if self.owner_uid != 0 {
+            os.write_uint64(1, self.owner_uid)?;
         }
         for v in &self.parents {
             os.write_uint64(2, *v)?;
         };
-        if let Some(v) = self.epoch {
-            os.write_uint64(3, v)?;
+        if self.epoch != 0 {
+            os.write_uint64(3, self.epoch)?;
         }
-        if let Some(ref v) = self.payload.as_ref() {
-            os.write_bytes(4, &v)?;
+        if !self.payload.is_empty() {
+            os.write_bytes(4, &self.payload)?;
         }
         for v in &self.endorsements {
             os.write_tag(5, ::protobuf::wire_format::WireTypeLengthDelimited)?;
@@ -527,7 +480,7 @@ impl ::protobuf::Message for MessageDataBody {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "owner_uid",
                     |m: &MessageDataBody| { &m.owner_uid },
                     |m: &mut MessageDataBody| { &mut m.owner_uid },
@@ -537,12 +490,12 @@ impl ::protobuf::Message for MessageDataBody {
                     |m: &MessageDataBody| { &m.parents },
                     |m: &mut MessageDataBody| { &mut m.parents },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "epoch",
                     |m: &MessageDataBody| { &m.epoch },
                     |m: &mut MessageDataBody| { &mut m.epoch },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "payload",
                     |m: &MessageDataBody| { &m.payload },
                     |m: &mut MessageDataBody| { &mut m.payload },
@@ -599,9 +552,9 @@ impl ::protobuf::reflect::ProtobufValue for MessageDataBody {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedMessageData {
     // message fields
-    body: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    hash: ::std::option::Option<u64>,
-    owner_sig: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    pub body: ::std::vec::Vec<u8>,
+    pub hash: u64,
+    pub owner_sig: ::std::vec::Vec<u8>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -614,109 +567,76 @@ impl SignedMessageData {
         ::std::default::Default::default()
     }
 
-    // required bytes body = 1;
+    // bytes body = 1;
 
     pub fn clear_body(&mut self) {
         self.body.clear();
     }
 
-    pub fn has_body(&self) -> bool {
-        self.body.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_body(&mut self, v: ::std::vec::Vec<u8>) {
-        self.body = ::protobuf::SingularField::some(v);
+        self.body = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_body(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.body.is_none() {
-            self.body.set_default();
-        }
-        self.body.as_mut().unwrap()
+        &mut self.body
     }
 
     // Take field
     pub fn take_body(&mut self) -> ::std::vec::Vec<u8> {
-        self.body.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.body, ::std::vec::Vec::new())
     }
 
     pub fn get_body(&self) -> &[u8] {
-        match self.body.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.body
     }
 
-    // required uint64 hash = 2;
+    // uint64 hash = 2;
 
     pub fn clear_hash(&mut self) {
-        self.hash = ::std::option::Option::None;
-    }
-
-    pub fn has_hash(&self) -> bool {
-        self.hash.is_some()
+        self.hash = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_hash(&mut self, v: u64) {
-        self.hash = ::std::option::Option::Some(v);
+        self.hash = v;
     }
 
     pub fn get_hash(&self) -> u64 {
-        self.hash.unwrap_or(0)
+        self.hash
     }
 
-    // required bytes owner_sig = 3;
+    // bytes owner_sig = 3;
 
     pub fn clear_owner_sig(&mut self) {
         self.owner_sig.clear();
     }
 
-    pub fn has_owner_sig(&self) -> bool {
-        self.owner_sig.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_owner_sig(&mut self, v: ::std::vec::Vec<u8>) {
-        self.owner_sig = ::protobuf::SingularField::some(v);
+        self.owner_sig = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_owner_sig(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.owner_sig.is_none() {
-            self.owner_sig.set_default();
-        }
-        self.owner_sig.as_mut().unwrap()
+        &mut self.owner_sig
     }
 
     // Take field
     pub fn take_owner_sig(&mut self) -> ::std::vec::Vec<u8> {
-        self.owner_sig.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.owner_sig, ::std::vec::Vec::new())
     }
 
     pub fn get_owner_sig(&self) -> &[u8] {
-        match self.owner_sig.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.owner_sig
     }
 }
 
 impl ::protobuf::Message for SignedMessageData {
     fn is_initialized(&self) -> bool {
-        if self.body.is_none() {
-            return false;
-        }
-        if self.hash.is_none() {
-            return false;
-        }
-        if self.owner_sig.is_none() {
-            return false;
-        }
         true
     }
 
@@ -725,17 +645,17 @@ impl ::protobuf::Message for SignedMessageData {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.body)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.body)?;
                 },
                 2 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.hash = ::std::option::Option::Some(tmp);
+                    self.hash = tmp;
                 },
                 3 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.owner_sig)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.owner_sig)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -749,14 +669,14 @@ impl ::protobuf::Message for SignedMessageData {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.body.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(1, &v);
+        if !self.body.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.body);
         }
-        if let Some(v) = self.hash {
-            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.hash != 0 {
+            my_size += ::protobuf::rt::value_size(2, self.hash, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.owner_sig.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(3, &v);
+        if !self.owner_sig.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.owner_sig);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -764,14 +684,14 @@ impl ::protobuf::Message for SignedMessageData {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.body.as_ref() {
-            os.write_bytes(1, &v)?;
+        if !self.body.is_empty() {
+            os.write_bytes(1, &self.body)?;
         }
-        if let Some(v) = self.hash {
-            os.write_uint64(2, v)?;
+        if self.hash != 0 {
+            os.write_uint64(2, self.hash)?;
         }
-        if let Some(ref v) = self.owner_sig.as_ref() {
-            os.write_bytes(3, &v)?;
+        if !self.owner_sig.is_empty() {
+            os.write_bytes(3, &self.owner_sig)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -815,17 +735,17 @@ impl ::protobuf::Message for SignedMessageData {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "body",
                     |m: &SignedMessageData| { &m.body },
                     |m: &mut SignedMessageData| { &mut m.body },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "hash",
                     |m: &SignedMessageData| { &m.hash },
                     |m: &mut SignedMessageData| { &mut m.hash },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "owner_sig",
                     |m: &SignedMessageData| { &m.owner_sig },
                     |m: &mut SignedMessageData| { &mut m.owner_sig },
@@ -875,7 +795,7 @@ impl ::protobuf::reflect::ProtobufValue for SignedMessageData {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct ConsensusBlockBody {
     // message fields
-    messages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub messages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1040,7 +960,7 @@ impl ::protobuf::reflect::ProtobufValue for ConsensusBlockBody {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Fetch {
     // message fields
-    hashes: ::std::vec::Vec<u64>,
+    pub hashes: ::std::vec::Vec<u64>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1205,7 +1125,7 @@ impl ::protobuf::reflect::ProtobufValue for Fetch {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct FetchReply {
     // message fields
-    messages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub messages: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -1370,9 +1290,9 @@ impl ::protobuf::reflect::ProtobufValue for FetchReply {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Gossip {
     // message fields
-    sender_uid: ::std::option::Option<u64>,
-    receiver_uid: ::std::option::Option<u64>,
-    sender_sig: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    pub sender_uid: u64,
+    pub receiver_uid: u64,
+    pub sender_sig: ::std::vec::Vec<u8>,
     // message oneof groups
     pub body: ::std::option::Option<Gossip_oneof_body>,
     // special fields
@@ -1396,81 +1316,63 @@ impl Gossip {
         ::std::default::Default::default()
     }
 
-    // required uint64 sender_uid = 1;
+    // uint64 sender_uid = 1;
 
     pub fn clear_sender_uid(&mut self) {
-        self.sender_uid = ::std::option::Option::None;
-    }
-
-    pub fn has_sender_uid(&self) -> bool {
-        self.sender_uid.is_some()
+        self.sender_uid = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_sender_uid(&mut self, v: u64) {
-        self.sender_uid = ::std::option::Option::Some(v);
+        self.sender_uid = v;
     }
 
     pub fn get_sender_uid(&self) -> u64 {
-        self.sender_uid.unwrap_or(0)
+        self.sender_uid
     }
 
-    // required uint64 receiver_uid = 2;
+    // uint64 receiver_uid = 2;
 
     pub fn clear_receiver_uid(&mut self) {
-        self.receiver_uid = ::std::option::Option::None;
-    }
-
-    pub fn has_receiver_uid(&self) -> bool {
-        self.receiver_uid.is_some()
+        self.receiver_uid = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_receiver_uid(&mut self, v: u64) {
-        self.receiver_uid = ::std::option::Option::Some(v);
+        self.receiver_uid = v;
     }
 
     pub fn get_receiver_uid(&self) -> u64 {
-        self.receiver_uid.unwrap_or(0)
+        self.receiver_uid
     }
 
-    // required bytes sender_sig = 3;
+    // bytes sender_sig = 3;
 
     pub fn clear_sender_sig(&mut self) {
         self.sender_sig.clear();
     }
 
-    pub fn has_sender_sig(&self) -> bool {
-        self.sender_sig.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_sender_sig(&mut self, v: ::std::vec::Vec<u8>) {
-        self.sender_sig = ::protobuf::SingularField::some(v);
+        self.sender_sig = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_sender_sig(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.sender_sig.is_none() {
-            self.sender_sig.set_default();
-        }
-        self.sender_sig.as_mut().unwrap()
+        &mut self.sender_sig
     }
 
     // Take field
     pub fn take_sender_sig(&mut self) -> ::std::vec::Vec<u8> {
-        self.sender_sig.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.sender_sig, ::std::vec::Vec::new())
     }
 
     pub fn get_sender_sig(&self) -> &[u8] {
-        match self.sender_sig.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.sender_sig
     }
 
-    // optional bytes unsolicited = 4;
+    // bytes unsolicited = 4;
 
     pub fn clear_unsolicited(&mut self) {
         self.body = ::std::option::Option::None;
@@ -1519,7 +1421,7 @@ impl Gossip {
         }
     }
 
-    // optional bytes unsolicited_reply = 5;
+    // bytes unsolicited_reply = 5;
 
     pub fn clear_unsolicited_reply(&mut self) {
         self.body = ::std::option::Option::None;
@@ -1568,7 +1470,7 @@ impl Gossip {
         }
     }
 
-    // optional .Fetch fetch = 6;
+    // .Fetch fetch = 6;
 
     pub fn clear_fetch(&mut self) {
         self.body = ::std::option::Option::None;
@@ -1617,7 +1519,7 @@ impl Gossip {
         }
     }
 
-    // optional .FetchReply fetch_reply = 7;
+    // .FetchReply fetch_reply = 7;
 
     pub fn clear_fetch_reply(&mut self) {
         self.body = ::std::option::Option::None;
@@ -1669,15 +1571,6 @@ impl Gossip {
 
 impl ::protobuf::Message for Gossip {
     fn is_initialized(&self) -> bool {
-        if self.sender_uid.is_none() {
-            return false;
-        }
-        if self.receiver_uid.is_none() {
-            return false;
-        }
-        if self.sender_sig.is_none() {
-            return false;
-        }
         if let Some(Gossip_oneof_body::fetch(ref v)) = self.body {
             if !v.is_initialized() {
                 return false;
@@ -1700,17 +1593,17 @@ impl ::protobuf::Message for Gossip {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.sender_uid = ::std::option::Option::Some(tmp);
+                    self.sender_uid = tmp;
                 },
                 2 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.receiver_uid = ::std::option::Option::Some(tmp);
+                    self.receiver_uid = tmp;
                 },
                 3 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.sender_sig)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.sender_sig)?;
                 },
                 4 => {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
@@ -1748,14 +1641,14 @@ impl ::protobuf::Message for Gossip {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(v) = self.sender_uid {
-            my_size += ::protobuf::rt::value_size(1, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.sender_uid != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.sender_uid, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(v) = self.receiver_uid {
-            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.receiver_uid != 0 {
+            my_size += ::protobuf::rt::value_size(2, self.receiver_uid, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.sender_sig.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(3, &v);
+        if !self.sender_sig.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.sender_sig);
         }
         if let ::std::option::Option::Some(ref v) = self.body {
             match v {
@@ -1781,14 +1674,14 @@ impl ::protobuf::Message for Gossip {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.sender_uid {
-            os.write_uint64(1, v)?;
+        if self.sender_uid != 0 {
+            os.write_uint64(1, self.sender_uid)?;
         }
-        if let Some(v) = self.receiver_uid {
-            os.write_uint64(2, v)?;
+        if self.receiver_uid != 0 {
+            os.write_uint64(2, self.receiver_uid)?;
         }
-        if let Some(ref v) = self.sender_sig.as_ref() {
-            os.write_bytes(3, &v)?;
+        if !self.sender_sig.is_empty() {
+            os.write_bytes(3, &self.sender_sig)?;
         }
         if let ::std::option::Option::Some(ref v) = self.body {
             match v {
@@ -1852,17 +1745,17 @@ impl ::protobuf::Message for Gossip {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "sender_uid",
                     |m: &Gossip| { &m.sender_uid },
                     |m: &mut Gossip| { &mut m.sender_uid },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "receiver_uid",
                     |m: &Gossip| { &m.receiver_uid },
                     |m: &mut Gossip| { &mut m.receiver_uid },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "sender_sig",
                     |m: &Gossip| { &m.sender_sig },
                     |m: &mut Gossip| { &mut m.sender_sig },
@@ -1933,22 +1826,26 @@ impl ::protobuf::reflect::ProtobufValue for Gossip {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x0ctxflow.proto\"/\n\x0bEndorsement\x12\r\n\x05epoch\x18\x01\x20\x02(\
-    \x04\x12\x11\n\tsignature\x18\x02\x20\x02(\x0c\"y\n\x0fMessageDataBody\
-    \x12\x11\n\towner_uid\x18\x01\x20\x02(\x04\x12\x0f\n\x07parents\x18\x02\
-    \x20\x03(\x04\x12\r\n\x05epoch\x18\x03\x20\x02(\x04\x12\x0f\n\x07payload\
-    \x18\x04\x20\x02(\x0c\x12\"\n\x0cendorsements\x18\x05\x20\x03(\x0b2\x0c.\
-    Endorsement\"B\n\x11SignedMessageData\x12\x0c\n\x04body\x18\x01\x20\x02(\
-    \x0c\x12\x0c\n\x04hash\x18\x02\x20\x02(\x04\x12\x11\n\towner_sig\x18\x03\
-    \x20\x02(\x0c\"&\n\x12ConsensusBlockBody\x12\x10\n\x08messages\x18\x01\
-    \x20\x03(\x0c\"\x17\n\x05Fetch\x12\x0e\n\x06hashes\x18\x01\x20\x03(\x04\
-    \"\x1e\n\nFetchReply\x12\x10\n\x08messages\x18\x01\x20\x03(\x0c\"\xbf\
-    \x01\n\x06Gossip\x12\x12\n\nsender_uid\x18\x01\x20\x02(\x04\x12\x14\n\
-    \x0creceiver_uid\x18\x02\x20\x02(\x04\x12\x12\n\nsender_sig\x18\x03\x20\
-    \x02(\x0c\x12\x15\n\x0bunsolicited\x18\x04\x20\x01(\x0cH\0\x12\x1b\n\x11\
-    unsolicited_reply\x18\x05\x20\x01(\x0cH\0\x12\x17\n\x05fetch\x18\x06\x20\
-    \x01(\x0b2\x06.FetchH\0\x12\"\n\x0bfetch_reply\x18\x07\x20\x01(\x0b2\x0b\
-    .FetchReplyH\0B\x06\n\x04body\
+    \n\x0ctxflow.proto\"A\n\x0bEndorsement\x12\x14\n\x05epoch\x18\x01\x20\
+    \x01(\x04R\x05epoch\x12\x1c\n\tsignature\x18\x02\x20\x01(\x0cR\tsignatur\
+    e\"\xaa\x01\n\x0fMessageDataBody\x12\x1b\n\towner_uid\x18\x01\x20\x01(\
+    \x04R\x08ownerUid\x12\x18\n\x07parents\x18\x02\x20\x03(\x04R\x07parents\
+    \x12\x14\n\x05epoch\x18\x03\x20\x01(\x04R\x05epoch\x12\x18\n\x07payload\
+    \x18\x04\x20\x01(\x0cR\x07payload\x120\n\x0cendorsements\x18\x05\x20\x03\
+    (\x0b2\x0c.EndorsementR\x0cendorsements\"X\n\x11SignedMessageData\x12\
+    \x12\n\x04body\x18\x01\x20\x01(\x0cR\x04body\x12\x12\n\x04hash\x18\x02\
+    \x20\x01(\x04R\x04hash\x12\x1b\n\towner_sig\x18\x03\x20\x01(\x0cR\x08own\
+    erSig\"0\n\x12ConsensusBlockBody\x12\x1a\n\x08messages\x18\x01\x20\x03(\
+    \x0cR\x08messages\"\x1f\n\x05Fetch\x12\x16\n\x06hashes\x18\x01\x20\x03(\
+    \x04R\x06hashes\"(\n\nFetchReply\x12\x1a\n\x08messages\x18\x01\x20\x03(\
+    \x0cR\x08messages\"\x94\x02\n\x06Gossip\x12\x1d\n\nsender_uid\x18\x01\
+    \x20\x01(\x04R\tsenderUid\x12!\n\x0creceiver_uid\x18\x02\x20\x01(\x04R\
+    \x0breceiverUid\x12\x1d\n\nsender_sig\x18\x03\x20\x01(\x0cR\tsenderSig\
+    \x12\"\n\x0bunsolicited\x18\x04\x20\x01(\x0cH\0R\x0bunsolicited\x12-\n\
+    \x11unsolicited_reply\x18\x05\x20\x01(\x0cH\0R\x10unsolicitedReply\x12\
+    \x1e\n\x05fetch\x18\x06\x20\x01(\x0b2\x06.FetchH\0R\x05fetch\x12.\n\x0bf\
+    etch_reply\x18\x07\x20\x01(\x0b2\x0b.FetchReplyH\0R\nfetchReplyB\x06\n\
+    \x04bodyb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

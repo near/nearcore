@@ -1,22 +1,22 @@
-syntax = "proto2";
+syntax = "proto3";
 
 message Endorsement {
-    required uint64 epoch = 1;
-    required bytes signature = 2;
+    uint64 epoch = 1;
+    bytes signature = 2;
 }
 
 message MessageDataBody {
-    required uint64 owner_uid = 1;
+    uint64 owner_uid = 1;
     repeated uint64 parents = 2;
-    required uint64 epoch = 3;
-    required bytes payload = 4;
+    uint64 epoch = 3;
+    bytes payload = 4;
     repeated Endorsement endorsements = 5;
 }
 
 message SignedMessageData {
-    required bytes body = 1;
-    required uint64 hash = 2;
-    required bytes owner_sig = 3;
+    bytes body = 1;
+    uint64 hash = 2;
+    bytes owner_sig = 3;
 }
 
 message ConsensusBlockBody {
@@ -32,9 +32,9 @@ message FetchReply {
 }
 
 message Gossip {
-    required uint64 sender_uid = 1;
-    required uint64 receiver_uid = 2;
-    required bytes sender_sig = 3;
+    uint64 sender_uid = 1;
+    uint64 receiver_uid = 2;
+    bytes sender_sig = 3;
     oneof body {
         bytes unsolicited = 4;
         bytes unsolicited_reply = 5;

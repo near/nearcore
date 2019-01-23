@@ -1,27 +1,27 @@
-syntax = "proto2";
+syntax = "proto3";
 
 message ShardBlockHeader {
-    required bytes parent_hash = 1;
-    required uint32 shard_id = 2;
-    required uint64 index = 3;
-    required bytes merkle_root_state = 4;
+    bytes parent_hash = 1;
+    uint32 shard_id = 2;
+    uint64 index = 3;
+    bytes merkle_root_state = 4;
 }
 
 message SignedShardBlockHeader {
-    required bytes body = 1;
+    bytes body = 1;
     repeated bool authority_mask = 2;
-    required bytes signature = 3;
+    bytes signature = 3;
 }
 
 message SignedShardBlock {
-    required bytes header = 1;
+    bytes header = 1;
     repeated bytes transactions = 2;
     repeated bytes new_receipts = 3;
     repeated bool authority_mask = 4;
-    required bytes signature = 5;
+    bytes signature = 5;
 }
 
 message BlockIndex {
-    required bytes block = 1;
-    required uint64 cumulative_weight = 2;
+    bytes block = 1;
+    uint64 cumulative_weight = 2;
 }

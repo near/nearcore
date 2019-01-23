@@ -25,10 +25,10 @@ use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct ShardBlockHeader {
     // message fields
-    parent_hash: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    shard_id: ::std::option::Option<u32>,
-    index: ::std::option::Option<u64>,
-    merkle_root_state: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    pub parent_hash: ::std::vec::Vec<u8>,
+    pub shard_id: u32,
+    pub index: u64,
+    pub merkle_root_state: ::std::vec::Vec<u8>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -41,131 +41,91 @@ impl ShardBlockHeader {
         ::std::default::Default::default()
     }
 
-    // required bytes parent_hash = 1;
+    // bytes parent_hash = 1;
 
     pub fn clear_parent_hash(&mut self) {
         self.parent_hash.clear();
     }
 
-    pub fn has_parent_hash(&self) -> bool {
-        self.parent_hash.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_parent_hash(&mut self, v: ::std::vec::Vec<u8>) {
-        self.parent_hash = ::protobuf::SingularField::some(v);
+        self.parent_hash = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_parent_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.parent_hash.is_none() {
-            self.parent_hash.set_default();
-        }
-        self.parent_hash.as_mut().unwrap()
+        &mut self.parent_hash
     }
 
     // Take field
     pub fn take_parent_hash(&mut self) -> ::std::vec::Vec<u8> {
-        self.parent_hash.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.parent_hash, ::std::vec::Vec::new())
     }
 
     pub fn get_parent_hash(&self) -> &[u8] {
-        match self.parent_hash.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.parent_hash
     }
 
-    // required uint32 shard_id = 2;
+    // uint32 shard_id = 2;
 
     pub fn clear_shard_id(&mut self) {
-        self.shard_id = ::std::option::Option::None;
-    }
-
-    pub fn has_shard_id(&self) -> bool {
-        self.shard_id.is_some()
+        self.shard_id = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_shard_id(&mut self, v: u32) {
-        self.shard_id = ::std::option::Option::Some(v);
+        self.shard_id = v;
     }
 
     pub fn get_shard_id(&self) -> u32 {
-        self.shard_id.unwrap_or(0)
+        self.shard_id
     }
 
-    // required uint64 index = 3;
+    // uint64 index = 3;
 
     pub fn clear_index(&mut self) {
-        self.index = ::std::option::Option::None;
-    }
-
-    pub fn has_index(&self) -> bool {
-        self.index.is_some()
+        self.index = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_index(&mut self, v: u64) {
-        self.index = ::std::option::Option::Some(v);
+        self.index = v;
     }
 
     pub fn get_index(&self) -> u64 {
-        self.index.unwrap_or(0)
+        self.index
     }
 
-    // required bytes merkle_root_state = 4;
+    // bytes merkle_root_state = 4;
 
     pub fn clear_merkle_root_state(&mut self) {
         self.merkle_root_state.clear();
     }
 
-    pub fn has_merkle_root_state(&self) -> bool {
-        self.merkle_root_state.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_merkle_root_state(&mut self, v: ::std::vec::Vec<u8>) {
-        self.merkle_root_state = ::protobuf::SingularField::some(v);
+        self.merkle_root_state = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_merkle_root_state(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.merkle_root_state.is_none() {
-            self.merkle_root_state.set_default();
-        }
-        self.merkle_root_state.as_mut().unwrap()
+        &mut self.merkle_root_state
     }
 
     // Take field
     pub fn take_merkle_root_state(&mut self) -> ::std::vec::Vec<u8> {
-        self.merkle_root_state.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.merkle_root_state, ::std::vec::Vec::new())
     }
 
     pub fn get_merkle_root_state(&self) -> &[u8] {
-        match self.merkle_root_state.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.merkle_root_state
     }
 }
 
 impl ::protobuf::Message for ShardBlockHeader {
     fn is_initialized(&self) -> bool {
-        if self.parent_hash.is_none() {
-            return false;
-        }
-        if self.shard_id.is_none() {
-            return false;
-        }
-        if self.index.is_none() {
-            return false;
-        }
-        if self.merkle_root_state.is_none() {
-            return false;
-        }
         true
     }
 
@@ -174,24 +134,24 @@ impl ::protobuf::Message for ShardBlockHeader {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.parent_hash)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.parent_hash)?;
                 },
                 2 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint32()?;
-                    self.shard_id = ::std::option::Option::Some(tmp);
+                    self.shard_id = tmp;
                 },
                 3 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.index = ::std::option::Option::Some(tmp);
+                    self.index = tmp;
                 },
                 4 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.merkle_root_state)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.merkle_root_state)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -205,17 +165,17 @@ impl ::protobuf::Message for ShardBlockHeader {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.parent_hash.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(1, &v);
+        if !self.parent_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.parent_hash);
         }
-        if let Some(v) = self.shard_id {
-            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.shard_id != 0 {
+            my_size += ::protobuf::rt::value_size(2, self.shard_id, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(v) = self.index {
-            my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.index != 0 {
+            my_size += ::protobuf::rt::value_size(3, self.index, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.merkle_root_state.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(4, &v);
+        if !self.merkle_root_state.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(4, &self.merkle_root_state);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -223,17 +183,17 @@ impl ::protobuf::Message for ShardBlockHeader {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.parent_hash.as_ref() {
-            os.write_bytes(1, &v)?;
+        if !self.parent_hash.is_empty() {
+            os.write_bytes(1, &self.parent_hash)?;
         }
-        if let Some(v) = self.shard_id {
-            os.write_uint32(2, v)?;
+        if self.shard_id != 0 {
+            os.write_uint32(2, self.shard_id)?;
         }
-        if let Some(v) = self.index {
-            os.write_uint64(3, v)?;
+        if self.index != 0 {
+            os.write_uint64(3, self.index)?;
         }
-        if let Some(ref v) = self.merkle_root_state.as_ref() {
-            os.write_bytes(4, &v)?;
+        if !self.merkle_root_state.is_empty() {
+            os.write_bytes(4, &self.merkle_root_state)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -277,22 +237,22 @@ impl ::protobuf::Message for ShardBlockHeader {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "parent_hash",
                     |m: &ShardBlockHeader| { &m.parent_hash },
                     |m: &mut ShardBlockHeader| { &mut m.parent_hash },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
                     "shard_id",
                     |m: &ShardBlockHeader| { &m.shard_id },
                     |m: &mut ShardBlockHeader| { &mut m.shard_id },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "index",
                     |m: &ShardBlockHeader| { &m.index },
                     |m: &mut ShardBlockHeader| { &mut m.index },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "merkle_root_state",
                     |m: &ShardBlockHeader| { &m.merkle_root_state },
                     |m: &mut ShardBlockHeader| { &mut m.merkle_root_state },
@@ -343,9 +303,9 @@ impl ::protobuf::reflect::ProtobufValue for ShardBlockHeader {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedShardBlockHeader {
     // message fields
-    body: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    authority_mask: ::std::vec::Vec<bool>,
-    signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    pub body: ::std::vec::Vec<u8>,
+    pub authority_mask: ::std::vec::Vec<bool>,
+    pub signature: ::std::vec::Vec<u8>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -358,40 +318,30 @@ impl SignedShardBlockHeader {
         ::std::default::Default::default()
     }
 
-    // required bytes body = 1;
+    // bytes body = 1;
 
     pub fn clear_body(&mut self) {
         self.body.clear();
     }
 
-    pub fn has_body(&self) -> bool {
-        self.body.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_body(&mut self, v: ::std::vec::Vec<u8>) {
-        self.body = ::protobuf::SingularField::some(v);
+        self.body = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_body(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.body.is_none() {
-            self.body.set_default();
-        }
-        self.body.as_mut().unwrap()
+        &mut self.body
     }
 
     // Take field
     pub fn take_body(&mut self) -> ::std::vec::Vec<u8> {
-        self.body.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.body, ::std::vec::Vec::new())
     }
 
     pub fn get_body(&self) -> &[u8] {
-        match self.body.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.body
     }
 
     // repeated bool authority_mask = 2;
@@ -419,51 +369,35 @@ impl SignedShardBlockHeader {
         &self.authority_mask
     }
 
-    // required bytes signature = 3;
+    // bytes signature = 3;
 
     pub fn clear_signature(&mut self) {
         self.signature.clear();
     }
 
-    pub fn has_signature(&self) -> bool {
-        self.signature.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_signature(&mut self, v: ::std::vec::Vec<u8>) {
-        self.signature = ::protobuf::SingularField::some(v);
+        self.signature = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_signature(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.signature.is_none() {
-            self.signature.set_default();
-        }
-        self.signature.as_mut().unwrap()
+        &mut self.signature
     }
 
     // Take field
     pub fn take_signature(&mut self) -> ::std::vec::Vec<u8> {
-        self.signature.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.signature, ::std::vec::Vec::new())
     }
 
     pub fn get_signature(&self) -> &[u8] {
-        match self.signature.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.signature
     }
 }
 
 impl ::protobuf::Message for SignedShardBlockHeader {
     fn is_initialized(&self) -> bool {
-        if self.body.is_none() {
-            return false;
-        }
-        if self.signature.is_none() {
-            return false;
-        }
         true
     }
 
@@ -472,13 +406,13 @@ impl ::protobuf::Message for SignedShardBlockHeader {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.body)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.body)?;
                 },
                 2 => {
                     ::protobuf::rt::read_repeated_bool_into(wire_type, is, &mut self.authority_mask)?;
                 },
                 3 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.signature)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -492,12 +426,12 @@ impl ::protobuf::Message for SignedShardBlockHeader {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.body.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(1, &v);
+        if !self.body.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.body);
         }
         my_size += 2 * self.authority_mask.len() as u32;
-        if let Some(ref v) = self.signature.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(3, &v);
+        if !self.signature.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.signature);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -505,14 +439,14 @@ impl ::protobuf::Message for SignedShardBlockHeader {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.body.as_ref() {
-            os.write_bytes(1, &v)?;
+        if !self.body.is_empty() {
+            os.write_bytes(1, &self.body)?;
         }
         for v in &self.authority_mask {
             os.write_bool(2, *v)?;
         };
-        if let Some(ref v) = self.signature.as_ref() {
-            os.write_bytes(3, &v)?;
+        if !self.signature.is_empty() {
+            os.write_bytes(3, &self.signature)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -556,7 +490,7 @@ impl ::protobuf::Message for SignedShardBlockHeader {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "body",
                     |m: &SignedShardBlockHeader| { &m.body },
                     |m: &mut SignedShardBlockHeader| { &mut m.body },
@@ -566,7 +500,7 @@ impl ::protobuf::Message for SignedShardBlockHeader {
                     |m: &SignedShardBlockHeader| { &m.authority_mask },
                     |m: &mut SignedShardBlockHeader| { &mut m.authority_mask },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "signature",
                     |m: &SignedShardBlockHeader| { &m.signature },
                     |m: &mut SignedShardBlockHeader| { &mut m.signature },
@@ -616,11 +550,11 @@ impl ::protobuf::reflect::ProtobufValue for SignedShardBlockHeader {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedShardBlock {
     // message fields
-    header: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    transactions: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
-    new_receipts: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
-    authority_mask: ::std::vec::Vec<bool>,
-    signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    pub header: ::std::vec::Vec<u8>,
+    pub transactions: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub new_receipts: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub authority_mask: ::std::vec::Vec<bool>,
+    pub signature: ::std::vec::Vec<u8>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -633,40 +567,30 @@ impl SignedShardBlock {
         ::std::default::Default::default()
     }
 
-    // required bytes header = 1;
+    // bytes header = 1;
 
     pub fn clear_header(&mut self) {
         self.header.clear();
     }
 
-    pub fn has_header(&self) -> bool {
-        self.header.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_header(&mut self, v: ::std::vec::Vec<u8>) {
-        self.header = ::protobuf::SingularField::some(v);
+        self.header = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_header(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.header.is_none() {
-            self.header.set_default();
-        }
-        self.header.as_mut().unwrap()
+        &mut self.header
     }
 
     // Take field
     pub fn take_header(&mut self) -> ::std::vec::Vec<u8> {
-        self.header.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.header, ::std::vec::Vec::new())
     }
 
     pub fn get_header(&self) -> &[u8] {
-        match self.header.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.header
     }
 
     // repeated bytes transactions = 2;
@@ -744,51 +668,35 @@ impl SignedShardBlock {
         &self.authority_mask
     }
 
-    // required bytes signature = 5;
+    // bytes signature = 5;
 
     pub fn clear_signature(&mut self) {
         self.signature.clear();
     }
 
-    pub fn has_signature(&self) -> bool {
-        self.signature.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_signature(&mut self, v: ::std::vec::Vec<u8>) {
-        self.signature = ::protobuf::SingularField::some(v);
+        self.signature = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_signature(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.signature.is_none() {
-            self.signature.set_default();
-        }
-        self.signature.as_mut().unwrap()
+        &mut self.signature
     }
 
     // Take field
     pub fn take_signature(&mut self) -> ::std::vec::Vec<u8> {
-        self.signature.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.signature, ::std::vec::Vec::new())
     }
 
     pub fn get_signature(&self) -> &[u8] {
-        match self.signature.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.signature
     }
 }
 
 impl ::protobuf::Message for SignedShardBlock {
     fn is_initialized(&self) -> bool {
-        if self.header.is_none() {
-            return false;
-        }
-        if self.signature.is_none() {
-            return false;
-        }
         true
     }
 
@@ -797,7 +705,7 @@ impl ::protobuf::Message for SignedShardBlock {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.header)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.header)?;
                 },
                 2 => {
                     ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.transactions)?;
@@ -809,7 +717,7 @@ impl ::protobuf::Message for SignedShardBlock {
                     ::protobuf::rt::read_repeated_bool_into(wire_type, is, &mut self.authority_mask)?;
                 },
                 5 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.signature)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -823,8 +731,8 @@ impl ::protobuf::Message for SignedShardBlock {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.header.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(1, &v);
+        if !self.header.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.header);
         }
         for value in &self.transactions {
             my_size += ::protobuf::rt::bytes_size(2, &value);
@@ -833,8 +741,8 @@ impl ::protobuf::Message for SignedShardBlock {
             my_size += ::protobuf::rt::bytes_size(3, &value);
         };
         my_size += 2 * self.authority_mask.len() as u32;
-        if let Some(ref v) = self.signature.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(5, &v);
+        if !self.signature.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(5, &self.signature);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -842,8 +750,8 @@ impl ::protobuf::Message for SignedShardBlock {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.header.as_ref() {
-            os.write_bytes(1, &v)?;
+        if !self.header.is_empty() {
+            os.write_bytes(1, &self.header)?;
         }
         for v in &self.transactions {
             os.write_bytes(2, &v)?;
@@ -854,8 +762,8 @@ impl ::protobuf::Message for SignedShardBlock {
         for v in &self.authority_mask {
             os.write_bool(4, *v)?;
         };
-        if let Some(ref v) = self.signature.as_ref() {
-            os.write_bytes(5, &v)?;
+        if !self.signature.is_empty() {
+            os.write_bytes(5, &self.signature)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -899,7 +807,7 @@ impl ::protobuf::Message for SignedShardBlock {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "header",
                     |m: &SignedShardBlock| { &m.header },
                     |m: &mut SignedShardBlock| { &mut m.header },
@@ -919,7 +827,7 @@ impl ::protobuf::Message for SignedShardBlock {
                     |m: &SignedShardBlock| { &m.authority_mask },
                     |m: &mut SignedShardBlock| { &mut m.authority_mask },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "signature",
                     |m: &SignedShardBlock| { &m.signature },
                     |m: &mut SignedShardBlock| { &mut m.signature },
@@ -971,8 +879,8 @@ impl ::protobuf::reflect::ProtobufValue for SignedShardBlock {
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct BlockIndex {
     // message fields
-    block: ::protobuf::SingularField<::std::vec::Vec<u8>>,
-    cumulative_weight: ::std::option::Option<u64>,
+    pub block: ::std::vec::Vec<u8>,
+    pub cumulative_weight: u64,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -985,70 +893,50 @@ impl BlockIndex {
         ::std::default::Default::default()
     }
 
-    // required bytes block = 1;
+    // bytes block = 1;
 
     pub fn clear_block(&mut self) {
         self.block.clear();
     }
 
-    pub fn has_block(&self) -> bool {
-        self.block.is_some()
-    }
-
     // Param is passed by value, moved
     pub fn set_block(&mut self, v: ::std::vec::Vec<u8>) {
-        self.block = ::protobuf::SingularField::some(v);
+        self.block = v;
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
     pub fn mut_block(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if self.block.is_none() {
-            self.block.set_default();
-        }
-        self.block.as_mut().unwrap()
+        &mut self.block
     }
 
     // Take field
     pub fn take_block(&mut self) -> ::std::vec::Vec<u8> {
-        self.block.take().unwrap_or_else(|| ::std::vec::Vec::new())
+        ::std::mem::replace(&mut self.block, ::std::vec::Vec::new())
     }
 
     pub fn get_block(&self) -> &[u8] {
-        match self.block.as_ref() {
-            Some(v) => &v,
-            None => &[],
-        }
+        &self.block
     }
 
-    // required uint64 cumulative_weight = 2;
+    // uint64 cumulative_weight = 2;
 
     pub fn clear_cumulative_weight(&mut self) {
-        self.cumulative_weight = ::std::option::Option::None;
-    }
-
-    pub fn has_cumulative_weight(&self) -> bool {
-        self.cumulative_weight.is_some()
+        self.cumulative_weight = 0;
     }
 
     // Param is passed by value, moved
     pub fn set_cumulative_weight(&mut self, v: u64) {
-        self.cumulative_weight = ::std::option::Option::Some(v);
+        self.cumulative_weight = v;
     }
 
     pub fn get_cumulative_weight(&self) -> u64 {
-        self.cumulative_weight.unwrap_or(0)
+        self.cumulative_weight
     }
 }
 
 impl ::protobuf::Message for BlockIndex {
     fn is_initialized(&self) -> bool {
-        if self.block.is_none() {
-            return false;
-        }
-        if self.cumulative_weight.is_none() {
-            return false;
-        }
         true
     }
 
@@ -1057,14 +945,14 @@ impl ::protobuf::Message for BlockIndex {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.block)?;
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.block)?;
                 },
                 2 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.cumulative_weight = ::std::option::Option::Some(tmp);
+                    self.cumulative_weight = tmp;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -1078,11 +966,11 @@ impl ::protobuf::Message for BlockIndex {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let Some(ref v) = self.block.as_ref() {
-            my_size += ::protobuf::rt::bytes_size(1, &v);
+        if !self.block.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.block);
         }
-        if let Some(v) = self.cumulative_weight {
-            my_size += ::protobuf::rt::value_size(2, v, ::protobuf::wire_format::WireTypeVarint);
+        if self.cumulative_weight != 0 {
+            my_size += ::protobuf::rt::value_size(2, self.cumulative_weight, ::protobuf::wire_format::WireTypeVarint);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -1090,11 +978,11 @@ impl ::protobuf::Message for BlockIndex {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(ref v) = self.block.as_ref() {
-            os.write_bytes(1, &v)?;
+        if !self.block.is_empty() {
+            os.write_bytes(1, &self.block)?;
         }
-        if let Some(v) = self.cumulative_weight {
-            os.write_uint64(2, v)?;
+        if self.cumulative_weight != 0 {
+            os.write_uint64(2, self.cumulative_weight)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1138,12 +1026,12 @@ impl ::protobuf::Message for BlockIndex {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "block",
                     |m: &BlockIndex| { &m.block },
                     |m: &mut BlockIndex| { &mut m.block },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "cumulative_weight",
                     |m: &BlockIndex| { &m.cumulative_weight },
                     |m: &mut BlockIndex| { &mut m.cumulative_weight },
@@ -1189,17 +1077,20 @@ impl ::protobuf::reflect::ProtobufValue for BlockIndex {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x0bblock.proto\"c\n\x10ShardBlockHeader\x12\x13\n\x0bparent_hash\x18\
-    \x01\x20\x02(\x0c\x12\x10\n\x08shard_id\x18\x02\x20\x02(\r\x12\r\n\x05in\
-    dex\x18\x03\x20\x02(\x04\x12\x19\n\x11merkle_root_state\x18\x04\x20\x02(\
-    \x0c\"Q\n\x16SignedShardBlockHeader\x12\x0c\n\x04body\x18\x01\x20\x02(\
-    \x0c\x12\x16\n\x0eauthority_mask\x18\x02\x20\x03(\x08\x12\x11\n\tsignatu\
-    re\x18\x03\x20\x02(\x0c\"y\n\x10SignedShardBlock\x12\x0e\n\x06header\x18\
-    \x01\x20\x02(\x0c\x12\x14\n\x0ctransactions\x18\x02\x20\x03(\x0c\x12\x14\
-    \n\x0cnew_receipts\x18\x03\x20\x03(\x0c\x12\x16\n\x0eauthority_mask\x18\
-    \x04\x20\x03(\x08\x12\x11\n\tsignature\x18\x05\x20\x02(\x0c\"6\n\nBlockI\
-    ndex\x12\r\n\x05block\x18\x01\x20\x02(\x0c\x12\x19\n\x11cumulative_weigh\
-    t\x18\x02\x20\x02(\x04\
+    \n\x0bblock.proto\"\x90\x01\n\x10ShardBlockHeader\x12\x1f\n\x0bparent_ha\
+    sh\x18\x01\x20\x01(\x0cR\nparentHash\x12\x19\n\x08shard_id\x18\x02\x20\
+    \x01(\rR\x07shardId\x12\x14\n\x05index\x18\x03\x20\x01(\x04R\x05index\
+    \x12*\n\x11merkle_root_state\x18\x04\x20\x01(\x0cR\x0fmerkleRootState\"q\
+    \n\x16SignedShardBlockHeader\x12\x12\n\x04body\x18\x01\x20\x01(\x0cR\x04\
+    body\x12%\n\x0eauthority_mask\x18\x02\x20\x03(\x08R\rauthorityMask\x12\
+    \x1c\n\tsignature\x18\x03\x20\x01(\x0cR\tsignature\"\xb6\x01\n\x10Signed\
+    ShardBlock\x12\x16\n\x06header\x18\x01\x20\x01(\x0cR\x06header\x12\"\n\
+    \x0ctransactions\x18\x02\x20\x03(\x0cR\x0ctransactions\x12!\n\x0cnew_rec\
+    eipts\x18\x03\x20\x03(\x0cR\x0bnewReceipts\x12%\n\x0eauthority_mask\x18\
+    \x04\x20\x03(\x08R\rauthorityMask\x12\x1c\n\tsignature\x18\x05\x20\x01(\
+    \x0cR\tsignature\"O\n\nBlockIndex\x12\x14\n\x05block\x18\x01\x20\x01(\
+    \x0cR\x05block\x12+\n\x11cumulative_weight\x18\x02\x20\x01(\x04R\x10cumu\
+    lativeWeightb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
