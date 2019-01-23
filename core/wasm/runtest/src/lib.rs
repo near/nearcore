@@ -19,7 +19,7 @@ fn generate_promise_id(index: u32) -> ReceiptId {
     [index as u8; 32].to_vec()
 }
 
-impl<'a> External<'a> for MyExt {
+impl External for MyExt {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
         self.storage.insert(Vec::from(key), Vec::from(value));
@@ -45,6 +45,10 @@ impl<'a> External<'a> for MyExt {
     }
 
     fn storage_iter_next(&mut self, _iter: u32) -> ExtResult<Option<Vec<u8>>> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn storage_iter_peek(&mut self, _iter: u32) -> ExtResult<Option<&Vec<u8>>> {
         Err(ExtError::NotImplemented)
     }
 

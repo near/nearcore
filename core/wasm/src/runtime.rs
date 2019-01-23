@@ -16,8 +16,8 @@ type BufferTypeIndex = u32;
 pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
 pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
 
-pub struct Runtime<'a, 'b> where 'b: 'a {
-    ext: &'a mut External<'b>,
+pub struct Runtime<'a> {
+    ext: &'a mut External,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     memory: Memory,
@@ -33,15 +33,15 @@ pub struct Runtime<'a, 'b> where 'b: 'a {
     pub logs: Vec<String>,
 }
 
-impl<'a, 'b> Runtime<'a, 'b> {
+impl<'a> Runtime<'a> {
     pub fn new(
-        ext: &'a mut External<'b>,
+        ext: &'a mut External,
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         memory: Memory,
         context: &'a RuntimeContext,
         gas_limit: Gas,
-    ) -> Runtime<'a, 'b> where 'b: 'a {
+    ) -> Runtime<'a> {
         Runtime {
             ext,
             input_data,
@@ -197,6 +197,56 @@ impl<'a, 'b> Runtime<'a, 'b> {
             .storage_set(&key, &val)
             .map_err(|_| Error::StorageUpdateError)?;
         debug!(target: "wasm", "storage_write('{}', '{}')", format_buf(&key), format_buf(&val));
+        Ok(())
+    }
+
+    /// Gets iterator for keys with given prefix
+    fn storage_iter(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let prefix_ptr: u32 = args.nth_checked(0)?;
+        let prefix = self.read_buffer(prefix_ptr)?;
+        let id = self
+            .ext
+            .storage_iter(&prefix)
+            .map_err(|_| Error::StorageUpdateError)?;
+        Ok(RuntimeValue::I32(id as i32))
+    }
+
+    /// Advances iterator. Returns true if iteration isn't finished yet.
+    fn storage_iter_next(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let id: u32 = args.nth_checked(0)?;
+        let key = self
+            .ext
+            .storage_iter_next(id)
+            .map_err(|_| Error::StorageUpdateError)?;
+        Ok(RuntimeValue::I32(key.is_some() as i32))
+    }
+
+    /// Returns length of next key in iterator or 0 if there is no next value.
+    fn storage_iter_peek_len(&mut self, args: &RuntimeArgs) -> Result<RuntimeValue> {
+        let id: u32 = args.nth_checked(0)?;
+        let key = self
+            .ext
+            .storage_iter_peek(id)
+            .map_err(|_| Error::StorageUpdateError)?;
+        match key {
+            Some(key) => Ok(RuntimeValue::I32(key.len() as i32)),
+            None => Ok(RuntimeValue::I32(0))
+        }
+    }
+
+    /// Writes next key in iterator to given buffer.
+    fn storage_iter_peek_into(&mut self, args: &RuntimeArgs) -> Result<()> {
+        let id: u32 = args.nth_checked(0)?;
+        let key_ptr: u32 = args.nth_checked(1)?;
+        let key = self
+            .ext
+            .storage_iter_peek(id)
+            .map_err(|_| Error::StorageUpdateError)?;
+        if let Some(buf) = key {
+            self.memory
+                .set(key_ptr, &buf)
+                .map_err(|_| Error::MemoryAccessViolation)?;
+        }
         Ok(())
     }
 
@@ -561,7 +611,7 @@ mod ext_impl {
 		{ $e: expr } => { { Ok(Some($e?)) } }
 	}
 
-    impl<'a, 'b> Externals for super::Runtime<'a, 'b> where 'b: 'a {
+    impl<'a> Externals for super::Runtime<'a> {
         fn invoke_index(
             &mut self,
             index: usize,
@@ -571,6 +621,10 @@ mod ext_impl {
                 STORAGE_WRITE_FUNC => void!(self.storage_write(&args)),
                 STORAGE_READ_LEN_FUNC => some!(self.storage_read_len(&args)),
                 STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(&args)),
+                STORAGE_ITER_FUNC => some!(self.storage_iter(&args)),
+                STORAGE_ITER_NEXT_FUNC => void!(self.storage_iter_next(&args)),
+                STORAGE_ITER_PEEK_LEN_FUNC => some!(self.storage_iter_peek_len(&args)),
+                STORAGE_ITER_PEEK_INTO_FUNC => void!(self.storage_iter_peek_into(&args)),
                 GAS_FUNC => void!(self.gas(&args)),
                 PROMISE_CREATE_FUNC => some!(self.promise_create(&args)),
                 PROMISE_THEN_FUNC => some!(self.promise_then(&args)),
