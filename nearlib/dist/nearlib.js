@@ -51,9 +51,11 @@ module.exports = {
     getConfig: async function() {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
     },
-    initDefault: async function() {
+    connect: async function(nodeUrl) {
         const studioConfig = await this.getConfig();
-        return nearlib.Near.createDefaultConfig(studioConfig.nodeUrl);
+        const near = nearlib.Near.createDefaultConfig(nodeUrl || studioConfig.nodeUrl);
+        await this.getOrCreateDevUser();
+        return near;
     }, 
     getOrCreateDevUser: async function () {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
