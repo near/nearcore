@@ -1,4 +1,6 @@
 const nearlib = require('./');
+const sendJson = require('./internal/send-json');
+
 const localStorageAccountIdKey = 'dev_near_user';
 module.exports = {
     getConfig: async function() {
@@ -32,23 +34,6 @@ module.exports = {
         return window.localStorage.getItem(localStorageAccountIdKey);
     }
 };
-
-async function sendJson(method, url, json) {
-    const response = await fetch(url, {
-        credentials: 'include',
-        method: method,
-        body: JSON.stringify(json),
-        headers: new Headers({ 'Content-type': 'application/json; charset=utf-8' })
-    });
-    if (!response.ok) {
-        throw new Error(await response.text());
-    }
-    if (response.status === 204) {
-        // No Content
-        return null;
-    }
-    return await response.json();
-}
 
 function getCookie(name) {
     var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');

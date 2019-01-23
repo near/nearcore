@@ -10,7 +10,7 @@
   "main": "index.js",
   "dependencies": {
     "bs58": "^4.0.1",
-    "superagent": "^4.1.0",
+    "node-fetch": "^2.3.0",
     "tweetnacl": "^1.0.0"
   },
   "devDependencies": {
@@ -22,7 +22,7 @@
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "build": "browserify browser-exports.js -o dist/nearlib.js && browserify browser-exports.js -g uglifyify -o dist/nearlib.min.js",
+    "build": "browserify browser-exports.js -i node-fetch -o dist/nearlib.js && browserify browser-exports.js -i node-fetch -g uglifyify -o dist/nearlib.min.js",
     "test": "jest test",
     "lint": "eslint .",
     "fix": "eslint . --fix"
