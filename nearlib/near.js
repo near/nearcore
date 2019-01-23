@@ -68,6 +68,13 @@ class Near {
             public_key: publicKey
         });
     }
+
+    async getTransactionStatus (transaction_hash) {
+        const transactionStatusResponse = await this.nearClient.request('get_transaction_status', {
+            hash: transaction_hash,
+        });
+        return transactionStatusResponse;
+    }
 };
 
 module.exports = Near; 

@@ -135,9 +135,9 @@ const callUntilConditionIsMet = async (functToPoll, condition, description, maxR
 
 const waitForTransactionToComplete = async (submitTransactionResult) => {
     expect(submitTransactionResult.hash).not.toBeFalsy();
-    console.log("Waiting for transaction" + submitTransactionResult.hash);
+    console.log("Waiting for transaction " + submitTransactionResult.hash);
     await callUntilConditionIsMet(
-        async () => { return await nearClient.getTransactionStatus(submitTransactionResult.hash); },
+        async () => { return await nearjs.getTransactionStatus(submitTransactionResult.hash); },
         (response) => {
             if (response.status == 'Completed') {
                 console.log("Transaction " + submitTransactionResult.hash + " completed");
@@ -153,7 +153,7 @@ const waitForTransactionToComplete = async (submitTransactionResult) => {
 
 const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
-        async () => { return await nearClient.getTransactionStatus(deployResult.hash); },
+        async () => { return await nearjs.getTransactionStatus(deployResult.hash); },
         (response) => { return response['status'] == 'Completed' },
         "Call account status until contract is deployed",
         TRANSACTION_COMPLETE_MAX_RETRIES
