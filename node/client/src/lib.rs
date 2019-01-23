@@ -135,6 +135,13 @@ impl Client {
         &self,
         body: ChainConsensusBlockBody,
     ) -> Option<(SignedBeaconBlock, SignedShardBlock)> {
+        if body.beacon_block_index != self.beacon_chain.best_block().header().index() + 1 {
+            println!("TXFLOW CONSENSUS IS OUTDATED. Has index {}, but we are already at {}",
+                body.beacon_block_index,
+                self.beacon_chain.best_block().header().index()
+            );
+            return None;
+        }
         // TODO: verify signature
         let transactions: Vec<_> =
             body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
