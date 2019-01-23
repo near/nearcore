@@ -81,8 +81,7 @@ test('deploy contract and make function calls', async () => {
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
         "test_contract",
-        data,
-        "FTEov54o3JFxgnrouLNo2uferbvkU7fHDJvt7ohJNpZY");
+        data);
     await waitForContractToDeploy(deployResult);
     const args = {
         "name": "trex"
