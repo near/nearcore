@@ -24,9 +24,6 @@ core/wasm/**/Cargo.lock
 # Python env
 .env
 
-# JS build
-nearlib/dist/
-
 # Integration tests
 tmp/
 
