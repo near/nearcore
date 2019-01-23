@@ -1,2 +1,2 @@
-window.nearLib = require('./index');
-window.nearLib.dev = require('./dev');
+window.nearlib = require('./index');
+window.nearlib.dev = require('./dev');
