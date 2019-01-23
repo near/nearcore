@@ -4,8 +4,6 @@ use std::collections::hash_map::Entry;
 use rand::{SeedableRng, seq::SliceRandom, rngs::StdRng};
 use std::iter;
 use std::mem;
-use std::io;
-use std::io::prelude::*;
 
 use chain::SignedBlock;
 use primitives::hash::CryptoHash;
