@@ -114,7 +114,7 @@ pub fn spawn_network_tasks(
 
     let protocol3 = protocol.clone();
     let gossip_sender = gossip_rx.for_each(move |g| {
-        println!("About to send gossip {:?}", g);
+        //println!("About to send gossip {:?}", g);
         if let Some(node_index) = protocol3.get_node_index_by_uid(g.receiver_uid) {
             let m = Message::Gossip(Box::new(g));
             let data = Encode::encode(&m).expect("Error encoding message.");

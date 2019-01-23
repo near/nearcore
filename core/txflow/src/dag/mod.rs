@@ -154,6 +154,9 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
             res.push(ConsensusBlockBody {
                 messages: parents.iter().map(|m| m.data.clone()).collect()
             });
+            for m in &parents {
+                println!("{}", m.computed_hash);
+            }
             self.published_epochs.insert(*epoch);
         }
         res

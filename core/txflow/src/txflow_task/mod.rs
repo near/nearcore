@@ -224,6 +224,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
     ) {
         // Check whether this is a stray message from a different index.
         if message.beacon_block_index != self.state.as_ref().unwrap().beacon_block_index {
+            println!("BEACON BLOCK INDEX DOES NOT MATCH {} != {}", message.beacon_block_index, self.state.as_ref().unwrap().beacon_block_index);
             return;
         }
         // Check one of the optimistic scenarios when we already know this message.
@@ -302,13 +303,21 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         let witness_ptr = self.witness_selector() as *const W;
         // Since we are controlling the creation of the DAG by encapsulating it here
         // this code is safe.
-        println!("Initializing DAG for beacon block index {}", self.state.as_ref().unwrap().beacon_block_index);
+        println!("Initializing DAG for beacon block index {} and owner_uid {}", self.state.as_ref().unwrap().beacon_block_index, self.owner_uid());
         self.dag = Some(Box::new(DAG::new(
             self.owner_uid(),
             self.state.as_ref().unwrap().beacon_block_index,
             self.starting_epoch(),
             unsafe { &*witness_ptr },
         )));
+        self.forced_gossip_delay = None;
+        self.cooldown_delay = None;
+        self.blocked_messages.clear();
+        self.blocking_hashes.clear();
+        self.blocked_replies.clear();
+        self.pending_replies.clear();
+        self.pending_fetches.clear();
+        self.pending_payload = P::new();
     }
 }
 
@@ -380,7 +389,10 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         let mut end_of_payloads = false;
         loop {
             match self.payload_receiver.poll() {
-                Ok(Async::Ready(Some(payload))) => self.pending_payload.union_update(payload),
+                Ok(Async::Ready(Some(payload))) => {
+                    println!("TXFLOW PAYLOAD: {:?}", payload);
+                    self.pending_payload.union_update(payload)
+                },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the payloads.
@@ -419,6 +431,9 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             // Drain the current payload.
             let payload = mem::replace(&mut self.pending_payload, P::new());
             let (new_message, consensuses) = self.dag_as_mut().create_root_message(payload, vec![]);
+            if !new_message.data.body.payload.is_empty() {
+                println!("TXFLOW Payload carrying message: {:?}", new_message.computed_hash);
+            }
             self.send_consensuses(consensuses);
             new_gossip_body = Some(&new_message.data);
         } else if let Some(ref mut d) = self.forced_gossip_delay {
@@ -446,6 +461,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         }
 
         {
+            let tmp = self.dag_as_ref().current_root_data();
             let gossip_body = new_gossip_body.unwrap_or_else(||
                 // There are no new payloads or dangling roots, but we are forced to gossip.
                 // So we are gossiping the current root.

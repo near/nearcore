@@ -124,6 +124,7 @@ impl Protocol {
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
         if let Some(peer_info) = self.peer_info.read().get(&peer) {
             if let Some(account_id) = peer_info.account_id.clone() {
+                println!("Forgetting account_id {}", account_id);
                 self.peer_account_info.write().remove(&account_id);
             }
         }
@@ -177,6 +178,7 @@ impl Protocol {
             account_id: status.account_id.clone(),
         };
         if let Some(account_id) = status.account_id.clone() {
+            println!("Recording account_id, peer: {}, {}", account_id, peer);
             self.peer_account_info.write().insert(account_id, peer);
         }
         self.peer_info.write().insert(peer, peer_info);
@@ -207,6 +209,7 @@ impl Protocol {
             Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
+//        println!("Message received");
 
         match message {
             Message::Transaction(tx) => {

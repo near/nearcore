@@ -101,6 +101,7 @@ fn create_nonce_with_nonce(base: &[u8], salt: u64) -> Vec<u8> {
     hash(&nonce).into()
 }
 
+#[derive(Debug)]
 pub struct ApplyState {
     pub root: MerkleHash,
     pub shard_id: ShardId,
@@ -108,7 +109,7 @@ pub struct ApplyState {
     pub parent_block_hash: CryptoHash,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,

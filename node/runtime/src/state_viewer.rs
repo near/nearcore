@@ -50,6 +50,7 @@ impl StateDbViewer {
         account_id: &AccountId,
         root: MerkleHash,
     ) -> Result<AccountViewCallResult, String> {
+        println!("{:?}", root);
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
 
         match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
