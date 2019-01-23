@@ -289,7 +289,6 @@ impl Client {
         if self.beacon_chain.is_known(&hash)
             || self.pending_beacon_blocks.write().contains_key(&hash)
         {
-            println!("Not importing block");
             return None;
         }
         self.pending_shard_blocks.write().insert(shard_block.hash, shard_block);
