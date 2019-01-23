@@ -1,9 +1,9 @@
-let fetch = (typeof window === 'undefined') ? require('node-fetch') : window.fetch;
+let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
         method: method,
         body: method != "GET" ? JSON.stringify(json) : undefined,
-        headers: new Headers({ 'Content-type': 'application/json; charset=utf-8' })
+        headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
         throw new Error(await response.text());
