@@ -1,7 +1,5 @@
 syntax = "proto3";
 
-import "transaction.proto";
-
 message Status {
     uint32 version = 1;
     uint64 best_index = 2;

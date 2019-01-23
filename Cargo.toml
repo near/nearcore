@@ -23,7 +23,7 @@ txflow = { path = "./core/txflow" }
 client = { path = "./node/client" }
 
 [build-dependencies]
-protoc-rust = "2.2.4"
+protos-autogen = { path = "./protos/builder" }
 
 [workspace]
 members = [
@@ -43,6 +43,7 @@ members = [
     "node/http",
     "node/runtime",
     "node/network",
+    "protos/builder",
     "test-utils/chain-spec-builder",
     "test-utils/devnet",
     "test-utils/node",

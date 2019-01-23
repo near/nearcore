@@ -12,7 +12,7 @@ message TransactionBody {
 }
 
 message SignedTransaction {
-    bytes body = 1;
+    TransactionBody body = 1;
     bytes signature = 2;
 }
 
@@ -36,29 +36,40 @@ message AsyncCallReceipt {
     AccountingInfo accounting_info = 6;
 }
 
+message CallbackResultReceipt {
+    CallbackInfo info = 1;
+    bytes result = 2;
+}
+
+message RefundReceipt {
+    uint64 amount = 1;
+}
+
+message ManaAccountingReceipt {
+    AccountingInfo accounting_info = 1;
+    uint32 mana_refund = 2;
+    uint64 gas_used = 3;
+}
+
 message Receipt {
     string originator = 1;
     string receiver = 2;
     bytes nonce = 3;
-    enum BodyType {
-        ASYNC_CALL = 0;
-        CALLBACK = 1;
-        REFUND = 2;
-        MANA_ACCOUNTING = 3;
+    oneof body {
+        AsyncCallReceipt async_call = 4;
+        CallbackResultReceipt callback_result = 5;
+        RefundReceipt refund = 6;
+        ManaAccountingReceipt mana_accounting = 7;
     }
-    BodyType type = 4;
-    bytes body = 5;
 }
 
 message Transaction {
-    enum Type {
-        SIGNED_TRANSACTION = 0;
-        RECEIPT = 1;
+    oneof body {
+        SignedTransaction signed_transaction = 1;
+        Receipt receipt = 2;
     }
-    Type type = 1;
-    bytes body = 2;
 }
 
 message ChainPayload {
-    repeated bytes transactions = 1;
+    repeated Transaction transactions = 1;
 }
