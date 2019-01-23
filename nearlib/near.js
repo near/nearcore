@@ -1,8 +1,7 @@
 const NearClient = require('./nearclient');
-const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_keystore');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
 const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
-const KeyPair = require("./signing/key_pair");
 
 /*
  * This is javascript library for interacting with blockchain.

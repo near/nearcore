@@ -1,12 +1,5 @@
-const SimpleKeyStoreSigner = require('../signing/simple_key_store_signer.js');
-const InMemoryKeyStore = require('../signing/in_memory_key_store.js');
-const KeyPair = require('../signing/key_pair.js');
-const LocalNodeConnection = require('../local_node_connection')
-const NearClient = require('../nearclient');
-const Account = require('../account');
-const Near = require('../near');
+const { Account, SimpleKeyStoreSigner, InMemoryKeyStore, KeyPair, LocalNodeConnection, NearClient, Near } = require('../');
 const fs = require('fs');
-
 
 const aliceAccountName = 'alice.near';
 const aliceKey = new KeyPair(

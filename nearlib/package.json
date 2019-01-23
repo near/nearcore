@@ -7,7 +7,7 @@
     "url": "git@:nearprotocol/nearcore.git"
   },
   "homepage": "https://github.com/nearprotocol/nearcore",
-  "main": "near.js",
+  "main": "index.js",
   "dependencies": {
     "bs58": "^4.0.1",
     "superagent": "^4.1.0",
