@@ -155,9 +155,6 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
                 messages: parents.iter().map(|m| m.data.clone()).collect(),
                 beacon_block_index: self.beacon_block_index
             });
-            for m in &parents {
-                println!("{}", m.computed_hash);
-            }
             self.published_epochs.insert(*epoch);
         }
         res

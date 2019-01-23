@@ -124,7 +124,7 @@ impl HttpApi {
     }
 
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
-        info!(target: "near-rpc", "View account {:?}", r.account_id);
+        debug!(target: "near-rpc", "View account {:?}", r.account_id);
         match self.client.statedb_viewer.view_account(&r.account_id)
         {
             Ok(r) => Ok(ViewAccountResponse {

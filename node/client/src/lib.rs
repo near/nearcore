@@ -136,17 +136,11 @@ impl Client {
         body: ChainConsensusBlockBody,
     ) -> Option<(SignedBeaconBlock, SignedShardBlock)> {
         if body.beacon_block_index != self.beacon_chain.best_block().header().index() + 1 {
-            println!("TXFLOW CONSENSUS IS OUTDATED. Has index {}, but we are already at {}",
-                body.beacon_block_index,
-                self.beacon_chain.best_block().header().index()
-            );
             return None;
         }
         // TODO: verify signature
         let transactions: Vec<_> =
             body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
-        let transactions2: Vec<_> = transactions.to_vec();
-        println!("RECEIVED TRANSACTIONS FROM TXFLOW: {:?}", transactions2.len());
 
         let last_block = self.beacon_chain.best_block();
         let last_shard_block = self
@@ -167,7 +161,6 @@ impl Client {
             shard_id,
         };
         let apply_result = self.runtime.write().apply(&apply_state, &[], transactions);
-//        println!("APPLY_RESULT: {:?}", apply_result);
         self.state_db.commit(apply_result.transaction).ok();
         let mut shard_block = SignedShardBlock::new(
             shard_id,
@@ -202,8 +195,6 @@ impl Client {
             info!(target: "client",
                   "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
                   block.body.header.index, block.hash, shard_block.hash);
-//            println!("State: {:?}", apply_state);
-//            println!("Transactions: {:?}", transactions2);
             io::stdout().flush().expect("Could not flush stdout");
             // Just produced blocks should be the best in the blockchain.
             assert_eq!(self.shard_chain.chain.best_block().hash, shard_block.hash);
