@@ -22,7 +22,7 @@
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "build": "browserify exports.js -o dist/nearlib.js && browserify exports.js -g uglifyify -o dist/nearlib.min.js",
+    "build": "browserify browser-exports.js -o dist/nearlib.js && browserify browser-exports.js -g uglifyify -o dist/nearlib.min.js",
     "test": "jest test",
     "lint": "eslint .",
     "fix": "eslint . --fix"
