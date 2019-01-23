@@ -964,18 +964,18 @@ impl ::protobuf::reflect::ProtobufValue for Message {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\rmessage.proto\x1a\x11transaction.proto\"\xa0\x01\n\x06Status\x12\x18\
-    \n\x07version\x18\x01\x20\x01(\rR\x07version\x12\x1d\n\nbest_index\x18\
-    \x02\x20\x01(\x04R\tbestIndex\x12\x1b\n\tbest_hash\x18\x03\x20\x01(\x0cR\
-    \x08bestHash\x12!\n\x0cgenesis_hash\x18\x04\x20\x01(\x0cR\x0bgenesisHash\
-    \x12\x1d\n\naccount_id\x18\x05\x20\x01(\tR\taccountId\"\x8f\x02\n\x07Mes\
-    sage\x12\"\n\x0btransaction\x18\x01\x20\x01(\x0cH\0R\x0btransaction\x12\
-    \x1a\n\x07receipt\x18\x02\x20\x01(\x0cH\0R\x07receipt\x12!\n\x06status\
-    \x18\x03\x20\x01(\x0b2\x07.StatusH\0R\x06status\x12%\n\rblock_request\
-    \x18\x04\x20\x01(\x0cH\0R\x0cblockRequest\x12'\n\x0eblock_response\x18\
-    \x05\x20\x01(\x0cH\0R\rblockResponse\x12'\n\x0eblock_announce\x18\x06\
-    \x20\x01(\x0cH\0R\rblockAnnounce\x12\x18\n\x06gossip\x18\x07\x20\x01(\
-    \x0cH\0R\x06gossipB\x0e\n\x0cmessage_typeb\x06proto3\
+    \n\x14protos/message.proto\"\xa0\x01\n\x06Status\x12\x18\n\x07version\
+    \x18\x01\x20\x01(\rR\x07version\x12\x1d\n\nbest_index\x18\x02\x20\x01(\
+    \x04R\tbestIndex\x12\x1b\n\tbest_hash\x18\x03\x20\x01(\x0cR\x08bestHash\
+    \x12!\n\x0cgenesis_hash\x18\x04\x20\x01(\x0cR\x0bgenesisHash\x12\x1d\n\n\
+    account_id\x18\x05\x20\x01(\tR\taccountId\"\x8f\x02\n\x07Message\x12\"\n\
+    \x0btransaction\x18\x01\x20\x01(\x0cH\0R\x0btransaction\x12\x1a\n\x07rec\
+    eipt\x18\x02\x20\x01(\x0cH\0R\x07receipt\x12!\n\x06status\x18\x03\x20\
+    \x01(\x0b2\x07.StatusH\0R\x06status\x12%\n\rblock_request\x18\x04\x20\
+    \x01(\x0cH\0R\x0cblockRequest\x12'\n\x0eblock_response\x18\x05\x20\x01(\
+    \x0cH\0R\rblockResponse\x12'\n\x0eblock_announce\x18\x06\x20\x01(\x0cH\0\
+    R\rblockAnnounce\x12\x18\n\x06gossip\x18\x07\x20\x01(\x0cH\0R\x06gossipB\
+    \x0e\n\x0cmessage_typeb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
