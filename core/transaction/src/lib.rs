@@ -84,7 +84,7 @@ pub struct SwapKeyTransaction {
 }
 
 /// TODO: Call non-view function in the contracts.
-#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub enum TransactionBody {
     Stake(StakeTransaction),
     SendMoney(SendMoneyTransaction),
@@ -143,7 +143,7 @@ impl TransactionBody {
     }
 }
 
-#[derive(Eq, Debug, Clone)]
+#[derive(Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
     pub body: TransactionBody,
     pub signature: StructSignature,
@@ -331,45 +331,68 @@ impl ReceiptTransaction {
     }
 }
 
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub enum Transaction {
     SignedTransaction(SignedTransaction),
     Receipt(ReceiptTransaction),
 }
 
-impl Encode for TransactionBody {
-    fn encode(&self) -> EncodeResult {
-        let mut m = transaction_proto::TransactionBody::new();
-        m.set_originator(self.get_originator());
-        m.set_nonce(self.get_nonce());
-        match &self {
-            TransactionBody::CreateAccount(t) => {
-                m.set_destination(system_account());
-                m.set_args(vec![]);
-            },
-            _ => {}
-        }
-        encode_proto(&m)
-    }
-}
+//impl Encode for TransactionBody {
+//    fn encode(&self) -> EncodeResult {
+//        let mut m = transaction_proto::TransactionBody::new();
+//        m.set_originator(self.get_originator());
+//        m.set_nonce(self.get_nonce());
+//        match &self {
+//            TransactionBody::CreateAccount(t) => {
+//                m.set_destination(system_account());
+//                m.set_args(vec![]);
+//            },
+//            _ => {}
+//        }
+//        encode_proto(&m)
+//    }
+//}
 
-impl Decode for TransactionBody {
-    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: transaction_proto::Transaction = decode_proto(bytes)?;
-        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
-    }
-}
+//impl Decode for TransactionBody {
+//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+//        let m: transaction_proto::TransactionBody = decode_proto(bytes)?;
+//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
+//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
+//    }
+//}
+//
+//impl Encode for SignedTransaction {
+//    fn encode(&self) -> EncodeResult {
+//        let mut m = transaction_proto::SignedTransaction::new();
+//        encode_proto(&m)
+//    }
+//}
+//
+//impl Decode for SignedTransaction {
+//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+//        let m: transaction_proto::SignedTransaction = decode_proto(bytes)?;
+//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
+//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
+//    }
+//}
+//
+//impl Encode for Transaction {
+//    fn encode(&self) -> EncodeResult {
+//        let mut m = transaction_proto::TransactionBody::new();
+//        encode_proto(&m)
+//    }
+//}
+//
+//impl Decode for Transaction {
+//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+//        let m: transaction_proto::TransactionBody = decode_proto(bytes)?;
+//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
+//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
+//    }
+//}
+//
 
-impl Decode for Transaction {
-    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: transaction_proto::Transaction = decode_proto(bytes)?;
-        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
-    }
-}
-
-#[derive(Hash, Debug, PartialEq, Eq, Clone)]
+#[derive(Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct ChainPayload {
     pub body: Vec<Transaction>,
 }
@@ -394,26 +417,25 @@ impl Payload for ChainPayload {
     }
 }
 
-impl Encode for ChainPayload {
-    fn encode(&self) -> EncodeResult {
-        let m = transaction_proto::ChainPayload::new();
-        encode_proto(&m)
-    }
-}
-
-impl Decode for ChainPayload {
-    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: transaction_proto::ChainPayload = decode_proto(&bytes)?;
-        let mut body = vec![];
-        for t in m.get_transactions().iter() {
-            let decoded: transaction_proto::Transaction = decode_proto(t)?;
-            body.push(Transaction::decode(decoded));
-        }
-        Ok(ChainPayload {
-            body
-        })
-    }
-}
+//impl Encode for ChainPayload {
+//    fn encode(&self) -> EncodeResult {
+//        let m = transaction_proto::ChainPayload::new();
+//        encode_proto(&m)
+//    }
+//}
+//
+//impl Decode for ChainPayload {
+//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+//        let m: transaction_proto::ChainPayload = decode_proto(&bytes)?;
+//        let mut body = vec![];
+//        for t in m.get_transactions().iter() {
+////            body.push(Transaction::decode(&t)?);
+//        }
+//        Ok(ChainPayload {
+//            body
+//        })
+//    }
+//}
 
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,
@@ -446,5 +468,11 @@ mod tests {
 
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
+    }
+
+    #[test]
+    fn test_protobuf_to_transaction() {
+        let mut t = transaction_proto::SignedTransaction::new();
+
     }
 }

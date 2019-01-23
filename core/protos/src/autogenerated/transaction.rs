@@ -28,7 +28,7 @@ pub struct TransactionBody {
     pub originator: ::std::string::String,
     pub destination: ::std::string::String,
     pub amount: u64,
-    pub nonce: u64,
+    pub dingleheimer: u64,
     pub method_name: ::std::string::String,
     pub args: ::std::vec::Vec<u8>,
     // special fields
@@ -110,19 +110,19 @@ impl TransactionBody {
         self.amount
     }
 
-    // uint64 nonce = 5;
+    // uint64 dingleheimer = 5;
 
-    pub fn clear_nonce(&mut self) {
-        self.nonce = 0;
+    pub fn clear_dingleheimer(&mut self) {
+        self.dingleheimer = 0;
     }
 
     // Param is passed by value, moved
-    pub fn set_nonce(&mut self, v: u64) {
-        self.nonce = v;
+    pub fn set_dingleheimer(&mut self, v: u64) {
+        self.dingleheimer = v;
     }
 
-    pub fn get_nonce(&self) -> u64 {
-        self.nonce
+    pub fn get_dingleheimer(&self) -> u64 {
+        self.dingleheimer
     }
 
     // string method_name = 6;
@@ -205,7 +205,7 @@ impl ::protobuf::Message for TransactionBody {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
-                    self.nonce = tmp;
+                    self.dingleheimer = tmp;
                 },
                 6 => {
                     ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.method_name)?;
@@ -234,8 +234,8 @@ impl ::protobuf::Message for TransactionBody {
         if self.amount != 0 {
             my_size += ::protobuf::rt::value_size(4, self.amount, ::protobuf::wire_format::WireTypeVarint);
         }
-        if self.nonce != 0 {
-            my_size += ::protobuf::rt::value_size(5, self.nonce, ::protobuf::wire_format::WireTypeVarint);
+        if self.dingleheimer != 0 {
+            my_size += ::protobuf::rt::value_size(5, self.dingleheimer, ::protobuf::wire_format::WireTypeVarint);
         }
         if !self.method_name.is_empty() {
             my_size += ::protobuf::rt::string_size(6, &self.method_name);
@@ -258,8 +258,8 @@ impl ::protobuf::Message for TransactionBody {
         if self.amount != 0 {
             os.write_uint64(4, self.amount)?;
         }
-        if self.nonce != 0 {
-            os.write_uint64(5, self.nonce)?;
+        if self.dingleheimer != 0 {
+            os.write_uint64(5, self.dingleheimer)?;
         }
         if !self.method_name.is_empty() {
             os.write_string(6, &self.method_name)?;
@@ -325,9 +325,9 @@ impl ::protobuf::Message for TransactionBody {
                     |m: &mut TransactionBody| { &mut m.amount },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
-                    "nonce",
-                    |m: &TransactionBody| { &m.nonce },
-                    |m: &mut TransactionBody| { &mut m.nonce },
+                    "dingleheimer",
+                    |m: &TransactionBody| { &m.dingleheimer },
+                    |m: &mut TransactionBody| { &mut m.dingleheimer },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "method_name",
@@ -364,7 +364,7 @@ impl ::protobuf::Clear for TransactionBody {
         self.clear_originator();
         self.clear_destination();
         self.clear_amount();
-        self.clear_nonce();
+        self.clear_dingleheimer();
         self.clear_method_name();
         self.clear_args();
         self.unknown_fields.clear();
@@ -3115,42 +3115,42 @@ impl ::protobuf::reflect::ProtobufValue for ChainPayload {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x18protos/transaction.proto\"\xb6\x01\n\x0fTransactionBody\x12\x1e\n\
+    \n\x18protos/transaction.proto\"\xc4\x01\n\x0fTransactionBody\x12\x1e\n\
     \noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x20\n\x0bdestination\
     \x18\x03\x20\x01(\tR\x0bdestination\x12\x16\n\x06amount\x18\x04\x20\x01(\
-    \x04R\x06amount\x12\x14\n\x05nonce\x18\x05\x20\x01(\x04R\x05nonce\x12\
-    \x1f\n\x0bmethod_name\x18\x06\x20\x01(\tR\nmethodName\x12\x12\n\x04args\
-    \x18\x07\x20\x01(\x0cR\x04args\"W\n\x11SignedTransaction\x12$\n\x04body\
-    \x18\x01\x20\x01(\x0b2\x10.TransactionBodyR\x04body\x12\x1c\n\tsignature\
-    \x18\x02\x20\x01(\x0cR\tsignature\"]\n\x0cCallbackInfo\x12\x0e\n\x02id\
-    \x18\x01\x20\x01(\x0cR\x02id\x12!\n\x0cresult_index\x18\x02\x20\x01(\x04\
-    R\x0bresultIndex\x12\x1a\n\x08receiver\x18\x03\x20\x01(\tR\x08receiver\"\
-    Q\n\x0eAccountingInfo\x12\x1e\n\noriginator\x18\x01\x20\x01(\tR\norigina\
-    tor\x12\x1f\n\x0bcontract_id\x18\x02\x20\x01(\tR\ncontractId\"\xe1\x01\n\
-    \x10AsyncCallReceipt\x12\x16\n\x06amount\x18\x01\x20\x01(\x04R\x06amount\
-    \x12\x12\n\x04mana\x18\x02\x20\x01(\rR\x04mana\x12\x1f\n\x0bmethod_name\
-    \x18\x03\x20\x01(\x0cR\nmethodName\x12\x12\n\x04args\x18\x04\x20\x01(\
-    \x0cR\x04args\x122\n\rcallback_info\x18\x05\x20\x01(\x0b2\r.CallbackInfo\
-    R\x0ccallbackInfo\x128\n\x0faccounting_info\x18\x06\x20\x01(\x0b2\x0f.Ac\
-    countingInfoR\x0eaccountingInfo\"R\n\x15CallbackResultReceipt\x12!\n\x04\
-    info\x18\x01\x20\x01(\x0b2\r.CallbackInfoR\x04info\x12\x16\n\x06result\
-    \x18\x02\x20\x01(\x0cR\x06result\"'\n\rRefundReceipt\x12\x16\n\x06amount\
-    \x18\x01\x20\x01(\x04R\x06amount\"\x8d\x01\n\x15ManaAccountingReceipt\
-    \x128\n\x0faccounting_info\x18\x01\x20\x01(\x0b2\x0f.AccountingInfoR\x0e\
-    accountingInfo\x12\x1f\n\x0bmana_refund\x18\x02\x20\x01(\rR\nmanaRefund\
-    \x12\x19\n\x08gas_used\x18\x03\x20\x01(\x04R\x07gasUsed\"\xc7\x02\n\x07R\
-    eceipt\x12\x1e\n\noriginator\x18\x01\x20\x01(\tR\noriginator\x12\x1a\n\
-    \x08receiver\x18\x02\x20\x01(\tR\x08receiver\x12\x14\n\x05nonce\x18\x03\
-    \x20\x01(\x0cR\x05nonce\x122\n\nasync_call\x18\x04\x20\x01(\x0b2\x11.Asy\
-    ncCallReceiptH\0R\tasyncCall\x12A\n\x0fcallback_result\x18\x05\x20\x01(\
-    \x0b2\x16.CallbackResultReceiptH\0R\x0ecallbackResult\x12(\n\x06refund\
-    \x18\x06\x20\x01(\x0b2\x0e.RefundReceiptH\0R\x06refund\x12A\n\x0fmana_ac\
-    counting\x18\x07\x20\x01(\x0b2\x16.ManaAccountingReceiptH\0R\x0emanaAcco\
-    untingB\x06\n\x04body\"\x80\x01\n\x0bTransaction\x12C\n\x12signed_transa\
-    ction\x18\x01\x20\x01(\x0b2\x12.SignedTransactionH\0R\x11signedTransacti\
-    on\x12$\n\x07receipt\x18\x02\x20\x01(\x0b2\x08.ReceiptH\0R\x07receiptB\
-    \x06\n\x04body\"@\n\x0cChainPayload\x120\n\x0ctransactions\x18\x01\x20\
-    \x03(\x0b2\x0c.TransactionR\x0ctransactionsb\x06proto3\
+    \x04R\x06amount\x12\"\n\x0cdingleheimer\x18\x05\x20\x01(\x04R\x0cdingleh\
+    eimer\x12\x1f\n\x0bmethod_name\x18\x06\x20\x01(\tR\nmethodName\x12\x12\n\
+    \x04args\x18\x07\x20\x01(\x0cR\x04args\"W\n\x11SignedTransaction\x12$\n\
+    \x04body\x18\x01\x20\x01(\x0b2\x10.TransactionBodyR\x04body\x12\x1c\n\ts\
+    ignature\x18\x02\x20\x01(\x0cR\tsignature\"]\n\x0cCallbackInfo\x12\x0e\n\
+    \x02id\x18\x01\x20\x01(\x0cR\x02id\x12!\n\x0cresult_index\x18\x02\x20\
+    \x01(\x04R\x0bresultIndex\x12\x1a\n\x08receiver\x18\x03\x20\x01(\tR\x08r\
+    eceiver\"Q\n\x0eAccountingInfo\x12\x1e\n\noriginator\x18\x01\x20\x01(\tR\
+    \noriginator\x12\x1f\n\x0bcontract_id\x18\x02\x20\x01(\tR\ncontractId\"\
+    \xe1\x01\n\x10AsyncCallReceipt\x12\x16\n\x06amount\x18\x01\x20\x01(\x04R\
+    \x06amount\x12\x12\n\x04mana\x18\x02\x20\x01(\rR\x04mana\x12\x1f\n\x0bme\
+    thod_name\x18\x03\x20\x01(\x0cR\nmethodName\x12\x12\n\x04args\x18\x04\
+    \x20\x01(\x0cR\x04args\x122\n\rcallback_info\x18\x05\x20\x01(\x0b2\r.Cal\
+    lbackInfoR\x0ccallbackInfo\x128\n\x0faccounting_info\x18\x06\x20\x01(\
+    \x0b2\x0f.AccountingInfoR\x0eaccountingInfo\"R\n\x15CallbackResultReceip\
+    t\x12!\n\x04info\x18\x01\x20\x01(\x0b2\r.CallbackInfoR\x04info\x12\x16\n\
+    \x06result\x18\x02\x20\x01(\x0cR\x06result\"'\n\rRefundReceipt\x12\x16\n\
+    \x06amount\x18\x01\x20\x01(\x04R\x06amount\"\x8d\x01\n\x15ManaAccounting\
+    Receipt\x128\n\x0faccounting_info\x18\x01\x20\x01(\x0b2\x0f.AccountingIn\
+    foR\x0eaccountingInfo\x12\x1f\n\x0bmana_refund\x18\x02\x20\x01(\rR\nmana\
+    Refund\x12\x19\n\x08gas_used\x18\x03\x20\x01(\x04R\x07gasUsed\"\xc7\x02\
+    \n\x07Receipt\x12\x1e\n\noriginator\x18\x01\x20\x01(\tR\noriginator\x12\
+    \x1a\n\x08receiver\x18\x02\x20\x01(\tR\x08receiver\x12\x14\n\x05nonce\
+    \x18\x03\x20\x01(\x0cR\x05nonce\x122\n\nasync_call\x18\x04\x20\x01(\x0b2\
+    \x11.AsyncCallReceiptH\0R\tasyncCall\x12A\n\x0fcallback_result\x18\x05\
+    \x20\x01(\x0b2\x16.CallbackResultReceiptH\0R\x0ecallbackResult\x12(\n\
+    \x06refund\x18\x06\x20\x01(\x0b2\x0e.RefundReceiptH\0R\x06refund\x12A\n\
+    \x0fmana_accounting\x18\x07\x20\x01(\x0b2\x16.ManaAccountingReceiptH\0R\
+    \x0emanaAccountingB\x06\n\x04body\"\x80\x01\n\x0bTransaction\x12C\n\x12s\
+    igned_transaction\x18\x01\x20\x01(\x0b2\x12.SignedTransactionH\0R\x11sig\
+    nedTransaction\x12$\n\x07receipt\x18\x02\x20\x01(\x0b2\x08.ReceiptH\0R\
+    \x07receiptB\x06\n\x04body\"@\n\x0cChainPayload\x120\n\x0ctransactions\
+    \x18\x01\x20\x03(\x0b2\x0c.TransactionR\x0ctransactionsb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

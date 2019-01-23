@@ -19,7 +19,7 @@ use primitives::types::{
 use near_protos::message as message_proto;
 use transaction::{ChainPayload, Transaction};
 
-use crate::message::{self, Message};
+use crate::message::{self, Message, Status};
 
 /// time to wait (secs) for a request
 const REQUEST_WAIT: u64 = 60;
@@ -127,14 +127,13 @@ impl Protocol {
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
         let best_block_header = self.client.beacon_chain.best_block().header();
-        let mut status = message_proto::Status::new();
-        status.set_version(CURRENT_VERSION);
-        status.set_best_index(best_block_header.index());
-        status.set_best_hash(best_block_header.block_hash().as_ref().to_vec());
-        status.set_genesis_hash(self.client.beacon_chain.genesis_hash.as_ref().to_vec());
-        if let Some(s) = self.config.account_id.clone() {
-            status.set_account_id(s);
-        }
+        let status = Status {
+            version: CURRENT_VERSION,
+            best_index: best_block_header.index(),
+            best_hash: best_block_header.block_hash(),
+            genesis_hash: self.client.beacon_chain.genesis_hash,
+            account_id: self.config.account_id.clone(),
+        };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
         let message = Message::Status(status);
         self.send_message(peer, message);
@@ -173,13 +172,13 @@ impl Protocol {
     fn on_status_message(
         &self,
         peer: NodeIndex,
-        status: &message_proto::Status,
+        status: &Status,
     ) -> Result<(), (NodeIndex, Severity)> {
         debug!(target: "network", "Status message received from {:?}: {:?}", peer, status);
-        if status.get_version() != CURRENT_VERSION {
+        if status.version != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if CryptoHash::new(&status.get_genesis_hash()) != self.client.beacon_chain.genesis_hash {
+        if status.genesis_hash != self.client.beacon_chain.genesis_hash {
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
@@ -188,11 +187,11 @@ impl Protocol {
         let mut next_request_id = 0;
         let mut block_request = None;
         let mut request_timestamp = None;
-        if status.get_best_index() > best_index {
+        if status.best_index > best_index {
             let request = message::BlockRequest {
                 id: next_request_id,
                 from: BlockId::Number(best_index + 1),
-                to: Some(BlockId::Number(status.get_best_index())),
+                to: Some(BlockId::Number(status.best_index)),
                 max: Some(MAX_BLOCK_DATA_RESPONSE),
             };
             block_request = Some(request.clone());
@@ -203,16 +202,16 @@ impl Protocol {
         }
 
         let peer_info = PeerInfo {
-            protocol_version: status.get_version(),
-            best_hash: CryptoHash::new(&status.get_best_hash()),
-            best_index: status.get_best_index(),
+            protocol_version: status.version,
+            best_hash: status.best_hash,
+            best_index: status.best_index,
             request_timestamp,
             block_request,
             next_request_id,
-            account_id: if !status.has_account_id() { Some(status.get_account_id().to_string()) } else { None },
+            account_id: status.account_id.clone(),
         };
-        if !status.has_account_id() {
-            self.peer_account_info.write().insert(status.get_account_id().to_string(), peer);
+        if let Some(account_id) = status.account_id.clone() {
+            self.peer_account_info.write().insert(account_id, peer);
         }
         self.peer_info.write().insert(peer, peer_info);
         self.handshaking_peers.write().remove(&peer);

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
-use primitives::serialize::proto_format;
+//use primitives::serialize::proto_format;
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, Balance, MerkleHash, ShardId,
@@ -219,13 +219,13 @@ pub struct ShardBlockResponse {
     // TODO(#301): should have a bs58 format for TransactionResponse
     pub transactions: Vec<SignedTransactionResponse>,
     // TODO(#301): should have a bs58 format for TransactionResponse
-    #[serde(with = "proto_format")]
+    //#[serde(with = "proto_format")]
     pub new_receipts: Vec<Transaction>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedTransactionResponse {
-    #[serde(with = "proto_format")]
+    //#[serde(with = "proto_format")]
     pub body: TransactionBody,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,

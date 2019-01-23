@@ -8,53 +8,70 @@ use primitives::types::{BlockId, Gossip};
 use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
 
 use near_protos::message as message_proto;
+use primitives::types::AccountId;
+use primitives::hash::CryptoHash;
 
 pub type RequestId = u64;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub enum Message {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
     Transaction(Box<SignedTransaction>),
     Receipt(Box<ReceiptTransaction>),
-    Status(message_proto::Status),
+    Status(Status),
     BlockRequest(BlockRequest),
     BlockResponse(BlockResponse<SignedBeaconBlock>),
     BlockAnnounce(BlockAnnounce<SignedBeaconBlock, SignedBeaconBlockHeader>),
     Gossip(Box<Gossip<ChainPayload>>),
 }
 
-impl Encode for Message {
-    fn encode(&self) -> EncodeResult {
-        let mut m = message_proto::Message::new();
-        match &self {
-            Message::Transaction(t) => m.set_transaction(t.encode()?),
-            Message::Receipt(t) => m.set_receipt(t.encode()?),
-            Message::Status(status) => m.set_status(status.clone()),
-            Message::BlockRequest(req) => m.set_block_request(req.encode()?),
-            Message::BlockResponse(res) => m.set_block_response(res.encode()?),
-            Message::BlockAnnounce(ann) => m.set_block_announce(ann.encode()?),
-            Message::Gossip(gossip) => m.set_gossip(gossip.encode()?),
-        };
-        Ok(encode_proto(&m)?)
-    }
+/// status sent on connection
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Status {
+    /// Protocol version.
+    pub version: u32,
+    /// Best block index.
+    pub best_index: u64,
+    /// Best block hash.
+    pub best_hash: CryptoHash,
+    /// Genesis hash.
+    pub genesis_hash: CryptoHash,
+    /// Account id.
+    pub account_id: Option<AccountId>,
 }
 
-impl Decode for Message {
-    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: message_proto::Message = decode_proto(bytes)?;
-        match m.message_type {
-            Some(message_proto::Message_oneof_message_type::transaction(t)) => Ok(Message::Transaction(Box::new(Decode::decode(&t)?))),
-            Some(message_proto::Message_oneof_message_type::receipt(t)) => Ok(Message::Receipt(Box::new(Decode::decode(&t)?))),
-            Some(message_proto::Message_oneof_message_type::status(status)) => Ok(Message::Status(status)),
-            Some(message_proto::Message_oneof_message_type::block_request(x)) => Ok(Message::BlockRequest(Decode::decode(&x)?)),
-            Some(message_proto::Message_oneof_message_type::block_response(x)) => Ok(Message::BlockResponse(Decode::decode(&x)?)),
-            Some(message_proto::Message_oneof_message_type::block_announce(x)) => Ok(Message::BlockAnnounce(Decode::decode(&x)?)),
-            Some(message_proto::Message_oneof_message_type::gossip(x)) => Ok(Message::Gossip(Box::new(Decode::decode(&x)?))),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "Found unknown type or empty Message at deserialization"))
-        }
-    }
-}
+//impl Encode for Message {
+//    fn encode(&self) -> EncodeResult {
+//        let mut m = message_proto::Message::new();
+//        match &self {
+//            Message::Transaction(t) => m.set_transaction(t.encode()?),
+//            Message::Receipt(t) => m.set_receipt(t.encode()?),
+//            Message::Status(status) => m.set_status(status.clone()),
+//            Message::BlockRequest(req) => m.set_block_request(req.encode()?),
+//            Message::BlockResponse(res) => m.set_block_response(res.encode()?),
+//            Message::BlockAnnounce(ann) => m.set_block_announce(ann.encode()?),
+//            Message::Gossip(gossip) => m.set_gossip(gossip.encode()?),
+//        };
+//        Ok(encode_proto(&m)?)
+//    }
+//}
+//
+//impl Decode for Message {
+//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
+//        let m: message_proto::Message = decode_proto(bytes)?;
+//        match m.message_type {
+//            Some(message_proto::Message_oneof_message_type::transaction(t)) => Ok(Message::Transaction(Box::new(Decode::decode(&t)?))),
+//            Some(message_proto::Message_oneof_message_type::receipt(t)) => Ok(Message::Receipt(Box::new(Decode::decode(&t)?))),
+//            Some(message_proto::Message_oneof_message_type::status(status)) => Ok(Message::Status(status)),
+//            Some(message_proto::Message_oneof_message_type::block_request(x)) => Ok(Message::BlockRequest(Decode::decode(&x)?)),
+//            Some(message_proto::Message_oneof_message_type::block_response(x)) => Ok(Message::BlockResponse(Decode::decode(&x)?)),
+//            Some(message_proto::Message_oneof_message_type::block_announce(x)) => Ok(Message::BlockAnnounce(Decode::decode(&x)?)),
+//            Some(message_proto::Message_oneof_message_type::gossip(x)) => Ok(Message::Gossip(Box::new(Decode::decode(&x)?))),
+//            _ => Err(io::Error::new(io::ErrorKind::Other, "Found unknown type or empty Message at deserialization"))
+//        }
+//    }
+//}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct BlockRequest {

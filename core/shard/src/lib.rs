@@ -53,7 +53,7 @@ pub enum TransactionStatus {
     Completed,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SignedTransactionInfo {
     pub transaction: SignedTransaction,
     pub block_index: u64,

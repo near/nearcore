@@ -6,7 +6,7 @@ message TransactionBody {
     string destination = 3;
     // TODO: figure out how to represent uint128
     uint64 amount = 4;
-    uint64 nonce = 5;
+    uint64 dingleheimer = 5;
     string method_name = 6;
     bytes args = 7;
 }
