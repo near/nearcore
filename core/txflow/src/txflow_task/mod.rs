@@ -390,7 +390,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         loop {
             match self.payload_receiver.poll() {
                 Ok(Async::Ready(Some(payload))) => {
-                    println!("TXFLOW PAYLOAD: {:?}", payload);
+//                     println!("TXFLOW PAYLOAD: {:?}", payload);
                     self.pending_payload.union_update(payload)
                 },
                 Ok(Async::NotReady) => break,
@@ -432,7 +432,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             let payload = mem::replace(&mut self.pending_payload, P::new());
             let (new_message, consensuses) = self.dag_as_mut().create_root_message(payload, vec![]);
             if !new_message.data.body.payload.is_empty() {
-                println!("TXFLOW Payload carrying message: {:?}", new_message.computed_hash);
+                // println!("TXFLOW Payload carrying message: {:?}", new_message.computed_hash);
             }
             self.send_consensuses(consensuses);
             new_gossip_body = Some(&new_message.data);

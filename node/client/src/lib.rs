@@ -97,6 +97,7 @@ impl Client {
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
+        info!(target: "client", "Genesis root: {:?}", genesis_root);
 
         let shard_genesis = SignedShardBlock::genesis(genesis_root);
         let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
@@ -138,7 +139,7 @@ impl Client {
         let transactions: Vec<_> =
             body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
         let transactions2: Vec<_> = transactions.to_vec();
-        println!("RECEIVED TRANSACTIONS FROM TXFLOW: {:?}", transactions2);
+        println!("RECEIVED TRANSACTIONS FROM TXFLOW: {:?}", transactions2.len());
 
         let last_block = self.beacon_chain.best_block();
         let last_shard_block = self
@@ -159,7 +160,7 @@ impl Client {
             shard_id,
         };
         let apply_result = self.runtime.write().apply(&apply_state, &[], transactions);
-        println!("APPLY_RESULT: {:?}", apply_result);
+//        println!("APPLY_RESULT: {:?}", apply_result);
         self.state_db.commit(apply_result.transaction).ok();
         let mut shard_block = SignedShardBlock::new(
             shard_id,
@@ -185,16 +186,21 @@ impl Client {
         block.authority_mask = authority_mask;
 
         if self.beacon_chain.is_known(&block.hash) {
-            info!("The block was already imported, before we managed to produce it.");
+            info!(target: "client", "The block was already imported, before we managed to produce it.");
             io::stdout().flush().expect("Could not flush stdout");
             None
         } else {
             self.shard_chain.insert_block(&shard_block.clone());
             self.beacon_chain.insert_block(block.clone());
-            info!(target: "block_producer", "Producing block index: {:?}", block.body.header.index);
-            println!("State: {:?}", apply_state);
-            println!("Transactions: {:?}", transactions2);
+            info!(target: "client",
+                  "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
+                  block.body.header.index, block.hash, shard_block.hash);
+//            println!("State: {:?}", apply_state);
+//            println!("Transactions: {:?}", transactions2);
             io::stdout().flush().expect("Could not flush stdout");
+            // Just produced blocks should be the best in the blockchain.
+            assert_eq!(self.shard_chain.chain.best_block().hash, shard_block.hash);
+            assert_eq!(self.beacon_chain.best_block().hash, block.hash);
             // Update the authority.
             self.update_authority(&block.header());
             Some((block, shard_block))
@@ -281,6 +287,7 @@ impl Client {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
+        info!(target: "client", "Importing block index: {:?}, beacon = {:?}, shard = {:?}", beacon_block.body.header.index, beacon_block.hash, shard_block.hash);
         if self.beacon_chain.is_known(&hash)
             || self.pending_beacon_blocks.write().contains_key(&hash)
         {
