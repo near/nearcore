@@ -3,11 +3,11 @@ syntax = "proto3";
 
 message TransactionBody {
     string originator = 2;
-    string destination = 3;
+    string contract_id = 3;
     // TODO: figure out how to represent uint128
     uint64 amount = 4;
-    uint64 dingleheimer = 5;
-    string method_name = 6;
+    uint64 nonce = 5;
+    bytes method_name = 6;
     bytes args = 7;
 }
 

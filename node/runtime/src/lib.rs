@@ -52,8 +52,14 @@ const COL_TX_STAKE: &[u8] = &[3];
 const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 const COL_LOGS: &[u8] = &[5];
 
-const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
+/// const does not allow function call, so have to resort to this
+fn system_account() -> AccountId { "system".to_string() }
+
 const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
+const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
+const SYSTEM_METHOD_SEND_MONEY: &[u8] = b"_sys:send_money";
+const SYSTEM_METHOD_STAKE: &[u8] = b"_sys:stake";
+const SYSTEM_METHOD_SWAP_KEY: &[u8] = b"_sys:swap_key";
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]

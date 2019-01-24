@@ -10,27 +10,24 @@ use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
 use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, verify};
 use primitives::traits::Payload;
 use primitives::types::{AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, StructSignature};
-use primitives::serialize::decode_proto;
-use primitives::serialize::encode_proto;
 
-/// const does not allow function call, so have to resort to this
-pub fn system_account() -> AccountId {
-    "system".to_string()
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
+pub enum TransactionBody {
+    CreateAccount(CreateAccountTransaction),
+    DeployContract(DeployContractTransaction),
+    FunctionCall(FunctionCallTransaction),
+    SendMoney(SendMoneyTransaction),
+    Stake(StakeTransaction),
+    SwapKey(SwapKeyTransaction),
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct StakeTransaction {
+pub struct CreateAccountTransaction {
     pub nonce: u64,
     pub originator: AccountId,
-    pub amount: Balance,
-}
-
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct SendMoneyTransaction {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub receiver: AccountId,
-    pub amount: Balance,
+    pub new_account_id: AccountId,
+    pub amount: u64,
+    pub public_key: Vec<u8>,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -65,12 +62,18 @@ impl fmt::Debug for FunctionCallTransaction {
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct CreateAccountTransaction {
+pub struct SendMoneyTransaction {
     pub nonce: u64,
     pub originator: AccountId,
-    pub new_account_id: AccountId,
-    pub amount: u64,
-    pub public_key: Vec<u8>,
+    pub receiver: AccountId,
+    pub amount: Balance,
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct StakeTransaction {
+    pub nonce: u64,
+    pub originator: AccountId,
+    pub amount: Balance,
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -83,48 +86,15 @@ pub struct SwapKeyTransaction {
     pub new_key: Vec<u8>,
 }
 
-/// TODO: Call non-view function in the contracts.
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
-pub enum TransactionBody {
-    Stake(StakeTransaction),
-    SendMoney(SendMoneyTransaction),
-    DeployContract(DeployContractTransaction),
-    FunctionCall(FunctionCallTransaction),
-    CreateAccount(CreateAccountTransaction),
-    SwapKey(SwapKeyTransaction),
-}
-
 impl TransactionBody {
-    pub fn get_nonce(&self) -> u64 {
-        match self {
-            TransactionBody::Stake(t) => t.nonce,
-            TransactionBody::SendMoney(t) => t.nonce,
-            TransactionBody::DeployContract(t) => t.nonce,
-            TransactionBody::FunctionCall(t) => t.nonce,
-            TransactionBody::CreateAccount(t) => t.nonce,
-            TransactionBody::SwapKey(t) => t.nonce,
-        }
-    }
-
-    pub fn get_originator(&self) -> AccountId {
-        match self {
-            TransactionBody::Stake(t) => t.originator.clone(),
-            TransactionBody::SendMoney(t) => t.originator.clone(),
-            TransactionBody::DeployContract(t) => t.originator.clone(),
-            TransactionBody::FunctionCall(t) => t.originator.clone(),
-            TransactionBody::CreateAccount(t) => t.originator.clone(),
-            TransactionBody::SwapKey(t) => t.originator.clone(),
-        }
-    }
-
     /// Returns option contract_id for Mana and Gas accounting
     pub fn get_contract_id(&self) -> Option<AccountId> {
         match self {
-            TransactionBody::Stake(_) => None,
-            TransactionBody::SendMoney(t) => Some(t.receiver.clone()),
+            TransactionBody::CreateAccount(_) => None,
             TransactionBody::DeployContract(t) => Some(t.contract_id.clone()),
             TransactionBody::FunctionCall(t) => Some(t.contract_id.clone()),
-            TransactionBody::CreateAccount(_) => None,
+            TransactionBody::SendMoney(t) => Some(t.receiver.clone()),
+            TransactionBody::Stake(_) => None,
             TransactionBody::SwapKey(_) => None,
         }
     }
@@ -132,13 +102,30 @@ impl TransactionBody {
     /// Returns mana required to execute this transaction.
     pub fn get_mana(&self) -> Mana {
         match self {
-            TransactionBody::Stake(_) => 1,
-            TransactionBody::SendMoney(_) => 1,
+            TransactionBody::CreateAccount(_) => 1,
             TransactionBody::DeployContract(_) => 1,
             // TODO(#344): DEFAULT_MANA_LIMIT is 20. Need to check that the value is at least 1 mana.
             TransactionBody::FunctionCall(_t) => 20,
-            TransactionBody::CreateAccount(_) => 1,
+            TransactionBody::SendMoney(_) => 1,
+            TransactionBody::Stake(_) => 1,
             TransactionBody::SwapKey(_) => 1,
+        }
+    }
+}
+
+impl From<transaction_proto::TransactionBody> for TransactionBody {
+    fn from(t: transaction_proto::TransactionBody) -> Self {
+        match t.destination {
+            _ => {
+                TransactionBody::FunctionCall(FunctionCallTransaction {
+                    nonce: t.nonce,
+                    originator: t.originator,
+                    contract_id: t.contract_id,
+                    method_name: t.method_name,
+                    args: t.args,
+                    amount: t.amount,
+                })
+            }
         }
     }
 }
