@@ -72,7 +72,7 @@ test('deploy contract and make function calls', async () => {
     const data = [...fs.readFileSync('../tests/hello.wasm')];
     const deployResult = await nearjs.deployContract(
         aliceAccountName,
-        "test_contract",
+        'test_contract',
         data);
     await waitForContractToDeploy(deployResult);
     const args = {
