@@ -176,7 +176,7 @@ impl Client {
             apply_result.authority_proposals,
             shard_block.block_hash(),
         );
-        // TODO: We should have a proper mask computation once we have a correct consensus.
+        // TODO(#377): We should have a proper mask computation once we have a correct consensus.
         let authority_mask: Vec<bool> = authorities.iter().map(|_| true).collect();
         let signature = shard_block.sign(&self.signer);
         shard_block.add_signature(signature);

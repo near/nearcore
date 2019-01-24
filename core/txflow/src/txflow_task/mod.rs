@@ -388,7 +388,6 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         loop {
             match self.payload_receiver.poll() {
                 Ok(Async::Ready(Some(payload))) => {
-//                     println!("TXFLOW PAYLOAD: {:?}", payload);
                     self.pending_payload.union_update(payload)
                 },
                 Ok(Async::NotReady) => break,
