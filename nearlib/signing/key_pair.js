@@ -1,6 +1,6 @@
 
 const bs58 = require('bs58');
-const nacl = require("tweetnacl");
+const nacl = require('tweetnacl');
 
 /**
  * This class provides key pair functionality (generating key pairs, encoding key pairs).
@@ -35,7 +35,7 @@ class KeyPair {
      * Static method to generate a new keypair from a random seed
      */
     static async fromRandomSeed() {
-        var newKeypair = nacl.sign.keyPair()
+        var newKeypair = nacl.sign.keyPair();
         const result = new KeyPair(
             KeyPair.encodeBufferInBs58(newKeypair.publicKey),
             KeyPair.encodeBufferInBs58(newKeypair.secretKey));
@@ -51,5 +51,5 @@ class KeyPair {
         const encodedValue = bs58.encode(bytes);
         return encodedValue;
     }
-};
+}
 module.exports = KeyPair;
