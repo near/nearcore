@@ -1138,6 +1138,8 @@ impl Runtime {
             StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         let mut pk_to_acc_id = HashMap::new();
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
+            // Make sure this public key is not present yet in the hash map.
+            assert!(!pk_to_acc_id.contains_key(public_key));
             pk_to_acc_id.insert(public_key.clone(), account_id.clone());
             set(
                 &mut state_db_update,
