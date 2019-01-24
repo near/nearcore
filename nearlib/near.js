@@ -96,20 +96,21 @@ class Near {
 
     async loadContract(contractAccountId, options) {
         // TODO: Introspection of contract methods + move this to account context to avoid options
-        let tokenContract = {};
+        let contract = {};
+        let near = this;
         options.viewMethods.forEach((methodName) => {
-            tokenContract[methodName] = async function (args) {
+            contract[methodName] = async function (args) {
                 args = args || {};
-                return this.callViewFunction(options.sender, contractAccountId, methodName, args).result;
+                return near.callViewFunction(options.sender, contractAccountId, methodName, args).result;
             };
         });
         options.changeMethods.forEach((methodName) => {
-            tokenContract[methodName] = async function (args) {
+            contract[methodName] = async function (args) {
                 args = args || {};
-                return this.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args).result;
+                return near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args).result;
             };
         });
-        return tokenContract;
+        return contract;
     }
 };
 
