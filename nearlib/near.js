@@ -101,13 +101,13 @@ class Near {
         options.viewMethods.forEach((methodName) => {
             contract[methodName] = async function (args) {
                 args = args || {};
-                return near.callViewFunction(options.sender, contractAccountId, methodName, args).result;
+                return near.callViewFunction(options.sender, contractAccountId, methodName, args);
             };
         });
         options.changeMethods.forEach((methodName) => {
             contract[methodName] = async function (args) {
                 args = args || {};
-                return near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args).result;
+                return near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
             };
         });
         return contract;
