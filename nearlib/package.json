@@ -17,7 +17,7 @@
     "browserify": "^16.2.3",
     "eslint": "^5.12.1",
     "jest": "^23.6.0",
-    "uglifyify": "^5.0.1",
+    "uglifyify": "^5.0.1"
   },
   "keywords": [],
   "license": "MIT",
