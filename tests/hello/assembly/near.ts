@@ -22,6 +22,20 @@ class ContractContext {
 }
 
 export class GlobalStorage {
+  keys(prefix: string): string[] {
+    let result: string[] = [];
+    let iterId = storage_iter(near.utf8(prefix));
+    do {
+      let len = storage_iter_peek_len(iterId);
+      if (len > 0) {
+        let buf = new Uint8Array(len);
+        storage_iter_peek_into(iterId, buf.buffer.data);
+        let key = String.fromUTF8(buf.buffer.data, buf.byteLength);
+        result.push(key);
+      }
+    } while (storage_iter_next(iterId));
+    return result;
+  }
   setItem(key: string, value: string): void {
     storage_write(near.utf8(key), near.utf8(value));
   }
@@ -35,6 +49,19 @@ export class GlobalStorage {
     storage_read_into(near.utf8(key), buf.buffer.data);
     let value = String.fromUTF8(buf.buffer.data, buf.byteLength);
     return value;
+  }
+  setBytes(key: string, value: Uint8Array): void {
+    storage_write(near.utf8(key), near.bufferWithSize(value).buffer.data)
+  }
+  getBytes(key: string): Uint8Array {
+    let len = storage_read_len(near.utf8(key));
+    if (len == 0) {
+      return null;
+    }
+
+    let buf = new Uint8Array(len);
+    storage_read_into(near.utf8(key), buf.buffer.data);
+    return buf;
   }
   removeItem(key: string): void {
     assert(false, "storage_remove not implemented yet.");
@@ -183,6 +210,14 @@ declare function storage_write(key: usize, value: usize): void;
 declare function storage_read_len(key: usize): usize;
 @external("env", "storage_read_into")
 declare function storage_read_into(key: usize, value: usize): void;
+@external("env", "storage_iter")
+declare function storage_iter(prefix: usize): u32;
+@external("env", "storage_iter_next")
+declare function storage_iter_next(id: u32): u32;
+@external("env", "storage_iter_peek_len")
+declare function storage_iter_peek_len(id: u32): usize;
+@external("env", "storage_iter_peek_into")
+declare function storage_iter_peek_into(id: u32, value: usize): void;
 
 @external("env", "input_read_len")
 declare function input_read_len(): usize;
@@ -211,6 +246,7 @@ declare function _near_random32(): u32;
 
 @external("env", "log")
 declare function _near_log(msg_ptr: usize): void;
+
 
 /*
     // TODO(#350): Refactor read/write APIs to unify them.

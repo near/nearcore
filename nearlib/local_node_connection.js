@@ -1,4 +1,4 @@
-const superagent = require('superagent');
+const sendJson = require('./internal/send-json');
 
 class LocalNodeConnection {
     constructor (baseUrl) {
@@ -6,11 +6,8 @@ class LocalNodeConnection {
     }
 
     async request(methodName, params) {
-        const response = await superagent
-            .post(`${this.baseUrl}/${methodName}`)
-            .send(params);
-        return JSON.parse(response.text);
-    };
+        return await sendJson('POST', `${this.baseUrl}/${methodName}`, params);
+    }
 }
 
 module.exports = LocalNodeConnection;

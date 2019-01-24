@@ -21,15 +21,15 @@ pub struct ExecutionOutcome {
     pub logs: Vec<String>,
 }
 
-pub fn execute<'a, 'b>(
+pub fn execute<'a>(
     code: &'a [u8],
     method_name: &'a [u8],
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
-    ext: &'a mut External<'b>,
+    ext: &'a mut External,
     config: &'a Config,
     context: &'a RuntimeContext,
-) -> Result<ExecutionOutcome, Error> where 'b: 'a {
+) -> Result<ExecutionOutcome, Error> {
     let prepare::PreparedContract {
         instrumented_code,
         memory
