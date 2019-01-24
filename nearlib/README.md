@@ -14,7 +14,7 @@ npm test
 ```
 ## Integration test
 
-Contract "hello.wasm" source code location: <https://studio.nearprotocol.com/?f=mfaccXt>
+Contract "hello.wasm" source code location: <https://github.com/nearprotocol/nearcore/tree/master/tests/hello>
 
 ## API
 
