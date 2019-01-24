@@ -14,8 +14,10 @@ use parking_lot::RwLock;
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
-use storage::{extend_with_cache, read_with_cache};
+use storage::{extend_with_cache, read_with_cache, StateDb};
 use transaction::{SignedTransaction, Transaction};
+use node_runtime::{ApplyState, Runtime};
+use node_runtime::state_viewer::StateDbViewer;
 
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 
@@ -64,15 +66,24 @@ pub struct ShardBlockChain {
     pub chain: chain::BlockChain<SignedShardBlock>,
     storage: Arc<storage::Storage>,
     transaction_addresses: RwLock<HashMap<Vec<u8>, TransactionAddress>>,
+    pub state_db: Arc<StateDb>,
+    pub runtime: RwLock<Runtime>,
+    pub statedb_viewer: StateDbViewer,
 }
 
 impl ShardBlockChain {
     pub fn new(genesis: SignedShardBlock, storage: Arc<storage::Storage>) -> Self {
         let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
+        let state_db = Arc::new(StateDb::new(storage.clone()));
+        let runtime = RwLock::new(Runtime::new(state_db.clone()));
+        let statedb_viewer = StateDbViewer::new(state_db.clone());
         Self {
             chain,
             storage,
             transaction_addresses: RwLock::new(HashMap::new()),
+            state_db,
+            runtime,
+            statedb_viewer
         }
     }
 
