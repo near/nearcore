@@ -97,7 +97,7 @@ impl<'a> External for RuntimeExt<'a> {
             // We just could not convince Rust that `self.state_db_update` has lifetime 'a as it
             // shrinks the lifetime to the lifetime of `self`.
             unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
-                .iter(prefix)
+                .iter(&self.create_storage_key(prefix))
                 .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
         );
         self.last_iter_id += 1;
@@ -112,15 +112,15 @@ impl<'a> External for RuntimeExt<'a> {
         if result.is_none() {
             self.iters.remove(&id);
         }
-        Ok(result)
+        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
     }
 
-    fn storage_iter_peek(&mut self, id: u32) -> ExtResult<Option<&Vec<u8>>> {
+    fn storage_iter_peek(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
         let result = match self.iters.get_mut(&id) {
-            Some(iter) => iter.peek(),
+            Some(iter) => iter.peek().cloned(),
             None => return Err(ExtError::TrieIteratorMissing),
         };
-        Ok(result)
+        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
     }
 
     fn promise_create(

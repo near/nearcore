@@ -208,6 +208,7 @@ impl<'a> Runtime<'a> {
             .ext
             .storage_iter(&prefix)
             .map_err(|_| Error::StorageUpdateError)?;
+        debug!(target: "wasm", "storage_iter('{}') -> {}", format_buf(&prefix), id);
         Ok(RuntimeValue::I32(id as i32))
     }
 
@@ -218,6 +219,7 @@ impl<'a> Runtime<'a> {
             .ext
             .storage_iter_next(id)
             .map_err(|_| Error::StorageUpdateError)?;
+        debug!(target: "wasm", "storage_iter_next({}) -> '{}'", id, format_buf(&key.clone().unwrap_or_default()));
         Ok(RuntimeValue::I32(key.is_some() as i32))
     }
 
@@ -622,7 +624,7 @@ mod ext_impl {
                 STORAGE_READ_LEN_FUNC => some!(self.storage_read_len(&args)),
                 STORAGE_READ_INTO_FUNC => void!(self.storage_read_into(&args)),
                 STORAGE_ITER_FUNC => some!(self.storage_iter(&args)),
-                STORAGE_ITER_NEXT_FUNC => void!(self.storage_iter_next(&args)),
+                STORAGE_ITER_NEXT_FUNC => some!(self.storage_iter_next(&args)),
                 STORAGE_ITER_PEEK_LEN_FUNC => some!(self.storage_iter_peek_len(&args)),
                 STORAGE_ITER_PEEK_INTO_FUNC => void!(self.storage_iter_peek_into(&args)),
                 GAS_FUNC => void!(self.gas(&args)),
