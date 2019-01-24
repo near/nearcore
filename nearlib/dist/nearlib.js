@@ -105,7 +105,7 @@ let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
         method: method,
-        body: method != "GET" ? JSON.stringify(json) : undefined,
+        body: method != 'GET' ? JSON.stringify(json) : undefined,
         headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
@@ -116,7 +116,7 @@ module.exports = async function sendJson(method, url, json) {
         return null;
     }
     return await response.json();
-}
+};
 },{"node-fetch":12}],6:[function(require,module,exports){
 const sendJson = require('./internal/send-json');
 
@@ -139,14 +139,17 @@ const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key
 const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
 
+const MAX_STATUS_POLL_ATTEMPTS = 3;
+const STATUS_POLL_PERIOD_MS = 250;
+
 /**
- * Javascript library for interacting with near. 
+ * Javascript library for interacting with near.
  */
 class Near {
     /**
      * Constructs near with an instance of nearclient.
      * @constructor
-     * @param {NearClient} nearClient 
+     * @param {NearClient} nearClient
      */
     constructor(nearClient) {
         this.nearClient = nearClient;
@@ -189,7 +192,7 @@ class Near {
      * Schedules an asynchronous function call. Returns a hash which can be used to
      * check the status of the transaction later.
      * @param {number} amount amount of tokens to transfer as part of the operation
-     * @param {string} sender account id of the sender 
+     * @param {string} sender account id of the sender
      * @param {string} contractAccountId account id of the contract
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
@@ -219,7 +222,7 @@ class Near {
             originator: sender,
             contract_account_id: contractAccountId,
             wasm_byte_array: wasmArray,
-            public_key: "9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE" // This parameter is not working properly yet. Use some fake value
+            public_key: '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE' // This parameter is not working properly yet. Use some fake value
         });
     }
 
@@ -243,14 +246,30 @@ class Near {
         options.changeMethods.forEach((methodName) => {
             contract[methodName] = async function (args) {
                 args = args || {};
-                return near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
+                const response = await near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
+                let status;
+                for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
+                    await sleep(STATUS_POLL_PERIOD_MS);
+                    status = await near.getTransactionStatus(response.hash);
+                    if (status.status == 'Completed') {
+                        return status;
+                    }
+                }
+                throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
+                    `for transaction ${response.hash} with status: ${status.status}`);
             };
         });
         return contract;
     }
-};
+}
 
-module.exports = Near; 
+function sleep(time) {
+    return new Promise(function (resolve) {
+        setTimeout(resolve, time);
+    });
+}
+
+module.exports = Near;
 
 
 }).call(this,require("buffer").Buffer)

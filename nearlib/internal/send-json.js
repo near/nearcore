@@ -2,7 +2,7 @@ let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
         method: method,
-        body: method != "GET" ? JSON.stringify(json) : undefined,
+        body: method != 'GET' ? JSON.stringify(json) : undefined,
         headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
@@ -13,4 +13,4 @@ module.exports = async function sendJson(method, url, json) {
         return null;
     }
     return await response.json();
-}
+};
