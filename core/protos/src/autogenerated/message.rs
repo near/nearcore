@@ -22,7 +22,6 @@ use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Status {
     // message fields
     pub version: u32,
@@ -31,9 +30,7 @@ pub struct Status {
     pub genesis_hash: ::std::vec::Vec<u8>,
     pub account_id: ::std::string::String,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -342,19 +339,15 @@ impl ::protobuf::reflect::ProtobufValue for Status {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Message {
     // message oneof groups
     pub message_type: ::std::option::Option<Message_oneof_message_type>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
 #[derive(Clone,PartialEq)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub enum Message_oneof_message_type {
     transaction(::std::vec::Vec<u8>),
     receipt(::std::vec::Vec<u8>),

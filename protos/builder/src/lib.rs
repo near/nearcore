@@ -25,7 +25,6 @@ pub fn autogenerate() {
         includes: &["protos"],
         customize: Customize {
             expose_oneof: Some(true),
-            serde_derive: Some(true),
             ..Default::default()
         },
     }).expect("protoc");

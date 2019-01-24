@@ -22,7 +22,6 @@ use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct TransactionBody {
     // message fields
     pub originator: ::std::string::String,
@@ -32,9 +31,7 @@ pub struct TransactionBody {
     pub method_name: ::std::string::String,
     pub args: ::std::vec::Vec<u8>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -384,15 +381,12 @@ impl ::protobuf::reflect::ProtobufValue for TransactionBody {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct SignedTransaction {
     // message fields
     pub body: ::protobuf::SingularPtrField<TransactionBody>,
     pub signature: ::std::vec::Vec<u8>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -607,16 +601,13 @@ impl ::protobuf::reflect::ProtobufValue for SignedTransaction {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct CallbackInfo {
     // message fields
     pub id: ::std::vec::Vec<u8>,
     pub result_index: u64,
     pub receiver: ::std::string::String,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -850,15 +841,12 @@ impl ::protobuf::reflect::ProtobufValue for CallbackInfo {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct AccountingInfo {
     // message fields
     pub originator: ::std::string::String,
     pub contract_id: ::std::string::String,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1058,7 +1046,6 @@ impl ::protobuf::reflect::ProtobufValue for AccountingInfo {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct AsyncCallReceipt {
     // message fields
     pub amount: u64,
@@ -1068,9 +1055,7 @@ pub struct AsyncCallReceipt {
     pub callback_info: ::protobuf::SingularPtrField<CallbackInfo>,
     pub accounting_info: ::protobuf::SingularPtrField<AccountingInfo>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1450,15 +1435,12 @@ impl ::protobuf::reflect::ProtobufValue for AsyncCallReceipt {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct CallbackResultReceipt {
     // message fields
     pub info: ::protobuf::SingularPtrField<CallbackInfo>,
     pub result: ::std::vec::Vec<u8>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1673,14 +1655,11 @@ impl ::protobuf::reflect::ProtobufValue for CallbackResultReceipt {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct RefundReceipt {
     // message fields
     pub amount: u64,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -1832,16 +1811,13 @@ impl ::protobuf::reflect::ProtobufValue for RefundReceipt {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct ManaAccountingReceipt {
     // message fields
     pub accounting_info: ::protobuf::SingularPtrField<AccountingInfo>,
     pub mana_refund: u32,
     pub gas_used: u64,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
@@ -2083,7 +2059,6 @@ impl ::protobuf::reflect::ProtobufValue for ManaAccountingReceipt {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Receipt {
     // message fields
     pub originator: ::std::string::String,
@@ -2092,14 +2067,11 @@ pub struct Receipt {
     // message oneof groups
     pub body: ::std::option::Option<Receipt_oneof_body>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
 #[derive(Clone,PartialEq)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub enum Receipt_oneof_body {
     async_call(AsyncCallReceipt),
     callback_result(CallbackResultReceipt),
@@ -2652,19 +2624,15 @@ impl ::protobuf::reflect::ProtobufValue for Receipt {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Transaction {
     // message oneof groups
     pub body: ::std::option::Option<Transaction_oneof_body>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
 #[derive(Clone,PartialEq)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub enum Transaction_oneof_body {
     signed_transaction(SignedTransaction),
     receipt(Receipt),
@@ -2942,14 +2910,11 @@ impl ::protobuf::reflect::ProtobufValue for Transaction {
 }
 
 #[derive(PartialEq,Clone,Default)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct ChainPayload {
     // message fields
     pub transactions: ::protobuf::RepeatedField<Transaction>,
     // special fields
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
-    #[cfg_attr(feature = "with-serde", serde(skip))]
     pub cached_size: ::protobuf::CachedSize,
 }
 
