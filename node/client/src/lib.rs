@@ -19,32 +19,24 @@ use std::{cmp, env, fs};
 use env_logger::Builder;
 use parking_lot::RwLock;
 
-use beacon::authority::Authority;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::SignedBlock;
-use configs::authority::get_authority_config;
-use node_runtime::{ApplyState, Runtime};
-use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::traits::Signer;
 use primitives::types::{AccountId, BlockId, ConsensusBlockBody, UID, AuthorityStake};
 use transaction::ChainPayload;
 use shard::{ShardBlockChain, SignedShardBlock};
-use storage::{StateDb, Storage};
+use node_runtime::ApplyState;
+use storage::Storage;
 use configs::ClientConfig;
 
 pub struct Client {
     pub account_id: AccountId,
+    pub signer: InMemorySigner,
 
-    // State-shared objects.
-    pub state_db: Arc<StateDb>,
-    pub authority: RwLock<Authority>,
-    pub runtime: RwLock<Runtime>,
     pub shard_chain: Arc<ShardBlockChain>,
     pub beacon_chain: BeaconBlockChain,
-    pub signer: InMemorySigner,
-    pub statedb_viewer: StateDbViewer,
 
     // TODO: The following logic might need to be hidden somewhere.
     /// Stores blocks that cannot be added yet.
@@ -90,20 +82,13 @@ pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
     pub fn new(config: &ClientConfig) -> Self {
-        let chain_spec = &config.chain_spec;
         let storage = get_storage(&config.base_path);
-        let state_db = Arc::new(StateDb::new(storage.clone()));
-        let runtime = RwLock::new(Runtime::new(state_db.clone()));
-        let genesis_root = runtime.write().apply_genesis_state(
-            &chain_spec.accounts,
-            &chain_spec.genesis_wasm,
-            &chain_spec.initial_authorities,
-        );
 
-        let shard_genesis = SignedShardBlock::genesis(genesis_root);
-        let genesis = SignedBeaconBlock::genesis(shard_genesis.block_hash());
-        let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage.clone()));
-        let beacon_chain = BeaconBlockChain::new(genesis, storage.clone());
+        let chain_spec = &config.chain_spec;
+        let shard_chain = Arc::new(ShardBlockChain::new(chain_spec, storage.clone()));
+        let genesis = SignedBeaconBlock::genesis(shard_chain.chain.genesis_hash);
+        let beacon_chain = BeaconBlockChain::new(genesis, &chain_spec, storage.clone());
+
         let mut key_file_path = config.base_path.to_path_buf();
         key_file_path.push(KEY_STORE_PATH);
         let signer = InMemorySigner::from_key_file(
@@ -111,21 +96,14 @@ impl Client {
             key_file_path.as_path(),
             config.public_key.clone(),
         );
-        let authority_config = get_authority_config(&chain_spec);
-        let authority = RwLock::new(Authority::new(authority_config, &beacon_chain));
 
         configure_logging(config.log_level);
-        let statedb_viewer = StateDbViewer::new(shard_chain.clone(), state_db.clone());
 
         Self {
             account_id: config.account_id.clone(),
-            state_db,
-            authority,
-            runtime,
+            signer,
             shard_chain,
             beacon_chain,
-            signer,
-            statedb_viewer,
             pending_beacon_blocks: RwLock::new(HashMap::new()),
             pending_shard_blocks: RwLock::new(HashMap::new()),
         }
@@ -140,13 +118,14 @@ impl Client {
         let transactions =
             body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
 
-        let last_block = self.beacon_chain.best_block();
+        let last_block = self.beacon_chain.chain.best_block();
         let last_shard_block = self
             .shard_chain
             .chain
             .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
             .expect("At the moment we should have shard blocks accompany beacon blocks");
         let authorities = self
+            .beacon_chain
             .authority
             .read()
             .get_authorities(last_block.body.header.index)
@@ -158,12 +137,12 @@ impl Client {
             block_index: last_block.body.header.index + 1,
             shard_id,
         };
-        let apply_result = self.runtime.write().apply(
+        let apply_result = self.shard_chain.runtime.write().apply(
             &apply_state,
             &[],
             transactions,
         );
-        self.state_db.commit(apply_result.transaction).ok();
+        self.shard_chain.state_db.commit(apply_result.transaction).ok();
         let mut shard_block = SignedShardBlock::new(
             shard_id,
             last_shard_block.body.header.index + 1,
@@ -187,7 +166,7 @@ impl Client {
         block.add_signature(signature);
         block.authority_mask = authority_mask;
         self.shard_chain.insert_block(&shard_block.clone());
-        self.beacon_chain.insert_block(block.clone());
+        self.beacon_chain.chain.insert_block(block.clone());
         info!(target: "block_producer", "Block body: {:?}", block.body);
         info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
         io::stdout().flush().expect("Could not flush stdout");
@@ -204,6 +183,7 @@ impl Client {
         // we can unwrap because parent is guaranteed to exist
         let prev_header = self
             .beacon_chain
+            .chain
             .get_header(&BlockId::Hash(parent_hash))
             .expect("Parent is known but header not found.");
         let prev_shard_block = self
@@ -218,7 +198,7 @@ impl Client {
             parent_block_hash: parent_hash,
             shard_id: shard_block.body.header.shard_id,
         };
-        let apply_result = self.runtime.write().check(
+        let apply_result = self.shard_chain.runtime.write().check(
             &apply_state,
             &prev_shard_block.body.new_receipts,
             &shard_block.body.transactions,
@@ -234,9 +214,9 @@ impl Client {
                     );
                     return;
                 }
-                self.state_db.commit(db_transaction).ok();
+                self.shard_chain.state_db.commit(db_transaction).ok();
                 self.shard_chain.insert_block(&shard_block);
-                self.beacon_chain.insert_block(beacon_block);
+                self.beacon_chain.chain.insert_block(beacon_block);
             }
             None => {
                 info!("Found incorrect transaction in block {:?}", beacon_block);
@@ -251,7 +231,7 @@ impl Client {
         let mut part_add = vec![];
         let mut part_pending = HashMap::default();
         for (hash, other) in self.pending_beacon_blocks.write().drain() {
-            if self.beacon_chain.is_known(&other.body.header.parent_hash)
+            if self.beacon_chain.chain.is_known(&other.body.header.parent_hash)
                 && (self.shard_chain.chain.is_known(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
@@ -276,13 +256,13 @@ impl Client {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
-        if self.beacon_chain.is_known(&hash)
+        if self.beacon_chain.chain.is_known(&hash)
             || self.pending_beacon_blocks.write().contains_key(&hash)
         {
             return None;
         }
         self.pending_beacon_blocks.write().insert(hash, beacon_block);
-        let best_block_hash = self.beacon_chain.best_hash();
+        let best_block_hash = self.beacon_chain.chain.best_hash();
 
         let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
         // Loop until we run out of blocks to add.
@@ -299,7 +279,7 @@ impl Client {
                 None => break,
             };
             let hash = next_beacon_block.block_hash();
-            if self.beacon_chain.is_known(&hash) {
+            if self.beacon_chain.chain.is_known(&hash) {
                 continue;
             }
 
@@ -313,7 +293,7 @@ impl Client {
             // Update the authority.
             self.update_authority(&next_beacon_block.header());
         }
-        let new_best_block = self.beacon_chain.best_block();
+        let new_best_block = self.beacon_chain.chain.best_block();
         if new_best_block.block_hash() == best_block_hash {
             None
         } else {
@@ -323,7 +303,7 @@ impl Client {
 
     // Authority-related code. Consider hiding it inside the shard chain.
     fn update_authority(&self, beacon_header: &SignedBeaconBlockHeader) {
-        self.authority.write().process_block_header(beacon_header);
+        self.beacon_chain.authority.write().process_block_header(beacon_header);
     }
 
     /// Returns own UID and UID to authority map for the given block number.
@@ -333,6 +313,7 @@ impl Client {
         block_index: u64,
     ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
         let next_authorities = self
+            .beacon_chain
             .authority
             .read()
             .get_authorities(block_index)

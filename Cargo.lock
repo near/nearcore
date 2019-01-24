@@ -1724,6 +1724,7 @@ name = "node-http"
 version = "0.1.0"
 dependencies = [
  "beacon 0.0.1",
+ "chain 0.0.1",
  "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.12.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1733,6 +1734,7 @@ dependencies = [
  "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.36 (registry+https://github.com/rust-lang/crates.io-index)",
+ "shard 0.0.1",
  "transaction 0.1.0",
 ]
 
@@ -2443,6 +2445,7 @@ name = "shard"
 version = "0.0.1"
 dependencies = [
  "chain 0.0.1",
+ "configs 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "node-runtime 0.0.1",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",

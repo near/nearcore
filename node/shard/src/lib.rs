@@ -16,8 +16,9 @@ use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
 use storage::{extend_with_cache, read_with_cache, StateDb};
 use transaction::{SignedTransaction, Transaction};
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::Runtime;
 use node_runtime::state_viewer::StateDbViewer;
+use configs::chain_spec::ChainSpec;
 
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 
@@ -72,10 +73,17 @@ pub struct ShardBlockChain {
 }
 
 impl ShardBlockChain {
-    pub fn new(genesis: SignedShardBlock, storage: Arc<storage::Storage>) -> Self {
-        let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
+    pub fn new(chain_spec: &ChainSpec, storage: Arc<storage::Storage>) -> Self {
         let state_db = Arc::new(StateDb::new(storage.clone()));
         let runtime = RwLock::new(Runtime::new(state_db.clone()));
+        let genesis_root = runtime.write().apply_genesis_state(
+            &chain_spec.accounts,
+            &chain_spec.genesis_wasm,
+            &chain_spec.initial_authorities,
+        );
+        let genesis = SignedShardBlock::genesis(genesis_root);
+
+        let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
         let statedb_viewer = StateDbViewer::new(state_db.clone());
         Self {
             chain,
@@ -208,8 +216,10 @@ mod tests {
     use super::*;
 
     fn get_chain() -> ShardBlockChain {
-        let genesis = SignedShardBlock::genesis(CryptoHash::default());
-        ShardBlockChain::new(genesis, Arc::new(create_memory_db()))
+        let chain_spec = ChainSpec {
+            accounts: vec![], genesis_wasm: vec![], initial_authorities: vec![], beacon_chain_epoch_length: 1, beacon_chain_num_seats_per_slot: 1, boot_nodes: vec![]
+        };
+        ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()))
     }
 
     #[test]

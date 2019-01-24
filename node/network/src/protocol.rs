@@ -124,12 +124,12 @@ impl Protocol {
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
-        let best_block_header = self.client.beacon_chain.best_block().header();
+        let best_block_header = self.client.beacon_chain.chain.best_block().header();
         let status = message::Status {
             version: CURRENT_VERSION,
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
-            genesis_hash: self.client.beacon_chain.genesis_hash,
+            genesis_hash: self.client.beacon_chain.chain.genesis_hash,
             account_id: self.config.account_id.clone(),
         };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
@@ -176,12 +176,12 @@ impl Protocol {
         if status.version != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if status.genesis_hash != self.client.beacon_chain.genesis_hash {
+        if status.genesis_hash != self.client.beacon_chain.chain.genesis_hash {
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.client.beacon_chain.best_index();
+        let best_index = self.client.beacon_chain.chain.best_index();
         let mut next_request_id = 0;
         let mut block_request = None;
         let mut request_timestamp = None;
@@ -220,12 +220,12 @@ impl Protocol {
         let mut blocks = Vec::new();
         let mut id = request.from;
         let max = std::cmp::min(request.max.unwrap_or(u64::max_value()), MAX_BLOCK_DATA_RESPONSE);
-        while let Some(block) = self.client.beacon_chain.get_block(&id) {
+        while let Some(block) = self.client.beacon_chain.chain.get_block(&id) {
             blocks.push(block);
             if blocks.len() as u64 >= max {
                 break;
             }
-            let header = self.client.beacon_chain.get_header(&id).unwrap();
+            let header = self.client.beacon_chain.chain.get_header(&id).unwrap();
             let block_index = header.index();
             let block_hash = header.block_hash();
             let reach_end = match request.to {
@@ -384,12 +384,11 @@ mod tests {
     use futures::{Sink, Stream};
     use futures::sync::mpsc::channel;
 
-    use beacon::authority::Authority;
     use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
     use primitives::traits::Encode;
     use transaction::SignedTransaction;
 
-    use crate::test_utils::{get_test_authority_config, get_test_protocol};
+    use crate::test_utils::{get_test_chain_spec, get_test_protocol};
 
     use super::*;
 
@@ -407,17 +406,16 @@ mod tests {
     #[test]
     fn test_authority_map() {
         let storage = Arc::new(create_memory_db());
+        let chain_spec = get_test_chain_spec(1, 1, 1);
         let genesis_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         // chain1
-        let beacon_chain = Arc::new(BeaconBlockChain::new(genesis_block.clone(), storage.clone()));
-        let authority_config = get_test_authority_config(1, 1, 1);
-        let authority = Authority::new(authority_config, &beacon_chain);
+        let beacon_chain = Arc::new(BeaconBlockChain::new(genesis_block.clone(), &chain_spec, storage.clone()));
         let (authority_tx, authority_rx) = channel(1024);
         let protocol = Arc::new(get_test_protocol());
 
         // get authorities for block 1
-        let authorities = authority.get_authorities(1).unwrap();
+        let authorities = beacon_chain.authority.read().get_authorities(1).unwrap();
         let authority_map: HashMap<UID, AuthorityStake> =
             authorities.into_iter().enumerate().map(|(k, v)| (k as UID, v)).collect();
         let authority_map1 = authority_map.clone();

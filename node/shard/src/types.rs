@@ -83,6 +83,11 @@ impl SignedShardBlock {
             0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![]
         )
     }
+
+    #[inline]
+    pub fn merkle_root_state(&self) -> MerkleHash {
+        self.body.header.merkle_root_state
+    }
 }
 
 impl SignedBlock for SignedShardBlock {
@@ -95,6 +100,11 @@ impl SignedBlock for SignedShardBlock {
             signature: self.signature.clone(),
             authority_mask: self.authority_mask.clone(),
         }
+    }
+
+    #[inline]
+    fn index(&self) -> u64 {
+        self.body.header.index
     }
 
     #[inline]

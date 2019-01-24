@@ -9,7 +9,6 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate shard;
 extern crate client;
 
 pub mod api;

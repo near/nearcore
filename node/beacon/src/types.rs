@@ -93,6 +93,11 @@ impl SignedBlock for SignedBeaconBlock {
     }
 
     #[inline]
+    fn index(&self) -> u64 {
+        self.body.header.index
+    }
+
+    #[inline]
     fn block_hash(&self) -> CryptoHash {
         self.hash
     }
@@ -115,7 +120,7 @@ pub struct BeaconBlockChain {
 }
 
 impl BeaconBlockChain {
-    pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: &Arc<Storage>) -> Self {
+    pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: Arc<Storage>) -> Self {
         let chain = chain::BlockChain::new(genesis, storage.clone());
         let authority_config = get_authority_config(chain_spec);
         let authority = RwLock::new(Authority::new(authority_config, &chain));
