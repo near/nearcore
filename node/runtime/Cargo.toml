@@ -12,10 +12,7 @@ log = "0.4"
 byteorder = "1.2"
 kvdb = "0.1"
 
-chain = { path = "../../core/chain" }
 primitives = { path = "../../core/primitives" }
-beacon = { path = "../../node/beacon" }
-shard = { path = "../../core/shard" }
 storage = { path = "../../core/storage" }
 transaction = { path = "../../core/transaction" }
 wasm = { path = "../../core/wasm" }

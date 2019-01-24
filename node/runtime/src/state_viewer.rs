@@ -4,7 +4,6 @@ use std::str;
 
 use primitives::hash::CryptoHash;
 use primitives::types::{AccountId, Balance, MerkleHash, AccountingInfo};
-use shard::ShardBlockChain;
 use storage::{StateDb, StateDbUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
@@ -20,7 +19,6 @@ pub struct ViewStateResult {
 }
 
 pub struct StateDbViewer {
-    shard_chain: Arc<ShardBlockChain>,
     state_db: Arc<StateDb>,
 }
 
@@ -34,21 +32,16 @@ pub struct AccountViewCallResult {
 }
 
 impl StateDbViewer {
-    pub fn new(shard_chain: Arc<ShardBlockChain>, state_db: Arc<StateDb>) -> Self {
+    pub fn new(state_db: Arc<StateDb>) -> Self {
         StateDbViewer {
-            shard_chain,
             state_db,
         }
     }
 
-    pub fn get_root(&self) -> MerkleHash {
-        self.shard_chain.chain.best_block().body.header.merkle_root_state
-    }
-
-    pub fn view_account_at(
+    pub fn view_account(
         &self,
-        account_id: &AccountId,
         root: MerkleHash,
+        account_id: &AccountId,
     ) -> Result<AccountViewCallResult, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
 
@@ -68,9 +61,9 @@ impl StateDbViewer {
 
     pub fn get_public_keys_for_account(
         &self,
+        root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
-        let root = self.get_root();
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => Ok(account.public_keys),
@@ -78,16 +71,10 @@ impl StateDbViewer {
         }
     }
 
-    pub fn view_account(
+    pub fn view_state(
         &self,
-        account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, String> {
-        let root = self.get_root();
-        self.view_account_at(account_id, root)
-    }
-
-    pub fn view_state(&self, account_id: &AccountId) -> ViewStateResult {
-        let root = self.get_root();
+        root: MerkleHash,
+        account_id: &AccountId) -> ViewStateResult {
         let mut values = HashMap::default();
         let state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
@@ -102,13 +89,14 @@ impl StateDbViewer {
         }
     }
 
-    pub fn call_function_at(
+    pub fn call_function(
         &self,
+        root: MerkleHash,
+        block_index: u64,
         originator_id: &AccountId,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
-        root: MerkleHash,
     ) -> Result<Vec<u8>, String> {
         let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
@@ -137,8 +125,8 @@ impl StateDbViewer {
                         originator_id,
                         contract_id,
                         0,
-                        self.shard_chain.chain.best_index(),
-                        root.into(),
+                        block_index,
+                        root.as_ref().into(),
                     ),
                 )
             }
@@ -173,23 +161,6 @@ impl StateDbViewer {
             }
         }
     }
-
-    pub fn call_function(
-        &self,
-        originator_id: &AccountId,
-        contract_id: &AccountId,
-        method_name: &str,
-        args: &[u8],
-    ) -> Result<Vec<u8>, String> {
-        let root = self.get_root();
-        self.call_function_at(
-            originator_id,
-            contract_id,
-            method_name,
-            args,
-            root,
-        )
-    }
 }
 
 #[cfg(test)]
@@ -204,9 +175,10 @@ mod tests {
 
     #[test]
     fn test_view_call() {
-        let viewer = get_test_state_db_viewer();
+        let (viewer, root) = get_test_state_db_viewer();
 
         let result = viewer.call_function(
+            root, 1,
             &alice_account(),
             &alice_account(),
             "run_test",
@@ -218,9 +190,10 @@ mod tests {
 
     #[test]
     fn test_view_call_try_changing_storage() {
-        let viewer = get_test_state_db_viewer();
+        let (viewer, root) = get_test_state_db_viewer();
 
         let result = viewer.call_function(
+            root, 1,
             &alice_account(),
             &alice_account(),
             "run_test_with_storage_change",
@@ -232,11 +205,12 @@ mod tests {
 
     #[test]
     fn test_view_call_with_args() {
-        let viewer = get_test_state_db_viewer();
+        let (viewer, root) = get_test_state_db_viewer();
         let args = (1..3).into_iter()
             .flat_map(|x| encode_int(x).to_vec())
             .collect::<Vec<_>>();
         let view_call_result = viewer.call_function(
+            root, 1,
             &alice_account(),
             &alice_account(),
             "sum_with_input",
@@ -247,8 +221,9 @@ mod tests {
 
     #[test]
     fn test_view_state() {
-        let viewer = get_test_state_db_viewer();
-        let result = viewer.view_state(&alice_account());
+        let (viewer, root) = get_test_state_db_viewer();
+        let result = viewer.view_state(root, &alice_account());
         assert_eq!(result.values, HashMap::default());
+        // TODO: make this test actually do stuff.
     }
 }
