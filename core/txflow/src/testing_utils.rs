@@ -36,6 +36,7 @@ pub fn simple_bare_message(
         owner_sig: DEFAULT_SIGNATURE,
         hash,
         body,
+        beacon_block_index: 0,
     }
 }
 

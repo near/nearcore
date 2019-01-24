@@ -101,6 +101,7 @@ fn create_nonce_with_nonce(base: &[u8], salt: u64) -> Vec<u8> {
     hash(&nonce).into()
 }
 
+#[derive(Debug)]
 pub struct ApplyState {
     pub root: MerkleHash,
     pub shard_id: ShardId,
@@ -108,7 +109,7 @@ pub struct ApplyState {
     pub parent_block_hash: CryptoHash,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
@@ -1154,6 +1155,7 @@ impl Runtime {
             StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
         let mut pk_to_acc_id = HashMap::new();
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
+            // Make sure this public key is not present yet in the hash map.
             pk_to_acc_id.insert(public_key.clone(), account_id.clone());
             set(
                 &mut state_db_update,

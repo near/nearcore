@@ -46,6 +46,8 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .help("Specify a file location to read a custom chain spec.")
             .takes_value(true),
         Arg::with_name("account_id")
+            .short("a")
+            .long("account-id")
             .value_name("ACCOUNT_ID")
             .help("Set the account id of the node")
             .takes_value(true)
@@ -55,10 +57,7 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .short("k")
             .long("public-key")
             .value_name("PUBLIC_KEY")
-            .help(
-                "Sets public key to sign with, \
-                 can be omitted with 1 file in keystore",
-            )
+            .help("Sets public key to sign with, can be omitted with 1 file in keystore")
             .takes_value(true),
         Arg::with_name("log_level")
             .short("l")

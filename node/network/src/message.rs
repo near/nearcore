@@ -1,7 +1,8 @@
-use beacon::types::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use beacon::types::SignedBeaconBlock;
 use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, BlockId, Gossip};
+use primitives::types::{AccountId, Gossip};
 use transaction::{SignedTransaction, ReceiptTransaction, ChainPayload};
+use shard::SignedShardBlock;
 
 pub type RequestId = u64;
 
@@ -12,9 +13,7 @@ pub enum Message {
     Transaction(Box<SignedTransaction>),
     Receipt(Box<ReceiptTransaction>),
     Status(Status),
-    BlockRequest(BlockRequest),
-    BlockResponse(BlockResponse<SignedBeaconBlock>),
-    BlockAnnounce(BlockAnnounce<SignedBeaconBlock, SignedBeaconBlockHeader>),
+    BlockAnnounce(Box<(SignedBeaconBlock, SignedShardBlock)>),
     Gossip(Box<Gossip<ChainPayload>>),
 }
 
@@ -31,31 +30,4 @@ pub struct Status {
     pub genesis_hash: CryptoHash,
     /// Account id.
     pub account_id: Option<AccountId>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub struct BlockRequest {
-    /// request id
-    pub id: RequestId,
-    /// starting from this id
-    pub from: BlockId,
-    /// ending at this id,
-    pub to: Option<BlockId>,
-    /// max number of blocks requested
-    pub max: Option<u64>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockResponse<Block> {
-    // request id that the response is responding to
-    pub id: RequestId,
-    // block data
-    pub blocks: Vec<Block>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum BlockAnnounce<B, H> {
-    // Announce either header or the entire block
-    Header(H),
-    Block(B),
 }

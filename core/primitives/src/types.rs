@@ -135,6 +135,7 @@ pub struct SignedMessageData<P> {
     /// Hash of the body.
     pub hash: TxFlowHash,
     pub body: MessageDataBody<P>,
+    pub beacon_block_index: u64,
 }
 
 impl<P> Hash for SignedMessageData<P> {
@@ -167,6 +168,7 @@ pub struct ConsensusBlockHeader {
 pub struct ConsensusBlockBody<P> {
     /// TxFlow messages that constitute that consensus block together with the endorsements.
     pub messages: Vec<SignedMessageData<P>>,
+    pub beacon_block_index: u64,
 }
 
 // Gossip-specific structs.

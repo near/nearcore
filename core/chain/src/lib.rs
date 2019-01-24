@@ -4,6 +4,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate storage;
+#[macro_use]
+extern crate log;
 
 use std::cmp;
 use std::collections::HashMap;
@@ -187,6 +189,11 @@ impl<B: SignedBlock> BlockChain<B> {
         self.insert_block_index(&block_index);
         if block_index.cumulative_weight > self.best_block_index.read().cumulative_weight {
             self.update_best_block(block_index);
+        } else {
+            info!(target: "chain",
+                  "Block #{:?} {:?} was declined via fork choice rule (best block weight = {} vs new block weight = {}).",
+                  block_index.block.header().index(), block_hash,
+                  self.best_block_index.read().cumulative_weight, block_index.cumulative_weight);
         }
 
         result

@@ -27,6 +27,7 @@ pub struct DAG<
 > {
     /// UID of the node.
     owner_uid: UID,
+    beacon_block_index: u64,
     arena: Arena<Box<Message<'a, P>>>,
     /// Stores all messages known to the current root.
     messages: HashSet<&'a Message<'a, P>>,
@@ -47,9 +48,10 @@ pub struct DAG<
 }
 
 impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'a, P, W, M> {
-    pub fn new(owner_uid: UID, starting_epoch: u64, witness_selector: &'a W) -> Self {
+    pub fn new(owner_uid: UID, beacon_block_index: u64, starting_epoch: u64, witness_selector: &'a W) -> Self {
         DAG {
             owner_uid,
+            beacon_block_index,
             arena: Arena::new(),
             messages: HashSet::new(),
             roots: HashSet::new(),
@@ -150,7 +152,8 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
             let mut parents = vec![];
             self.collect_parents(repr, &mut parents);
             res.push(ConsensusBlockBody {
-                messages: parents.iter().map(|m| m.data.clone()).collect()
+                messages: parents.iter().map(|m| m.data.clone()).collect(),
+                beacon_block_index: self.beacon_block_index
             });
             self.published_epochs.insert(*epoch);
         }
@@ -237,6 +240,7 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
                 payload,
                 endorsements,
             },
+            beacon_block_index: self.beacon_block_index,
         }));
         message.parents = self.roots.clone();
         message.init(true, false, self.starting_epoch, self.witness_selector);
@@ -293,7 +297,7 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, 0, &selector);
 
         // Parent have greater epoch than children
         let (a, b);
@@ -326,7 +330,7 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, 0, &selector);
 
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0; 1, 0; 3, 0;] => 0, 1 => a;]);
@@ -350,7 +354,7 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, 0, &selector);
         let (a, b);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2;] => 2, 3 => b;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4;] => 4, 5;]);
@@ -367,7 +371,7 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, 0, &selector);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
         simple_bare_messages!(data_arena, all_messages [[=> a; 3, 4 => d;] => 4, 5 => e;]);
@@ -395,7 +399,7 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, 0, &selector);
         let (a, b, c, d, e);
         simple_bare_messages!(data_arena, all_messages [[0, 0 => a; 1, 2 => b;] => 2, 3 => c;]);
 
@@ -418,7 +422,7 @@ mod tests {
     fn movable() {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
-        let mut dag: DAG<_, _> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _> = DAG::new(0, 0, 0, &selector);
         let (a, b);
         // Add some messages.
         {
@@ -447,7 +451,7 @@ mod tests {
         let selector = FakeWitnessSelector::new();
         let data_arena = Arena::new();
         let mut all_messages = vec![];
-        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, &selector);
+        let mut dag: DAG<_, _, DAGMisbehaviorReporter> = DAG::new(0, 0, 0, &selector);
 
         let a;
 

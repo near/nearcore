@@ -48,6 +48,7 @@ where
         owner_sig: DEFAULT_SIGNATURE,
         hash,
         body,
+        beacon_block_index: 0,
     });
     message.parents = parents.into_iter().collect();
     message.init(recompute_epoch, true, starting_epoch, witness_selector);
