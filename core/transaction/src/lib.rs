@@ -7,9 +7,12 @@ use std::hash::{Hash, Hasher};
 use near_protos::transaction as transaction_proto;
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
-use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, verify};
+use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
 use primitives::traits::Payload;
-use primitives::types::{AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, StructSignature};
+use primitives::types::{
+    AccountId, AccountingInfo, Balance, CallbackId, Mana,
+    ManaAccounting, StructSignature,
+};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub enum TransactionBody {
@@ -30,6 +33,18 @@ pub struct CreateAccountTransaction {
     pub public_key: Vec<u8>,
 }
 
+impl From<transaction_proto::CreateAccountTransaction> for CreateAccountTransaction {
+    fn from(t: transaction_proto::CreateAccountTransaction) -> Self {
+        CreateAccountTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            new_account_id: t.new_account_id,
+            amount: t.amount,
+            public_key: t.public_key,
+        }
+    }
+}
+
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
@@ -37,6 +52,18 @@ pub struct DeployContractTransaction {
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
     pub public_key: Vec<u8>,
+}
+
+impl From<transaction_proto::DeployContractTransaction> for DeployContractTransaction {
+    fn from(t: transaction_proto::DeployContractTransaction) -> Self {
+        DeployContractTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            contract_id: t.contract_id,
+            wasm_byte_array: t.wasm_byte_array,
+            public_key: t.public_key,
+        }
+    }
 }
 
 impl fmt::Debug for DeployContractTransaction {
@@ -55,6 +82,19 @@ pub struct FunctionCallTransaction {
     pub amount: Balance,
 }
 
+impl From<transaction_proto::FunctionCallTransaction> for FunctionCallTransaction {
+    fn from(t: transaction_proto::FunctionCallTransaction) -> Self {
+        FunctionCallTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            contract_id: t.contract_id,
+            method_name: t.method_name,
+            args: t.args,
+            amount: t.amount,
+        }
+    }
+}
+
 impl fmt::Debug for FunctionCallTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FunctionCallTransaction {{ nonce: {}, originator: {}, contract_id: {}, method_name: {:?}, args: ..., amount: {} }}", self.nonce, self.originator, self.contract_id, String::from_utf8(self.method_name.clone()), self.amount)
@@ -69,11 +109,32 @@ pub struct SendMoneyTransaction {
     pub amount: Balance,
 }
 
+impl From<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
+    fn from(t: transaction_proto::SendMoneyTransaction) -> Self {
+        SendMoneyTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            receiver: t.receiver,
+            amount: 0
+        }
+    }
+}
+
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
     pub nonce: u64,
     pub originator: AccountId,
     pub amount: Balance,
+}
+
+impl From<transaction_proto::StakeTransaction> for StakeTransaction {
+    fn from(t: transaction_proto::StakeTransaction) -> Self {
+        StakeTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            amount: t.amount,
+        }
+    }
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -86,7 +147,40 @@ pub struct SwapKeyTransaction {
     pub new_key: Vec<u8>,
 }
 
+impl From<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
+    fn from(t: transaction_proto::SwapKeyTransaction) -> Self {
+        SwapKeyTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            cur_key: t.cur_key,
+            new_key: t.new_key,
+        }
+    }
+}
+
 impl TransactionBody {
+    pub fn get_nonce(&self) -> u64 {
+        match self {
+            TransactionBody::Stake(t) => t.nonce,
+            TransactionBody::SendMoney(t) => t.nonce,
+            TransactionBody::DeployContract(t) => t.nonce,
+            TransactionBody::FunctionCall(t) => t.nonce,
+            TransactionBody::CreateAccount(t) => t.nonce,
+            TransactionBody::SwapKey(t) => t.nonce,
+        }
+    }
+
+    pub fn get_originator(&self) -> AccountId {
+        match self {
+            TransactionBody::Stake(t) => t.originator.clone(),
+            TransactionBody::SendMoney(t) => t.originator.clone(),
+            TransactionBody::DeployContract(t) => t.originator.clone(),
+            TransactionBody::FunctionCall(t) => t.originator.clone(),
+            TransactionBody::CreateAccount(t) => t.originator.clone(),
+            TransactionBody::SwapKey(t) => t.originator.clone(),
+        }
+    }
+
     /// Returns option contract_id for Mana and Gas accounting
     pub fn get_contract_id(&self) -> Option<AccountId> {
         match self {
@@ -113,27 +207,40 @@ impl TransactionBody {
     }
 }
 
-impl From<transaction_proto::TransactionBody> for TransactionBody {
-    fn from(t: transaction_proto::TransactionBody) -> Self {
-        match t.destination {
-            _ => {
-                TransactionBody::FunctionCall(FunctionCallTransaction {
-                    nonce: t.nonce,
-                    originator: t.originator,
-                    contract_id: t.contract_id,
-                    method_name: t.method_name,
-                    args: t.args,
-                    amount: t.amount,
-                })
-            }
-        }
-    }
-}
-
 #[derive(Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
     pub body: TransactionBody,
     pub signature: StructSignature,
+}
+
+impl From<transaction_proto::SignedTransaction> for SignedTransaction {
+    fn from(t: transaction_proto::SignedTransaction) -> Self {
+        let body = match t.body {
+            Some(transaction_proto::SignedTransaction_oneof_body::create_account(t)) => {
+                TransactionBody::CreateAccount(CreateAccountTransaction::from(t))
+            },
+            Some(transaction_proto::SignedTransaction_oneof_body::deploy_contract(t)) => {
+                TransactionBody::DeployContract(DeployContractTransaction::from(t))
+            },
+            Some(transaction_proto::SignedTransaction_oneof_body::function_call(t)) => {
+                TransactionBody::FunctionCall(FunctionCallTransaction::from(t))
+            },
+            Some(transaction_proto::SignedTransaction_oneof_body::send_money(t)) => {
+                TransactionBody::SendMoney(SendMoneyTransaction::from(t))
+            },
+            Some(transaction_proto::SignedTransaction_oneof_body::stake(t)) => {
+                TransactionBody::Stake(StakeTransaction::from(t))
+            },
+            Some(transaction_proto::SignedTransaction_oneof_body::swap_key(t)) => {
+                TransactionBody::SwapKey(SwapKeyTransaction::from(t))
+            },
+            _ => unreachable!(),
+        };
+        SignedTransaction {
+            body,
+            signature: Signature::new(&t.signature),
+        }
+    }
 }
 
 impl SignedTransaction {
