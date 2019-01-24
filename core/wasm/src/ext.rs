@@ -91,7 +91,7 @@ pub trait External {
 
     fn storage_iter_next(&mut self, id: u32) -> Result<Option<Vec<u8>>>;
 
-    fn storage_iter_peek(&mut self, id: u32) -> Result<Option<&Vec<u8>>>;
+    fn storage_iter_peek(&mut self, id: u32) -> Result<Option<Vec<u8>>>;
 
     fn promise_create(
         &mut self,

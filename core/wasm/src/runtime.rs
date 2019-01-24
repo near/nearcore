@@ -219,7 +219,7 @@ impl<'a> Runtime<'a> {
             .ext
             .storage_iter_next(id)
             .map_err(|_| Error::StorageUpdateError)?;
-        debug!(target: "wasm", "storage_iter_next({}) -> '{}'", id, format_buf(&key.clone().unwrap_or(Vec::new())));
+        debug!(target: "wasm", "storage_iter_next({}) -> '{}'", id, format_buf(&key.clone().unwrap_or_default()));
         Ok(RuntimeValue::I32(key.is_some() as i32))
     }
 
