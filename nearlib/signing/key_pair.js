@@ -32,7 +32,7 @@ class KeyPair {
     }
 
     /**
-     * Static method to generate a new keypair from a random seed
+     * Generate a new keypair from a random seed
      */
     static async fromRandomSeed() {
         var newKeypair = nacl.sign.keyPair();
@@ -43,7 +43,7 @@ class KeyPair {
     }
 
     /**
-     * Static method to encode a buffer as string using bs58
+     * Encode a buffer as string using bs58
      * @param {Buffer} buffer 
      */
     static encodeBufferInBs58(buffer) {

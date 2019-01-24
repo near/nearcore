@@ -17,7 +17,7 @@
     "browserify": "^16.2.3",
     "eslint": "^5.12.1",
     "jest": "^23.6.0",
-    "uglifyify": "^5.0.1"
+    "uglifyify": "^5.0.1",
   },
   "keywords": [],
   "license": "MIT",
@@ -25,7 +25,8 @@
     "build": "browserify browser-exports.js -i node-fetch -o dist/nearlib.js && browserify browser-exports.js -i node-fetch -g uglifyify -o dist/nearlib.min.js",
     "test": "jest test",
     "lint": "eslint .",
-    "fix": "eslint . --fix"
+    "fix": "eslint . --fix",
+    "doc": "documentation readme near.js signing/key_pair.js -f md --shallow --section=API"
   },
   "author": "Evguenia Degtiareva"
 }
