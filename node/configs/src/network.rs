@@ -7,18 +7,21 @@ use ::primitives::{hash::hash_struct, types::PeerId};
 const DEFAULT_ADDR: &str = "127.0.0.1:3000";
 // const NETWORK_CONFIG_PATH: &str = "storage";
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct NetworkConfig {
     pub listen_addr: SocketAddr,
     pub peer_id: PeerId,
+    pub boot_nodes: Vec<SocketAddr>,
 }
 
 impl NetworkConfig {
-    pub fn new(addr: &str, peer_id: PeerId) -> Self {
-        let listen_addr = addr.parse::<SocketAddr>().expect("Cannot parse addr");
+    pub fn new(addr: &str, peer_id: PeerId, boot_nodes: Vec<String>) -> Self {
+        let listen_addr = addr.parse::<SocketAddr>().expect("Cannot parse address");
+        let boot_nodes = boot_nodes.iter().map(|n| n.parse::<SocketAddr>().expect("Cannot parse address in boot nodes")).collect();
         NetworkConfig {
             listen_addr,
-            peer_id
+            peer_id,
+            boot_nodes
         }
     }
 }
@@ -31,13 +34,13 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .help("Address that network service listens on")
             .default_value(DEFAULT_ADDR)
             .takes_value(true),
-        //Arg::with_name("boot_node")
-        //    .short("b")
-        //    .long("boot-node")
-        //    .value_name("URL")
-        //    .help("Specify a list of boot nodes.")
-        //    .multiple(true)
-        //    .takes_value(true),
+        Arg::with_name("boot_node")
+            .short("b")
+            .long("boot-node")
+            .value_name("BOOT_NODE")
+            .help("Specify a list of boot nodes.")
+            .multiple(true)
+            .takes_value(true),
         Arg::with_name("test_network_key_seed")
             .long("test-network-key-seed")
             .value_name("TEST_NETWORK_KEY_SEED")
@@ -50,24 +53,25 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     ]
 }
 
-pub fn from_matches(_client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
-    let addr = matches.value_of("addr").map(|x| x.parse::<SocketAddr>().unwrap()).unwrap();
+pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
+    let addr = matches.value_of("addr").unwrap();
     let test_network_key_seed =
         matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap());
 
-    //let mut boot_nodes: Vec<_> = matches
-    //    .values_of("boot_node")
-    //    .unwrap_or_else(clap::Values::default)
-    //    .map(String::from)
-    //    .collect();
-    //if boot_nodes.is_empty() {
-    //    boot_nodes = client_config.chain_spec.boot_nodes.to_vec();
-    //} else if !client_config.chain_spec.boot_nodes.is_empty() {
-    //    // TODO(#222): Maybe return an error here instead of panicking.
-    //    panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
-    //}
-    NetworkConfig {
-        listen_addr: addr,
-        peer_id: hash_struct(&test_network_key_seed)
+    let mut boot_nodes: Vec<_> = matches
+        .values_of("boot_node")
+        .unwrap_or_else(clap::Values::default)
+        .map(String::from)
+        .collect();
+    if boot_nodes.is_empty() {
+        boot_nodes = client_config.chain_spec.boot_nodes.to_vec();
+    } else if !client_config.chain_spec.boot_nodes.is_empty() {
+        // TODO(#222): Maybe return an error here instead of panicking.
+        panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
     }
+    NetworkConfig::new(
+        addr,
+        hash_struct(&test_network_key_seed),
+        boot_nodes,
+    )
 }

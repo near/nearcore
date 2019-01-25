@@ -18,6 +18,7 @@ use std::sync::Arc;
 use ::tokio_serde_cbor::Codec;
 use ::configs::network::NetworkConfig;
 use ::primitives::types::PeerId;
+use ::log::info;
 
 use crate::message::Message;
 
@@ -209,11 +210,16 @@ impl Service {
         message_tx: Sender<NetworkEvent>,
         message_rx: Receiver<Result<(PeerId, Message), (PeerId, Severity)>>,
     ) {
-        let mut service = Self::new(config, message_tx);
+        let mut service = Self::new(config.clone(), message_tx);
         let listener = service.listener.take().expect("listener already taken");
         let service = Arc::new(service);
         tokio::spawn(futures::lazy(move || {
             service.spawn_background_tasks(listener);
+            for node in config.boot_nodes.iter() {
+                match service.dial(*node) {
+                    _ => {}
+                };
+            }
             tokio::spawn(message_rx.for_each(move |m| {
                 match m {
                     Ok((peer_id, message)) => {
@@ -278,6 +284,7 @@ impl Service {
     /// try to dial peer, if we are already connected to the peer or are waiting to connect,
     /// returns error. Otherwise we spawn a task that initiates the connection
     pub fn dial(&self, addr: SocketAddr) -> Result<(), Error> {
+        info!("Dialing {:?}", addr);
         if self.peer_state.read().contains_key(&addr) {
             return Err(Error::new(
                 ErrorKind::Other,
@@ -459,11 +466,11 @@ mod tests {
 
     #[test]
     fn test_two_peers() {
-        let config1 = NetworkConfig::new("127.0.0.1:3000", hash_struct(&0));
-        let config2 = NetworkConfig::new("127.0.0.1:3001", hash_struct(&1));
+        let config1 = NetworkConfig::new("127.0.0.1:3000", hash_struct(&0), vec![]);
+        let config2 = NetworkConfig::new("127.0.0.1:3001", hash_struct(&1), vec![]);
         let (message_tx1, _) = channel(1024);
         let (message_tx2, _) = channel(1024);
-        let service1 = Arc::new(Mutex::new(Service::new(config1, message_tx1)));
+        let service1 = Arc::new(Mutex::new(Service::new(config1.clone(), message_tx1)));
         let service2 = Arc::new(Mutex::new(Service::new(config2, message_tx2)));
         let peer = Peer::new(config1.listen_addr, config1.peer_id, None);
         
@@ -486,11 +493,11 @@ mod tests {
 
     #[test]
     fn test_send_message() {
-        let config1 = NetworkConfig::new("127.0.0.1:3002", hash_struct(&0));
-        let config2 = NetworkConfig::new("127.0.0.1:3003", hash_struct(&1));
+        let config1 = NetworkConfig::new("127.0.0.1:3002", hash_struct(&0), vec![]);
+        let config2 = NetworkConfig::new("127.0.0.1:3003", hash_struct(&1), vec![]);
         let (message_tx1, _) = channel(1024);
         let (message_tx2, message_rx2) = channel(1024);
-        let service1 = Arc::new(Mutex::new(Service::new(config1, message_tx1)));
+        let service1 = Arc::new(Mutex::new(Service::new(config1.clone(), message_tx1)));
         let service2 = Arc::new(Mutex::new(Service::new(config2, message_tx2)));
         let peer = Peer::new(config1.listen_addr, config1.peer_id, None);
         let timeout = Duration::from_secs(5);
