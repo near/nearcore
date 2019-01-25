@@ -312,7 +312,7 @@ mod tests {
             vec![transaction],
             vec![],
         );
-        chain.insert_block(&block);
+        chain.insert_block(&block, HashMap::default());
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Completed);
@@ -337,7 +337,8 @@ mod tests {
             vec![transaction],
             vec![receipt0],
         );
-        chain.insert_block(&block1);
+        let db_changes = HashMap::default();
+        chain.insert_block(&block1, db_changes.clone());
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Started);
@@ -356,7 +357,7 @@ mod tests {
             vec![],
             vec![receipt1],
         );
-        chain.insert_block(&block2);
+        chain.insert_block(&block2, db_changes.clone());
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Started);
@@ -369,7 +370,7 @@ mod tests {
             vec![],
             vec![],
         );
-        chain.insert_block(&block3);
+        chain.insert_block(&block3, db_changes);
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Completed);
@@ -388,7 +389,8 @@ mod tests {
             vec![transaction],
             vec![],
         );
-        chain.insert_block(&block);
+        let db_changes = HashMap::default();
+        chain.insert_block(&block, db_changes);
         let address = chain.get_transaction_address(&t.transaction_hash());
         let expected = TransactionAddress {
             block_hash: block.hash,
