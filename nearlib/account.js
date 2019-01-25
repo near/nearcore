@@ -46,7 +46,7 @@ class Account {
      * @param {string} accountId id of the account to look up 
      */
     async viewAccount (accountId) {
-        return await this.nearClient.viewAccount(account_id);
+        return await this.nearClient.viewAccount(accountId);
     }
 }
 module.exports = Account;
