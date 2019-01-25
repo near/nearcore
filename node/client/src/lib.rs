@@ -167,11 +167,6 @@ impl Client {
         let signature = block.sign(&self.signer);
         block.add_signature(signature);
         block.authority_mask = authority_mask;
-        self.shard_chain.insert_block(&shard_block.clone());
-        self.beacon_chain.chain.insert_block(block.clone());
-        info!(target: "block_producer", "Block body: {:?}", block.body);
-        info!(target: "block_producer", "Shard block body: {:?}", shard_block.body);
-        io::stdout().flush().expect("Could not flush stdout");
 
         if self.beacon_chain.chain.is_known(&block.hash) {
             info!(target: "client", "The block was already imported, before we managed to produce it.");
