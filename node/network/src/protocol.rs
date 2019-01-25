@@ -5,7 +5,7 @@ use std::time;
 use ::futures::{Future, Sink, stream};
 use ::futures::sync::mpsc::Sender;
 use ::parking_lot::RwLock;
-use ::log::{debug, error, trace};
+use ::log::{debug, error, trace, info};
 
 use ::beacon::types::SignedBeaconBlock;
 use ::chain::{SignedBlock, SignedHeader};
@@ -246,7 +246,7 @@ impl Protocol {
     pub fn on_message(&self, peer: PeerId, data: &[u8]) -> Result<(), (PeerId, Severity)> {
         let message: Message = Decode::decode(data)
             .map_err(|_| (peer, Severity::Bad("Cannot decode message.".to_string())))?;
-        debug!(target: "network", "message received: {:?}", message);
+        info!(target: "network", "message received: {:?}", message);
 
         match message {
             Message::Transaction(tx) => {
@@ -332,6 +332,8 @@ impl Protocol {
 
     pub fn get_peer_id_by_uid(&self, uid: UID) -> Option<PeerId> {
         let auth_map = self.client.get_recent_uid_to_authority_map();
+        println!("Auth map: {:?}", auth_map);
+        println!("Peer accounts: {:?}", self.peer_account_info);
         auth_map
             .iter()
             .find_map(

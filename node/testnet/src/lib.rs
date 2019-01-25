@@ -102,7 +102,7 @@ fn spawn_network_tasks(
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let (event_tx, event_rx) = channel(1024);
     let protocol = Protocol::new(
-        Some(account_id),
+        Some(account_id.clone()),
         client,
         incoming_block_tx,
         transactions_tx,
@@ -112,7 +112,7 @@ fn spawn_network_tasks(
 
     tokio::spawn(
         futures::lazy(move || {
-            Service::init(network_cfg, event_tx, net_messages_rx);
+            Service::init(network_cfg, event_tx, net_messages_rx, Some(account_id));
             Ok(())
         })
     );

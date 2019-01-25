@@ -47,6 +47,7 @@ pub fn spawn_network_tasks(
     let event_task = event_rx.for_each({
         let protocol = protocol.clone();
         move |event| {
+            println!("Network event received: {:?}", event);
             match event {
                 NetworkEvent::PeerConnected { peer_id, .. } => {
                     protocol.on_peer_connected(peer_id);
@@ -78,6 +79,7 @@ pub fn spawn_network_tasks(
 
     let protocol3 = protocol.clone();
     let gossip_sender = gossip_rx.for_each(move |g| {
+        println!("Gossip! {:?}", g);
         if let Some(peer) = protocol3.get_peer_id_by_uid(g.receiver_uid) {
             let m = Message::Gossip(Box::new(g));
             protocol3.send_message(peer, m);
