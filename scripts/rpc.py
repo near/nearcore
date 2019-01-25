@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
 import subprocess
 import sys
+
+from protos import transaction_pb2
 
 try:
     # py2

@@ -23,6 +23,7 @@ use crate::types::{
     SwapKeyRequest, TransactionInfoResponse, TransactionStatusResponse,
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
+use crate::types::SubmitTransactionRequest;
 
 pub struct HttpApi {
     client: Arc<Client>,
@@ -157,14 +158,15 @@ impl HttpApi {
 
     pub fn submit_transaction(
         &self,
-        r: &SignedTransaction,
+        r: &SubmitTransactionRequest,
     ) -> Result<SubmitTransactionResponse, RPCError> {
-        debug!(target: "near-rpc", "Received transaction {:?}", r);
-        let originator = r.body.get_originator();
+        let transaction: SignedTransaction = r.transaction.clone().into();
+        debug!(target: "near-rpc", "Received transaction {:?}", transaction);
+        let originator = transaction.body.get_originator();
         let public_keys = self.client.statedb_viewer
                 .get_public_keys_for_account(&originator)
                 .map_err(RPCError::BadRequest)?;
-        if !verify_transaction_signature(&r.clone(), &public_keys) {
+        if !verify_transaction_signature(&transaction.clone(), &public_keys) {
             let msg =
                 format!("transaction not signed with a public key of originator {:?}", originator,);
             return Err(RPCError::BadRequest(msg));
@@ -172,9 +174,9 @@ impl HttpApi {
 
         self.submit_txn_sender
             .clone()
-            .try_send(Transaction::SignedTransaction(r.clone()))
+            .try_send(Transaction::SignedTransaction(transaction.clone()))
             .map_err(|_| RPCError::ServiceUnavailable("transaction channel is full".to_string()))?;
-        Ok(SubmitTransactionResponse { hash: r.transaction_hash() })
+        Ok(SubmitTransactionResponse { hash: transaction.get_hash() })
     }
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {

@@ -235,7 +235,7 @@ impl From<SignedTransaction> for SignedTransactionResponse {
     fn from(transaction: SignedTransaction) -> Self {
         Self {
             body: transaction.clone().into(),
-            hash: transaction.transaction_hash(),
+            hash: transaction.get_hash(),
         }
     }
 }
@@ -325,8 +325,8 @@ pub struct TransactionInfoResponse {
     pub status: TransactionStatus,
 }
 
-//#[derive(Serialize, Deserialize)]
-//pub struct SubmitTransactionRequest {
-//    //#[serde(with = "proto_b64_format")]
-//    pub transaction: near_protos::transaction::SignedTransaction,
-//}
+#[derive(Serialize, Deserialize)]
+pub struct SubmitTransactionRequest {
+    #[serde(with = "protos_b64_format")]
+    pub transaction: near_protos::transaction::SignedTransaction,
+}

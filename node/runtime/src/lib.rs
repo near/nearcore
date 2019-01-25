@@ -430,7 +430,7 @@ impl Runtime {
                         self.send_money(
                             state_update,
                             &t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             &mut sender,
                             accounting_info,
                         )
@@ -448,7 +448,7 @@ impl Runtime {
                         self.call_function(
                             state_update,
                             &t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             &mut sender,
                             accounting_info,
                             mana,
@@ -457,7 +457,7 @@ impl Runtime {
                     TransactionBody::DeployContract(ref t) => {
                         self.deploy(
                             t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             accounting_info,
                         )
                     },
@@ -465,7 +465,7 @@ impl Runtime {
                         self.create_account(
                             state_update,
                             t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             &mut sender,
                             accounting_info,
                         )
