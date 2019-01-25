@@ -2,19 +2,19 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use configs::authority::get_authority_config;
 use crate::Client;
 use beacon::authority::Authority;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
 use chain::SignedBlock;
+use configs::authority::get_authority_config;
 use configs::ChainSpec;
+use node_runtime::state_viewer::StateDbViewer;
+use node_runtime::test_utils::generate_test_chain_spec;
 use node_runtime::Runtime;
 use primitives::signer::InMemorySigner;
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::test_utils::create_memory_db;
 use storage::StateDb;
-use node_runtime::test_utils::generate_test_chain_spec;
-use node_runtime::state_viewer::StateDbViewer;
 
 /// Implements dummy client for testing. The differences with the real client:
 /// * It does not do the correct signing;

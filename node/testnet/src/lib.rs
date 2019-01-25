@@ -1,19 +1,20 @@
 //! Starts TestNet either from args or the provided configs.
-use std::sync::Arc;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use futures::sync::mpsc::{channel, Sender, Receiver};
 use futures::future;
+use futures::sync::mpsc::{channel, Receiver, Sender};
+use parking_lot::Mutex;
 
-use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use beacon::types::SignedBeaconBlock;
 use client::Client;
+use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
-use transaction::{ChainPayload, Transaction};
-use primitives::types::{AccountId, AuthorityStake, Gossip, UID};
 use network::protocol::Protocol;
 use network::service::Service;
-use beacon::types::SignedBeaconBlock;
+use primitives::types::{AccountId, AuthorityStake, Gossip, UID};
+use shard::SignedShardBlock;
+use transaction::{ChainPayload, Transaction};
 use txflow::txflow_task;
 
 pub fn start() {
@@ -28,29 +29,25 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
         let (transactions_tx, transactions_rx) = channel(1024);
         spawn_rpc_server_task(transactions_tx.clone(), &rpc_cfg, client.clone());
 
-        // Create a task that receives new blocks from importer/producer
-        // and send the authority information to consensus
-        let (authority_tx, authority_rx) = channel(1024);
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
 
         // Create a task that consumes the consensuses
         // and produces the beacon chain blocks.
         let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
-        let (beacon_block_announce_tx, beacon_block_announce_rx) = channel(1024);
+        let (outgoing_block_tx, outgoing_block_rx) = channel(1024);
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
         coroutines::producer::spawn_block_producer(
             client.clone(),
             beacon_block_consensus_body_rx,
-            beacon_block_announce_tx,
+            outgoing_block_tx,
             transactions_tx.clone(),
-            &authority_tx,
             consensus_control_tx,
         );
 
         // Create task that can import beacon chain blocks from other peers.
-        let (beacon_block_tx, _) = channel(1024);
-        // TODO: Re-enable once we have correct shard block fetching and announcement.
+        let (incoming_block_tx, incominb_block_rx) = channel(1024);
+        coroutines::importer::spawn_block_importer(client.clone(), incominb_block_rx);
 
         // Spawn the network tasks.
         // Note, that network and RPC are using the same channels
@@ -61,12 +58,11 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
             client_cfg.account_id,
             network_cfg,
             client.clone(),
-            beacon_block_tx.clone(),
             transactions_tx.clone(),
             inc_gossip_tx.clone(),
             out_gossip_rx,
-            beacon_block_announce_rx,
-            authority_rx,
+            incoming_block_tx,
+            outgoing_block_rx,
         );
 
         // Spawn consensus tasks.
@@ -77,7 +73,7 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
             payload_rx,
             out_gossip_tx,
             consensus_control_rx,
-            beacon_block_consensus_body_tx
+            beacon_block_consensus_body_tx,
         );
         Ok(())
     }));
@@ -97,19 +93,18 @@ fn spawn_network_tasks(
     account_id: AccountId,
     network_cfg: NetworkConfig,
     client: Arc<Client>,
-    beacon_block_tx: Sender<SignedBeaconBlock>,
     transactions_tx: Sender<Transaction>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
-    beacon_block_rx: Receiver<SignedBeaconBlock>,
-    authority_rx: Receiver<HashMap<UID, AuthorityStake>>,
+    incoming_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
+    outgoing_block_rx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     let (net_messages_tx, net_messages_rx) = channel(1024);
     let (event_tx, event_rx) = channel(1024);
     let protocol = Protocol::new(
         Some(account_id),
         client,
-        beacon_block_tx,
+        incoming_block_tx,
         transactions_tx,
         net_messages_tx.clone(),
         inc_gossip_tx,
@@ -123,8 +118,8 @@ fn spawn_network_tasks(
     );
     network::spawn_network_tasks(
         protocol,
-        beacon_block_rx,
-        authority_rx,
+        // net_messages_rx,
+        outgoing_block_rx,
         out_gossip_rx,
         event_rx,
     );

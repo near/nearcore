@@ -8,6 +8,7 @@ use tokio::timer::Interval;
 
 use ::log::error;
 use beacon::types::SignedBeaconBlock;
+use shard::types::SignedShardBlock;
 use primitives::types::{Gossip, UID, AuthorityStake};
 use transaction::ChainPayload;
 
@@ -25,8 +26,7 @@ const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub fn spawn_network_tasks(
     protocol_: Protocol,
-    block_receiver: Receiver<SignedBeaconBlock>,
-    authority_receiver: Receiver<HashMap<UID, AuthorityStake>>,
+    block_receiver: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
     gossip_rx: Receiver<Gossip<ChainPayload>>,
     event_rx: Receiver<NetworkEvent>,
 ) {
@@ -69,16 +69,12 @@ pub fn spawn_network_tasks(
 
     let protocol1 = protocol.clone();
     let block_announce_handler = block_receiver.for_each(move |block| {
-        protocol1.on_outgoing_block(&block);
+        protocol1.on_outgoing_blocks(block);
         Ok(())
     });
 
     let protocol2 = protocol.clone();
     tokio::spawn(block_announce_handler);
-    tokio::spawn(authority_receiver.for_each(move |map| {
-        protocol2.set_authority_map(map);
-        Ok(())
-    }));
 
     let protocol3 = protocol.clone();
     let gossip_sender = gossip_rx.for_each(move |g| {
