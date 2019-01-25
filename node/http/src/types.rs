@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
+use near_protos::serde::b64_format as protos_b64_format;
 use primitives::hash::{bs58_format, CryptoHash};
-//use primitives::serialize::proto_format;
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, Balance, MerkleHash, ShardId,
@@ -225,8 +225,8 @@ pub struct ShardBlockResponse {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedTransactionResponse {
-    //#[serde(with = "proto_format")]
-    pub body: TransactionBody,
+    #[serde(with = "protos_b64_format")]
+    pub body: near_protos::transaction::SignedTransaction,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
 }
@@ -234,7 +234,7 @@ pub struct SignedTransactionResponse {
 impl From<SignedTransaction> for SignedTransactionResponse {
     fn from(transaction: SignedTransaction) -> Self {
         Self {
-            body: transaction.body.clone(),
+            body: transaction.clone().into(),
             hash: transaction.transaction_hash(),
         }
     }
@@ -324,3 +324,9 @@ pub struct TransactionInfoResponse {
     pub block_index: u64,
     pub status: TransactionStatus,
 }
+
+//#[derive(Serialize, Deserialize)]
+//pub struct SubmitTransactionRequest {
+//    //#[serde(with = "proto_b64_format")]
+//    pub transaction: near_protos::transaction::SignedTransaction,
+//}

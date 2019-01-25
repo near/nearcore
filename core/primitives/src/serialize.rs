@@ -1,6 +1,5 @@
 use std::io;
 
-use base64;
 use serde::{de::DeserializeOwned, Serialize};
 
 pub type EncodeResult = Result<Vec<u8>, io::Error>;

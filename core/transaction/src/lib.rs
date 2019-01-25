@@ -45,6 +45,20 @@ impl From<transaction_proto::CreateAccountTransaction> for CreateAccountTransact
     }
 }
 
+impl Into<transaction_proto::CreateAccountTransaction> for CreateAccountTransaction {
+    fn into(self) -> transaction_proto::CreateAccountTransaction {
+        transaction_proto::CreateAccountTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            new_account_id: self.new_account_id,
+            amount: self.amount,
+            public_key: self.public_key,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
@@ -52,6 +66,12 @@ pub struct DeployContractTransaction {
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
     pub public_key: Vec<u8>,
+}
+
+impl fmt::Debug for DeployContractTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "DeployContractTransaction {{ nonce: {}, originator: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.originator, self.contract_id)
+    }
 }
 
 impl From<transaction_proto::DeployContractTransaction> for DeployContractTransaction {
@@ -66,9 +86,17 @@ impl From<transaction_proto::DeployContractTransaction> for DeployContractTransa
     }
 }
 
-impl fmt::Debug for DeployContractTransaction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DeployContractTransaction {{ nonce: {}, originator: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.originator, self.contract_id)
+impl Into<transaction_proto::DeployContractTransaction> for DeployContractTransaction {
+    fn into(self) -> transaction_proto::DeployContractTransaction {
+        transaction_proto::DeployContractTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            contract_id: self.contract_id,
+            public_key: self.public_key,
+            wasm_byte_array: self.wasm_byte_array,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
     }
 }
 
@@ -91,6 +119,21 @@ impl From<transaction_proto::FunctionCallTransaction> for FunctionCallTransactio
             method_name: t.method_name,
             args: t.args,
             amount: t.amount,
+        }
+    }
+}
+
+impl Into<transaction_proto::FunctionCallTransaction> for FunctionCallTransaction {
+    fn into(self) -> transaction_proto::FunctionCallTransaction {
+        transaction_proto::FunctionCallTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            contract_id: self.contract_id,
+            method_name: self.method_name,
+            args: self.args,
+            amount: self.amount,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
         }
     }
 }
@@ -120,6 +163,19 @@ impl From<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
     }
 }
 
+impl Into<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
+    fn into(self) -> transaction_proto::SendMoneyTransaction {
+        transaction_proto::SendMoneyTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            receiver: self.receiver,
+            amount: self.amount,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
     pub nonce: u64,
@@ -133,6 +189,18 @@ impl From<transaction_proto::StakeTransaction> for StakeTransaction {
             nonce: t.nonce,
             originator: t.originator,
             amount: t.amount,
+        }
+    }
+}
+
+impl Into<transaction_proto::StakeTransaction> for StakeTransaction {
+    fn into(self) -> transaction_proto::StakeTransaction {
+        transaction_proto::StakeTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            amount: self.amount,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
         }
     }
 }
@@ -154,6 +222,19 @@ impl From<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
             originator: t.originator,
             cur_key: t.cur_key,
             new_key: t.new_key,
+        }
+    }
+}
+
+impl Into<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
+    fn into(self) -> transaction_proto::SwapKeyTransaction {
+        transaction_proto::SwapKeyTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            cur_key: self.cur_key,
+            new_key: self.new_key,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
         }
     }
 }
@@ -239,6 +320,37 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
         SignedTransaction {
             body,
             signature: Signature::new(&t.signature),
+        }
+    }
+}
+
+impl Into<transaction_proto::SignedTransaction> for SignedTransaction {
+    fn into(self) -> transaction_proto::SignedTransaction {
+        let body = match self.body {
+            TransactionBody::CreateAccount(t) => {
+                transaction_proto::SignedTransaction_oneof_body::create_account(t.into())
+            },
+            TransactionBody::DeployContract(t) => {
+                transaction_proto::SignedTransaction_oneof_body::deploy_contract(t.into())
+            },
+            TransactionBody::FunctionCall(t) => {
+                transaction_proto::SignedTransaction_oneof_body::function_call(t.into())
+            },
+            TransactionBody::SendMoney(t) => {
+                transaction_proto::SignedTransaction_oneof_body::send_money(t.into())
+            },
+            TransactionBody::Stake(t) => {
+                transaction_proto::SignedTransaction_oneof_body::stake(t.into())
+            },
+            TransactionBody::SwapKey(t) => {
+                transaction_proto::SignedTransaction_oneof_body::swap_key(t.into())
+            },
+        };
+        transaction_proto::SignedTransaction {
+            body: Some(body),
+            signature: self.signature.as_ref().to_vec(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
         }
     }
 }
