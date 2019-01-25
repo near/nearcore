@@ -22,10 +22,9 @@ use parking_lot::RwLock;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::SignedBlock;
 use configs::ClientConfig;
-use node_runtime::ApplyState;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, BlockId, ConsensusBlockBody, UID};
+use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain, SignedShardBlock};
 use storage::Storage;
 use transaction::ChainPayload;
@@ -121,42 +120,17 @@ impl Client {
             body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
 
         let last_block = self.beacon_chain.chain.best_block();
-        let last_shard_block = self
-            .shard_chain
-            .chain
-            .get_block(&BlockId::Hash(last_block.body.header.shard_block_hash))
-            .expect("At the moment we should have shard blocks accompany beacon blocks");
         let authorities = self
             .beacon_chain
             .authority
             .read()
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
-        let shard_id = last_shard_block.body.header.shard_id;
-        let apply_state = ApplyState {
-            root: last_shard_block.body.header.merkle_root_state,
-            parent_block_hash: last_block.block_hash(),
-            block_index: last_block.body.header.index + 1,
-            shard_id,
-        };
-        let apply_result = self.shard_chain.runtime.write().apply(
-            &apply_state,
-            &[],
-            transactions,
-        );
-        self.shard_chain.state_db.commit(apply_result.transaction).ok();
-        let mut shard_block = SignedShardBlock::new(
-            shard_id,
-            last_shard_block.body.header.index + 1,
-            last_shard_block.block_hash(),
-            apply_result.root,
-            apply_result.filtered_transactions,
-            apply_result.new_receipts,
-        );
+        let (mut shard_block, transaction, authority_proposals) = self.shard_chain.prepare_new_block(last_block.body.header.shard_block_hash, transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
-            apply_result.authority_proposals,
+            authority_proposals,
             shard_block.block_hash(),
         );
         // TODO(#377): We should have a proper mask computation once we have a correct consensus.
@@ -173,7 +147,7 @@ impl Client {
             io::stdout().flush().expect("Could not flush stdout");
             None
         } else {
-            self.shard_chain.insert_block(&shard_block.clone());
+            self.shard_chain.insert_block(&shard_block.clone(), transaction);
             self.beacon_chain.chain.insert_block(block.clone());
             info!(target: "client",
                   "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
@@ -185,55 +159,6 @@ impl Client {
             // Update the authority.
             self.update_authority(&block.header());
             Some((block, shard_block))
-        }
-    }
-
-    // Block importer code.
-    fn add_block(&self, beacon_block: SignedBeaconBlock, shard_block: &SignedShardBlock) {
-        let parent_hash = beacon_block.body.header.parent_hash;
-        let parent_shard_hash = shard_block.body.header.parent_hash;
-        // we can unwrap because parent is guaranteed to exist
-        let prev_header = self
-            .beacon_chain
-            .chain
-            .get_header(&BlockId::Hash(parent_hash))
-            .expect("Parent is known but header not found.");
-        let prev_shard_block = self
-            .shard_chain
-            .chain
-            .get_block(&BlockId::Hash(parent_shard_hash))
-            .expect("At this moment shard chain should be present together with beacon chain");
-        let prev_shard_header = prev_shard_block.header();
-        let apply_state = ApplyState {
-            root: prev_shard_header.body.merkle_root_state,
-            block_index: prev_header.body.index + 1,
-            parent_block_hash: parent_hash,
-            shard_id: shard_block.body.header.shard_id,
-        };
-        let apply_result = self.shard_chain.runtime.write().check(
-            &apply_state,
-            &[],
-            &shard_block.body.transactions,
-        );
-        match apply_result {
-            Some((db_transaction, root)) => {
-                if root != shard_block.header().body.merkle_root_state {
-                    info!(
-                        "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
-                        shard_block.header().body.merkle_root_state,
-                        root,
-                        beacon_block
-                    );
-                    return;
-                }
-                self.shard_chain.state_db.commit(db_transaction).ok();
-                self.shard_chain.insert_block(&shard_block);
-                self.beacon_chain.chain.insert_block(beacon_block);
-            }
-            None => {
-                info!("Found incorrect transaction in block {:?}", beacon_block);
-                return;
-            }
         }
     }
 
@@ -304,7 +229,10 @@ impl Client {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
-            self.add_block(next_beacon_block.clone(), &next_shard_block);
+
+            if self.shard_chain.apply_block(&next_shard_block) {
+                self.beacon_chain.chain.insert_block(next_beacon_block.clone());
+            }
             // Update the authority.
             self.update_authority(&next_beacon_block.header());
         }
