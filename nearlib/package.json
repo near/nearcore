@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "browserify": "^16.2.3",
+    "documentation": "^9.1.1",
     "eslint": "^5.12.1",
     "jest": "^23.6.0",
     "uglifyify": "^5.0.1"
@@ -26,7 +27,7 @@
     "test": "jest test",
     "lint": "eslint .",
     "fix": "eslint . --fix",
-    "doc": "documentation readme near.js signing/key_pair.js -f md --shallow --section=API"
+    "doc": "documentation readme near.js account.js signing/key_pair.js -f md --shallow --section=API --readme-file=API.md"
   },
   "author": "Evguenia Degtiareva"
 }
