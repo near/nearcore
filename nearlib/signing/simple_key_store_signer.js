@@ -10,17 +10,29 @@ class SimpleKeyStoreSigner {
     }
 
     /**
-     * Sign a transaction. If the key for senderAccountId is not present, this operation
+     * Sign a given hash. If the key for senderAccountId is not present, this operation
      * will fail.
-     * @param {Buffer} message 
-     * @param {string} senderAccountId 
+     * @param {Buffer} hash
+     * @param {string} senderAccountId
      */
-    async signTransaction(hash, senderAccountId) {
+    async signHash(hash, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
         const message = bs58.decode(hash);
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(message, key)];
         return signature;
+    }
+
+    /**
+     * Sign a transaction. If the key for senderAccountId is not present, this operation
+     * will fail.
+     * @param {object} tx Transaction details
+     * @param {string} senderAccountId
+     */
+    async signTransaction(tx, senderAccountId) {
+        console.log(tx);
+        const hash = tx.hash;
+        return await this.signHash(hash, senderAccountId);
     }
 
 }
