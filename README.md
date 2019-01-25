@@ -136,20 +136,28 @@ We currently use [clippy](https://github.com/rust-lang-nursery/rust-clippy) to e
 This check is run automatically during CI builds, and in a `pre-commit`
 hook. You can run do a clippy check with `./scripts/run_clippy.sh`.
 
-## Development cluster
+## Running TestNet locally
 
-To spin multiple nodes, you must first spin up one node and then use it as boot node for all the rest:
+Navigate to the root of the project. To start the network from a new state remove the storage:
 
-    cargo run -- --p2p_port 30333 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1
+    rm -rf test1 test2
 
-Observe the printed local node address, e.g.:
+Launch the boot node:
 
-    Local node address is: /ip4/0.0.0.0/tcp/30333/p2p/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK
+    cargo run -- --p2p_port 30333 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1 --chain-spec-file ./node/configs/res/testnet_chain.json
+    
+Then launch the secondary node:
 
- Start the second node using the observed key. Note that we are using `127.0.0.1` instead of `0.0.0.0`.
+    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/p2p/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK --chain-spec-file ./node/configs/res/testnet_chain.json --account-id bob.near
 
-    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/p2p/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK 
- 
-If everything works correctly, both nodes will print:
+Wait until both nodes print the following (otherwise retry the previous steps):
     
     New external node address ...
+    
+Submit account creation transaction on one node:
+
+    ./scripts/rpc.py create_account jason 1 --public-key 22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV
+
+Verify that the account was created by checking it on the other node:
+
+    ./scripts/rpc.py view_account -a jason -u http://127.0.0.1:3031/        
