@@ -510,9 +510,7 @@ impl Runtime {
         }
         let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
        
-        let public_key: Vec<u8> = Decode::decode(&call.args)
-            .map_err(|_| "cannot decode public key")?;
-        let public_key = PublicKey::new(&public_key)?;
+        let public_key = PublicKey::new(&call.args)?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
