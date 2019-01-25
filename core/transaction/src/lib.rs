@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 
 use near_protos::Message as ProtoMessage;
 use near_protos::transaction as transaction_proto;
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::{CryptoHash, hash};
 use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
 use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
 use primitives::traits::Payload;
@@ -328,7 +328,7 @@ impl SignedTransaction {
             },
         };
         let bytes = bytes.unwrap();
-        let hash = CryptoHash::from(bytes);
+        let hash = hash(&bytes);
         Self {
             signature,
             body,
@@ -391,7 +391,7 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
             _ => unreachable!(),
         };
         let bytes = bytes.unwrap();
-        let hash = CryptoHash::from(bytes);
+        let hash = hash(&bytes);
         SignedTransaction {
             body,
             signature: Signature::new(&t.signature),
