@@ -138,7 +138,7 @@ hook. You can run do a clippy check with `./scripts/run_clippy.sh`.
 
 ## Running TestNet locally
 
-Navigate to the root of the project. Make sure we are not re-using existing storage:
+Navigate to the root of the project. To start the network from a new state remove the storage:
 
     rm -rf test1 test2
 
