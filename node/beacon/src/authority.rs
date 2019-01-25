@@ -9,7 +9,7 @@ use chain::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityMask, BlockId, AuthorityStake};
 use configs::AuthorityConfig;
-use crate::types::{BeaconBlockChain, SignedBeaconBlockHeader};
+use crate::types::{BeaconBlockChainStorage, SignedBeaconBlockHeader};
 
 type Epoch = u64;
 type Slot = u64;
@@ -81,7 +81,7 @@ impl Authority {
     /// Initializes authorities from the config and the past blocks in the beaconchain.
     pub fn new(
         authority_config: AuthorityConfig,
-        blockchain: &BeaconBlockChain,
+        blockchain: &BeaconBlockChainStorage,
     ) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
@@ -322,11 +322,11 @@ mod test {
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BeaconBlockChain {
+    fn test_blockchain(num_blocks: u64) -> BeaconBlockChainStorage {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BeaconBlockChain::new(last_block.clone(), storage);
+        let bc = BeaconBlockChainStorage::new(last_block.clone(), storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());

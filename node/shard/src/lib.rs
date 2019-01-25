@@ -1,4 +1,5 @@
-extern crate chain;
+#[macro_use]
+extern crate log;
 extern crate parking_lot;
 extern crate primitives;
 extern crate rand;
@@ -12,9 +13,12 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use chain::{SignedBlock, SignedHeader};
+use configs::chain_spec::ChainSpec;
+use node_runtime::{ApplyState, Runtime};
+use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
-use primitives::types::BlockId;
-use storage::{extend_with_cache, read_with_cache};
+use primitives::types::{BlockId, AuthorityStake};
+use storage::{extend_with_cache, read_with_cache, StateDb};
 use transaction::{SignedTransaction, Transaction};
 
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
@@ -64,21 +68,106 @@ pub struct ShardBlockChain {
     pub chain: chain::BlockChain<SignedShardBlock>,
     storage: Arc<storage::Storage>,
     transaction_addresses: RwLock<HashMap<Vec<u8>, TransactionAddress>>,
+    pub state_db: Arc<StateDb>,
+    pub runtime: RwLock<Runtime>,
+    pub statedb_viewer: StateDbViewer,
 }
 
 impl ShardBlockChain {
-    pub fn new(genesis: SignedShardBlock, storage: Arc<storage::Storage>) -> Self {
+    pub fn new(chain_spec: &ChainSpec, storage: Arc<storage::Storage>) -> Self {
+        let state_db = Arc::new(StateDb::new(storage.clone()));
+        let runtime = RwLock::new(Runtime::new(state_db.clone()));
+        let genesis_root = runtime.write().apply_genesis_state(
+            &chain_spec.accounts,
+            &chain_spec.genesis_wasm,
+            &chain_spec.initial_authorities,
+        );
+        let genesis = SignedShardBlock::genesis(genesis_root);
+
         let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
+        let statedb_viewer = StateDbViewer::new(state_db.clone());
         Self {
             chain,
             storage,
             transaction_addresses: RwLock::new(HashMap::new()),
+            state_db,
+            runtime,
+            statedb_viewer
         }
     }
 
-    pub fn insert_block(&self, block: &SignedShardBlock) {
+    pub fn insert_block(&self, block: &SignedShardBlock, db_transaction: storage::DBChanges) {
+        self.state_db.commit(db_transaction).ok();
         self.chain.insert_block(block.clone());
         self.update_for_inserted_block(&block.clone());
+    }
+
+    pub fn prepare_new_block(&self, last_block_hash: CryptoHash, transactions: Vec<Transaction>)
+        -> (SignedShardBlock, storage::DBChanges, Vec<AuthorityStake>) {
+        let last_block = self
+            .chain
+            .get_block(&BlockId::Hash(last_block_hash))
+            .expect("At the moment we should have given shard block present");
+        let apply_state = ApplyState {
+            root: last_block.body.header.merkle_root_state,
+            parent_block_hash: last_block_hash,
+            block_index: last_block.body.header.index + 1,
+            shard_id: last_block.body.header.shard_id,
+        };
+        let apply_result = self.runtime.write().apply(
+            &apply_state,
+            &[],
+            transactions,
+        );
+        let shard_block = SignedShardBlock::new(
+            last_block.body.header.shard_id,
+            last_block.body.header.index + 1,
+            last_block.block_hash(),
+            apply_result.root,
+            apply_result.filtered_transactions,
+            apply_result.new_receipts,
+        );
+        (shard_block, apply_result.transaction, apply_result.authority_proposals)
+    }
+
+    pub fn apply_block(&self, block: &SignedShardBlock) -> bool {
+        let parent_hash = block.body.header.parent_hash;
+        let prev_block = self
+            .chain
+            .get_block(&BlockId::Hash(parent_hash))
+            .expect("At this moment previous shard chain block should be present");
+        let prev_header = prev_block.header();
+        let apply_state = ApplyState {
+            root: prev_header.body.merkle_root_state,
+            block_index: prev_header.body.index + 1,
+            parent_block_hash: parent_hash,
+            shard_id: block.body.header.shard_id,
+        };
+        let apply_result = self.runtime.write().check(
+            &apply_state,
+            &[],
+            &block.body.transactions,
+        );
+        match apply_result {
+            Some((db_transaction, root)) => {
+                if root != block.header().body.merkle_root_state {
+                    info!(
+                        "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
+                        block.header().body.merkle_root_state,
+                        root,
+                        block
+                    );
+                    false
+                } else {
+                    self.insert_block(&block, db_transaction);
+                    true
+                }
+            }
+            None => {
+                info!("Found incorrect transaction in block {:?}", block);
+                false
+            }
+        }
     }
 
     fn is_transaction_complete(
@@ -192,13 +281,15 @@ impl ShardBlockChain {
 mod tests {
     use primitives::types::AccountId;
     use storage::test_utils::create_memory_db;
-    use transaction::{ReceiptTransaction, SignedTransaction, ReceiptBody};
+    use transaction::{ReceiptBody, ReceiptTransaction, SignedTransaction};
 
     use super::*;
 
     fn get_chain() -> ShardBlockChain {
-        let genesis = SignedShardBlock::genesis(CryptoHash::default());
-        ShardBlockChain::new(genesis, Arc::new(create_memory_db()))
+        let chain_spec = ChainSpec {
+            accounts: vec![], genesis_wasm: vec![], initial_authorities: vec![], beacon_chain_epoch_length: 1, beacon_chain_num_seats_per_slot: 1, boot_nodes: vec![]
+        };
+        ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()))
     }
 
     #[test]
@@ -221,7 +312,7 @@ mod tests {
             vec![transaction],
             vec![],
         );
-        chain.insert_block(&block);
+        chain.insert_block(&block, HashMap::default());
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Completed);
@@ -246,7 +337,8 @@ mod tests {
             vec![transaction],
             vec![receipt0],
         );
-        chain.insert_block(&block1);
+        let db_changes = HashMap::default();
+        chain.insert_block(&block1, db_changes.clone());
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Started);
@@ -265,7 +357,7 @@ mod tests {
             vec![],
             vec![receipt1],
         );
-        chain.insert_block(&block2);
+        chain.insert_block(&block2, db_changes.clone());
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Started);
@@ -278,7 +370,7 @@ mod tests {
             vec![],
             vec![],
         );
-        chain.insert_block(&block3);
+        chain.insert_block(&block3, db_changes);
 
         let status = chain.get_transaction_status(&t.transaction_hash());
         assert_eq!(status, TransactionStatus::Completed);
@@ -297,7 +389,8 @@ mod tests {
             vec![transaction],
             vec![],
         );
-        chain.insert_block(&block);
+        let db_changes = HashMap::default();
+        chain.insert_block(&block, db_changes);
         let address = chain.get_transaction_address(&t.transaction_hash());
         let expected = TransactionAddress {
             block_hash: block.hash,
@@ -313,4 +406,6 @@ mod tests {
         let v = read.get(&cache_key.to_vec());
         assert_eq!(v.unwrap(), &expected.clone());
     }
+
+    // TODO(472): Add extensive testing for ShardBlockChain.
 }

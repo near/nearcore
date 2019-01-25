@@ -1726,6 +1726,7 @@ name = "node-http"
 version = "0.1.0"
 dependencies = [
  "beacon 0.0.1",
+ "chain 0.0.1",
  "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.12.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1743,18 +1744,15 @@ dependencies = [
 name = "node-runtime"
 version = "0.0.1"
 dependencies = [
- "beacon 0.0.1",
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "chain 0.0.1",
  "configs 0.1.0",
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
  "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
- "shard 0.0.1",
  "storage 0.0.1",
  "transaction 0.1.0",
  "wasm 0.0.1",
@@ -2449,7 +2447,10 @@ name = "shard"
 version = "0.0.1"
 dependencies = [
  "chain 0.0.1",
+ "configs 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "node-runtime 0.0.1",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
  "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",

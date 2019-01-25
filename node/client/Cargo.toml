@@ -9,12 +9,12 @@ log = "0.4"
 parking_lot = "0.7.1"
 env_logger = "0.6.0"
 
-beacon = { path = "../../node/beacon" }
+beacon = { path = "../beacon" }
 chain = { path = "../../core/chain" }
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }
-shard = { path = "../../core/shard" }
+shard = { path = "../shard" }
 storage = { path = "../../core/storage" }
 configs = { path = "../../node/configs" }
 

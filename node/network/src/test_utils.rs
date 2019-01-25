@@ -27,6 +27,7 @@ use primitives::signature::get_key_pair;
 use primitives::traits::GenericResult;
 use primitives::types;
 use transaction::{ChainPayload, SignedTransaction};
+use configs::chain_spec::ChainSpec;
 
 use crate::error::Error;
 use crate::message::Message;
@@ -113,19 +114,20 @@ pub fn get_test_protocol() -> Protocol {
     Protocol::new(ProtocolConfig::default(), client, block_tx, transaction_tx, message_tx, gossip_tx)
 }
 
-pub fn get_test_authority_config(
+pub fn get_test_chain_spec(
     num_authorities: u32,
     epoch_length: u64,
     num_seats_per_slot: u64,
-) -> AuthorityConfig {
+) -> ChainSpec {
     let mut initial_authorities = vec![];
     for i in 0..num_authorities {
         let (public_key, _) = get_key_pair();
-        initial_authorities.push(types::AuthorityStake {
-            account_id: i.to_string(),
-            public_key,
-            amount: 100,
-        });
+        initial_authorities.push((i.to_string(), public_key.to_string(), 100));
     }
-    AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
+    ChainSpec {
+        accounts: vec![], genesis_wasm: vec![],
+        initial_authorities,
+        beacon_chain_epoch_length: epoch_length, beacon_chain_num_seats_per_slot: num_seats_per_slot,
+        boot_nodes: vec![]
+    }
 }

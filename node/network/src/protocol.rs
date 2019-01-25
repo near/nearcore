@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
-use futures::sync::mpsc::Sender;
 use futures::{Future, Sink};
+use futures::sync::mpsc::Sender;
 use parking_lot::RwLock;
 use substrate_network_libp2p::{NodeIndex, ProtocolId, Severity};
 
@@ -108,12 +108,12 @@ impl Protocol {
 
     pub fn on_peer_connected(&self, peer: NodeIndex) {
         self.handshaking_peers.write().insert(peer, time::Instant::now());
-        let best_block_header = self.client.beacon_chain.best_block().header();
+        let best_block_header = self.client.beacon_chain.chain.best_block().header();
         let status = message::Status {
             version: CURRENT_VERSION,
             best_index: best_block_header.index(),
             best_hash: best_block_header.block_hash(),
-            genesis_hash: self.client.beacon_chain.genesis_hash,
+            genesis_hash: self.client.beacon_chain.chain.genesis_hash,
             account_id: self.config.account_id.clone(),
         };
         debug!(target: "network", "Sending status message to {:?}: {:?}", peer, status);
@@ -161,12 +161,12 @@ impl Protocol {
         if status.version != CURRENT_VERSION {
             return Err((peer, Severity::Bad("Peer uses incompatible version.")));
         }
-        if status.genesis_hash != self.client.beacon_chain.genesis_hash {
+        if status.genesis_hash != self.client.beacon_chain.chain.genesis_hash {
             return Err((peer, Severity::Bad("Peer has different genesis hash.")));
         }
 
         // request blocks to catch up if necessary
-        let best_index = self.client.beacon_chain.best_index();
+        let best_index = self.client.beacon_chain.chain.best_index();
         if status.best_index > best_index {
             unimplemented!("Block catch-up is not implemented, yet.");
         }
@@ -252,6 +252,8 @@ impl Protocol {
 
 #[cfg(test)]
 mod tests {
+    extern crate storage;
+
     use primitives::traits::Encode;
     use transaction::SignedTransaction;
 

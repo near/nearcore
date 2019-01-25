@@ -44,6 +44,9 @@ pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwne
     /// Returns signed header for given block.
     fn header(&self) -> Self::SignedHeader;
 
+    /// Returns index of given block.
+    fn index(&self) -> u64;
+
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
 
@@ -55,6 +58,7 @@ pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwne
     /// Add signature to multi sign.
     fn add_signature(&mut self, signature: PartialSignature);
 
+    /// Returns stake weight of given block signers.
     fn weight(&self) -> u128;
 }
 

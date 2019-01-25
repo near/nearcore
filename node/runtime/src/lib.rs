@@ -1,7 +1,5 @@
-extern crate beacon;
 extern crate bincode;
 extern crate byteorder;
-extern crate chain;
 extern crate kvdb;
 #[macro_use]
 extern crate log;
@@ -9,7 +7,6 @@ extern crate primitives;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate shard;
 extern crate storage;
 extern crate wasm;
 
@@ -1251,8 +1248,8 @@ mod tests {
 
     #[test]
     fn test_genesis_state() {
-        let viewer = get_test_state_db_viewer();
-        let result = viewer.view_account(&alice_account());
+        let (viewer, root) = get_test_state_db_viewer();
+        let result = viewer.view_account(root, &alice_account());
         assert_eq!(
             result.unwrap(),
             AccountViewCallResult {
@@ -1293,8 +1290,7 @@ mod tests {
 
     #[test]
     fn test_smart_contract_simple() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1329,8 +1325,7 @@ mod tests {
 
     #[test]
     fn test_smart_contract_bad_method_name() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1365,8 +1360,7 @@ mod tests {
 
     #[test]
     fn test_smart_contract_with_args() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1401,8 +1395,7 @@ mod tests {
 
     #[test]
     fn test_upload_contract() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
@@ -1437,8 +1430,7 @@ mod tests {
     #[test]
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
         let account: Account = get(
             &mut state_update,
@@ -1475,8 +1467,7 @@ mod tests {
 
     #[test]
     fn test_send_money() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1497,7 +1488,7 @@ mod tests {
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+        let result1 = viewer.view_account(apply_result.root, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1508,7 +1499,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account_at(&bob_account(), apply_result.root);
+        let result2 = viewer.view_account(apply_result.root, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1523,8 +1514,7 @@ mod tests {
 
     #[test]
     fn test_send_money_over_balance() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1545,7 +1535,7 @@ mod tests {
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+        let result1 = viewer.view_account(apply_result.root, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1556,7 +1546,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account_at(&bob_account(), apply_result.root);
+        let result2 = viewer.view_account(apply_result.root, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1571,8 +1561,7 @@ mod tests {
 
     #[test]
     fn test_refund_on_send_money_to_non_existent_account() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: alice_account(),
@@ -1592,7 +1581,7 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+        let result1 = viewer.view_account(apply_result.root, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1603,14 +1592,13 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account_at(&eve_account(), apply_result.root);
+        let result2 = viewer.view_account(apply_result.root, &eve_account());
         assert!(result2.is_err());
     }
 
     #[test]
     fn test_create_account() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, viewer, root) = get_runtime_and_state_db_viewer();
         let (pub_key, _) = get_key_pair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
@@ -1631,7 +1619,7 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+        let result1 = viewer.view_account(apply_result.root, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1642,7 +1630,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account_at(&eve_account(), apply_result.root);
+        let result2 = viewer.view_account(apply_result.root, &eve_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1657,8 +1645,7 @@ mod tests {
 
     #[test]
     fn test_create_account_failure_invalid_name() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, viewer, root) = get_runtime_and_state_db_viewer();
         let (pub_key, _) = get_key_pair();
         for invalid_account_name in vec![
                 "eve", // too short
@@ -1686,7 +1673,7 @@ mod tests {
             );
             // Transaction failed, roots are the same and nonce on the account is 0.
             assert_eq!(root, apply_result.root);
-            let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+            let result1 = viewer.view_account(apply_result.root, &alice_account());
             assert_eq!(
                 result1.unwrap(),
                 AccountViewCallResult {
@@ -1702,8 +1689,7 @@ mod tests {
 
     #[test]
     fn test_create_account_failure_already_exists() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, viewer, root) = get_runtime_and_state_db_viewer();
         let (pub_key, _) = get_key_pair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 1,
@@ -1724,7 +1710,7 @@ mod tests {
         );
         assert_ne!(root, apply_result.root);
         runtime.state_db.commit(apply_result.transaction).unwrap();
-        let result1 = viewer.view_account_at(&alice_account(), apply_result.root);
+        let result1 = viewer.view_account(apply_result.root, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -1735,7 +1721,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account_at(&bob_account(), apply_result.root);
+        let result2 = viewer.view_account(apply_result.root, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -1750,8 +1736,7 @@ mod tests {
 
     #[test]
     fn test_swap_key() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let (pub_key1, secret_key1) = get_key_pair();
         let (pub_key2, _) = get_key_pair();
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
@@ -1804,8 +1789,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_no_callback() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let receipt = ReceiptTransaction::new(
             alice_account(),
             bob_account(),
@@ -1844,8 +1828,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_logs() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let nonce: Vec<u8> = hash(&[1, 2, 3]).into();
         let receipt = ReceiptTransaction::new(
             alice_account(),
@@ -1892,8 +1875,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_callback() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let accounting_info = AccountingInfo {
             originator: alice_account(),
@@ -1961,8 +1943,7 @@ mod tests {
 
     #[test]
     fn test_callback() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let mut callback = Callback::new(
             b"run_test_with_storage_change".to_vec(),
             vec![],
@@ -2010,8 +1991,7 @@ mod tests {
     #[test]
     // if the callback failed, it should still be removed
     fn test_callback_failure() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let mut callback = Callback::new(
             b"a_function_that_does_not_exist".to_vec(),
             vec![],
@@ -2059,8 +2039,7 @@ mod tests {
 
     #[test]
     fn test_nonce_update_when_deploying_contract() {
-        let (mut runtime, viewer) = get_runtime_and_state_db_viewer();
-        let root = viewer.get_root();
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
@@ -2096,9 +2075,9 @@ mod tests {
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }
-        let (_, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
+        let (_, viewer, root) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
         for i in 0..100 {
-            assert_eq!(viewer.view_account(&format!("account{}", i)).unwrap().amount, 10000)
+            assert_eq!(viewer.view_account(root, &format!("account{}", i)).unwrap().amount, 10000)
         }
     }
 }

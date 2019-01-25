@@ -15,7 +15,6 @@ testnet = { path = "./node/testnet" }
 members = [
     "core/chain",
     "core/primitives",
-    "core/shard",
     "core/storage",
     "core/txflow",
     "core/wasm",
@@ -31,6 +30,7 @@ members = [
     "node/http",
     "node/network",
     "node/runtime",
+    "node/shard",
     "node/testnet",
     "test-utils/chain-spec-builder",
     "test-utils/keygen"

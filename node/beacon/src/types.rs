@@ -1,6 +1,14 @@
+use parking_lot::RwLock;
+use std::sync::Arc;
+
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AuthorityMask, MultiSignature, PartialSignature, AuthorityStake};
+use storage::Storage;
+use configs::ChainSpec;
+use configs::authority::get_authority_config;
+
+use crate::authority::{Authority};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -85,6 +93,11 @@ impl SignedBlock for SignedBeaconBlock {
     }
 
     #[inline]
+    fn index(&self) -> u64 {
+        self.body.header.index
+    }
+
+    #[inline]
     fn block_hash(&self) -> CryptoHash {
         self.hash
     }
@@ -99,7 +112,24 @@ impl SignedBlock for SignedBeaconBlock {
     }
 }
 
-pub type BeaconBlockChain = chain::BlockChain<SignedBeaconBlock>;
+pub type BeaconBlockChainStorage = chain::BlockChain<SignedBeaconBlock>;
+
+pub struct BeaconBlockChain {
+    pub chain: BeaconBlockChainStorage,
+    pub authority: RwLock<Authority>,
+}
+
+impl BeaconBlockChain {
+    pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: Arc<Storage>) -> Self {
+        let chain = chain::BlockChain::new(genesis, storage.clone());
+        let authority_config = get_authority_config(chain_spec);
+        let authority = RwLock::new(Authority::new(authority_config, &chain));
+        BeaconBlockChain {
+            chain,
+            authority,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
