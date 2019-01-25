@@ -43,8 +43,16 @@ pub struct Client {
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets =
-        vec!["consensus", "near-rpc", "network", "producer", "runtime", "service", "wasm"];
+    let internal_targets = vec![
+        "consensus",
+        "near-rpc",
+        "network",
+        "producer",
+        "runtime",
+        "service",
+        "wasm",
+        "client",
+    ];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
@@ -126,7 +134,9 @@ impl Client {
             .read()
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
-        let (mut shard_block, transaction, authority_proposals) = self.shard_chain.prepare_new_block(last_block.body.header.shard_block_hash, transactions);
+        let (mut shard_block, transaction, authority_proposals) = self
+            .shard_chain
+            .prepare_new_block(last_block.body.header.shard_block_hash, transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
@@ -189,7 +199,7 @@ impl Client {
     pub fn import_blocks(
         &self,
         beacon_block: SignedBeaconBlock,
-        shard_block: SignedShardBlock
+        shard_block: SignedShardBlock,
     ) -> Option<SignedBeaconBlock> {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
@@ -228,7 +238,6 @@ impl Client {
                 .write()
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
-
 
             if self.shard_chain.apply_block(&next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
