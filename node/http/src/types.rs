@@ -8,64 +8,9 @@ use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, Balance, MerkleHash, ShardId,
 };
-use transaction::{SignedTransaction, Transaction, TransactionBody};
+use transaction::{SignedTransaction, Transaction};
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use shard::TransactionStatus;
-
-#[derive(Serialize, Deserialize)]
-pub struct SendMoneyRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub receiver_account_id: AccountId,
-    pub amount: Balance,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StakeRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub amount: Balance,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct DeployContractRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub contract_account_id: AccountId,
-    pub wasm_byte_array: Vec<u8>,
-    #[serde(with = "bs58_pub_key_format")]
-    pub public_key: PublicKey,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CreateAccountRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub new_account_id: AccountId,
-    pub amount: u64,
-    #[serde(with = "bs58_pub_key_format")]
-    pub public_key: PublicKey
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SwapKeyRequest {
-    pub nonce: u64,
-    pub account: AccountId,
-    #[serde(with = "bs58_pub_key_format")]
-    pub current_key: PublicKey,
-    #[serde(with = "bs58_pub_key_format")]
-    pub new_key: PublicKey,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ScheduleFunctionCallRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub contract_account_id: AccountId,
-    pub method_name: String,
-    pub args: Vec<u8>,
-    pub amount: Balance,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
@@ -93,13 +38,6 @@ pub struct CallViewFunctionRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CallViewFunctionResponse {
     pub result: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct PreparedTransactionBodyResponse {
-    pub body: TransactionBody,
-    #[serde(with = "bs58_format")]
-    pub hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -226,7 +164,7 @@ pub struct ShardBlockResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedTransactionResponse {
     #[serde(with = "protos_b64_format")]
-    pub body: near_protos::transaction::SignedTransaction,
+    pub body: near_protos::signed_transaction::SignedTransaction,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
 }
@@ -328,5 +266,5 @@ pub struct TransactionInfoResponse {
 #[derive(Serialize, Deserialize)]
 pub struct SubmitTransactionRequest {
     #[serde(with = "protos_b64_format")]
-    pub transaction: near_protos::transaction::SignedTransaction,
+    pub transaction: near_protos::signed_transaction::SignedTransaction,
 }

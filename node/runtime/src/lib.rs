@@ -510,7 +510,9 @@ impl Runtime {
         }
         let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
        
-        let public_key = Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
+        let public_key: Vec<u8> = Decode::decode(&call.args)
+            .map_err(|_| "cannot decode public key")?;
+        let public_key = PublicKey::new(&public_key)?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -539,9 +541,9 @@ impl Runtime {
         call: &AsyncCall,
         account_id: &AccountId,
     ) -> Result<Vec<Transaction>, String> {
-        let (public_key, code): (Vec<u8>, Vec<u8>) = 
+        let (public_key, code): (Vec<u8>, Vec<u8>) =
             Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
-        let public_key = Decode::decode(&public_key).map_err(|_| "cannot decode public key")?;
+        let public_key = PublicKey::new(&public_key)?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,

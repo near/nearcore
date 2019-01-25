@@ -5,7 +5,7 @@ use std::{fmt, io};
 use std::hash::{Hash, Hasher};
 
 use near_protos::Message as ProtoMessage;
-use near_protos::transaction as transaction_proto;
+use near_protos::signed_transaction as transaction_proto;
 use primitives::hash::{CryptoHash, hash};
 use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
 use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
