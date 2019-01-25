@@ -5,10 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+base64 = "0.10.0"
 clap = "2.32.0"
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
 
 primitives = { path = "../../core/primitives" }
-transaction = { path = "../../core/transaction" }
