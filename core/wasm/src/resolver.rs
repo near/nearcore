@@ -28,6 +28,22 @@ impl wasmi::ModuleImportResolver for EnvModuleResolver {
                 Signature::new(&[ValueType::I32, ValueType::I32][..], None),
                 ids::STORAGE_READ_INTO_FUNC,
             ),
+            "storage_iter" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
+                ids::STORAGE_ITER_FUNC,
+            ),
+            "storage_iter_next" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
+                ids::STORAGE_ITER_NEXT_FUNC,
+            ),
+            "storage_iter_peek_len" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
+                ids::STORAGE_ITER_PEEK_LEN_FUNC,
+            ),
+            "storage_iter_peek_into" => FuncInstance::alloc_host(
+                Signature::new(&[ValueType::I32, ValueType::I32][..], None),
+                ids::STORAGE_ITER_PEEK_INTO_FUNC,
+            ),
             "storage_write" => FuncInstance::alloc_host(
                 Signature::new(&[ValueType::I32, ValueType::I32][..], None),
                 ids::STORAGE_WRITE_FUNC,

@@ -29,6 +29,8 @@ pub struct State<W: WitnessSelector> {
     /// The size of the random sample of witnesses that we draw every time we gossip.
     pub gossip_size: usize,
     pub witness_selector: Box<W>,
+    /// Index of the beacon block which this TxFlow is currently building.
+    pub beacon_block_index: u64,
 }
 
 /// An enum that we use to start and stop the TxFlow task.
@@ -220,6 +222,10 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         message_sender: UID,
         requires_reply: bool,
     ) {
+        // Check whether this is a stray message from a different index.
+        if message.beacon_block_index != self.state.as_ref().unwrap().beacon_block_index {
+            return;
+        }
         // Check one of the optimistic scenarios when we already know this message.
         if self.dag_as_ref().contains_message(message.hash)
             || self.blocked_messages.contains_key(&message.hash)
@@ -296,9 +302,20 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
         let witness_ptr = self.witness_selector() as *const W;
         // Since we are controlling the creation of the DAG by encapsulating it here
         // this code is safe.
-        self.dag = Some(Box::new(DAG::new(self.owner_uid(), self.starting_epoch(), unsafe {
-            &*witness_ptr
-        })));
+        self.dag = Some(Box::new(DAG::new(
+            self.owner_uid(),
+            self.state.as_ref().unwrap().beacon_block_index,
+            self.starting_epoch(),
+            unsafe { &*witness_ptr },
+        )));
+        self.forced_gossip_delay = None;
+        self.cooldown_delay = None;
+        self.blocked_messages.clear();
+        self.blocking_hashes.clear();
+        self.blocked_replies.clear();
+        self.pending_replies.clear();
+        self.pending_fetches.clear();
+        self.pending_payload = P::new();
     }
 }
 
@@ -313,12 +330,14 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 // Independently on whether we were stopped or not, if we receive a reset signal we
                 // reset the state and the dag.
                 Ok(Async::Ready(Some(Control::Reset(state)))) => {
+                    println!("Received Reset control for beacon block index {}", state.beacon_block_index);
                     self.state = Some(state);
                     self.init_dag();
                     break;
                 }
                 // Stop command received.
                 Ok(Async::Ready(Some(Control::Stop))) => {
+                    println!("Received Stop control");
                     if self.state.is_some() {
                         self.state = None;
                         self.dag = None;
@@ -368,7 +387,9 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         let mut end_of_payloads = false;
         loop {
             match self.payload_receiver.poll() {
-                Ok(Async::Ready(Some(payload))) => self.pending_payload.union_update(payload),
+                Ok(Async::Ready(Some(payload))) => {
+                    self.pending_payload.union_update(payload)
+                },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the payloads.
@@ -407,6 +428,9 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
             // Drain the current payload.
             let payload = mem::replace(&mut self.pending_payload, P::new());
             let (new_message, consensuses) = self.dag_as_mut().create_root_message(payload, vec![]);
+            if !new_message.data.body.payload.is_empty() {
+                // println!("TXFLOW Payload carrying message: {:?}", new_message.computed_hash);
+            }
             self.send_consensuses(consensuses);
             new_gossip_body = Some(&new_message.data);
         } else if let Some(ref mut d) = self.forced_gossip_delay {
@@ -492,9 +516,9 @@ mod tests {
     use futures::Stream;
     use std::collections::HashSet;
 
+    use crate::testing_utils::FakePayload;
     use primitives::traits::WitnessSelector;
     use primitives::types::UID;
-    use crate::testing_utils::FakePayload;
 
     struct FakeWitnessSelector {}
 

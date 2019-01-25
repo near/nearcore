@@ -318,6 +318,7 @@ name = "chain"
 version = "0.0.1"
 dependencies = [
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
  "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1713,6 +1714,7 @@ dependencies = [
  "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.36 (registry+https://github.com/rust-lang/crates.io-index)",
+ "shard 0.0.1",
  "storage 0.0.1",
  "substrate-network-libp2p 0.1.0 (git+https://github.com/nearprotocol/substrate?rev=2db35a0c6e87fc4450a77da548ef6e2db8b0d057)",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2675,6 +2677,7 @@ dependencies = [
  "node-http 0.1.0",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
+ "shard 0.0.1",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "transaction 0.1.0",
  "txflow 0.0.1",

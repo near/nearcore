@@ -48,7 +48,7 @@ impl External for MyExt {
         Err(ExtError::NotImplemented)
     }
 
-    fn storage_iter_peek(&mut self, _iter: u32) -> ExtResult<Option<&Vec<u8>>> {
+    fn storage_iter_peek(&mut self, _iter: u32) -> ExtResult<Option<Vec<u8>>> {
         Err(ExtError::NotImplemented)
     }
 

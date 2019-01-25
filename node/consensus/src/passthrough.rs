@@ -22,7 +22,7 @@ pub fn spawn_consensus(
     let payload_stream = payload_rx.map(Some);
     let task = payload_stream
         .select(interval_stream)
-        .fold((control_rx, vec![]), move |(control_rx, mut acc), p| {
+        .fold((control_rx, vec![], 0), move |(control_rx, mut acc, mut beacon_block_index), p| {
             if let Some(payload) = p {
                 let message: SignedMessageData<ChainPayload> = SignedMessageData {
                     owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
@@ -34,20 +34,25 @@ pub fn spawn_consensus(
                         payload,
                         endorsements: vec![],
                     },
+                    beacon_block_index: 0,  // Not used by the DevNet.
                 };
                 acc.push(message);
-                Either::A(future::ok((control_rx, acc)))
+                Either::A(future::ok((control_rx, acc, beacon_block_index)))
             } else {
                 if !acc.is_empty() {
-                    let c = ChainConsensusBlockBody { messages: acc };
-                    Either::B(consensus_tx.clone().send(c).then(|res| {
+                    beacon_block_index += 1;
+                    let c = ChainConsensusBlockBody {
+                        messages: acc,
+                        beacon_block_index
+                    };
+                    Either::B(consensus_tx.clone().send(c).then(move |res| {
                         if let Err(err) = res {
                             error!("Failure sending pass-through consensus {}", err);
                         }
-                        future::ok((control_rx, vec![]))
+                        future::ok((control_rx, vec![], beacon_block_index))
                     }))
                 } else {
-                    Either::A(future::ok((control_rx, vec![])))
+                    Either::A(future::ok((control_rx, vec![], beacon_block_index)))
                 }
             }
         })
