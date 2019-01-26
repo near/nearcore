@@ -21,6 +21,7 @@ pub mod message;
 pub mod protocol;
 pub mod service;
 pub mod test_utils;
+pub mod peer;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
 

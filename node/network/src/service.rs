@@ -1,24 +1,24 @@
-use ::primitives::types::AccountId;
-use ::primitives::serialize::Encode;
+use primitives::types::AccountId;
+use primitives::serialize::Encode;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::io::{Error, ErrorKind};
-use ::tokio::net::{TcpStream, TcpListener};
-use ::tokio_codec::{Framed};
-use ::tokio::prelude::stream::SplitStream;
-use ::tokio::timer::Interval;
+use tokio::net::{TcpStream, TcpListener};
+use tokio_codec::{Framed};
+use tokio::prelude::stream::SplitStream;
+use tokio::timer::Interval;
 use std::time::Duration;
-use ::futures::sync::mpsc::{channel, Sender, Receiver};
-use ::futures::{Stream, Future, Sink, future};
-use ::log::error;
-use ::serde_derive::{Serialize, Deserialize};
-use ::rand::{thread_rng, seq::IteratorRandom};
-use ::parking_lot::RwLock;
+use futures::sync::mpsc::{channel, Sender, Receiver};
+use futures::{Stream, Future, Sink, future};
+use log::error;
+use serde_derive::{Serialize, Deserialize};
+use rand::{thread_rng, seq::IteratorRandom};
+use parking_lot::RwLock;
 use std::sync::Arc;
-use ::tokio_serde_cbor::Codec;
-use ::configs::network::NetworkConfig;
-use ::primitives::types::PeerId;
-use ::log::info;
+use tokio_serde_cbor::Codec;
+use configs::network::NetworkConfig;
+use primitives::types::PeerId;
+use log::info;
 
 use crate::message::Message;
 
@@ -430,130 +430,130 @@ pub enum ServiceEvent {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ::primitives::hash::hash_struct;
-    use std::thread;
-    use std::time::Duration;
-    use std::sync::Arc;
-    use parking_lot::Mutex;
-    use ::tokio::timer::Interval;
-
-    impl Peer {
-        fn new(addr: SocketAddr, id: PeerId, account_id: Option<AccountId>) -> Self {
-            Peer { addr, id, account_id }
-        }
-    }
-
-    impl Service {
-        fn _spawn_listening_task(&mut self) {
-            let listener = self.listener.take().expect("listener already taken");
-            self.spawn_listening_task(listener);
-        }
-    }
-
-    #[test]
-    fn test_two_peers() {
-        let config1 = NetworkConfig::new("127.0.0.1:3000", hash_struct(&0), vec![]);
-        let config2 = NetworkConfig::new("127.0.0.1:3001", hash_struct(&1), vec![]);
-        let (message_tx1, _) = channel(1024);
-        let (message_tx2, _) = channel(1024);
-        let service1 = Arc::new(Mutex::new(Service::new(config1.clone(), message_tx1)));
-        let service2 = Arc::new(Mutex::new(Service::new(config2, message_tx2)));
-        let peer = Peer::new(config1.listen_addr, config1.peer_id, None);
-        
-        let task = futures::lazy({
-            let service1 = service1.clone();
-            let service2 = service2.clone();
-            move || {
-                service1.lock()._spawn_listening_task();
-                service2.lock()._spawn_listening_task();
-                service2.lock().dial(peer.addr).unwrap();
-                Ok(())
-            }
-        });
-        thread::spawn(move || tokio::run(task));
-        while service1.lock().connected_peers.read().len() < 1 
-            || service2.lock().connected_peers.read().len() < 1 {
-            thread::sleep(Duration::from_secs(1));
-        }
-    }
-
-    #[test]
-    fn test_send_message() {
-        let config1 = NetworkConfig::new("127.0.0.1:3002", hash_struct(&0), vec![]);
-        let config2 = NetworkConfig::new("127.0.0.1:3003", hash_struct(&1), vec![]);
-        let (message_tx1, _) = channel(1024);
-        let (message_tx2, message_rx2) = channel(1024);
-        let service1 = Arc::new(Mutex::new(Service::new(config1.clone(), message_tx1)));
-        let service2 = Arc::new(Mutex::new(Service::new(config2, message_tx2)));
-        let peer = Peer::new(config1.listen_addr, config1.peer_id, None);
-        let timeout = Duration::from_secs(5);
-        let message_queue = Arc::new(Mutex::new(vec![]));
-        thread::spawn({
-            let queue = message_queue.clone();
-            move || {
-                let task = Interval::new_interval(timeout)
-                    .map(|_| None)
-                    .map_err(|e| println!("{}", e))
-                    .select(message_rx2.map(Some))
-                    .for_each(move |m| {
-                        queue.lock().push(m);
-                        Ok(())
-                    });
-                tokio::run(task);
-            }
-        });
-        
-        // connect two peers
-        let task = futures::lazy({
-            let service1 = service1.clone();
-            let service2 = service2.clone();
-            move || {
-                service1.lock()._spawn_listening_task();
-                service2.lock()._spawn_listening_task();
-                service2.lock().dial(peer.addr).unwrap();
-                Ok(()) 
-            }
-        });
-        thread::spawn(move || tokio::run(task));
-        // wait until connected
-        while service1.lock().connected_peers.read().len() < 1 
-            || service2.lock().connected_peers.read().len() < 1 {
-            thread::sleep(Duration::from_secs(1));
-        }
-        
-        // send message
-        let message = b"hello".to_vec();
-        let peer = {
-            let service = service1.lock();
-            let connected_peers = service.connected_peers.read();
-            connected_peers.keys().cloned().collect::<Vec<_>>()[0]
-        };
-        
-        thread::spawn(move || {
-            tokio::run(
-                futures::lazy({
-                    let service = service1.clone();
-                    move || {
-                        tokio::spawn(service.lock().send_message(&peer, message));
-                        Ok(())
-                    }
-                })
-            )
-        });
-        // wait until message is received
-        while message_queue.lock().len() < 2 {
-            thread::sleep(Duration::from_secs(1));
-        }
-
-        let message = message_queue.lock().pop().unwrap();
-        if let Some(NetworkEvent::Message { peer_id, data }) = message {
-            assert_eq!(data, b"hello".to_vec());
-            assert_eq!(peer_id, config1.peer_id);
-        } else {
-            assert!(false);
-        }
-    }
-}
+//#[cfg(test)]
+//mod tests {
+//    use super::*;
+//    use ::primitives::hash::hash_struct;
+//    use std::thread;
+//    use std::time::Duration;
+//    use std::sync::Arc;
+//    use parking_lot::Mutex;
+//    use ::tokio::timer::Interval;
+//
+//    impl Peer {
+//        fn new(addr: SocketAddr, id: PeerId, account_id: Option<AccountId>) -> Self {
+//            Peer { addr, id, account_id }
+//        }
+//    }
+//
+//    impl Service {
+//        fn _spawn_listening_task(&mut self) {
+//            let listener = self.listener.take().expect("listener already taken");
+//            self.spawn_listening_task(listener);
+//        }
+//    }
+//
+//    #[test]
+//    fn test_two_peers() {
+//        let config1 = NetworkConfig::new("127.0.0.1:3000", hash_struct(&0), vec![]);
+//        let config2 = NetworkConfig::new("127.0.0.1:3001", hash_struct(&1), vec![]);
+//        let (message_tx1, _) = channel(1024);
+//        let (message_tx2, _) = channel(1024);
+//        let service1 = Arc::new(Mutex::new(Service::new(config1.clone(), message_tx1)));
+//        let service2 = Arc::new(Mutex::new(Service::new(config2, message_tx2)));
+//        let peer = Peer::new(config1.listen_addr, config1.peer_id, None);
+//
+//        let task = futures::lazy({
+//            let service1 = service1.clone();
+//            let service2 = service2.clone();
+//            move || {
+//                service1.lock()._spawn_listening_task();
+//                service2.lock()._spawn_listening_task();
+//                service2.lock().dial(peer.addr).unwrap();
+//                Ok(())
+//            }
+//        });
+//        thread::spawn(move || tokio::run(task));
+//        while service1.lock().connected_peers.read().len() < 1
+//            || service2.lock().connected_peers.read().len() < 1 {
+//            thread::sleep(Duration::from_secs(1));
+//        }
+//    }
+//
+//    #[test]
+//    fn test_send_message() {
+//        let config1 = NetworkConfig::new("127.0.0.1:3002", hash_struct(&0), vec![]);
+//        let config2 = NetworkConfig::new("127.0.0.1:3003", hash_struct(&1), vec![]);
+//        let (message_tx1, _) = channel(1024);
+//        let (message_tx2, message_rx2) = channel(1024);
+//        let service1 = Arc::new(Mutex::new(Service::new(config1.clone(), message_tx1)));
+//        let service2 = Arc::new(Mutex::new(Service::new(config2, message_tx2)));
+//        let peer = Peer::new(config1.listen_addr, config1.peer_id, None);
+//        let timeout = Duration::from_secs(5);
+//        let message_queue = Arc::new(Mutex::new(vec![]));
+//        thread::spawn({
+//            let queue = message_queue.clone();
+//            move || {
+//                let task = Interval::new_interval(timeout)
+//                    .map(|_| None)
+//                    .map_err(|e| println!("{}", e))
+//                    .select(message_rx2.map(Some))
+//                    .for_each(move |m| {
+//                        queue.lock().push(m);
+//                        Ok(())
+//                    });
+//                tokio::run(task);
+//            }
+//        });
+//
+//        // connect two peers
+//        let task = futures::lazy({
+//            let service1 = service1.clone();
+//            let service2 = service2.clone();
+//            move || {
+//                service1.lock()._spawn_listening_task();
+//                service2.lock()._spawn_listening_task();
+//                service2.lock().dial(peer.addr).unwrap();
+//                Ok(())
+//            }
+//        });
+//        thread::spawn(move || tokio::run(task));
+//        // wait until connected
+//        while service1.lock().connected_peers.read().len() < 1
+//            || service2.lock().connected_peers.read().len() < 1 {
+//            thread::sleep(Duration::from_secs(1));
+//        }
+//
+//        // send message
+//        let message = b"hello".to_vec();
+//        let peer = {
+//            let service = service1.lock();
+//            let connected_peers = service.connected_peers.read();
+//            connected_peers.keys().cloned().collect::<Vec<_>>()[0]
+//        };
+//
+//        thread::spawn(move || {
+//            tokio::run(
+//                futures::lazy({
+//                    let service = service1.clone();
+//                    move || {
+//                        tokio::spawn(service.lock().send_message(&peer, message));
+//                        Ok(())
+//                    }
+//                })
+//            )
+//        });
+//        // wait until message is received
+//        while message_queue.lock().len() < 2 {
+//            thread::sleep(Duration::from_secs(1));
+//        }
+//
+//        let message = message_queue.lock().pop().unwrap();
+//        if let Some(NetworkEvent::Message { peer_id, data }) = message {
+//            assert_eq!(data, b"hello".to_vec());
+//            assert_eq!(peer_id, config1.peer_id);
+//        } else {
+//            assert!(false);
+//        }
+//    }
+//}
