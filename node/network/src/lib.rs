@@ -6,7 +6,7 @@ use futures::{Future, Stream};
 use futures::sync::mpsc::Receiver;
 use tokio::timer::Interval;
 
-use ::log::error;
+use ::log::{error, debug};
 use beacon::types::SignedBeaconBlock;
 use shard::types::SignedShardBlock;
 use primitives::types::{Gossip, UID, AuthorityStake};
@@ -37,7 +37,7 @@ pub fn spawn_network_tasks(
             let protocol1 = protocol.clone();
             move |_| {
                 for peer in protocol1.maintain_peers() {
-                    error!("Dropping timeouted node {:?}.", peer);
+                    error!("Dropping timed-out node {:?}.", peer);
                     protocol1.report_peer(peer, Severity::Timeout);
                 }
                 Ok(())
@@ -47,7 +47,7 @@ pub fn spawn_network_tasks(
     let event_task = event_rx.for_each({
         let protocol = protocol.clone();
         move |event| {
-            println!("Network event received: {:?}", event);
+            debug!(target: "network", "Network event received: {:?}", event);
             match event {
                 NetworkEvent::PeerConnected { peer_id, .. } => {
                     protocol.on_peer_connected(peer_id);
