@@ -22,12 +22,17 @@ class Account {
         const nonce = await this.nearClient.getNonce(originator);
         publicKey = bs58.decode(publicKey);
         const createAccount = CreateAccountTransaction.create({
-            nonce,
             originator,
             newAccountId,
             amount,
             publicKey,
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            createAccount.nonce = nonce;
+        }
+
         const buffer = CreateAccountTransaction.encode(createAccount).finish();
         const signature = await this.nearClient.signer.signTransactionBody(
             buffer,

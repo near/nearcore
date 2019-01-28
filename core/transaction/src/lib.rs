@@ -744,10 +744,4 @@ mod tests {
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
     }
-
-    #[test]
-    fn test_protobuf_to_transaction() {
-        let mut t = transaction_proto::SignedTransaction::new();
-
-    }
 }

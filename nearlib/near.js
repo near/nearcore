@@ -73,13 +73,20 @@ class Near {
         args = new Uint8Array(Buffer.from(JSON.stringify(args)));
         const nonce = await this.nearClient.getNonce(originator);
         const functionCall = FunctionCallTransaction.create({
-            nonce,
             originator,
             contractId,
             methodName,
             args,
-            amount,
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            functionCall.nonce = nonce;
+        }
+        if (amount !== 0) {
+            functionCall.amount = amount;
+        }
+
         const buffer = FunctionCallTransaction.encode(functionCall).finish();
         const signature = await this.nearClient.signer.signTransactionBody(
             buffer,
@@ -101,15 +108,22 @@ class Near {
      */
     async deployContract(originator, contractId, wasmByteArray) {
         const nonce = await this.nearClient.getNonce(originator);
-        var publicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE' // This parameter is not working properly yet. Use some fake value
+
+        // This parameter is not working properly yet. Use some fake value
+        var publicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
         publicKey = bs58.decode(publicKey);
         const deployContract = DeployContractTransaction.create({
-            nonce,
             originator,
             contractId,
             wasmByteArray,
             publicKey, 
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            deployContract.nonce = nonce;
+        }
+
         const buffer = DeployContractTransaction.encode(deployContract).finish();
         const signature = await this.nearClient.signer.signTransactionBody(
             buffer,
