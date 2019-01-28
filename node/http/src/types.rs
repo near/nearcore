@@ -6,9 +6,8 @@ use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, Balance, MerkleHash, ShardId, AuthorityStake
 };
-use transaction::{SignedTransaction, Transaction, TransactionBody};
+use transaction::{SignedTransaction, Transaction, TransactionBody, TransactionResult};
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
-use shard::TransactionStatus;
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -304,8 +303,8 @@ pub struct GetTransactionRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TransactionStatusResponse {
-    pub status: TransactionStatus,
+pub struct TransactionResultResponse {
+    pub result: TransactionResult,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -318,5 +317,5 @@ pub struct SubmitTransactionResponse {
 pub struct TransactionInfoResponse {
     pub transaction: SignedTransactionResponse,
     pub block_index: u64,
-    pub status: TransactionStatus,
+    pub result: TransactionResult,
 }

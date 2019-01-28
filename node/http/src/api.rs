@@ -21,7 +21,7 @@ use crate::types::{
     PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
     SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
     SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
-    SwapKeyRequest, TransactionInfoResponse, TransactionStatusResponse,
+    SwapKeyRequest, TransactionInfoResponse, TransactionResultResponse,
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
@@ -242,18 +242,18 @@ impl HttpApi {
             Some(info) => Ok(TransactionInfoResponse {
                 transaction: info.transaction.into(),
                 block_index: info.block_index,
-                status: info.status
+                result: info.result
             }),
             None => Err(RPCError::NotFound),
         }
 
     }
 
-    pub fn get_transaction_status(
+    pub fn get_transaction_result(
         &self,
         r: &GetTransactionRequest,
-    ) -> Result<TransactionStatusResponse, ()> {
-        let status = self.client.shard_chain.get_transaction_status(&r.hash);
-        Ok(TransactionStatusResponse { status })
+    ) -> Result<TransactionResultResponse, ()> {
+        let result = self.client.shard_chain.get_transaction_result(&r.hash);
+        Ok(TransactionResultResponse { result })
     }
 }
