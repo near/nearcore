@@ -134,7 +134,7 @@ impl Client {
             .read()
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
-        let (mut shard_block, transaction, authority_proposals) = self
+        let (mut shard_block, transaction, authority_proposals, tx_results) = self
             .shard_chain
             .prepare_new_block(last_block.body.header.shard_block_hash, transactions);
         let mut block = SignedBeaconBlock::new(
@@ -157,7 +157,7 @@ impl Client {
             io::stdout().flush().expect("Could not flush stdout");
             None
         } else {
-            self.shard_chain.insert_block(&shard_block.clone(), transaction);
+            self.shard_chain.insert_block(&shard_block.clone(), transaction, tx_results);
             self.beacon_chain.chain.insert_block(block.clone());
             info!(target: "client",
                   "Producing block index: {:?}, beacon = {:?}, shard = {:?}",

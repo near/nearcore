@@ -90,8 +90,8 @@ class Near {
         });
     }
 
-    async getTransactionStatus (transaction_hash) {
-        const transactionStatusResponse = await this.nearClient.request('get_transaction_status', {
+    async getTransactionStatus(transaction_hash) {
+        const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
             hash: transaction_hash,
         });
         return transactionStatusResponse;
