@@ -136,7 +136,7 @@ impl<'a> External for RuntimeExt<'a> {
         let receipt = ReceiptTransaction::new(
             self.account_id.clone(),
             account_id,
-            nonce.clone(),
+            nonce,
             ReceiptBody::NewCall(AsyncCall::new(
                 method_name,
                 arguments,

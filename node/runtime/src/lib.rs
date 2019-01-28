@@ -1013,7 +1013,7 @@ impl Runtime {
                     Ok(mut receipts) => {
                         for receipt in receipts.iter() {
                             if let Transaction::Receipt(r) = receipt {
-                                result.receipts.push(r.nonce.clone());
+                                result.receipts.push(r.nonce);
                             }
                         }
                         new_receipts.append(&mut receipts);
@@ -1033,7 +1033,7 @@ impl Runtime {
                     let apply_result = runtime.apply_receipt(state_update, r, &mut tmp_new_receipts, block_index, &mut result.logs);
                     for receipt in tmp_new_receipts.iter() {
                         if let Transaction::Receipt(r) = receipt {
-                            result.receipts.push(r.nonce.clone());
+                            result.receipts.push(r.nonce);
                         }
                     }
                     match apply_result {

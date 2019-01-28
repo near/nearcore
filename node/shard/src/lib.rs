@@ -227,7 +227,7 @@ impl ShardBlockChain {
     pub fn update_for_inserted_block(&self, block: &SignedShardBlock, tx_result: Vec<TransactionResult>) {
         let updates: HashMap<Vec<u8>, TransactionAddress> = block.body.transactions.iter()
             .enumerate()
-            .filter_map(|(i, transaction)| {
+            .map(|(i, transaction)| {
                 let key = match transaction {
                     Transaction::SignedTransaction(t) => with_index(
                             &t.transaction_hash(),
@@ -238,10 +238,10 @@ impl ShardBlockChain {
                             ExtrasIndex::TransactionAddress,
                     ),
                 };
-                Some((key.to_vec(), TransactionAddress {
+                (key.to_vec(), TransactionAddress {
                     block_hash: block.hash,
                     index: i,
-                }))
+                })
             })
             .collect();
         extend_with_cache(
@@ -252,7 +252,7 @@ impl ShardBlockChain {
         );
         let updates: HashMap<Vec<u8>, TransactionResult> = block.body.transactions.iter()
             .enumerate()
-            .filter_map(|(i, transaction)| {
+            .map(|(i, transaction)| {
                 let key = match transaction {
                     Transaction::SignedTransaction(t) => with_index(
                         &t.transaction_hash(),
@@ -263,7 +263,7 @@ impl ShardBlockChain {
                         ExtrasIndex::TransactionResult
                     ),
                 };
-                Some((key.to_vec(), tx_result[i].clone()))
+                (key.to_vec(), tx_result[i].clone())
             })
             .collect();
         extend_with_cache(
