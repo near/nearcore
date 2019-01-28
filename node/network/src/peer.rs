@@ -34,7 +34,7 @@ const STATE_ERR: &str = "Some fields are expected to be not None at the given st
 pub enum PeerMessage {
     Handshake { id: PeerId, account_id: Option<AccountId>, peers_info: PeersInfo },
     InfoGossip(PeersInfo),
-    Message { peer_id: PeerId, data: Vec<u8> },
+    Message(Vec<u8>),
 }
 
 /// Info about the peer. If peer is an authority then we also know its account id.
@@ -50,7 +50,7 @@ pub type PeersInfo = Vec<PeerInfo>;
 /// Note, the peer that establishes the connection is the one that sends the handshake.
 pub enum PeerState {
     /// Someone unknown has established connection with us and we are waiting for them to send us
-    /// the handshake. `stream`, `sink`, and `timeout` are not `None`.
+    /// the handshake. `stream`, `out_msg_tx`, and `timeout` are not `None`.
     IncomingConnection(SocketAddr),
     /// We know the `PeerInfo` (if it is a boot node, only addr), but have not attempted to connect
     /// to it, yet.
@@ -102,6 +102,16 @@ impl Peer {
         all_peers: Arc<RwLock<AllPeers>>,
     ) -> Result<Self, Error> {
         let addr = socket.peer_addr()?;
+        if !all_peers.write().add_incoming_peer(&PeerInfo {
+            id: None,
+            account_id: None,
+            addr: addr.clone(),
+        }) {
+            return Err(Error::new(
+                ErrorKind::AddrInUse,
+                format!("Address {} is already locked.", addr),
+            ));
+        }
         let (sink, stream) = Framed::new(socket, Codec::new()).split();
         let timeout = Delay::new(Instant::now() + Duration::from_millis(INIT_HANDSHAKE_TIMEOUT_MS));
         Ok(Self {
@@ -160,11 +170,11 @@ fn spawn_sink_task(
 ) -> Sender<PeerMessage> {
     let (out_msg_tx, out_msg_rx) = channel(1024);
     let task = out_msg_rx
-        .forward(sink.sink_map_err(|e|
+        .forward(sink.sink_map_err(|e| {
             warn!(
             target: "network",
             "Error forwarding outgoing messages to the TcpStream sink: {}", e)
-        ))
+        }))
         .map(|_| ());
     tokio::spawn(task);
     out_msg_tx
@@ -199,7 +209,6 @@ macro_rules! poll_stream {
     }};
 }
 
-// TODO: Add macro "drop_on_timeout!" based on try_ready!.
 impl Stream for Peer {
     type Item = (PeerId, Vec<u8>);
     type Error = Error;
@@ -220,6 +229,7 @@ impl Stream for Peer {
                                 &info,
                                 self.out_msg_tx.as_ref().expect(STATE_ERR),
                             );
+                            info!(target: "network", "Ready {:?}", &info);
                             Ready(info)
                         }
                         // Any other message returned by the stream is irrelevant.
@@ -227,9 +237,11 @@ impl Stream for Peer {
                     }
                 }
                 Unconnected(info) => {
+                    info!(target: "network", "Unconnected {:?}", &info);
                     // This state is transient.
                     self.connect = Some(TcpStream::connect(&info.addr));
                     self.timeout = Some(get_delay(CONNECT_TIMEOUT_MS));
+                    info!(target: "network", "Connecting {:?}", &info);
                     Connecting(info.clone())
                 }
                 Connecting(info) => match self.connect.as_mut().expect(STATE_ERR).poll()? {
@@ -239,6 +251,7 @@ impl Stream for Peer {
                         self.timeout = Some(get_delay(RESPONSE_HANDSHAKE_TIMEOUT_MS));
                         self.out_msg_tx = Some(spawn_sink_task(sink));
                         self.handshake();
+                        info!(target: "network", "Connected {:?}", &info);
                         Connected(info.clone())
                     }
                     Async::NotReady => drop_on_timeout!(self, info.addr),
@@ -261,6 +274,7 @@ impl Stream for Peer {
                                 &info,
                                 self.out_msg_tx.as_ref().expect(STATE_ERR),
                             );
+                            info!(target: "network", "Ready {:?}", &info);
                             Ready(info)
                         }
                         // Any other message returned by the stream is irrelevant.
@@ -269,8 +283,9 @@ impl Stream for Peer {
                 }
                 Ready(info) => match try_ready!(poll_stream!(self)) {
                     None => Dropped(info.clone()),
-                    Some(Message { peer_id, data }) => {
-                        return Ok(Async::Ready(Some((peer_id, data))));
+                    Some(Message(data)) => {
+                        let id = info.id.as_ref().expect(STATE_ERR).clone();
+                        return Ok(Async::Ready(Some((id, data))));
                     }
                     Some(InfoGossip(peers_info)) => {
                         self.all_peers.write().merge_peers_info(peers_info);
@@ -282,11 +297,13 @@ impl Stream for Peer {
                     }
                 },
                 DroppedPending(addr) => {
+                    info!(target: "network", "DroppedPending {}", &addr);
                     // Remove peer from lock and close this stream.
                     self.all_peers.write().drop_lock(addr);
                     return Ok(Async::Ready(None));
                 }
                 Dropped(info) => {
+                    info!(target: "network", "Dropped {:?}", &info);
                     // Remove peer from ready and close this stream.
                     self.all_peers.write().drop_ready(info);
                     return Ok(Async::Ready(None));
