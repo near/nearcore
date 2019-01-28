@@ -35,7 +35,7 @@ fn main() {
 
             let test_network_key_seed: &str = &d[2];
             let test_network_key_seed = test_network_key_seed.parse::<u32>().unwrap();
-            let secret = network::service::get_test_secret_from_network_key_seed(
+            let secret = configs::network::get_test_secret_from_network_key_seed(
                 test_network_key_seed
             );
             let key = network::test_utils::raw_key_to_peer_id(secret);
@@ -46,6 +46,6 @@ fn main() {
 
     let (mut chain_spec, _) = node_runtime::test_utils::generate_test_chain_spec();
     chain_spec.boot_nodes = boot_nodes;
-    let serialized = client::chain_spec::serialize_chain_spec(chain_spec);
+    let serialized = configs::chain_spec::serialize_chain_spec(chain_spec);
     println!("{}", serialized);
 }

@@ -175,6 +175,7 @@ pub struct SignedMessageData<P> {
     /// Hash of the body.
     pub hash: TxFlowHash,
     pub body: MessageDataBody<P>,
+    pub beacon_block_index: u64,
 }
 
 impl<P> Hash for SignedMessageData<P> {
@@ -228,6 +229,7 @@ pub struct ConsensusBlockHeader {
 pub struct ConsensusBlockBody<P> {
     /// TxFlow messages that constitute that consensus block together with the endorsements.
     pub messages: Vec<SignedMessageData<P>>,
+    pub beacon_block_index: u64,
 }
 
 //impl<P: Encode> Encode for ConsensusBlockBody<P> {
@@ -276,55 +278,22 @@ pub struct Gossip<P> {
     pub body: GossipBody<P>,
 }
 
-//impl<P: Encode> Encode for Gossip<P> {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = txflow_proto::Gossip::new();
-//        m.set_sender_uid(self.sender_uid);
-//        m.set_receiver_uid(self.receiver_uid);
-//        m.set_sender_sig(self.sender_sig.as_ref().to_vec());
-//        match &self.body {
-//            GossipBody::Unsolicited(message) => m.set_unsolicited(message.encode()?),
-//            GossipBody::UnsolicitedReply(reply) => m.set_unsolicited_reply(reply.encode()?),
-//            GossipBody::Fetch(fetch) => {
-//                let mut f = txflow_proto::Fetch::new();
-//                for x in fetch.iter() {
-//                    f.mut_hashes().push(x.clone());
-//                }
-//                m.set_fetch(f);
-//            },
-//            GossipBody::FetchReply(fetch_reply) => {
-//                let mut f = txflow_proto::FetchReply::new();
-//                for x in fetch_reply.iter() {
-//                    f.mut_messages().push(x.encode()?);
-//                }
-//                m.set_fetch_reply(f);
-//            }
-//        };
-//        encode_proto(&m)
-//    }
-//}
+/// Stores authority and its stake.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuthorityStake {
+    /// Account that stakes money.
+    pub account_id: AccountId,
+    /// Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// Stake / weight of the authority.
+    pub amount: u64,
+}
 
-//impl<P: Decode> Decode for Gossip<P> {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: txflow_proto::Gossip = decode_proto(bytes)?;
-//        let body = match &m.body {
-//            Some(txflow_proto::Gossip_oneof_body::unsolicited(message)) => GossipBody::Unsolicited(Decode::decode(&message)?),
-//            Some(txflow_proto::Gossip_oneof_body::unsolicited_reply(message)) => GossipBody::UnsolicitedReply(Decode::decode(&message)?),
-//            Some(txflow_proto::Gossip_oneof_body::fetch(fetch)) => GossipBody::Fetch(fetch.get_hashes().to_vec()),
-//            Some(txflow_proto::Gossip_oneof_body::fetch_reply(reply)) => {
-//                let mut messages = vec![];
-//                for m in reply.get_messages().iter() {
-//                    messages.push(Decode::decode(m)?);
-//                }
-//                GossipBody::FetchReply(messages)
-//            },
-//            _ => return Err(io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
-//        };
-//        Ok(Gossip {
-//            sender_uid: m.get_sender_uid(),
-//            receiver_uid: m.get_receiver_uid(),
-//            sender_sig: DEFAULT_SIGNATURE,
-//            body,
-//        })
-//    }
-//}
+impl PartialEq for AuthorityStake {
+    fn eq(&self, other: &Self) -> bool {
+        self.account_id == other.account_id
+            && self.public_key == other.public_key
+    }
+}
+
+impl Eq for AuthorityStake {}

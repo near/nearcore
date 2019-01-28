@@ -14,10 +14,10 @@ pub struct BeaconWitnessSelector {
 
 impl BeaconWitnessSelector {
     pub fn new(witnesses: HashSet<UID>, owner_uid: UID) -> Self {
-        let mut witnesses_ordered: Vec<_> = (&witnesses).into_iter().cloned().collect();
+        let mut witnesses_ordered: Vec<_> = (&witnesses).iter().cloned().collect();
         witnesses_ordered.sort();
         let other_witnesses: Vec<_> = (&witnesses)
-            .into_iter()
+            .iter()
             .filter_map(|w| if w == &owner_uid { None } else { Some(*w) })
             .collect();
 
@@ -46,8 +46,8 @@ impl WitnessSelector for BeaconWitnessSelector {
         self.other_witnesses
             .iter()
             .choose_multiple(&mut thread_rng(), sample_size)
-            .into_iter()
-            .cloned()
+            .iter()
+            .map(|&&x| x)
             .collect()
     }
 }

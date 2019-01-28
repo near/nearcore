@@ -19,7 +19,7 @@ variables:
     sudo chmod 755 /usr/local/bin/protoc
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +10 -delete
+    find "${CACHE_ROOT}/target" -atime +2 -delete
 
 .build_wasm: &build_wasm
     cd tests/hello && npm install && npm run build && cd ../..
@@ -49,7 +49,7 @@ test_nearlib:
     - cargo run --release --package=devnet -- --test-block-period 1 &
     - ./scripts/waitonserver.sh
     - *build_wasm
-    - cd nearlib && npm install && npm test && cd ..
+    - cd nearlib && npm install && npm run build && npm run doc && npm test && cd ..
     - ./scripts/kill_devnet.sh
     after_script:
     - *cleanup_obsolete_cache

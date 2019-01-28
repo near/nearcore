@@ -22,7 +22,8 @@ class SimpleKeyStoreSigner {
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(message, key)];
         return signature;
-    };
+    }
+
 }
 
 module.exports = SimpleKeyStoreSigner;

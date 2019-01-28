@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 
-use beacon::authority::AuthorityStake;
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use near_protos::serde::b64_format as protos_b64_format;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
-    AccountId, AuthorityMask, Balance, MerkleHash, ShardId,
+    AccountId, AuthorityMask, AuthorityStake, Balance, MerkleHash, ShardId
 };
-use transaction::{SignedTransaction, Transaction};
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
-use shard::TransactionStatus;
+use transaction::{
+    FinalTransactionStatus, SignedTransaction, Transaction, TransactionBody,
+    TransactionResult,
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
@@ -246,8 +247,11 @@ pub struct GetTransactionRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TransactionStatusResponse {
-    pub status: TransactionStatus,
+pub struct TransactionResultResponse {
+    /// Status of given transaction, including it's receipts.
+    pub status: FinalTransactionStatus,
+    /// Result of given transaction.
+    pub result: TransactionResult,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -260,7 +264,7 @@ pub struct SubmitTransactionResponse {
 pub struct TransactionInfoResponse {
     pub transaction: SignedTransactionResponse,
     pub block_index: u64,
-    pub status: TransactionStatus,
+    pub result: TransactionResult,
 }
 
 #[derive(Serialize, Deserialize)]

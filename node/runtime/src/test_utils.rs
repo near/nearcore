@@ -2,15 +2,14 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+use primitives::types::MerkleHash;
 use primitives::signer::InMemorySigner;
 use primitives::test_utils::get_key_pair_from_seed;
-use shard::ShardBlockChain;
-use shard::SignedShardBlock;
 use storage::StateDb;
 use storage::test_utils::create_memory_db;
 use transaction::Transaction;
 
-use crate::chain_spec::ChainSpec;
+use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
 
 use super::{ApplyResult, ApplyState, Runtime};
@@ -38,7 +37,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
     }, signer)
 }
 
-pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, StateDbViewer) {
+pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, StateDbViewer, MerkleHash) {
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
     let runtime = Runtime::new(state_db.clone());
@@ -48,24 +47,20 @@ pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -
         &chain_spec.initial_authorities
     );
 
-    let shard_genesis = SignedShardBlock::genesis(genesis_root);
-    let shard_chain = Arc::new(ShardBlockChain::new(shard_genesis, storage));
-
     let state_db_viewer = StateDbViewer::new(
-        shard_chain.clone(),
         state_db.clone(),
     );
-    (runtime, state_db_viewer)
+    (runtime, state_db_viewer, genesis_root)
 }
 
-pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer) {
+pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer, MerkleHash) {
     let (chain_spec, _) = generate_test_chain_spec();
     get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec)
 }
 
-pub fn get_test_state_db_viewer() -> StateDbViewer {
-    let (_, state_db_viewer) = get_runtime_and_state_db_viewer();
-    state_db_viewer
+pub fn get_test_state_db_viewer() -> (StateDbViewer, MerkleHash) {
+    let (_, state_db_viewer, root) = get_runtime_and_state_db_viewer();
+    (state_db_viewer, root)
 }
 
 pub fn encode_int(val: i32) -> [u8; 4] {
@@ -84,12 +79,12 @@ impl Runtime {
         let mut cur_transactions = transactions;
         let mut results = vec![];
         loop {
-            let apply_result = self.apply(&cur_apply_state, &[], cur_transactions);
+            let apply_result = self.apply(&cur_apply_state, &[], &cur_transactions);
             results.push(apply_result.clone());
             if apply_result.new_receipts.is_empty() {
                 return results;
             }
-            self.state_db.commit(apply_result.transaction).unwrap();
+            self.state_db.commit(apply_result.db_changes).unwrap();
             cur_apply_state = ApplyState {
                 root: apply_result.root,
                 shard_id: cur_apply_state.shard_id,

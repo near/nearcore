@@ -129,6 +129,16 @@ impl TxTotalStake {
         self.mana_used_num += u64::from(mana) * config.mana_common_denum; 
     }
 
+    pub fn refund_mana_and_charge_gas(&mut self, mana_refund: Mana, gas_used: Gas, config: &TxStakeConfig) {
+        let mana_refund_num = u64::from(mana_refund) * config.mana_common_denum;
+        if mana_refund_num >= self.mana_used_num {
+            self.mana_used_num = 0
+        } else {
+            self.mana_used_num -= mana_refund_num;
+        }
+        self.gas_used += gas_used;
+    }
+
     pub fn add_active_stake(&mut self, stake: Balance) {
         self.total_active_stake += stake;
         self.total_stake += stake;

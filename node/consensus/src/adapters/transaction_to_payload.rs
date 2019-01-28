@@ -24,9 +24,7 @@ mod tests {
     use futures::sync::mpsc::channel;
     use futures::{lazy, stream};
     use primitives::signature::DEFAULT_SIGNATURE;
-    use transaction::{
-        SendMoneyTransaction, SignedTransaction, Transaction, TransactionBody,
-    };
+    use transaction::{SendMoneyTransaction, SignedTransaction, Transaction, TransactionBody};
 
     #[test]
     fn pass_through() {
@@ -38,7 +36,7 @@ mod tests {
             for i in 0..10 {
                 let t = SendMoneyTransaction {
                     nonce: i,
-                    originator: "alice".to_string(),
+                    originator: "alice.near".to_string(),
                     receiver: "bob".to_string(),
                     amount: i,
                 };

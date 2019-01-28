@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::iter::Peekable;
 
 use kvdb::DBValue;
 
+use primitives::hash::CryptoHash;
 use primitives::types::{
     AccountId, AccountingInfo, Balance, CallbackId,
     Mana, PromiseId, ReceiptId,
@@ -20,8 +22,8 @@ pub struct RuntimeExt<'a> {
     account_id: AccountId,
     accounting_info: AccountingInfo,
     nonce: u64,
-    transaction_hash: &'a [u8],
-    iters: HashMap<u32, Box<StateDbUpdateIterator<'a>>>,
+    transaction_hash: &'a CryptoHash,
+    iters: HashMap<u32, Peekable<StateDbUpdateIterator<'a>>>,
     last_iter_id: u32,
 }
 
@@ -30,7 +32,7 @@ impl<'a> RuntimeExt<'a> {
         state_db_update: &'a mut StateDbUpdate,
         account_id: &AccountId,
         accounting_info: &AccountingInfo,
-        transaction_hash: &'a [u8]
+        transaction_hash: &'a CryptoHash
     ) -> Self {
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
@@ -54,7 +56,7 @@ impl<'a> RuntimeExt<'a> {
         storage_key
     }
 
-    pub fn create_nonce(&mut self) -> Vec<u8> {
+    pub fn create_nonce(&mut self) -> CryptoHash {
         let nonce = create_nonce_with_nonce(self.transaction_hash, self.nonce);
         self.nonce += 1;
         nonce
@@ -76,7 +78,7 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-impl<'a> External<'a> for RuntimeExt<'a> {
+impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
@@ -89,9 +91,16 @@ impl<'a> External<'a> for RuntimeExt<'a> {
         Ok(value.map(|buf| buf.to_vec()))
     }
 
-    fn storage_iter(&'a mut self, prefix: &[u8]) -> ExtResult<u32> {
-        let iter = self.state_db_update.iter(prefix).map_err(|_| ExtError::TrieIteratorError)?;
-        self.iters.insert(self.last_iter_id, iter);
+    fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
+        self.iters.insert(
+            self.last_iter_id,
+            // It is safe to insert an iterator of lifetime 'a into a HashMap of lifetime 'a.
+            // We just could not convince Rust that `self.state_db_update` has lifetime 'a as it
+            // shrinks the lifetime to the lifetime of `self`.
+            unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
+                .iter(&self.create_storage_key(prefix))
+                .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
+        );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
     }
@@ -104,7 +113,15 @@ impl<'a> External<'a> for RuntimeExt<'a> {
         if result.is_none() {
             self.iters.remove(&id);
         }
-        Ok(result)
+        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
+    }
+
+    fn storage_iter_peek(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
+        let result = match self.iters.get_mut(&id) {
+            Some(iter) => iter.peek().cloned(),
+            None => return Err(ExtError::TrieIteratorMissing),
+        };
+        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
     }
 
     fn promise_create(
@@ -119,7 +136,7 @@ impl<'a> External<'a> for RuntimeExt<'a> {
         let receipt = ReceiptTransaction::new(
             self.account_id.clone(),
             account_id,
-            nonce.clone(),
+            nonce,
             ReceiptBody::NewCall(AsyncCall::new(
                 method_name,
                 arguments,
@@ -128,8 +145,8 @@ impl<'a> External<'a> for RuntimeExt<'a> {
                 self.accounting_info.clone(),
             )),
         );
-        let promise_id = PromiseId::Receipt(nonce.clone());
-        self.receipts.insert(nonce, receipt);
+        let promise_id = PromiseId::Receipt(nonce.as_ref().to_vec());
+        self.receipts.insert(nonce.as_ref().to_vec(), receipt);
         Ok(promise_id)
     }
 
@@ -160,7 +177,7 @@ impl<'a> External<'a> for RuntimeExt<'a> {
             };
             match receipt.body {
                 ReceiptBody::NewCall(ref mut async_call) => {
-                    let callback_info = CallbackInfo::new(callback_id.clone(), index, self.account_id.clone());
+                    let callback_info = CallbackInfo::new(callback_id.as_ref().to_vec(), index, self.account_id.clone());
                     match async_call.callback {
                         Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
                         None => {
@@ -173,7 +190,7 @@ impl<'a> External<'a> for RuntimeExt<'a> {
                 }
             }
         }
-        self.callbacks.insert(callback_id.clone(), callback);
-        Ok(PromiseId::Callback(callback_id))
+        self.callbacks.insert(callback_id.as_ref().to_vec(), callback);
+        Ok(PromiseId::Callback(callback_id.as_ref().to_vec()))
     }
 }

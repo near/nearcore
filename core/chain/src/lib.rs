@@ -2,6 +2,8 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 extern crate storage;
+#[macro_use]
+extern crate log;
 
 use std::cmp;
 use std::collections::HashMap;
@@ -43,6 +45,9 @@ pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'sta
     /// Returns signed header for given block.
     fn header(&self) -> Self::SignedHeader;
 
+    /// Returns index of given block.
+    fn index(&self) -> u64;
+
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
 
@@ -54,6 +59,7 @@ pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'sta
     /// Add signature to multi sign.
     fn add_signature(&mut self, signature: PartialSignature);
 
+    /// Returns stake weight of given block signers.
     fn weight(&self) -> u128;
 }
 
@@ -207,6 +213,11 @@ impl<B: SignedBlock> BlockChain<B> {
         self.insert_block_index(&block_index);
         if block_index.cumulative_weight > self.best_block_index.read().cumulative_weight {
             self.update_best_block(block_index);
+        } else {
+            info!(target: "chain",
+                  "Block #{:?} {:?} was declined via fork choice rule (best block weight = {} vs new block weight = {}).",
+                  block_index.block.header().index(), block_hash,
+                  self.best_block_index.read().cumulative_weight, block_index.cumulative_weight);
         }
 
         result

@@ -2,19 +2,19 @@ use std::sync::Arc;
 
 use futures::sync::mpsc::Sender;
 
+use chain::SignedBlock;
+use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
 use transaction::{SignedTransaction, Transaction, verify_transaction_signature};
 
-use client::Client;
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
     GetBlocksByIndexRequest, GetTransactionRequest, SignedBeaconBlockResponse,
-    SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionResponse,
-    TransactionInfoResponse, TransactionStatusResponse, ViewAccountRequest,
-    ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionRequest,
+    SubmitTransactionResponse, TransactionInfoResponse, TransactionResultResponse,
+    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
-use crate::types::SubmitTransactionRequest;
 
 pub struct HttpApi {
     client: Arc<Client>,
@@ -36,7 +36,9 @@ pub enum RPCError {
 impl HttpApi {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
-        match self.client.statedb_viewer.view_account(&r.account_id)
+        match self.client.shard_chain.statedb_viewer.view_account(
+            self.client.shard_chain.chain.best_block().merkle_root_state(),
+            &r.account_id)
         {
             Ok(r) => Ok(ViewAccountResponse {
                 account_id: r.account,
@@ -59,7 +61,10 @@ impl HttpApi {
             r.contract_account_id,
             r.method_name,
         );
-        match self.client.statedb_viewer.call_function(&r.originator, &r.contract_account_id, &r.method_name, &r.args)
+        let best_block = self.client.shard_chain.chain.best_block();
+        match self.client.shard_chain.statedb_viewer.call_function(
+            best_block.merkle_root_state(), best_block.index(),
+            &r.originator, &r.contract_account_id, &r.method_name, &r.args)
         {
             Ok(result) => Ok(CallViewFunctionResponse { result }),
             Err(e) => Err(e.to_string()),
@@ -73,9 +78,10 @@ impl HttpApi {
         let transaction: SignedTransaction = r.transaction.clone().into();
         debug!(target: "near-rpc", "Received transaction {:?}", transaction);
         let originator = transaction.body.get_originator();
-        let public_keys = self.client.statedb_viewer
-                .get_public_keys_for_account(&originator)
-                .map_err(RPCError::BadRequest)?;
+        let root_state = self.client.shard_chain.chain.best_block().merkle_root_state();
+        let public_keys = self.client.shard_chain.statedb_viewer
+            .get_public_keys_for_account(root_state, &originator)
+            .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&transaction.clone(), &public_keys) {
             let msg =
                 format!("transaction not signed with a public key of originator {:?}", originator,);
@@ -92,8 +98,8 @@ impl HttpApi {
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
         let result =
-        self.client.statedb_viewer
-                .view_state(&r.contract_account_id);
+        self.client.shard_chain.statedb_viewer
+                .view_state(self.client.shard_chain.chain.best_block().merkle_root_state(), &r.contract_account_id);
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect(),
@@ -102,14 +108,14 @@ impl HttpApi {
     }
 
     pub fn view_latest_beacon_block(&self) -> Result<SignedBeaconBlockResponse, ()> {
-        Ok(self.client.beacon_chain.best_block().into())
+        Ok(self.client.beacon_chain.chain.best_block().into())
     }
 
     pub fn get_beacon_block_by_hash(
         &self,
         r: &GetBlockByHashRequest,
     ) -> Result<SignedBeaconBlockResponse, &str> {
-        match self.client.beacon_chain.get_block(&BlockId::Hash(r.hash)) {
+        match self.client.beacon_chain.chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
@@ -148,18 +154,20 @@ impl HttpApi {
             Some(info) => Ok(TransactionInfoResponse {
                 transaction: info.transaction.into(),
                 block_index: info.block_index,
-                status: info.status
+                result: info.result
             }),
             None => Err(RPCError::NotFound),
         }
 
     }
 
-    pub fn get_transaction_status(
+    pub fn get_transaction_result(
         &self,
         r: &GetTransactionRequest,
-    ) -> Result<TransactionStatusResponse, ()> {
-        let status = self.client.shard_chain.get_transaction_status(&r.hash);
-        Ok(TransactionStatusResponse { status })
+    ) -> Result<TransactionResultResponse, ()> {
+        let result = self.client.shard_chain.get_transaction_result(&r.hash);
+        let status = self.client.shard_chain.get_transaction_final_status(&result);
+        Ok(TransactionResultResponse { status, result })
     }
 }
+

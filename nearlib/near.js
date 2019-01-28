@@ -1,32 +1,46 @@
 const bs58 = require('bs58');
 
 const NearClient = require('./nearclient');
-const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_keystore');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
+const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
 const {
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction
 } = require('./protos');
 
-/*
- * This is javascript library for interacting with blockchain.
+const MAX_STATUS_POLL_ATTEMPTS = 3;
+const STATUS_POLL_PERIOD_MS = 250;
+
+/**
+ * Javascript library for interacting with near.
  */
 class Near {
+    /**
+     * Constructs near with an instance of nearclient.
+     * @constructor
+     * @param {NearClient} nearClient
+     */
     constructor(nearClient) {
         this.nearClient = nearClient;
     }
 
     /**
-     * Default setup for browser
+     * Generate a default configuration for nearlib
+     * @param {string} nodeUrl url of the near node to connect to
      */
-    static createDefaultConfig(nodeUrl = "http://localhost:3030") {
+    static createDefaultConfig(nodeUrl = 'http://localhost:3030') {
         return new Near(new NearClient(
-            new BrowserLocalStorageKeystore(),
+            new SimpleKeyStoreSigner(new BrowserLocalStorageKeystore()),
             new LocalNodeConnection(nodeUrl)
         ));
-    };
+    }
 
     /**
      * Calls a view function. Returns the same value that the function returns.
+     * @param {string} sender account id of the sender
+     * @param {string} contractAccountId account id of the contract
+     * @param {string} methodName method to call
+     * @param {object} args arguments to pass to the method
      */
     async callViewFunction(sender, contractAccountId, methodName, args) {
         if (!args) {
@@ -41,18 +55,24 @@ class Near {
         });
         const json = JSON.parse(Buffer.from(response.result).toString());
         return json.result;
-    };
+    }
 
     /**
-     * Schedules an asynchronous function call.
+     * Schedules an asynchronous function call. Returns a hash which can be used to
+     * check the status of the transaction later.
+     * @param {number} amount amount of tokens to transfer as part of the operation
+     * @param {string} sender account id of the sender
+     * @param {string} contractAccountId account id of the contract
+     * @param {string} methodName method to call
+     * @param {object} args arguments to pass to the method
      */
     async scheduleFunctionCall(amount, originator, contractId, methodName, args) {
         if (!args) {
             args = {};
         }
-        args = Uint8Array(Buffer.from(JSON.stringify(args)));
-        const nonce = await this.nearClient.getNonce();
-        const functionCall = FunctionCallTransaction.deploy({
+        args = new Uint8Array(Buffer.from(JSON.stringify(args)));
+        const nonce = await this.nearClient.getNonce(originator);
+        const functionCall = FunctionCallTransaction.create({
             nonce,
             originator,
             contractId,
@@ -71,20 +91,24 @@ class Near {
             signature,
         });
         return await this.nearClient.submitTransaction(signedTransaction);
-    };
+    }
 
     /**
-     * Deploys a contract.
+     *  Deploys a smart contract to the block chain
+     * @param {string} sender account id of the sender
+     * @param {string} contractAccountId account id of the contract
+     * @param {Uint8Array} wasmArray wasm binary
      */
-    async deployContract(originator, contractId, wasmByteArray, publicKey) {
-        const nonce = await this.nearClient.getNonce();
+    async deployContract(originator, contractId, wasmByteArray) {
+        const nonce = await this.nearClient.getNonce(originator);
+        var publicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE' // This parameter is not working properly yet. Use some fake value
         publicKey = bs58.decode(publicKey);
-        const deployContract = DeployContractTransaction.deploy({
+        const deployContract = DeployContractTransaction.create({
             nonce,
             originator,
             contractId,
             wasmByteArray,
-            publicKey
+            publicKey, 
         });
         const buffer = DeployContractTransaction.encode(deployContract).finish();
         const signature = await this.nearClient.signer.signTransactionBody(
@@ -98,7 +122,49 @@ class Near {
         });
         return await this.nearClient.submitTransaction(signedTransaction);
     }
-};
 
-module.exports = Near; 
+    async getTransactionStatus(transaction_hash) {
+        const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
+            hash: transaction_hash,
+        });
+        return transactionStatusResponse;
+    }
+
+    async loadContract(contractAccountId, options) {
+        // TODO: Introspection of contract methods + move this to account context to avoid options
+        let contract = {};
+        let near = this;
+        options.viewMethods.forEach((methodName) => {
+            contract[methodName] = async function (args) {
+                args = args || {};
+                return near.callViewFunction(options.sender, contractAccountId, methodName, args);
+            };
+        });
+        options.changeMethods.forEach((methodName) => {
+            contract[methodName] = async function (args) {
+                args = args || {};
+                const response = await near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
+                let status;
+                for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
+                    await sleep(STATUS_POLL_PERIOD_MS);
+                    status = await near.getTransactionStatus(response.hash);
+                    if (status.status == 'Completed') {
+                        return status;
+                    }
+                }
+                throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
+                    `for transaction ${response.hash} with status: ${status.status}`);
+            };
+        });
+        return contract;
+    }
+}
+
+function sleep(time) {
+    return new Promise(function (resolve) {
+        setTimeout(resolve, time);
+    });
+}
+
+module.exports = Near;
 

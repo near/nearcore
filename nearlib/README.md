@@ -1,5 +1,4 @@
-Near lib
-====
+# Near lib
 
 Near lib is a javascript library for development of dapps on near.
 
@@ -8,15 +7,10 @@ Near lib is a javascript library for development of dapps on near.
 ```
 npm install
 ```
-
-## Test
+## Integration Test
 
 Start the node by following instructions from nearcore/README.md, then
-
 ```
 npm test
 ```
-
-## Integration test
-
-Contract "hello.wasm" source code location: https://studio.nearprotocol.com/?f=mfaccXt
+Contract "hello.wasm" source code location: <https://github.com/nearprotocol/nearcore/tree/master/tests/hello>

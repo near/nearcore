@@ -16,9 +16,6 @@ export { memory };
 
 import { contractContext, globalStorage, near } from "./near";
 
-// --- contract code goes below
-// --- bigints temporarily stringly typed, need support in bindgen
-
 export function hello(name: string): string {
 
   return "hello " + name;
@@ -30,9 +27,15 @@ export function setValue(value: string): string {
 }
 
 export function getValue(): string {
+  let keys = getAllKeys();
+  assert(keys.length == 1);
+  assert(keys[0] == "name");
   return globalStorage.getItem("name");
 }
 
+export function getAllKeys(): string[] {
+  return globalStorage.keys("n");
+}
 export class __near_ArgsParser_hello extends ThrowingJSONHandler {
         buffer: Uint8Array;
         decoder: JSONDecoder<__near_ArgsParser_hello>;
@@ -207,6 +210,70 @@ if (result != null) {
           } else {
             encoder.setNull("result");
           }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_getAllKeys extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_getAllKeys>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function __near_encode_Array_String(
+          value: Array<String>,
+          encoder: JSONEncoder): void {
+for (let i = 0; i < value.length; i++) {
+if (value[i] != null) {
+            encoder.setString(null, value[i]);
+          } else {
+            encoder.setNull(null);
+          }
+}
+}
+export function near_func_getAllKeys(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_getAllKeys();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_getAllKeys>(handler);
+      handler.decoder.deserialize(json);
+let result = getAllKeys(
+
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushArray("result");
+          __near_encode_Array_String(result, encoder);
+          encoder.popArray();
+        } else {
+          encoder.setNull("result");
+        }
 
         encoder.popObject();
         return_value(near.bufferWithSize(encoder.serialize()).buffer.data);

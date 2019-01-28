@@ -25,7 +25,7 @@ class NearClient {
             account_id: account_id,
         });
         return viewAccountResponse;
-    };
+    }
 
     async submitTransaction (signedTransaction) {
         const buffer = SignedTransaction.encode(signedTransaction).finish();
@@ -40,22 +40,15 @@ class NearClient {
             throw (e)
         }
         return submitResponse;
-    };
-
-    async getTransactionStatus (transaction_hash) {
-        const transactionStatusResponse = await this.request('get_transaction_status', {
-            hash: transaction_hash,
-        });
-        return transactionStatusResponse;
     }
 
     async getNonce (account_id) {
         return (await this.viewAccount(account_id)).nonce + 1;
-    };
+    }
 
     async request (methodName, params) {
         return await this.nearConnection.request(methodName, params);
-    };
+    }
 }
 
 module.exports = NearClient;
