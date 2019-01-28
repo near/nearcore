@@ -228,19 +228,20 @@ impl ShardBlockChain {
         let updates: HashMap<Vec<u8>, TransactionAddress> = block.body.transactions.iter()
             .enumerate()
             .filter_map(|(i, transaction)| {
-                match transaction {
-                    Transaction::SignedTransaction(t) => {
-                        let key = with_index(
+                let key = match transaction {
+                    Transaction::SignedTransaction(t) => with_index(
                             &t.transaction_hash(),
                             ExtrasIndex::TransactionAddress,
-                        );
-                        Some((key.to_vec(), TransactionAddress {
-                            block_hash: block.hash,
-                            index: i,
-                        }))
-                    }
-                    Transaction::Receipt(_) => None,
-                }
+                    ),
+                    Transaction::Receipt(r) => with_index(
+                            &r.nonce,
+                            ExtrasIndex::TransactionAddress,
+                    ),
+                };
+                Some((key.to_vec(), TransactionAddress {
+                    block_hash: block.hash,
+                    index: i,
+                }))
             })
             .collect();
         extend_with_cache(
@@ -252,16 +253,17 @@ impl ShardBlockChain {
         let updates: HashMap<Vec<u8>, TransactionResult> = block.body.transactions.iter()
             .enumerate()
             .filter_map(|(i, transaction)| {
-                match transaction {
-                    Transaction::SignedTransaction(t) => {
-                        let key = with_index(
-                            &t.transaction_hash(),
-                            ExtrasIndex::TransactionResult,
-                        );
-                        Some((key.to_vec(), tx_result[i].clone()))
-                    },
-                    Transaction::Receipt(_) => None,
-                }
+                let key = match transaction {
+                    Transaction::SignedTransaction(t) => with_index(
+                        &t.transaction_hash(),
+                        ExtrasIndex::TransactionResult,
+                    ),
+                    Transaction::Receipt(r) => with_index(
+                        &r.nonce,
+                        ExtrasIndex::TransactionResult
+                    ),
+                };
+                Some((key.to_vec(), tx_result[i].clone()))
             })
             .collect();
         extend_with_cache(
@@ -324,11 +326,12 @@ mod tests {
         let result = chain.get_transaction_result(&tx.transaction_hash());
         assert_eq!(result.status, TransactionStatus::Completed);
         assert_eq!(result.receipts.len(), 1);
+        assert_ne!(result.receipts[0], tx.transaction_hash());
 
         let (block2, db_changes2, _, tx_status2) = chain.prepare_new_block(block.hash, block.body.new_receipts);
         chain.insert_block(&block2, db_changes2, tx_status2);
 
-        let result2 = chain.get_transaction_result(&CryptoHash::new(&result.receipts[0]));
+        let result2 = chain.get_transaction_result(&result.receipts[0]);
         assert_eq!(result2.status, TransactionStatus::Completed);
 
     }

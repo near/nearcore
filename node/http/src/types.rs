@@ -303,7 +303,18 @@ pub struct GetTransactionRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub enum FinalTransactionStatus {
+    Unknown,
+    Started,
+    Failed,
+    Completed
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct TransactionResultResponse {
+    /// Status of given transaction, including it's receipts.
+    pub status: FinalTransactionStatus,
+    /// Result of given transaction.
     pub result: TransactionResult,
 }
 

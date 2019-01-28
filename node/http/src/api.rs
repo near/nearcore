@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use futures::sync::mpsc::Sender;
 
+use chain::SignedBlock;
+use client::Client;
 use primitives::hash::hash_struct;
 use primitives::traits::Encode;
 use primitives::types::BlockId;
@@ -9,20 +11,19 @@ use primitives::utils::bs58_vec2str;
 use transaction::{
     CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
     SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
-    Transaction, TransactionBody, verify_transaction_signature,
+    Transaction, TransactionBody, TransactionResult, TransactionStatus, verify_transaction_signature
 };
-use chain::SignedBlock;
 
-use client::Client;
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
-    CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, GetTransactionRequest,
-    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
-    SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
-    SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
-    SwapKeyRequest, TransactionInfoResponse, TransactionResultResponse,
-    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    CreateAccountRequest, DeployContractRequest, FinalTransactionStatus,
+    GetBlockByHashRequest, GetBlocksByIndexRequest,
+    GetTransactionRequest, PreparedTransactionBodyResponse,
+    ScheduleFunctionCallRequest, SendMoneyRequest, SignedBeaconBlockResponse,
+    SignedShardBlockResponse, SignedShardBlocksResponse, StakeRequest,
+    SubmitTransactionResponse, SwapKeyRequest, TransactionInfoResponse,
+    TransactionResultResponse, ViewAccountRequest, ViewAccountResponse, ViewStateRequest,
+    ViewStateResponse,
 };
 
 pub struct HttpApi {
@@ -249,11 +250,32 @@ impl HttpApi {
 
     }
 
+    fn transaction_result_to_final_status(&self, transaction_result: &TransactionResult) -> FinalTransactionStatus {
+        println!("{:?}", transaction_result);
+        match transaction_result.status {
+            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
+            TransactionStatus::Failed => FinalTransactionStatus::Failed,
+            TransactionStatus::Completed => {
+                for r in transaction_result.receipts.iter() {
+                    let receipt_result = self.client.shard_chain.get_transaction_result(&r);
+                    match self.transaction_result_to_final_status(&receipt_result) {
+                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
+                        FinalTransactionStatus::Completed => {},
+                        _ => return FinalTransactionStatus::Started,
+                    };
+                }
+                FinalTransactionStatus::Completed
+            }
+        }
+    }
+
     pub fn get_transaction_result(
         &self,
         r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
         let result = self.client.shard_chain.get_transaction_result(&r.hash);
-        Ok(TransactionResultResponse { result })
+        let status = self.transaction_result_to_final_status(&result);
+        Ok(TransactionResultResponse { status, result })
     }
 }
+

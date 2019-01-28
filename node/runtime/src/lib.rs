@@ -84,10 +84,10 @@ fn callback_id_to_bytes(id: &[u8]) -> Vec<u8> {
     key
 }
 
-fn create_nonce_with_nonce(base: &[u8], salt: u64) -> Vec<u8> {
-    let mut nonce: Vec<u8> = base.to_owned();
+fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
+    let mut nonce: Vec<u8> = base.as_ref().to_owned();
     nonce.append(&mut index_to_bytes(salt));
-    hash(&nonce).into()
+    hash(&nonce)
 }
 
 #[derive(Debug)]
@@ -185,7 +185,7 @@ impl Runtime {
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
                 transaction.receiver.clone(),
-                hash.into(),
+                create_nonce_with_nonce(&hash, 0),
                 ReceiptBody::NewCall(AsyncCall::new(
                     // Empty method name is used for deposit
                     vec![],
@@ -259,7 +259,7 @@ impl Runtime {
                 &account_id_to_bytes(COL_ACCOUNT, &body.originator),
                 &sender
             );
-            let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
+            let new_nonce = create_nonce_with_nonce(&hash, 0);
             let receipt = ReceiptTransaction::new(
                 body.originator.clone(),
                 body.new_account_id.clone(),
@@ -315,7 +315,7 @@ impl Runtime {
     ) -> Result<Vec<Transaction>, String> {
         // TODO: check signature
         
-        let new_nonce = create_nonce_with_nonce(hash.as_ref(), 0);
+        let new_nonce = create_nonce_with_nonce(&hash, 0);
         let args = Encode::encode(&(&body.public_key, &body.wasm_byte_array))
             .map_err(|_| "cannot encode args")?;
         let receipt = ReceiptTransaction::new(
@@ -348,7 +348,7 @@ impl Runtime {
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
                 transaction.contract_id.clone(),
-                hash.into(),
+                create_nonce_with_nonce(&hash, 0),
                 ReceiptBody::NewCall(AsyncCall::new(
                     transaction.method_name.clone(),
                     transaction.args.clone(),
@@ -624,7 +624,7 @@ impl Runtime {
         async_call: &AsyncCall,
         sender_id: &AccountId,
         receiver_id: &AccountId,
-        nonce: &[u8],
+        nonce: &CryptoHash,
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
@@ -656,7 +656,7 @@ impl Runtime {
                     receiver_id,
                     async_call.mana,
                     block_index,
-                    nonce.to_vec(),
+                    nonce.as_ref().to_vec(),
                 ),
             ).map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
@@ -690,7 +690,7 @@ impl Runtime {
         callback_res: &CallbackResult,
         sender_id: &AccountId,
         receiver_id: &AccountId,
-        nonce: &[u8],
+        nonce: &CryptoHash,
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
@@ -733,7 +733,7 @@ impl Runtime {
                             receiver_id,
                             callback.mana,
                             block_index,
-                            nonce.to_vec(),
+                            nonce.as_ref().to_vec(),
                         ),
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))

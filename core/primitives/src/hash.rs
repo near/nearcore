@@ -10,6 +10,7 @@ pub struct CryptoHash(pub Digest);
 
 impl CryptoHash {
     pub fn new(data: &[u8]) -> Self {
+        assert_eq!(data.len(), 32);
         let mut d = [0; 32];
         d.copy_from_slice(data);
         CryptoHash(Digest(d))
