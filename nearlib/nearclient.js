@@ -20,7 +20,6 @@ class NearClient {
         const sender = args[senderKey];
         const nonce = await this.getNonce(sender);
         const tx_args = Object.assign({}, args, { nonce });
-        console.log(tx_args);
         const response = await this.request(method, tx_args);
         const signature = await this.signer.signTransaction(response, sender);
         const signedTransaction = {

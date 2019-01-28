@@ -28,7 +28,7 @@ class Account {
         return transactionResponse;
     }
 
-   /**
+    /**
     * Creates a new account with a new random key pair. Returns the key pair to the caller. It's the caller's responsibility to
     * manage this key pair.
     * @param {string} newAccountId id of the new account
@@ -309,7 +309,6 @@ class NearClient {
         const sender = args[senderKey];
         const nonce = await this.getNonce(sender);
         const tx_args = Object.assign({}, args, { nonce });
-        console.log(tx_args);
         const response = await this.request(method, tx_args);
         const signature = await this.signer.signTransaction(response, sender);
         const signedTransaction = {
@@ -5126,9 +5125,7 @@ class SimpleKeyStoreSigner {
      * @param {string} senderAccountId
      */
     async signTransaction(tx, senderAccountId) {
-        console.log(tx);
-        const hash = tx.hash;
-        return await this.signHash(hash, senderAccountId);
+        return await this.signHash(tx.hash, senderAccountId);
     }
 
 }

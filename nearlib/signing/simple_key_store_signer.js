@@ -30,9 +30,7 @@ class SimpleKeyStoreSigner {
      * @param {string} senderAccountId
      */
     async signTransaction(tx, senderAccountId) {
-        console.log(tx);
-        const hash = tx.hash;
-        return await this.signHash(hash, senderAccountId);
+        return await this.signHash(tx.hash, senderAccountId);
     }
 
 }
