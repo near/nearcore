@@ -337,6 +337,14 @@ pub enum TransactionStatus {
     Failed,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum FinalTransactionStatus {
+    Unknown,
+    Started,
+    Failed,
+    Completed
+}
+
 impl Default for TransactionStatus {
     fn default() -> Self {
         TransactionStatus::Unknown

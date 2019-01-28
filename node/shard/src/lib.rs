@@ -19,7 +19,7 @@ use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId};
 use storage::{extend_with_cache, read_with_cache, StateDb};
-use transaction::{SignedTransaction, Transaction, TransactionResult};
+use transaction::{FinalTransactionStatus, SignedTransaction, Transaction, TransactionResult, TransactionStatus};
 
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 
@@ -273,15 +273,33 @@ impl ShardBlockChain {
             updates,
         );
     }
+
+    pub fn get_transaction_final_status(&self, transaction_result: &TransactionResult) -> FinalTransactionStatus {
+        match transaction_result.status {
+            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
+            TransactionStatus::Failed => FinalTransactionStatus::Failed,
+            TransactionStatus::Completed => {
+                for r in transaction_result.receipts.iter() {
+                    let receipt_result = self.get_transaction_result(&r);
+                    match self.get_transaction_final_status(&receipt_result) {
+                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
+                        FinalTransactionStatus::Completed => {},
+                        _ => return FinalTransactionStatus::Started,
+                    };
+                }
+                FinalTransactionStatus::Completed
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::signature::DEFAULT_SIGNATURE;
     use primitives::types::Balance;
     use storage::test_utils::create_memory_db;
     use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
-    use node_runtime::test_utils::generate_test_chain_spec;
 
     use super::*;
 
@@ -327,13 +345,14 @@ mod tests {
         assert_eq!(result.status, TransactionStatus::Completed);
         assert_eq!(result.receipts.len(), 1);
         assert_ne!(result.receipts[0], tx.transaction_hash());
+        assert_eq!(chain.get_transaction_final_status(&result), FinalTransactionStatus::Started);
 
         let (block2, db_changes2, _, tx_status2) = chain.prepare_new_block(block.hash, block.body.new_receipts);
         chain.insert_block(&block2, db_changes2, tx_status2);
 
         let result2 = chain.get_transaction_result(&result.receipts[0]);
         assert_eq!(result2.status, TransactionStatus::Completed);
-
+        assert_eq!(chain.get_transaction_final_status(&result), FinalTransactionStatus::Completed);
     }
 
     #[test]

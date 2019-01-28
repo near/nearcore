@@ -9,14 +9,14 @@ use primitives::traits::Encode;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
 use transaction::{
-    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
-    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
-    Transaction, TransactionBody, TransactionResult, TransactionStatus, verify_transaction_signature
+    CreateAccountTransaction, DeployContractTransaction,
+    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, StakeTransaction,
+    SwapKeyTransaction, Transaction, TransactionBody, verify_transaction_signature
 };
 
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse,
-    CreateAccountRequest, DeployContractRequest, FinalTransactionStatus,
+    CreateAccountRequest, DeployContractRequest,
     GetBlockByHashRequest, GetBlocksByIndexRequest,
     GetTransactionRequest, PreparedTransactionBodyResponse,
     ScheduleFunctionCallRequest, SendMoneyRequest, SignedBeaconBlockResponse,
@@ -250,31 +250,12 @@ impl HttpApi {
 
     }
 
-    fn transaction_result_to_final_status(&self, transaction_result: &TransactionResult) -> FinalTransactionStatus {
-        println!("{:?}", transaction_result);
-        match transaction_result.status {
-            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
-            TransactionStatus::Failed => FinalTransactionStatus::Failed,
-            TransactionStatus::Completed => {
-                for r in transaction_result.receipts.iter() {
-                    let receipt_result = self.client.shard_chain.get_transaction_result(&r);
-                    match self.transaction_result_to_final_status(&receipt_result) {
-                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
-                        FinalTransactionStatus::Completed => {},
-                        _ => return FinalTransactionStatus::Started,
-                    };
-                }
-                FinalTransactionStatus::Completed
-            }
-        }
-    }
-
     pub fn get_transaction_result(
         &self,
         r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
         let result = self.client.shard_chain.get_transaction_result(&r.hash);
-        let status = self.transaction_result_to_final_status(&result);
+        let status = self.client.shard_chain.get_transaction_final_status(&result);
         Ok(TransactionResultResponse { status, result })
     }
 }

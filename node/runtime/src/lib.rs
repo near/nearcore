@@ -1824,11 +1824,11 @@ mod tests {
     #[test]
     fn test_async_call_with_logs() {
         let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
-        let nonce: Vec<u8> = hash(&[1, 2, 3]).into();
+        let nonce = hash(&[1, 2, 3]);
         let receipt = ReceiptTransaction::new(
             alice_account(),
             bob_account(),
-            nonce.clone(),
+            nonce,
             ReceiptBody::NewCall(AsyncCall::new(
                 b"log_something".to_vec(),
                 vec![],

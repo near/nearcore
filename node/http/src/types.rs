@@ -4,10 +4,10 @@ use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
-    AccountId, AuthorityMask, Balance, MerkleHash, ShardId, AuthorityStake
+    AccountId, AuthorityMask, AuthorityStake, Balance, MerkleHash, ShardId
 };
-use transaction::{SignedTransaction, Transaction, TransactionBody, TransactionResult};
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+use transaction::{FinalTransactionStatus, SignedTransaction, Transaction, TransactionBody, TransactionResult};
 
 #[derive(Serialize, Deserialize)]
 pub struct SendMoneyRequest {
@@ -300,14 +300,6 @@ pub struct SignedShardBlocksResponse {
 pub struct GetTransactionRequest {
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum FinalTransactionStatus {
-    Unknown,
-    Started,
-    Failed,
-    Completed
 }
 
 #[derive(Serialize, Deserialize)]
