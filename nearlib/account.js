@@ -27,7 +27,7 @@ class Account {
         return transactionResponse;
     }
 
-   /**
+    /**
     * Creates a new account with a new random key pair. Returns the key pair to the caller. It's the caller's responsibility to
     * manage this key pair.
     * @param {string} newAccountId id of the new account
