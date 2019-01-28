@@ -1,18 +1,63 @@
 /**
- * Wallet based signer that uses external wallet through the iframe to signs transactions.
+ * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
  */
 const EMBED_WALLET_URL_SUFFIX = '/embed/';
+const LOGIN_WALLET_URL_SUFFIX = '/login/';
 const RANDOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const REQUEST_ID_LENGTH = 32;
 
-class WalletBasedSigner {
+const LOCAL_STORAGE_KEY = 'wallet_auth_key';
 
-    constructor(authToken, walletBaseUrl = 'https://wallet.nearprotocol.com') {
-        this._authToken = authToken;
+class WalletAccount {
+
+    constructor(walletBaseUrl = 'https://wallet.nearprotocol.com') {
         this._walletBaseUrl = walletBaseUrl;
 
         this._initHtmlElements();
         this._signatureRequests = {};
+        this._authData = JSON.parse(window.localStorage.getItem(LOCAL_STORAGE_KEY) || '{}');
+
+        if (!this.isSignedIn()) {
+            this._tryInitFromUrl();
+        }
+    }
+
+    isSignedIn() {
+        // Later it should call wallet to check auth token is still up to date.
+        return !!this._authData.accountId;
+    }
+
+    getAccountId() {
+        return this._authData.accountId || '';
+    }
+
+    requestSignIn(contract_id, title, success_url, failure_url) {
+        const currentUrl = new URL(window.location.href);
+        let newUrl = new URL(this._walletBaseUrl + LOGIN_WALLET_URL_SUFFIX);
+        newUrl.searchParams.set('title', title);
+        newUrl.searchParams.set('contract_id', contract_id);
+        newUrl.searchParams.set('success_url', success_url || currentUrl.href);
+        newUrl.searchParams.set('failure_url', failure_url || currentUrl.href);
+        newUrl.searchParams.set('app_url', currentUrl.origin);
+        window.location.replace(newUrl.toString());
+    }
+
+    signOut() {
+        this._authData = {};
+        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }
+
+    _tryInitFromUrl() {
+        let currentUrl = new URL(window.location.href);
+        let authToken = currentUrl.searchParams.get('auth_token') || '';
+        let accountId =currentUrl.searchParams.get('account_id') || '';
+        if (!!authToken && !!accountId) {
+            this._authData = {
+                authToken,
+                accountId,
+            };
+            window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(this._authData));
+        }
     }
 
     _initHtmlElements() {
@@ -74,7 +119,7 @@ class WalletBasedSigner {
             };
             this._walletWindow.postMessage(JSON.stringify({
                 action: 'sign_transaction',
-                token: this._authToken,
+                token: this._authData.authToken,
                 method_name: methodName,
                 args: args || {},
                 hash,
@@ -90,6 +135,9 @@ class WalletBasedSigner {
      * @param {string} senderAccountId
      */
     async signTransaction(tx, senderAccountId) {
+        if (!this.isSignedIn() || senderAccountId !== this.getAccountId()) {
+            throw 'Unauthorized account_id ' + senderAccountId;
+        }
         const hash = tx.hash;
         let methodName = Buffer.from(tx.body.FunctionCall.method_name).toString();
         let args = JSON.parse(Buffer.from(tx.body.FunctionCall.args).toString());
@@ -99,4 +147,4 @@ class WalletBasedSigner {
 
 }
 
-module.exports = WalletBasedSigner;
+module.exports = WalletAccount;
