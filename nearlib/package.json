@@ -10,7 +10,8 @@
   "main": "near.js",
   "dependencies": {
     "bs58": "^4.0.1",
-    "ed25519": "0.0.4",
+    "js-sha256": "^0.9.0",
+    "protobufjs": "^6.8.8",
     "superagent": "^4.1.0",
     "superagent-logger": "^1.1.0",
     "tweetnacl": "^1.0.0"

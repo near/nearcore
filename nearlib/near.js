@@ -1,6 +1,11 @@
+const bs58 = require('bs58');
+
 const NearClient = require('./nearclient');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_keystore');
 const LocalNodeConnection = require('./local_node_connection');
+const {
+    DeployContractTransaction, FunctionCallTransaction, SignedTransaction
+} = require('./protos');
 
 /*
  * This is javascript library for interacting with blockchain.
@@ -41,30 +46,57 @@ class Near {
     /**
      * Schedules an asynchronous function call.
      */
-    async scheduleFunctionCall(amount, sender, contractAccountId, methodName, args) {
+    async scheduleFunctionCall(amount, originator, contractId, methodName, args) {
         if (!args) {
             args = {};
         }
-        const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        return await this.nearClient.submitTransaction('schedule_function_call', {
-            amount: amount,
-            originator: sender,
-            contract_account_id: contractAccountId,
-            method_name: methodName,
-            args: serializedArgs
+        args = Uint8Array(Buffer.from(JSON.stringify(args)));
+        const nonce = await this.nearClient.getNonce();
+        const functionCall = FunctionCallTransaction.deploy({
+            nonce,
+            originator,
+            contractId,
+            methodName,
+            args,
+            amount,
         });
+        const buffer = FunctionCallTransaction.encode(functionCall).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            functionCall,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     };
 
     /**
      * Deploys a contract.
      */
-    async deployContract(senderAccountId, contractAccountId, wasmArray, publicKey) {
-        return await this.nearClient.submitTransaction('deploy_contract', {
-            originator: senderAccountId,
-            contract_account_id: contractAccountId,
-            wasm_byte_array: wasmArray,
-            public_key: publicKey
+    async deployContract(originator, contractId, wasmByteArray, publicKey) {
+        const nonce = await this.nearClient.getNonce();
+        publicKey = bs58.decode(publicKey);
+        const deployContract = DeployContractTransaction.deploy({
+            nonce,
+            originator,
+            contractId,
+            wasmByteArray,
+            publicKey
         });
+        const buffer = DeployContractTransaction.encode(deployContract).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            deployContract,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 };
 

@@ -21,7 +21,7 @@ const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
 const TEST_MAX_RETRIES = 10;
-const TRANSACTION_COMPLETE_MAX_RETRIES = 100;
+const TRANSACTION_COMPLETE_MAX_RETRIES = 10;
 
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -146,6 +146,7 @@ const callUntilConditionIsMet = async (functToPoll, condition, description, maxR
             if (i == TEST_MAX_RETRIES - 1) {
                 fail('exceeded number of retries for ' + description + ". Last error " + e.toString());
             }
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
 };

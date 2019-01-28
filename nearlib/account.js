@@ -1,3 +1,6 @@
+const bs58 = require('bs58');
+
+const { CreateAccountTransaction, SignedTransaction } = require('./protos');
 const KeyPair = require("./signing/key_pair");
 
 class Account {
@@ -8,16 +11,27 @@ class Account {
     /**
      * Creates a new account with a given name and key,
      */
-    async createAccount (newAccountId, publicKey, amount, originatorAccountId) {
-        const createAccountParams = {
-            originator: originatorAccountId,
-            new_account_id: newAccountId,
-            amount: amount,
-            public_key: publicKey,
-        };
+    async createAccount (newAccountId, publicKey, amount, originator) {
+        const nonce = await this.nearClient.getNonce(originator);
+        publicKey = bs58.decode(publicKey);
+        const createAccount = CreateAccountTransaction.create({
+            nonce,
+            originator,
+            newAccountId,
+            amount,
+            publicKey,
+        });
+        const buffer = CreateAccountTransaction.encode(createAccount).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
 
-        const transactionResponse = await this.nearClient.submitTransaction("create_account", createAccountParams);
-        return transactionResponse;
+        const signedTransaction = SignedTransaction.create({
+            createAccount,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     };
 
     /**
@@ -25,8 +39,12 @@ class Account {
      */
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
-        const createAccountResult = await this.createAccount(
-            newAccountId, keyWithRandomSeed.getPublicKey(), amount, originatorAccountId);
+        await this.createAccount(
+            newAccountId,
+            keyWithRandomSeed.getPublicKey(),
+            amount,
+            originatorAccountId,
+        );
         const response = {};
         response["key"] = keyWithRandomSeed;
         return response;
