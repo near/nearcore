@@ -90,13 +90,13 @@ class Near {
         });
     }
 
-    /**
+     /**
      * Get a status of a single transaction identified by the transaction hash. 
-     * @param {string} transaction_hash unique identifier of the transaction
+     * @param {string} transactionHash unique identifier of the transaction
      */
-    async getTransactionStatus(transaction_hash) {
-        const transactionStatusResponse = await this.nearClient.request('get_transaction_status', {
-            hash: transaction_hash,
+    async getTransactionStatus(transactionHash) {
+        const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
+            hash: transactionHash,
         });
         return transactionStatusResponse;
     }

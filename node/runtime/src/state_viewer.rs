@@ -103,6 +103,7 @@ impl StateDbViewer {
             .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
         let wasm_res = match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
             Some(account) => {
+                let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
@@ -110,7 +111,7 @@ impl StateDbViewer {
                         originator: originator_id.clone(),
                         contract_id: Some(contract_id.clone()),
                     },
-                    &[],
+                    &empty_hash,
                 );
                 executor::execute(
                     &code,

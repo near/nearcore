@@ -144,7 +144,7 @@ const waitForTransactionToComplete = async (submitTransactionResult) => {
 const waitForContractToDeploy = async (deployResult) => {
     await callUntilConditionIsMet(
         async () => { return await nearjs.getTransactionStatus(deployResult.hash); },
-        (response) => { return response['status'] == 'Completed'; },
+        (response) => { return response['result']['status'] == 'Completed'; },
         'Call account status until contract is deployed',
         TRANSACTION_COMPLETE_MAX_RETRIES
     );

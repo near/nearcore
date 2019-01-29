@@ -44,7 +44,7 @@ fn runtime_send_money(bench: &mut Bencher) {
             let apply_result = runtime.apply_all(
                 apply_state, transactions
             );
-            runtime.state_db.commit(apply_result.transaction).unwrap();
+            runtime.state_db.commit(apply_result.db_changes).unwrap();
             root = apply_result.root;
         }
     })
