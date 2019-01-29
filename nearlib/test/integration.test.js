@@ -67,42 +67,78 @@ test('create account with a new key and then view account returns the created ac
     expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
 });
 
-test('deploy contract and make function calls', async () => {
-    // See README.md for details about this contract source code location.
-    const data = [...fs.readFileSync('../tests/hello.wasm')];
-    const deployResult = await nearjs.deployContract(
-        aliceAccountName,
-        'test_contract',
-        data);
-    await waitForContractToDeploy(deployResult);
-    const args = {
-        'name': 'trex'
-    };
-    const viewFunctionResult = await nearjs.callViewFunction(
-        aliceAccountName,
-        'test_contract',
-        'hello', // this is the function defined in hello.wasm file that we are calling
-        args);
-    expect(viewFunctionResult).toEqual('hello trex');
+describe('with deployed contract', () => {
+    let contract;
+    let oldLog;
+    let logs;
+    beforeAll(async () => {
+        // See README.md for details about this contract source code location.
+        const data = [...fs.readFileSync('../tests/hello.wasm')];
+        const deployResult = await nearjs.deployContract(
+            aliceAccountName,
+            'test_contract',
+            data);
+        await waitForContractToDeploy(deployResult);
+        contract = await nearjs.loadContract('test_contract', {
+            sender: aliceAccountName,
+            viewMethods: ['getAllKeys'],
+            changeMethods: ['generateLogs', 'triggerAssert']
+        });
+    });
 
-    var setCallValue = await generateUniqueString('setCallPrefix');
-    const setArgs = {
-        'value': setCallValue
-    };
-    const scheduleResult = await nearjs.scheduleFunctionCall(
-        0,
-        aliceAccountName,
-        'test_contract',
-        'setValue', // this is the function defined in hello.wasm file that we are calling
-        setArgs);
-    expect(scheduleResult.hash).not.toBeFalsy();
-    await waitForTransactionToComplete(scheduleResult);
-    const secondViewFunctionResult = await nearjs.callViewFunction(
-        aliceAccountName,
-        'test_contract',
-        'getValue', // this is the function defined in hello.wasm file that we are calling
-        {});
-    expect(secondViewFunctionResult).toEqual(setCallValue);
+    beforeEach(async () => {
+        oldLog = console.log;
+        logs = [];
+        console.log = function() {
+            logs.push(Array.from(arguments).join(' '));
+        };
+    });
+
+    afterEach(async () => {
+        console.log = oldLog;
+    });
+
+    test('make function calls', async () => {
+        const args = {
+            'name': 'trex'
+        };
+        const viewFunctionResult = await nearjs.callViewFunction(
+            aliceAccountName,
+            'test_contract',
+            'hello', // this is the function defined in hello.wasm file that we are calling
+            args);
+        expect(viewFunctionResult).toEqual('hello trex');
+
+        var setCallValue = await generateUniqueString('setCallPrefix');
+        const setArgs = {
+            'value': setCallValue
+        };
+        const scheduleResult = await nearjs.scheduleFunctionCall(
+            0,
+            aliceAccountName,
+            'test_contract',
+            'setValue', // this is the function defined in hello.wasm file that we are calling
+            setArgs);
+        expect(scheduleResult.hash).not.toBeFalsy();
+        await waitForTransactionToComplete(scheduleResult);
+        const secondViewFunctionResult = await nearjs.callViewFunction(
+            aliceAccountName,
+            'test_contract',
+            'getValue', // this is the function defined in hello.wasm file that we are calling
+            {});
+        expect(secondViewFunctionResult).toEqual(setCallValue);
+    });
+
+    test('can get logs from method result', async () => {
+        await contract.generateLogs();
+        expect(logs).toEqual(['[test_contract]: LOG: log1', '[test_contract]: LOG: log2']);
+    });
+
+    test('can get assert message from method result', async () => {
+        await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed.+expected to fail/);
+        expect(logs).toEqual(["[test_contract]: LOG: log before assert",
+            "[test_contract]: ABORT: \"expected to fail\" filename: \"main.ts\" line: 35 col: 2"]);
+    });
 });
 
 const callUntilConditionIsMet = async (functToPoll, condition, description, maxRetries = TEST_MAX_RETRIES) => {
