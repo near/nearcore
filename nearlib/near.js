@@ -113,6 +113,7 @@ class Near {
      * Note that `options` param is only needed temporary while contract introspection capabilities are missing.
      *
      * @param {string} contractAccountId contract account name
+     * @param {object} options object used to pass named parameters
      * @param {string} options.sender account name of user which is sending transactions
      * @param {string[]} options.viewMethods list of view methods to load (which don't change state)
      * @param {string[]} options.changeMethods list of methods to load that change state
