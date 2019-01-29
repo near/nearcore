@@ -69,6 +69,8 @@ test('create account with a new key and then view account returns the created ac
 
 describe('with deployed contract', () => {
     let contract;
+    let oldLog;
+    let logs;
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
         const data = [...fs.readFileSync('../tests/hello.wasm')];
@@ -82,6 +84,18 @@ describe('with deployed contract', () => {
             viewMethods: ['getAllKeys'],
             changeMethods: ['generateLogs', 'triggerAssert']
         });
+    });
+
+    beforeEach(async () => {
+        oldLog = console.log;
+        logs = [];
+        console.log = function() {
+            logs.push(Array.from(arguments).join(" "));
+        }
+    });
+
+    afterEach(async () => {
+        console.log = oldLog;
     });
 
     test('make function calls', async () => {
@@ -116,12 +130,13 @@ describe('with deployed contract', () => {
     });
 
     test('can get logs from method result', async () => {
-        const result = await contract.generateLogs();
-        expect(result).toMatchObject({ logs: ["log1"] });
+        await contract.generateLogs();
+        expect(logs).toEqual(["[test_contract]: LOG: log1", "[test_contract]: LOG: log2"]);
     });
 
     test('can get assert message from method result', async () => {
-        await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed/);
+        await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed.+expected to fail/);
+        expect(logs).toEqual(["[test_contract]: LOG: log before assert", "[test_contract]: ABORT: \"expected to fail\" filename: \"main.near.ts\" line: 48 col: 2"]);
     });
 });
 

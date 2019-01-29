@@ -134,22 +134,24 @@ class Near {
             contract[methodName] = async function (args) {
                 args = args || {};
                 const response = await near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
-                let status;
+                let result;
                 for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
                     await sleep(STATUS_POLL_PERIOD_MS);
-                    status = await near.getTransactionStatus(response.hash);
-                    status.result.logs.forEach((log) => {
-                        console.log(`[${contractAccountId}]: ${log}`);
+                    result = (await near.getTransactionStatus(response.hash)).result;
+                    const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
+                    flatLog.forEach(line => {
+                        console.log(`[${contractAccountId}]: ${line}`);
                     });
-                    if (status.status == 'Completed') {
-                        return status.result;
+                    if (result.status == 'Completed') {
+                        return result;
                     }
-                    if (status.status == 'Failed') {
-                        throw new Error(`Transaction ${response.hash} failed.`);
+                    if (result.status == 'Failed') {
+                        const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
+                        throw new Error(`Transaction ${response.hash} failed. ${errorMessage}`);
                     }
                 }
                 throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
-                    `for transaction ${response.hash} with status: ${status.status}`);
+                    `for transaction ${response.hash} with status: ${result.status}`);
             };
         });
         return contract;
