@@ -1,15 +1,9 @@
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::io;
-
-use near_protos::txflow as txflow_proto;
 
 use crate::hash::CryptoHash;
-use crate::signature::{PublicKey, Signature, DEFAULT_SIGNATURE};
-use crate::serialize::{
-    decode_proto, encode_proto, Encode, Decode, EncodeResult, DecodeResult
-};
+use crate::signature::{PublicKey, Signature};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -134,40 +128,6 @@ impl<P: Hash> PartialEq for MessageDataBody<P> {
 
 impl<P: Hash> Eq for MessageDataBody<P> {}
 
-//impl<P: Encode> Encode for MessageDataBody<P> {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = txflow_proto::MessageDataBody::new();
-//        m.set_owner_uid(self.owner_uid);
-//        for p in self.parents.iter() {
-//            m.mut_parents().push(p.clone());
-//        }
-//        m.set_epoch(self.epoch);
-//        m.set_payload(self.payload.encode()?);
-//        for e in self.endorsements.iter() {
-//            let mut endorsement = txflow_proto::Endorsement::new();
-//            endorsement.set_epoch(e.epoch);
-//            // TODO: fix when mutli signature is BLS.
-//            endorsement.set_signature(e.signature[0].as_ref().to_vec());
-//            m.mut_endorsements().push(endorsement);
-//        }
-//        encode_proto(&m)
-//    }
-//}
-//
-//impl<P: Decode> Decode for MessageDataBody<P> {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: txflow_proto::MessageDataBody = decode_proto(bytes)?;
-//        Ok(MessageDataBody {
-//            owner_uid: m.get_owner_uid(),
-//            parents: m.get_parents().iter().cloned().collect(),
-//            epoch: m.get_epoch(),
-//            payload: Decode::decode(m.get_payload())?,
-//            // TODO: fix when mutli signature is BLS.
-//            endorsements: m.get_endorsements().iter().map(|x| Endorsement { epoch: x.get_epoch(), signature: vec![DEFAULT_SIGNATURE] }).collect(),
-//        })
-//    }
-//}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedMessageData<P> {
     /// Signature of the hash.
@@ -198,27 +158,6 @@ impl<P> PartialEq for SignedMessageData<P> {
 
 impl<P> Eq for SignedMessageData<P> {}
 
-//impl<P: Encode> Encode for SignedMessageData<P> {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = txflow_proto::SignedMessageData::new();
-//        m.set_owner_sig(self.owner_sig.as_ref().to_vec());
-//        m.set_hash(self.hash);
-//        m.set_body(self.body.encode()?);
-//        encode_proto(&m)
-//    }
-//}
-//
-//impl<P: Decode> Decode for SignedMessageData<P> {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: txflow_proto::SignedMessageData = decode_proto(bytes)?;
-//        Ok(SignedMessageData {
-//            owner_sig: DEFAULT_SIGNATURE,
-//            hash: m.get_hash(),
-//            body: Decode::decode(m.get_body())?
-//        })
-//    }
-//}
-
 #[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConsensusBlockHeader {
     pub body_hash: CryptoHash,
@@ -231,29 +170,6 @@ pub struct ConsensusBlockBody<P> {
     pub messages: Vec<SignedMessageData<P>>,
     pub beacon_block_index: u64,
 }
-
-//impl<P: Encode> Encode for ConsensusBlockBody<P> {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = txflow_proto::ConsensusBlockBody::new();
-//        for message in self.messages.iter() {
-//            m.mut_messages().push(message.encode()?);
-//        }
-//        encode_proto(&m)
-//    }
-//}
-//
-//impl<P: Decode> Decode for ConsensusBlockBody<P> {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: txflow_proto::ConsensusBlockBody = decode_proto(bytes)?;
-//        let mut messages = vec![];
-//        for x in m.get_messages().iter() {
-//            messages.push(Decode::decode(x)?);
-//        }
-//        Ok(ConsensusBlockBody {
-//            messages
-//        })
-//    }
-//}
 
 // Gossip-specific structs.
 

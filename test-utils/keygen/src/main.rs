@@ -1,5 +1,4 @@
 use clap::{App, Arg, ArgMatches, SubCommand};
-use primitives::hash::hash_struct;
 use primitives::signature::{get_key_pair, sign};
 use primitives::signer::{get_key_file, write_key_file};
 use primitives::test_utils::get_key_pair_from_seed;

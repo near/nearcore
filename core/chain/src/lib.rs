@@ -1,9 +1,11 @@
+#[macro_use]
+extern crate log;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
-extern crate storage;
 #[macro_use]
-extern crate log;
+extern crate serde_derive;
+extern crate storage;
 
 use std::cmp;
 use std::collections::HashMap;
@@ -11,21 +13,19 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use serde::{de::DeserializeOwned, Serialize};
 
-use near_protos::block as block_proto;
 use primitives::hash::CryptoHash;
 use primitives::traits::Signer;
 use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
-use primitives::serialize::{Encode, Decode, EncodeResult, DecodeResult};
+use primitives::serialize::{Encode, Decode};
 use storage::{read_with_cache, write_with_cache, Storage};
-use primitives::serialize::encode_proto;
-use primitives::serialize::decode_proto;
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
 /// Trait that abstracts ``Header"
-pub trait SignedHeader: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'static
+pub trait SignedHeader: Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
 {
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -39,7 +39,7 @@ pub trait SignedHeader: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'st
 
 /// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
 /// and shard-chain blocks.
-pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'static {
+pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static {
     type SignedHeader: SignedHeader;
 
     /// Returns signed header for given block.
@@ -64,30 +64,11 @@ pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + 'sta
 }
 
 /// A block plus its "virtual" fields.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockIndex<B> {
     pub block: B,
     // Note: zero weight indicates orphan-chain (ancestry cannot be traced to genesis)
     pub cumulative_weight: u128,
-}
-
-impl<B: Encode> Encode for BlockIndex<B> {
-    fn encode(&self) -> EncodeResult {
-        let mut m = block_proto::BlockIndex::new();
-        m.set_block(self.block.encode()?);
-        m.set_cumulative_weight(self.cumulative_weight as u64);
-        encode_proto(&m)
-    }
-}
-
-impl<B: Decode> Decode for BlockIndex<B> {
-    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-        let m: block_proto::BlockIndex = decode_proto(bytes)?;
-        Ok(BlockIndex {
-            block: Decode::decode(m.get_block())?,
-            cumulative_weight: u128::from(m.get_cumulative_weight())
-        })
-    }
 }
 
 /// General BlockChain container.

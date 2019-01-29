@@ -1,13 +1,12 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::{fmt, io};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
 use primitives::hash::{CryptoHash, hash};
-use primitives::serialize::{Decode, DecodeResult, Encode, EncodeResult};
 use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
 use primitives::traits::Payload;
 use primitives::types::{
@@ -581,61 +580,6 @@ pub enum Transaction {
     Receipt(ReceiptTransaction),
 }
 
-//impl Encode for TransactionBody {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = transaction_proto::TransactionBody::new();
-//        m.set_originator(self.get_originator());
-//        m.set_nonce(self.get_nonce());
-//        match &self {
-//            TransactionBody::CreateAccount(t) => {
-//                m.set_destination(system_account());
-//                m.set_args(vec![]);
-//            },
-//            _ => {}
-//        }
-//        encode_proto(&m)
-//    }
-//}
-
-//impl Decode for TransactionBody {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: transaction_proto::TransactionBody = decode_proto(bytes)?;
-//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
-//    }
-//}
-//
-//impl Encode for SignedTransaction {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = transaction_proto::SignedTransaction::new();
-//        encode_proto(&m)
-//    }
-//}
-//
-//impl Decode for SignedTransaction {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: transaction_proto::SignedTransaction = decode_proto(bytes)?;
-//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
-//    }
-//}
-//
-//impl Encode for Transaction {
-//    fn encode(&self) -> EncodeResult {
-//        let mut m = transaction_proto::TransactionBody::new();
-//        encode_proto(&m)
-//    }
-//}
-//
-//impl Decode for Transaction {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: transaction_proto::TransactionBody = decode_proto(bytes)?;
-//        Err(io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-//        // Ok(Transaction::SignedTransaction(SignedTransaction { }))
-//    }
-//}
-//
-
 #[derive(Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TransactionStatus {
     Unknown,
@@ -691,26 +635,6 @@ impl Payload for ChainPayload {
         }
     }
 }
-
-//impl Encode for ChainPayload {
-//    fn encode(&self) -> EncodeResult {
-//        let m = transaction_proto::ChainPayload::new();
-//        encode_proto(&m)
-//    }
-//}
-//
-//impl Decode for ChainPayload {
-//    fn decode(bytes: &[u8]) -> DecodeResult<Self> {
-//        let m: transaction_proto::ChainPayload = decode_proto(&bytes)?;
-//        let mut body = vec![];
-//        for t in m.get_transactions().iter() {
-////            body.push(Transaction::decode(&t)?);
-//        }
-//        Ok(ChainPayload {
-//            body
-//        })
-//    }
-//}
 
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,

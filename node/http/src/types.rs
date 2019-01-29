@@ -9,8 +9,7 @@ use primitives::types::{
 };
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use transaction::{
-    FinalTransactionStatus, SignedTransaction, Transaction, TransactionBody,
-    TransactionResult,
+    FinalTransactionStatus, SignedTransaction, Transaction, TransactionResult,
 };
 
 #[derive(Serialize, Deserialize)]

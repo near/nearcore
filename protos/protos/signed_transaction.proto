@@ -1,15 +1,5 @@
 syntax = "proto3";
 
-//message TransactionBody {
-//    string originator = 1;
-//    string contract_id = 2;
-//    // TODO: figure out how to represent uint128
-//    uint64 amount = 3;
-//    uint64 nonce = 4;
-//    bytes method_name = 5;
-//    bytes args = 6;
-//}
-
 message CreateAccountTransaction {
     uint64 nonce = 1;
     string originator = 2;
