@@ -154,10 +154,7 @@ impl From<ShardBlockHeader> for ShardBlockHeaderResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ShardBlockResponse {
     pub header: ShardBlockHeaderResponse,
-    // TODO(#301): should have a bs58 format for TransactionResponse
     pub transactions: Vec<SignedTransactionResponse>,
-    // TODO(#301): should have a bs58 format for TransactionResponse
-    //#[serde(with = "proto_format")]
     pub new_receipts: Vec<Transaction>,
 }
 
