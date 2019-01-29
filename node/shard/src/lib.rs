@@ -19,7 +19,8 @@ use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId};
 use storage::{extend_with_cache, read_with_cache, StateDb};
-use transaction::{FinalTransactionStatus, SignedTransaction, Transaction, TransactionResult, TransactionStatus};
+use transaction::{FinalTransactionResult, FinalTransactionStatus, SignedTransaction,
+                  Transaction, TransactionLogs, TransactionResult, TransactionStatus};
 
 pub use crate::types::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 
@@ -274,14 +275,15 @@ impl ShardBlockChain {
         );
     }
 
-    pub fn get_transaction_final_status(&self, transaction_result: &TransactionResult) -> FinalTransactionStatus {
+    fn collect_transaction_final_result(&self, transaction_result: &TransactionResult, logs: &mut Vec<TransactionLogs>) -> FinalTransactionStatus {
         match transaction_result.status {
             TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
             TransactionStatus::Failed => FinalTransactionStatus::Failed,
             TransactionStatus::Completed => {
                 for r in transaction_result.receipts.iter() {
                     let receipt_result = self.get_transaction_result(&r);
-                    match self.get_transaction_final_status(&receipt_result) {
+                    logs.push(TransactionLogs{ hash: *r, lines: receipt_result.logs.clone(), receipts: receipt_result.receipts.clone() });
+                    match self.collect_transaction_final_result(&receipt_result, logs) {
                         FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
                         FinalTransactionStatus::Completed => {},
                         _ => return FinalTransactionStatus::Started,
@@ -290,6 +292,15 @@ impl ShardBlockChain {
                 FinalTransactionStatus::Completed
             }
         }
+    }
+
+    pub fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        let transaction_result = self.get_transaction_result(hash);
+        let mut result = FinalTransactionResult {
+            status: FinalTransactionStatus::Unknown,
+            logs: vec![TransactionLogs{ hash: *hash, lines: transaction_result.logs.clone(), receipts: transaction_result.receipts.clone() }] };
+        result.status = self.collect_transaction_final_result(&transaction_result, &mut result.logs);
+        result
     }
 }
 
@@ -345,14 +356,24 @@ mod tests {
         assert_eq!(result.status, TransactionStatus::Completed);
         assert_eq!(result.receipts.len(), 1);
         assert_ne!(result.receipts[0], tx.transaction_hash());
-        assert_eq!(chain.get_transaction_final_status(&result), FinalTransactionStatus::Started);
+        let final_result = chain.get_transaction_final_result(&tx.transaction_hash());
+        assert_eq!(final_result.status, FinalTransactionStatus::Started);
+        assert_eq!(final_result.logs.len(), 2);
+        assert_eq!(final_result.logs[0].hash, tx.transaction_hash());
+        assert_eq!(final_result.logs[0].lines.len(), 0);
+        assert_eq!(final_result.logs[0].receipts.len(), 1);
 
         let (block2, db_changes2, _, tx_status2) = chain.prepare_new_block(block.hash, block.body.new_receipts);
         chain.insert_block(&block2, db_changes2, tx_status2);
 
         let result2 = chain.get_transaction_result(&result.receipts[0]);
         assert_eq!(result2.status, TransactionStatus::Completed);
-        assert_eq!(chain.get_transaction_final_status(&result), FinalTransactionStatus::Completed);
+        let final_result2 = chain.get_transaction_final_result(&tx.transaction_hash());
+        assert_eq!(final_result2.status, FinalTransactionStatus::Completed);
+        assert_eq!(final_result2.logs.len(), 2);
+        assert_eq!(final_result2.logs[0].hash, tx.transaction_hash());
+        assert_eq!(final_result2.logs[1].hash, result.receipts[0]);
+        assert_eq!(final_result2.logs[1].receipts.len(), 0);
     }
 
     #[test]
