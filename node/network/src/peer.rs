@@ -9,6 +9,10 @@ use primitives::types::PeerId;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -32,17 +36,41 @@ const STATE_ERR: &str = "Some fields are expected to be not None at the given st
 
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub enum PeerMessage {
-    Handshake { id: PeerId, account_id: Option<AccountId>, peers_info: PeersInfo },
+    Handshake { peer_info: PeerInfo, peers_info: PeersInfo },
     InfoGossip(PeersInfo),
     Message(Vec<u8>),
 }
 
 /// Info about the peer. If peer is an authority then we also know its account id.
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerInfo {
-    pub id: Option<PeerId>,
+    pub id: PeerId,
     pub addr: SocketAddr,
     pub account_id: Option<AccountId>,
+}
+
+impl PartialEq for PeerInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Hash for PeerInfo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl Eq for PeerInfo {}
+
+impl fmt::Display for PeerInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(acc) = self.account_id.as_ref() {
+            write!(f, "({}, {}, {})", self.id, self.addr, acc)
+        } else {
+            write!(f, "({}, {})", self.id, self.addr)
+        }
+    }
 }
 
 pub type PeersInfo = Vec<PeerInfo>;
@@ -51,7 +79,7 @@ pub type PeersInfo = Vec<PeerInfo>;
 pub enum PeerState {
     /// Someone unknown has established connection with us and we are waiting for them to send us
     /// the handshake. `stream`, `out_msg_tx`, and `timeout` are not `None`.
-    IncomingConnection(SocketAddr),
+    IncomingConnection,
     /// We know the `PeerInfo` (if it is a boot node, only addr), but have not attempted to connect
     /// to it, yet.
     Unconnected(PeerInfo),
@@ -65,16 +93,14 @@ pub enum PeerState {
     /// `stream` is not `None`.
     Ready(PeerInfo),
     /// The peer was dropped while pending.
-    DroppedPending(SocketAddr),
+    DroppedPending(PeerInfo),
     /// The peer was dropped while being usable.
     Dropped(PeerInfo),
 }
 
 pub struct Peer {
-    /// `PeerId` of the current node.
-    node_id: PeerId,
-    /// `AccountId` of the current node.
-    node_account_id: Option<AccountId>,
+    /// Info of the current node.
+    node_info: PeerInfo,
     /// `Peer` object is a state machine. This is its state.
     state: PeerState,
     /// Information on all peers.
@@ -96,28 +122,15 @@ pub struct Peer {
 impl Peer {
     /// Initialize peer from the incoming opened connection.
     pub fn from_incoming_conn(
-        node_id: PeerId,
-        node_account_id: Option<AccountId>,
+        node_info: PeerInfo,
         socket: TcpStream,
         all_peers: Arc<RwLock<AllPeers>>,
     ) -> Result<Self, Error> {
-        let addr = socket.peer_addr()?;
-        if !all_peers.write().add_incoming_peer(&PeerInfo {
-            id: None,
-            account_id: None,
-            addr: addr.clone(),
-        }) {
-            return Err(Error::new(
-                ErrorKind::AddrInUse,
-                format!("Address {} is already locked.", addr),
-            ));
-        }
         let (sink, stream) = Framed::new(socket, Codec::new()).split();
         let timeout = Delay::new(Instant::now() + Duration::from_millis(INIT_HANDSHAKE_TIMEOUT_MS));
         Ok(Self {
-            node_id,
-            node_account_id,
-            state: PeerState::IncomingConnection(addr.clone()),
+            node_info,
+            state: PeerState::IncomingConnection,
             all_peers,
             connect: None,
             stream: Some(stream),
@@ -128,15 +141,13 @@ impl Peer {
 
     /// Initialize peer from the either boot node address or gossiped info.
     pub fn from_known(
+        node_info: PeerInfo,
         info: PeerInfo,
-        node_id: PeerId,
-        node_account_id: Option<AccountId>,
         all_peers: Arc<RwLock<AllPeers>>,
     ) -> Self {
         let addr = info.addr.clone();
         Self {
-            node_id,
-            node_account_id,
+            node_info,
             state: PeerState::Unconnected(info),
             all_peers,
             connect: None,
@@ -154,8 +165,7 @@ impl Peer {
             .expect(STATE_ERR)
             .clone()
             .send(PeerMessage::Handshake {
-                id: self.node_id,
-                account_id: self.node_account_id.clone(),
+                peer_info: self.node_info.clone(),
                 peers_info: self.all_peers.read().peers_info(),
             })
             .map(|_| ())
@@ -197,9 +207,9 @@ fn get_delay(delay_ms: u64) -> Delay {
 
 /// If timeout is reached then return `DroppedPending`, otherwise return `Async::NotReady`.
 macro_rules! drop_on_timeout {
-    ($self_:ident, $addr:expr) => {{
+    ($self_:ident, $info:expr) => {{
         try_ready!($self_.timeout.as_mut().expect(STATE_ERR).poll().map_err(timer_err));
-        DroppedPending($addr.clone())
+        DroppedPending($info.clone())
     }};
 }
 
@@ -210,7 +220,7 @@ macro_rules! poll_stream {
 }
 
 impl Stream for Peer {
-    type Item = (PeerId, Vec<u8>);
+    type Item = (PeerInfo, Vec<u8>);
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -218,30 +228,41 @@ impl Stream for Peer {
         use self::PeerState::*;
         loop {
             self.state = match &self.state {
-                IncomingConnection(addr) => {
+                IncomingConnection => {
                     // Wait for the first handshake. Do not forget to reply to it.
                     match poll_stream!(self)? {
-                        Async::Ready(None) => DroppedPending(addr.clone()),
-                        Async::Ready(Some(Handshake { id, account_id, peers_info })) => {
+                        Async::Ready(None) => return Ok(Async::Ready(None)),
+                        Async::Ready(Some(Handshake { peer_info, peers_info })) => {
                             self.handshake();
-                            let info = PeerInfo { id: Some(id), account_id, addr: addr.clone() };
-                            self.all_peers.write().merge_peers_info(peers_info).promote_to_ready(
-                                &info,
-                                self.out_msg_tx.as_ref().expect(STATE_ERR),
-                            );
-                            info!(target: "network", "Ready {:?}", &info);
-                            Ready(info)
+                            self.all_peers
+                                .write()
+                                .add_incoming_peer(&peer_info)?
+                                .merge_peers_info(peers_info)
+                                .promote_to_ready(
+                                    &peer_info,
+                                    self.out_msg_tx.as_ref().expect(STATE_ERR),
+                                );
+                            info!(target: "network", "Ready {}", &peer_info);
+                            Ready(peer_info)
                         }
                         // Any other message returned by the stream is irrelevant.
-                        Async::NotReady | Async::Ready(_) => drop_on_timeout!(self, addr),
+                        Async::NotReady | Async::Ready(_) => {
+                            try_ready!(self
+                                .timeout
+                                .as_mut()
+                                .expect(STATE_ERR)
+                                .poll()
+                                .map_err(timer_err));
+                            return Ok(Async::Ready(None));
+                        }
                     }
                 }
                 Unconnected(info) => {
-                    info!(target: "network", "Unconnected {:?}", &info);
+                    info!(target: "network", "Unconnected {}", &info);
                     // This state is transient.
                     self.connect = Some(TcpStream::connect(&info.addr));
                     self.timeout = Some(get_delay(CONNECT_TIMEOUT_MS));
-                    info!(target: "network", "Connecting {:?}", &info);
+                    info!(target: "network", "Connecting {}", &info);
                     Connecting(info.clone())
                 }
                 Connecting(info) => match self.connect.as_mut().expect(STATE_ERR).poll()? {
@@ -251,55 +272,55 @@ impl Stream for Peer {
                         self.timeout = Some(get_delay(RESPONSE_HANDSHAKE_TIMEOUT_MS));
                         self.out_msg_tx = Some(spawn_sink_task(sink));
                         self.handshake();
-                        info!(target: "network", "Connected {:?}", &info);
+                        info!(target: "network", "Connected {}", &info);
                         Connected(info.clone())
                     }
-                    Async::NotReady => drop_on_timeout!(self, info.addr),
+                    Async::NotReady => drop_on_timeout!(self, info),
                 },
                 Connected(info) => {
                     // Wait for the handshake reply. Almost equivalent to `IncommingConnection`.
                     match poll_stream!(self)? {
-                        Async::Ready(None) => DroppedPending(info.addr.clone()),
-                        Async::Ready(Some(Handshake { id, account_id, peers_info })) => {
-                            if info.id != Some(id) || info.account_id != account_id {
+                        Async::Ready(None) => DroppedPending(info.clone()),
+                        Async::Ready(Some(Handshake { peer_info, peers_info })) => {
+                            if info.id != peer_info.id
+                                || info.account_id != peer_info.account_id
+                                || info.addr != peer_info.addr
+                            {
                                 warn!(
                                     target: "network",
-                                    "Known info does not match the handshake. Known: {:?}; Handshake: {:?} ",
-                                    info, (&id, &account_id)
+                                    "Known info does not match the handshake. Known: {}; Handshake: {} ",
+                                    info, &peer_info
                                 );
                             }
-                            let info =
-                                PeerInfo { id: Some(id), addr: info.addr.clone(), account_id };
                             self.all_peers.write().merge_peers_info(peers_info).promote_to_ready(
-                                &info,
+                                &peer_info,
                                 self.out_msg_tx.as_ref().expect(STATE_ERR),
                             );
-                            info!(target: "network", "Ready {:?}", &info);
-                            Ready(info)
+                            info!(target: "network", "Ready {}", &peer_info);
+                            Ready(peer_info)
                         }
                         // Any other message returned by the stream is irrelevant.
-                        Async::NotReady | Async::Ready(_) => drop_on_timeout!(self, info.addr),
+                        Async::NotReady | Async::Ready(_) => drop_on_timeout!(self, info),
                     }
                 }
                 Ready(info) => match try_ready!(poll_stream!(self)) {
                     None => Dropped(info.clone()),
                     Some(Message(data)) => {
-                        let id = info.id.as_ref().expect(STATE_ERR).clone();
-                        return Ok(Async::Ready(Some((id, data))));
+                        return Ok(Async::Ready(Some((info.clone(), data))));
                     }
                     Some(InfoGossip(peers_info)) => {
                         self.all_peers.write().merge_peers_info(peers_info);
                         continue;
                     }
-                    Some(h @ Handshake { .. }) => {
-                        info!(target: "network", "Unexpected handshake {:?} from {:?}", h, info);
+                    Some(Handshake { peer_info, .. }) => {
+                        info!(target: "network", "Unexpected handshake {} from {}", peer_info, info);
                         continue;
                     }
                 },
-                DroppedPending(addr) => {
-                    info!(target: "network", "DroppedPending {}", &addr);
+                DroppedPending(info) => {
+                    info!(target: "network", "DroppedPending {}", &info);
                     // Remove peer from lock and close this stream.
-                    self.all_peers.write().drop_lock(addr);
+                    self.all_peers.write().drop_lock(info);
                     return Ok(Async::Ready(None));
                 }
                 Dropped(info) => {
