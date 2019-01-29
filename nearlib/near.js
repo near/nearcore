@@ -76,7 +76,7 @@ class Near {
     }
 
     /**
-     *  Deploys a smart contract to the block chain
+     * Deploys a smart contract to the block chain
      * @param {string} sender account id of the sender
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
@@ -90,9 +90,13 @@ class Near {
         });
     }
 
-    async getTransactionStatus(transaction_hash) {
+     /**
+     * Get a status of a single transaction identified by the transaction hash. 
+     * @param {string} transactionHash unique identifier of the transaction
+     */
+    async getTransactionStatus(transactionHash) {
         const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
-            hash: transaction_hash,
+            hash: transactionHash,
         });
         return transactionStatusResponse;
     }

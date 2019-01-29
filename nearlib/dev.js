@@ -9,16 +9,24 @@ module.exports = {
     connect: async function(nodeUrl) {
         const studioConfig = await this.getConfig();
         const near = nearlib.Near.createDefaultConfig(nodeUrl || studioConfig.nodeUrl);
-        await this.getOrCreateDevUser();
+        await this.getOrCreateDevUser(near);
         return near;
-    }, 
-    getOrCreateDevUser: async function () {
+    },
+    getOrCreateDevUser: async function (near) {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
         if (tempUserAccountId) {
-            return tempUserAccountId;
+            // Make sure the user actually exists and recreate it if it doesn't
+            const accountLib = new nearlib.Account(near.nearClient);
+            try {
+                const accountLookupResult = await accountLib.viewAccount(tempUserAccountId);
+                return tempUserAccountId;
+            } catch (e) {
+                console.log("Error looking up temp account", e);
+                // Something went wrong! Recreate user by continuing the flow
+            }
+        } else {
+            tempUserAccountId = 'devuser' + Date.now();
         }
-
-        tempUserAccountId = 'devuser' + Date.now();
         const keypair = await nearlib.KeyPair.fromRandomSeed();
         const nearConfig = await this.getConfig();
         await sendJson('POST', `${nearConfig.baseUrl}/account`, {
