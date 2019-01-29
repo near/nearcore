@@ -73,13 +73,13 @@ def b58decode(s):
 
     # Convert the string to an integer
     n = 0
-    for c in s:
+    for char in s.encode('utf-8'):
         n *= 58
-        if c not in alphabet:
-            msg = "Character {} is not a valid base58 character".format(c)
+        if char not in alphabet:
+            msg = "Character {} is not a valid base58 character".format(char)
             raise Exception(msg)
 
-        digit = alphabet.index(c)
+        digit = alphabet.index(char)
         n += digit
 
     # Convert the integer to bytes
@@ -188,7 +188,7 @@ class NearRPC(object):
 
     def _submit_transaction(self, transaction):
         transaction = transaction.SerializeToString()
-        transaction = base64.b64encode(transaction)
+        transaction = base64.b64encode(transaction).decode('utf-8')
         params = {'transaction': transaction}
         return self._call_rpc('submit_transaction', params)
 
@@ -203,7 +203,7 @@ class NearRPC(object):
 
             null = open(os.devnull, 'w')
             process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
-            stdout = process.communicate()[0].decode('utf-8')
+            stdout = process.communicate()[0]
             if process.returncode != 0:
                 sys.stdout.write(stdout)
 
@@ -214,7 +214,7 @@ class NearRPC(object):
 
                 exit(1)
 
-            self._public_key = stdout
+            self._public_key = stdout.decode('utf-8')
         return self._public_key
 
     def deploy_contract(self, sender, contract_name, wasm_file):
