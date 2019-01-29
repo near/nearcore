@@ -27,15 +27,28 @@ export function setValue(value: string): string {
 }
 
 export function getValue(): string {
-  let keys = getAllKeys();
-  assert(keys.length == 1);
-  assert(keys[0] == "name");
   return globalStorage.getItem("name");
 }
 
 export function getAllKeys(): string[] {
-  return globalStorage.keys("n");
+  let keys = globalStorage.keys("n");
+  assert(keys.length == 1);
+  assert(keys[0] == "name");
+  return keys;
 }
+
+export function generateLogs(): void {
+  globalStorage.setItem("item", "value");
+  near.log("log1");
+  near.log("log2");
+}
+
+export function triggerAssert(): void {
+  near.log("log before assert");
+  assert(false, "expected to fail");
+}
+
+
 export class __near_ArgsParser_hello extends ThrowingJSONHandler {
         buffer: Uint8Array;
         decoder: JSONDecoder<__near_ArgsParser_hello>;
@@ -278,4 +291,80 @@ if (result != null) {
         encoder.popObject();
         return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
       
+}
+export class __near_ArgsParser_generateLogs extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_generateLogs>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_generateLogs(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_generateLogs();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_generateLogs>(handler);
+      handler.decoder.deserialize(json);
+generateLogs(
+
+);
+}
+export class __near_ArgsParser_triggerAssert extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_triggerAssert>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_triggerAssert(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_triggerAssert();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_triggerAssert>(handler);
+      handler.decoder.deserialize(json);
+triggerAssert(
+
+);
 }

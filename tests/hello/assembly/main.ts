@@ -14,12 +14,24 @@ export function setValue(value: string): string {
 }
 
 export function getValue(): string {
-  let keys = getAllKeys();
-  assert(keys.length == 1);
-  assert(keys[0] == "name");
   return globalStorage.getItem("name");
 }
 
 export function getAllKeys(): string[] {
-  return globalStorage.keys("n");
+  let keys = globalStorage.keys("n");
+  assert(keys.length == 1);
+  assert(keys[0] == "name");
+  return keys;
 }
+
+export function generateLogs(): void {
+  globalStorage.setItem("item", "value");
+  near.log("log1");
+  near.log("log2");
+}
+
+export function triggerAssert(): void {
+  near.log("log before assert");
+  assert(false, "expected to fail");
+}
+

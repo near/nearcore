@@ -138,8 +138,14 @@ class Near {
                 for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
                     await sleep(STATUS_POLL_PERIOD_MS);
                     status = await near.getTransactionStatus(response.hash);
+                    status.result.logs.forEach((log) => {
+                        console.log(`[${contractAccountId}]: ${log}`);
+                    });
                     if (status.status == 'Completed') {
-                        return status;
+                        return status.result;
+                    }
+                    if (status.status == 'Failed') {
+                        throw new Error(`Transaction ${response.hash} failed.`);
                     }
                 }
                 throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
