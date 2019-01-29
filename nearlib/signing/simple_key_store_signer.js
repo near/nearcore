@@ -11,10 +11,10 @@ class SimpleKeyStoreSigner {
     }
 
     /**
-     * Sign a transaction. If the key for senderAccountId is not present, this operation
-     * will fail.
-     * @param {Buffer} body
-     * @param {string} senderAccountId 
+     * Sign a transaction body. If the key for senderAccountId is not present, 
+     * this operation will fail.
+     * @param {object} body
+     * @param {string} senderAccountId
      */
     async signTransactionBody(body, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
@@ -23,7 +23,6 @@ class SimpleKeyStoreSigner {
         const signature = [...nacl.sign.detached(message, key)];
         return signature;
     }
-
 }
 
 module.exports = SimpleKeyStoreSigner;
