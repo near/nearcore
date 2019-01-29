@@ -19,8 +19,9 @@ class NearClient {
         const senderKey = 'originator';
         const sender = args[senderKey];
         const nonce = await this.getNonce(sender);
-        const response = await this.request(method, Object.assign({}, args, { nonce }));
-        const signature = await this.signer.signTransaction(response.hash, sender);
+        const tx_args = Object.assign({}, args, { nonce });
+        const response = await this.request(method, tx_args);
+        const signature = await this.signer.signTransaction(response, sender);
         const signedTransaction = {
             body: response.body,
             signature: signature

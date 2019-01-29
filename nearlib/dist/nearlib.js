@@ -28,7 +28,7 @@ class Account {
         return transactionResponse;
     }
 
-   /**
+    /**
     * Creates a new account with a new random key pair. Returns the key pair to the caller. It's the caller's responsibility to
     * manage this key pair.
     * @param {string} newAccountId id of the new account
@@ -107,12 +107,13 @@ const InMemoryKeyStore = require('./signing/in_memory_key_store');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
 const LocalNodeConnection = require('./local_node_connection');
 const KeyPair = require('./signing/key_pair');
+const WalletAccount = require('./wallet-account');
 
-module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair };
+module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair, WalletAccount };
 
 
 
-},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":18,"./signing/in_memory_key_store":19,"./signing/key_pair":20,"./signing/simple_key_store_signer":21}],5:[function(require,module,exports){
+},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":18,"./signing/in_memory_key_store":19,"./signing/key_pair":20,"./signing/simple_key_store_signer":21,"./wallet-account":22}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
@@ -307,8 +308,9 @@ class NearClient {
         const senderKey = 'originator';
         const sender = args[senderKey];
         const nonce = await this.getNonce(sender);
-        const response = await this.request(method, Object.assign({}, args, { nonce }));
-        const signature = await this.signer.signTransaction(response.hash, sender);
+        const tx_args = Object.assign({}, args, { nonce });
+        const response = await this.request(method, tx_args);
+        const signature = await this.signer.signTransaction(response, sender);
         const signedTransaction = {
             body: response.body,
             signature: signature
@@ -5103,12 +5105,12 @@ class SimpleKeyStoreSigner {
     }
 
     /**
-     * Sign a transaction. If the key for senderAccountId is not present, this operation
+     * Sign a given hash. If the key for senderAccountId is not present, this operation
      * will fail.
-     * @param {Buffer} message 
-     * @param {string} senderAccountId 
+     * @param {Buffer} hash
+     * @param {string} senderAccountId
      */
-    async signTransaction(hash, senderAccountId) {
+    async signHash(hash, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
         const message = bs58.decode(hash);
         const key = bs58.decode(encodedKey.getSecretKey());
@@ -5116,7 +5118,172 @@ class SimpleKeyStoreSigner {
         return signature;
     }
 
+    /**
+     * Sign a transaction. If the key for senderAccountId is not present, this operation
+     * will fail.
+     * @param {object} tx Transaction details
+     * @param {string} senderAccountId
+     */
+    async signTransaction(tx, senderAccountId) {
+        return await this.signHash(tx.hash, senderAccountId);
+    }
+
 }
 
 module.exports = SimpleKeyStoreSigner;
-},{"bs58":13,"tweetnacl":17}]},{},[2]);
+},{"bs58":13,"tweetnacl":17}],22:[function(require,module,exports){
+(function (Buffer){
+/**
+ * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
+ */
+const EMBED_WALLET_URL_SUFFIX = '/embed/';
+const LOGIN_WALLET_URL_SUFFIX = '/login/';
+const RANDOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const REQUEST_ID_LENGTH = 32;
+
+const LOCAL_STORAGE_KEY_SUFFIX = '_wallet_auth_key';
+
+class WalletAccount {
+
+    constructor(appKeyPrefix, walletBaseUrl = 'https://wallet.nearprotocol.com') {
+        this._walletBaseUrl = walletBaseUrl;
+        this._authDataKey = appKeyPrefix + LOCAL_STORAGE_KEY_SUFFIX;
+
+        this._initHtmlElements();
+        this._signatureRequests = {};
+        this._authData = JSON.parse(window.localStorage.getItem(this._authDataKey) || '{}');
+
+        if (!this.isSignedIn()) {
+            this._tryInitFromUrl();
+        }
+    }
+
+    isSignedIn() {
+        // Later it should call wallet to check auth token is still up to date.
+        return !!this._authData.accountId;
+    }
+
+    getAccountId() {
+        return this._authData.accountId || '';
+    }
+
+    requestSignIn(contract_id, title, success_url, failure_url) {
+        const currentUrl = new URL(window.location.href);
+        let newUrl = new URL(this._walletBaseUrl + LOGIN_WALLET_URL_SUFFIX);
+        newUrl.searchParams.set('title', title);
+        newUrl.searchParams.set('contract_id', contract_id);
+        newUrl.searchParams.set('success_url', success_url || currentUrl.href);
+        newUrl.searchParams.set('failure_url', failure_url || currentUrl.href);
+        newUrl.searchParams.set('app_url', currentUrl.origin);
+        window.location.replace(newUrl.toString());
+    }
+
+    signOut() {
+        this._authData = {};
+        window.localStorage.removeItem(this._authDataKey);
+    }
+
+    _tryInitFromUrl() {
+        let currentUrl = new URL(window.location.href);
+        let authToken = currentUrl.searchParams.get('auth_token') || '';
+        let accountId =currentUrl.searchParams.get('account_id') || '';
+        if (!!authToken && !!accountId) {
+            this._authData = {
+                authToken,
+                accountId,
+            };
+            window.localStorage.setItem(this._authDataKey, JSON.stringify(this._authData));
+        }
+    }
+
+    _initHtmlElements() {
+        // Wallet iframe
+        const iframe = document.createElement('iframe');
+        iframe.style = 'display: none;';
+        iframe.src = this._walletBaseUrl + EMBED_WALLET_URL_SUFFIX;
+        document.body.appendChild(iframe);
+        this._walletWindow = iframe.contentWindow;
+
+        // Message Event
+        window.addEventListener('message', this.receiveMessage.bind(this), false);
+    }
+
+    receiveMessage(event) {
+        if (event.origin != this._walletBaseUrl) {
+            // Only processing wallet messages.
+            return;
+        }
+        let data;
+        try {
+            data = JSON.parse(event.data);
+        } catch (e) {
+            console.error('Can\'t parse the result', event.data, e);
+            return;
+        }
+        const request_id = data.request_id || '';
+        if (!(request_id in this._signatureRequests)) {
+            console.error('Request ID' + request_id + ' was not found');
+            return;
+        }
+        let signatureRequest = this._signatureRequests[request_id];
+        delete this._signatureRequests[request_id];
+
+        if (data.success) {
+            signatureRequest.resolve(data.result);
+        } else {
+            signatureRequest.reject(data.error);
+        }
+    }
+
+    _randomRequestId() {
+        var result = '';
+
+        for (var i = 0; i < REQUEST_ID_LENGTH; i++) {
+            result += RANDOM_ALPHABET.charAt(Math.floor(Math.random() * RANDOM_ALPHABET.length));
+        }
+
+        return result;
+    }
+
+    _remoteSign(hash, methodName, args) {
+        return new Promise((resolve, reject) => {
+            const request_id = this._randomRequestId();
+            this._signatureRequests[request_id] = {
+                request_id,
+                resolve,
+                reject,
+            };
+            this._walletWindow.postMessage(JSON.stringify({
+                action: 'sign_transaction',
+                token: this._authData.authToken,
+                method_name: methodName,
+                args: args || {},
+                hash,
+                request_id,
+            }), this._walletBaseUrl);
+        });
+    }
+
+    /**
+     * Sign a transaction. If the key for senderAccountId is not present, this operation
+     * will fail.
+     * @param {object} tx Transaction details
+     * @param {string} senderAccountId
+     */
+    async signTransaction(tx, senderAccountId) {
+        if (!this.isSignedIn() || senderAccountId !== this.getAccountId()) {
+            throw 'Unauthorized account_id ' + senderAccountId;
+        }
+        const hash = tx.hash;
+        let methodName = Buffer.from(tx.body.FunctionCall.method_name).toString();
+        let args = JSON.parse(Buffer.from(tx.body.FunctionCall.args).toString());
+        let signature = await this._remoteSign(hash, methodName, args);
+        return signature;
+    }
+
+}
+
+module.exports = WalletAccount;
+
+}).call(this,require("buffer").Buffer)
+},{"buffer":14}]},{},[2]);
