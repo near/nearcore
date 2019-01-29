@@ -254,9 +254,8 @@ impl HttpApi {
         &self,
         r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
-        let result = self.client.shard_chain.get_transaction_result(&r.hash);
-        let status = self.client.shard_chain.get_transaction_final_status(&result);
-        Ok(TransactionResultResponse { status, result })
+        let result = self.client.shard_chain.get_transaction_final_result(&r.hash);
+        Ok(TransactionResultResponse { result })
     }
 }
 
