@@ -1,5 +1,8 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
-const KeyPair = require('./signing/key_pair');
+const bs58 = require('bs58');
+
+const { CreateAccountTransaction, SignedTransaction } = require('./protos');
+const KeyPair = require("./signing/key_pair");
 
 /**
  * Near account and account related operations. 
@@ -16,16 +19,32 @@ class Account {
      * @param {number} amount amount of tokens to transfer from originator account id to the new account as part of the creation. 
      * @param {string} originatorAccountId existing account on the blockchain to use for transferring tokens into the new account
      */
-    async createAccount (newAccountId, publicKey, amount, originatorAccountId) {
-        const createAccountParams = {
-            originator: originatorAccountId,
-            new_account_id: newAccountId,
-            amount: amount,
-            public_key: publicKey,
-        };
+    async createAccount (newAccountId, publicKey, amount, originator) {
+        const nonce = await this.nearClient.getNonce(originator);
+        publicKey = bs58.decode(publicKey);
+        const createAccount = CreateAccountTransaction.create({
+            originator,
+            newAccountId,
+            amount,
+            publicKey,
+        });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            createAccount.nonce = nonce;
+        }
 
-        const transactionResponse = await this.nearClient.submitTransaction('create_account', createAccountParams);
-        return transactionResponse;
+        const buffer = CreateAccountTransaction.encode(createAccount).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            createAccount,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**
@@ -38,8 +57,12 @@ class Account {
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
         const createAccountResult = await this.createAccount(
-            newAccountId, keyWithRandomSeed.getPublicKey(), amount, originatorAccountId);
-        return { key: keyWithRandomSeed, ...createAccountResult };
+            newAccountId,
+            keyWithRandomSeed.getPublicKey(),
+            amount,
+            originatorAccountId,
+        );
+        return { key: keyWithRandomSeed, ...createAccountResult }; 
     }
 
     /**
@@ -52,7 +75,7 @@ class Account {
 }
 module.exports = Account;
 
-},{"./signing/key_pair":20}],2:[function(require,module,exports){
+},{"./protos":38,"./signing/key_pair":41,"bs58":20}],2:[function(require,module,exports){
 window.nearlib = require('./index');
 window.nearlib.dev = require('./dev');
 
@@ -121,7 +144,7 @@ module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyS
 
 
 
-},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":18,"./signing/in_memory_key_store":19,"./signing/key_pair":20,"./signing/simple_key_store_signer":21,"./wallet-account":22}],5:[function(require,module,exports){
+},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":39,"./signing/in_memory_key_store":40,"./signing/key_pair":41,"./signing/simple_key_store_signer":42,"./wallet-account":43}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
@@ -138,7 +161,8 @@ module.exports = async function sendJson(method, url, json) {
     }
     return await response.json();
 };
-},{"node-fetch":12}],6:[function(require,module,exports){
+
+},{"node-fetch":19}],6:[function(require,module,exports){
 const sendJson = require('./internal/send-json');
 
 class LocalNodeConnection {
@@ -155,10 +179,15 @@ module.exports = LocalNodeConnection;
 
 },{"./internal/send-json":5}],7:[function(require,module,exports){
 (function (Buffer){
+const bs58 = require('bs58');
+
 const NearClient = require('./nearclient');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
 const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
+const {
+    DeployContractTransaction, FunctionCallTransaction, SignedTransaction
+} = require('./protos');
 
 const MAX_STATUS_POLL_ATTEMPTS = 3;
 const STATUS_POLL_PERIOD_MS = 250;
@@ -218,18 +247,39 @@ class Near {
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
      */
-    async scheduleFunctionCall(amount, sender, contractAccountId, methodName, args) {
+    async scheduleFunctionCall(amount, originator, contractId, methodName, args) {
         if (!args) {
             args = {};
         }
-        const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        return await this.nearClient.submitTransaction('schedule_function_call', {
-            amount: amount,
-            originator: sender,
-            contract_account_id: contractAccountId,
-            method_name: methodName,
-            args: serializedArgs
+        methodName = new Uint8Array(Buffer.from(methodName));
+        args = new Uint8Array(Buffer.from(JSON.stringify(args)));
+        const nonce = await this.nearClient.getNonce(originator);
+        const functionCall = FunctionCallTransaction.create({
+            originator,
+            contractId,
+            methodName,
+            args,
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            functionCall.nonce = nonce;
+        }
+        if (amount !== 0) {
+            functionCall.amount = amount;
+        }
+
+        const buffer = FunctionCallTransaction.encode(functionCall).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            functionCall,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**
@@ -238,13 +288,35 @@ class Near {
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
      */
-    async deployContract(sender, contractAccountId, wasmArray) {
-        return await this.nearClient.submitTransaction('deploy_contract', {
-            originator: sender,
-            contract_account_id: contractAccountId,
-            wasm_byte_array: wasmArray,
-            public_key: '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE' // This parameter is not working properly yet. Use some fake value
+    async deployContract(originator, contractId, wasmByteArray) {
+        const nonce = await this.nearClient.getNonce(originator);
+
+        // This parameter is not working properly yet. Use some fake value
+        var publicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
+        publicKey = bs58.decode(publicKey);
+        const deployContract = DeployContractTransaction.create({
+            originator,
+            contractId,
+            wasmByteArray,
+            publicKey, 
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            deployContract.nonce = nonce;
+        }
+
+        const buffer = DeployContractTransaction.encode(deployContract).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            deployContract,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**
@@ -325,10 +397,22 @@ module.exports = Near;
 
 
 }).call(this,require("buffer").Buffer)
-},{"./local_node_connection":6,"./nearclient":8,"./signing/browser_local_storage_key_store":18,"./signing/simple_key_store_signer":21,"buffer":14}],8:[function(require,module,exports){
+},{"./local_node_connection":6,"./nearclient":8,"./protos":38,"./signing/browser_local_storage_key_store":39,"./signing/simple_key_store_signer":42,"bs58":20,"buffer":21}],8:[function(require,module,exports){
+const { SignedTransaction } = require('./protos');
+
 /**
  * Client for communicating with near blockchain. 
  */
+
+function _arrayBufferToBase64( buffer ) {
+    var binary = '';
+    var bytes = new Uint8Array( buffer );
+    var len = bytes.byteLength;
+    for (var i = 0; i < len; i++) {
+        binary += String.fromCharCode( bytes[ i ] );
+    }
+    return window.btoa( binary );
+}
 
 class NearClient {
     constructor (signer, nearConnection) {
@@ -343,23 +427,17 @@ class NearClient {
         return viewAccountResponse;
     }
 
-    async submitTransaction (method, args) {
-        const senderKey = 'originator';
-        const sender = args[senderKey];
-        const nonce = await this.getNonce(sender);
-        const tx_args = Object.assign({}, args, { nonce });
-        const response = await this.request(method, tx_args);
-        const signature = await this.signer.signTransaction(response, sender);
-        const signedTransaction = {
-            body: response.body,
-            signature: signature
-        };
+    async submitTransaction (signedTransaction) {
+        const buffer = SignedTransaction.encode(signedTransaction).finish();
+        const transaction = _arrayBufferToBase64(buffer);
+        const data = { transaction };
         var submitResponse;
         try {
-            submitResponse = await this.request('submit_transaction', signedTransaction);
+            submitResponse = await this.request('submit_transaction', data);
         } catch(e) {
-            console.log(e.response.text);
-            throw (e);
+            if (e.response) { console.log(e.response.text) }
+            else { console.log(e) }
+            throw (e)
         }
         return submitResponse;
     }
@@ -374,7 +452,793 @@ class NearClient {
 }
 
 module.exports = NearClient;
-},{}],9:[function(require,module,exports){
+},{"./protos":38}],9:[function(require,module,exports){
+"use strict";
+module.exports = asPromise;
+
+/**
+ * Callback as used by {@link util.asPromise}.
+ * @typedef asPromiseCallback
+ * @type {function}
+ * @param {Error|null} error Error, if any
+ * @param {...*} params Additional arguments
+ * @returns {undefined}
+ */
+
+/**
+ * Returns a promise from a node-style callback function.
+ * @memberof util
+ * @param {asPromiseCallback} fn Function to call
+ * @param {*} ctx Function context
+ * @param {...*} params Function arguments
+ * @returns {Promise<*>} Promisified function
+ */
+function asPromise(fn, ctx/*, varargs */) {
+    var params  = new Array(arguments.length - 1),
+        offset  = 0,
+        index   = 2,
+        pending = true;
+    while (index < arguments.length)
+        params[offset++] = arguments[index++];
+    return new Promise(function executor(resolve, reject) {
+        params[offset] = function callback(err/*, varargs */) {
+            if (pending) {
+                pending = false;
+                if (err)
+                    reject(err);
+                else {
+                    var params = new Array(arguments.length - 1),
+                        offset = 0;
+                    while (offset < params.length)
+                        params[offset++] = arguments[offset];
+                    resolve.apply(null, params);
+                }
+            }
+        };
+        try {
+            fn.apply(ctx || null, params);
+        } catch (err) {
+            if (pending) {
+                pending = false;
+                reject(err);
+            }
+        }
+    });
+}
+
+},{}],10:[function(require,module,exports){
+"use strict";
+
+/**
+ * A minimal base64 implementation for number arrays.
+ * @memberof util
+ * @namespace
+ */
+var base64 = exports;
+
+/**
+ * Calculates the byte length of a base64 encoded string.
+ * @param {string} string Base64 encoded string
+ * @returns {number} Byte length
+ */
+base64.length = function length(string) {
+    var p = string.length;
+    if (!p)
+        return 0;
+    var n = 0;
+    while (--p % 4 > 1 && string.charAt(p) === "=")
+        ++n;
+    return Math.ceil(string.length * 3) / 4 - n;
+};
+
+// Base64 encoding table
+var b64 = new Array(64);
+
+// Base64 decoding table
+var s64 = new Array(123);
+
+// 65..90, 97..122, 48..57, 43, 47
+for (var i = 0; i < 64;)
+    s64[b64[i] = i < 26 ? i + 65 : i < 52 ? i + 71 : i < 62 ? i - 4 : i - 59 | 43] = i++;
+
+/**
+ * Encodes a buffer to a base64 encoded string.
+ * @param {Uint8Array} buffer Source buffer
+ * @param {number} start Source start
+ * @param {number} end Source end
+ * @returns {string} Base64 encoded string
+ */
+base64.encode = function encode(buffer, start, end) {
+    var parts = null,
+        chunk = [];
+    var i = 0, // output index
+        j = 0, // goto index
+        t;     // temporary
+    while (start < end) {
+        var b = buffer[start++];
+        switch (j) {
+            case 0:
+                chunk[i++] = b64[b >> 2];
+                t = (b & 3) << 4;
+                j = 1;
+                break;
+            case 1:
+                chunk[i++] = b64[t | b >> 4];
+                t = (b & 15) << 2;
+                j = 2;
+                break;
+            case 2:
+                chunk[i++] = b64[t | b >> 6];
+                chunk[i++] = b64[b & 63];
+                j = 0;
+                break;
+        }
+        if (i > 8191) {
+            (parts || (parts = [])).push(String.fromCharCode.apply(String, chunk));
+            i = 0;
+        }
+    }
+    if (j) {
+        chunk[i++] = b64[t];
+        chunk[i++] = 61;
+        if (j === 1)
+            chunk[i++] = 61;
+    }
+    if (parts) {
+        if (i)
+            parts.push(String.fromCharCode.apply(String, chunk.slice(0, i)));
+        return parts.join("");
+    }
+    return String.fromCharCode.apply(String, chunk.slice(0, i));
+};
+
+var invalidEncoding = "invalid encoding";
+
+/**
+ * Decodes a base64 encoded string to a buffer.
+ * @param {string} string Source string
+ * @param {Uint8Array} buffer Destination buffer
+ * @param {number} offset Destination offset
+ * @returns {number} Number of bytes written
+ * @throws {Error} If encoding is invalid
+ */
+base64.decode = function decode(string, buffer, offset) {
+    var start = offset;
+    var j = 0, // goto index
+        t;     // temporary
+    for (var i = 0; i < string.length;) {
+        var c = string.charCodeAt(i++);
+        if (c === 61 && j > 1)
+            break;
+        if ((c = s64[c]) === undefined)
+            throw Error(invalidEncoding);
+        switch (j) {
+            case 0:
+                t = c;
+                j = 1;
+                break;
+            case 1:
+                buffer[offset++] = t << 2 | (c & 48) >> 4;
+                t = c;
+                j = 2;
+                break;
+            case 2:
+                buffer[offset++] = (t & 15) << 4 | (c & 60) >> 2;
+                t = c;
+                j = 3;
+                break;
+            case 3:
+                buffer[offset++] = (t & 3) << 6 | c;
+                j = 0;
+                break;
+        }
+    }
+    if (j === 1)
+        throw Error(invalidEncoding);
+    return offset - start;
+};
+
+/**
+ * Tests if the specified string appears to be base64 encoded.
+ * @param {string} string String to test
+ * @returns {boolean} `true` if probably base64 encoded, otherwise false
+ */
+base64.test = function test(string) {
+    return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(string);
+};
+
+},{}],11:[function(require,module,exports){
+"use strict";
+module.exports = EventEmitter;
+
+/**
+ * Constructs a new event emitter instance.
+ * @classdesc A minimal event emitter.
+ * @memberof util
+ * @constructor
+ */
+function EventEmitter() {
+
+    /**
+     * Registered listeners.
+     * @type {Object.<string,*>}
+     * @private
+     */
+    this._listeners = {};
+}
+
+/**
+ * Registers an event listener.
+ * @param {string} evt Event name
+ * @param {function} fn Listener
+ * @param {*} [ctx] Listener context
+ * @returns {util.EventEmitter} `this`
+ */
+EventEmitter.prototype.on = function on(evt, fn, ctx) {
+    (this._listeners[evt] || (this._listeners[evt] = [])).push({
+        fn  : fn,
+        ctx : ctx || this
+    });
+    return this;
+};
+
+/**
+ * Removes an event listener or any matching listeners if arguments are omitted.
+ * @param {string} [evt] Event name. Removes all listeners if omitted.
+ * @param {function} [fn] Listener to remove. Removes all listeners of `evt` if omitted.
+ * @returns {util.EventEmitter} `this`
+ */
+EventEmitter.prototype.off = function off(evt, fn) {
+    if (evt === undefined)
+        this._listeners = {};
+    else {
+        if (fn === undefined)
+            this._listeners[evt] = [];
+        else {
+            var listeners = this._listeners[evt];
+            for (var i = 0; i < listeners.length;)
+                if (listeners[i].fn === fn)
+                    listeners.splice(i, 1);
+                else
+                    ++i;
+        }
+    }
+    return this;
+};
+
+/**
+ * Emits an event by calling its listeners with the specified arguments.
+ * @param {string} evt Event name
+ * @param {...*} args Arguments
+ * @returns {util.EventEmitter} `this`
+ */
+EventEmitter.prototype.emit = function emit(evt) {
+    var listeners = this._listeners[evt];
+    if (listeners) {
+        var args = [],
+            i = 1;
+        for (; i < arguments.length;)
+            args.push(arguments[i++]);
+        for (i = 0; i < listeners.length;)
+            listeners[i].fn.apply(listeners[i++].ctx, args);
+    }
+    return this;
+};
+
+},{}],12:[function(require,module,exports){
+"use strict";
+
+module.exports = factory(factory);
+
+/**
+ * Reads / writes floats / doubles from / to buffers.
+ * @name util.float
+ * @namespace
+ */
+
+/**
+ * Writes a 32 bit float to a buffer using little endian byte order.
+ * @name util.float.writeFloatLE
+ * @function
+ * @param {number} val Value to write
+ * @param {Uint8Array} buf Target buffer
+ * @param {number} pos Target buffer offset
+ * @returns {undefined}
+ */
+
+/**
+ * Writes a 32 bit float to a buffer using big endian byte order.
+ * @name util.float.writeFloatBE
+ * @function
+ * @param {number} val Value to write
+ * @param {Uint8Array} buf Target buffer
+ * @param {number} pos Target buffer offset
+ * @returns {undefined}
+ */
+
+/**
+ * Reads a 32 bit float from a buffer using little endian byte order.
+ * @name util.float.readFloatLE
+ * @function
+ * @param {Uint8Array} buf Source buffer
+ * @param {number} pos Source buffer offset
+ * @returns {number} Value read
+ */
+
+/**
+ * Reads a 32 bit float from a buffer using big endian byte order.
+ * @name util.float.readFloatBE
+ * @function
+ * @param {Uint8Array} buf Source buffer
+ * @param {number} pos Source buffer offset
+ * @returns {number} Value read
+ */
+
+/**
+ * Writes a 64 bit double to a buffer using little endian byte order.
+ * @name util.float.writeDoubleLE
+ * @function
+ * @param {number} val Value to write
+ * @param {Uint8Array} buf Target buffer
+ * @param {number} pos Target buffer offset
+ * @returns {undefined}
+ */
+
+/**
+ * Writes a 64 bit double to a buffer using big endian byte order.
+ * @name util.float.writeDoubleBE
+ * @function
+ * @param {number} val Value to write
+ * @param {Uint8Array} buf Target buffer
+ * @param {number} pos Target buffer offset
+ * @returns {undefined}
+ */
+
+/**
+ * Reads a 64 bit double from a buffer using little endian byte order.
+ * @name util.float.readDoubleLE
+ * @function
+ * @param {Uint8Array} buf Source buffer
+ * @param {number} pos Source buffer offset
+ * @returns {number} Value read
+ */
+
+/**
+ * Reads a 64 bit double from a buffer using big endian byte order.
+ * @name util.float.readDoubleBE
+ * @function
+ * @param {Uint8Array} buf Source buffer
+ * @param {number} pos Source buffer offset
+ * @returns {number} Value read
+ */
+
+// Factory function for the purpose of node-based testing in modified global environments
+function factory(exports) {
+
+    // float: typed array
+    if (typeof Float32Array !== "undefined") (function() {
+
+        var f32 = new Float32Array([ -0 ]),
+            f8b = new Uint8Array(f32.buffer),
+            le  = f8b[3] === 128;
+
+        function writeFloat_f32_cpy(val, buf, pos) {
+            f32[0] = val;
+            buf[pos    ] = f8b[0];
+            buf[pos + 1] = f8b[1];
+            buf[pos + 2] = f8b[2];
+            buf[pos + 3] = f8b[3];
+        }
+
+        function writeFloat_f32_rev(val, buf, pos) {
+            f32[0] = val;
+            buf[pos    ] = f8b[3];
+            buf[pos + 1] = f8b[2];
+            buf[pos + 2] = f8b[1];
+            buf[pos + 3] = f8b[0];
+        }
+
+        /* istanbul ignore next */
+        exports.writeFloatLE = le ? writeFloat_f32_cpy : writeFloat_f32_rev;
+        /* istanbul ignore next */
+        exports.writeFloatBE = le ? writeFloat_f32_rev : writeFloat_f32_cpy;
+
+        function readFloat_f32_cpy(buf, pos) {
+            f8b[0] = buf[pos    ];
+            f8b[1] = buf[pos + 1];
+            f8b[2] = buf[pos + 2];
+            f8b[3] = buf[pos + 3];
+            return f32[0];
+        }
+
+        function readFloat_f32_rev(buf, pos) {
+            f8b[3] = buf[pos    ];
+            f8b[2] = buf[pos + 1];
+            f8b[1] = buf[pos + 2];
+            f8b[0] = buf[pos + 3];
+            return f32[0];
+        }
+
+        /* istanbul ignore next */
+        exports.readFloatLE = le ? readFloat_f32_cpy : readFloat_f32_rev;
+        /* istanbul ignore next */
+        exports.readFloatBE = le ? readFloat_f32_rev : readFloat_f32_cpy;
+
+    // float: ieee754
+    })(); else (function() {
+
+        function writeFloat_ieee754(writeUint, val, buf, pos) {
+            var sign = val < 0 ? 1 : 0;
+            if (sign)
+                val = -val;
+            if (val === 0)
+                writeUint(1 / val > 0 ? /* positive */ 0 : /* negative 0 */ 2147483648, buf, pos);
+            else if (isNaN(val))
+                writeUint(2143289344, buf, pos);
+            else if (val > 3.4028234663852886e+38) // +-Infinity
+                writeUint((sign << 31 | 2139095040) >>> 0, buf, pos);
+            else if (val < 1.1754943508222875e-38) // denormal
+                writeUint((sign << 31 | Math.round(val / 1.401298464324817e-45)) >>> 0, buf, pos);
+            else {
+                var exponent = Math.floor(Math.log(val) / Math.LN2),
+                    mantissa = Math.round(val * Math.pow(2, -exponent) * 8388608) & 8388607;
+                writeUint((sign << 31 | exponent + 127 << 23 | mantissa) >>> 0, buf, pos);
+            }
+        }
+
+        exports.writeFloatLE = writeFloat_ieee754.bind(null, writeUintLE);
+        exports.writeFloatBE = writeFloat_ieee754.bind(null, writeUintBE);
+
+        function readFloat_ieee754(readUint, buf, pos) {
+            var uint = readUint(buf, pos),
+                sign = (uint >> 31) * 2 + 1,
+                exponent = uint >>> 23 & 255,
+                mantissa = uint & 8388607;
+            return exponent === 255
+                ? mantissa
+                ? NaN
+                : sign * Infinity
+                : exponent === 0 // denormal
+                ? sign * 1.401298464324817e-45 * mantissa
+                : sign * Math.pow(2, exponent - 150) * (mantissa + 8388608);
+        }
+
+        exports.readFloatLE = readFloat_ieee754.bind(null, readUintLE);
+        exports.readFloatBE = readFloat_ieee754.bind(null, readUintBE);
+
+    })();
+
+    // double: typed array
+    if (typeof Float64Array !== "undefined") (function() {
+
+        var f64 = new Float64Array([-0]),
+            f8b = new Uint8Array(f64.buffer),
+            le  = f8b[7] === 128;
+
+        function writeDouble_f64_cpy(val, buf, pos) {
+            f64[0] = val;
+            buf[pos    ] = f8b[0];
+            buf[pos + 1] = f8b[1];
+            buf[pos + 2] = f8b[2];
+            buf[pos + 3] = f8b[3];
+            buf[pos + 4] = f8b[4];
+            buf[pos + 5] = f8b[5];
+            buf[pos + 6] = f8b[6];
+            buf[pos + 7] = f8b[7];
+        }
+
+        function writeDouble_f64_rev(val, buf, pos) {
+            f64[0] = val;
+            buf[pos    ] = f8b[7];
+            buf[pos + 1] = f8b[6];
+            buf[pos + 2] = f8b[5];
+            buf[pos + 3] = f8b[4];
+            buf[pos + 4] = f8b[3];
+            buf[pos + 5] = f8b[2];
+            buf[pos + 6] = f8b[1];
+            buf[pos + 7] = f8b[0];
+        }
+
+        /* istanbul ignore next */
+        exports.writeDoubleLE = le ? writeDouble_f64_cpy : writeDouble_f64_rev;
+        /* istanbul ignore next */
+        exports.writeDoubleBE = le ? writeDouble_f64_rev : writeDouble_f64_cpy;
+
+        function readDouble_f64_cpy(buf, pos) {
+            f8b[0] = buf[pos    ];
+            f8b[1] = buf[pos + 1];
+            f8b[2] = buf[pos + 2];
+            f8b[3] = buf[pos + 3];
+            f8b[4] = buf[pos + 4];
+            f8b[5] = buf[pos + 5];
+            f8b[6] = buf[pos + 6];
+            f8b[7] = buf[pos + 7];
+            return f64[0];
+        }
+
+        function readDouble_f64_rev(buf, pos) {
+            f8b[7] = buf[pos    ];
+            f8b[6] = buf[pos + 1];
+            f8b[5] = buf[pos + 2];
+            f8b[4] = buf[pos + 3];
+            f8b[3] = buf[pos + 4];
+            f8b[2] = buf[pos + 5];
+            f8b[1] = buf[pos + 6];
+            f8b[0] = buf[pos + 7];
+            return f64[0];
+        }
+
+        /* istanbul ignore next */
+        exports.readDoubleLE = le ? readDouble_f64_cpy : readDouble_f64_rev;
+        /* istanbul ignore next */
+        exports.readDoubleBE = le ? readDouble_f64_rev : readDouble_f64_cpy;
+
+    // double: ieee754
+    })(); else (function() {
+
+        function writeDouble_ieee754(writeUint, off0, off1, val, buf, pos) {
+            var sign = val < 0 ? 1 : 0;
+            if (sign)
+                val = -val;
+            if (val === 0) {
+                writeUint(0, buf, pos + off0);
+                writeUint(1 / val > 0 ? /* positive */ 0 : /* negative 0 */ 2147483648, buf, pos + off1);
+            } else if (isNaN(val)) {
+                writeUint(0, buf, pos + off0);
+                writeUint(2146959360, buf, pos + off1);
+            } else if (val > 1.7976931348623157e+308) { // +-Infinity
+                writeUint(0, buf, pos + off0);
+                writeUint((sign << 31 | 2146435072) >>> 0, buf, pos + off1);
+            } else {
+                var mantissa;
+                if (val < 2.2250738585072014e-308) { // denormal
+                    mantissa = val / 5e-324;
+                    writeUint(mantissa >>> 0, buf, pos + off0);
+                    writeUint((sign << 31 | mantissa / 4294967296) >>> 0, buf, pos + off1);
+                } else {
+                    var exponent = Math.floor(Math.log(val) / Math.LN2);
+                    if (exponent === 1024)
+                        exponent = 1023;
+                    mantissa = val * Math.pow(2, -exponent);
+                    writeUint(mantissa * 4503599627370496 >>> 0, buf, pos + off0);
+                    writeUint((sign << 31 | exponent + 1023 << 20 | mantissa * 1048576 & 1048575) >>> 0, buf, pos + off1);
+                }
+            }
+        }
+
+        exports.writeDoubleLE = writeDouble_ieee754.bind(null, writeUintLE, 0, 4);
+        exports.writeDoubleBE = writeDouble_ieee754.bind(null, writeUintBE, 4, 0);
+
+        function readDouble_ieee754(readUint, off0, off1, buf, pos) {
+            var lo = readUint(buf, pos + off0),
+                hi = readUint(buf, pos + off1);
+            var sign = (hi >> 31) * 2 + 1,
+                exponent = hi >>> 20 & 2047,
+                mantissa = 4294967296 * (hi & 1048575) + lo;
+            return exponent === 2047
+                ? mantissa
+                ? NaN
+                : sign * Infinity
+                : exponent === 0 // denormal
+                ? sign * 5e-324 * mantissa
+                : sign * Math.pow(2, exponent - 1075) * (mantissa + 4503599627370496);
+        }
+
+        exports.readDoubleLE = readDouble_ieee754.bind(null, readUintLE, 0, 4);
+        exports.readDoubleBE = readDouble_ieee754.bind(null, readUintBE, 4, 0);
+
+    })();
+
+    return exports;
+}
+
+// uint helpers
+
+function writeUintLE(val, buf, pos) {
+    buf[pos    ] =  val        & 255;
+    buf[pos + 1] =  val >>> 8  & 255;
+    buf[pos + 2] =  val >>> 16 & 255;
+    buf[pos + 3] =  val >>> 24;
+}
+
+function writeUintBE(val, buf, pos) {
+    buf[pos    ] =  val >>> 24;
+    buf[pos + 1] =  val >>> 16 & 255;
+    buf[pos + 2] =  val >>> 8  & 255;
+    buf[pos + 3] =  val        & 255;
+}
+
+function readUintLE(buf, pos) {
+    return (buf[pos    ]
+          | buf[pos + 1] << 8
+          | buf[pos + 2] << 16
+          | buf[pos + 3] << 24) >>> 0;
+}
+
+function readUintBE(buf, pos) {
+    return (buf[pos    ] << 24
+          | buf[pos + 1] << 16
+          | buf[pos + 2] << 8
+          | buf[pos + 3]) >>> 0;
+}
+
+},{}],13:[function(require,module,exports){
+"use strict";
+module.exports = inquire;
+
+/**
+ * Requires a module only if available.
+ * @memberof util
+ * @param {string} moduleName Module to require
+ * @returns {?Object} Required module if available and not empty, otherwise `null`
+ */
+function inquire(moduleName) {
+    try {
+        var mod = eval("quire".replace(/^/,"re"))(moduleName); // eslint-disable-line no-eval
+        if (mod && (mod.length || Object.keys(mod).length))
+            return mod;
+    } catch (e) {} // eslint-disable-line no-empty
+    return null;
+}
+
+},{}],14:[function(require,module,exports){
+"use strict";
+module.exports = pool;
+
+/**
+ * An allocator as used by {@link util.pool}.
+ * @typedef PoolAllocator
+ * @type {function}
+ * @param {number} size Buffer size
+ * @returns {Uint8Array} Buffer
+ */
+
+/**
+ * A slicer as used by {@link util.pool}.
+ * @typedef PoolSlicer
+ * @type {function}
+ * @param {number} start Start offset
+ * @param {number} end End offset
+ * @returns {Uint8Array} Buffer slice
+ * @this {Uint8Array}
+ */
+
+/**
+ * A general purpose buffer pool.
+ * @memberof util
+ * @function
+ * @param {PoolAllocator} alloc Allocator
+ * @param {PoolSlicer} slice Slicer
+ * @param {number} [size=8192] Slab size
+ * @returns {PoolAllocator} Pooled allocator
+ */
+function pool(alloc, slice, size) {
+    var SIZE   = size || 8192;
+    var MAX    = SIZE >>> 1;
+    var slab   = null;
+    var offset = SIZE;
+    return function pool_alloc(size) {
+        if (size < 1 || size > MAX)
+            return alloc(size);
+        if (offset + size > SIZE) {
+            slab = alloc(SIZE);
+            offset = 0;
+        }
+        var buf = slice.call(slab, offset, offset += size);
+        if (offset & 7) // align to 32 bit
+            offset = (offset | 7) + 1;
+        return buf;
+    };
+}
+
+},{}],15:[function(require,module,exports){
+"use strict";
+
+/**
+ * A minimal UTF8 implementation for number arrays.
+ * @memberof util
+ * @namespace
+ */
+var utf8 = exports;
+
+/**
+ * Calculates the UTF8 byte length of a string.
+ * @param {string} string String
+ * @returns {number} Byte length
+ */
+utf8.length = function utf8_length(string) {
+    var len = 0,
+        c = 0;
+    for (var i = 0; i < string.length; ++i) {
+        c = string.charCodeAt(i);
+        if (c < 128)
+            len += 1;
+        else if (c < 2048)
+            len += 2;
+        else if ((c & 0xFC00) === 0xD800 && (string.charCodeAt(i + 1) & 0xFC00) === 0xDC00) {
+            ++i;
+            len += 4;
+        } else
+            len += 3;
+    }
+    return len;
+};
+
+/**
+ * Reads UTF8 bytes as a string.
+ * @param {Uint8Array} buffer Source buffer
+ * @param {number} start Source start
+ * @param {number} end Source end
+ * @returns {string} String read
+ */
+utf8.read = function utf8_read(buffer, start, end) {
+    var len = end - start;
+    if (len < 1)
+        return "";
+    var parts = null,
+        chunk = [],
+        i = 0, // char offset
+        t;     // temporary
+    while (start < end) {
+        t = buffer[start++];
+        if (t < 128)
+            chunk[i++] = t;
+        else if (t > 191 && t < 224)
+            chunk[i++] = (t & 31) << 6 | buffer[start++] & 63;
+        else if (t > 239 && t < 365) {
+            t = ((t & 7) << 18 | (buffer[start++] & 63) << 12 | (buffer[start++] & 63) << 6 | buffer[start++] & 63) - 0x10000;
+            chunk[i++] = 0xD800 + (t >> 10);
+            chunk[i++] = 0xDC00 + (t & 1023);
+        } else
+            chunk[i++] = (t & 15) << 12 | (buffer[start++] & 63) << 6 | buffer[start++] & 63;
+        if (i > 8191) {
+            (parts || (parts = [])).push(String.fromCharCode.apply(String, chunk));
+            i = 0;
+        }
+    }
+    if (parts) {
+        if (i)
+            parts.push(String.fromCharCode.apply(String, chunk.slice(0, i)));
+        return parts.join("");
+    }
+    return String.fromCharCode.apply(String, chunk.slice(0, i));
+};
+
+/**
+ * Writes a string as UTF8 bytes.
+ * @param {string} string Source string
+ * @param {Uint8Array} buffer Destination buffer
+ * @param {number} offset Destination offset
+ * @returns {number} Bytes written
+ */
+utf8.write = function utf8_write(string, buffer, offset) {
+    var start = offset,
+        c1, // character 1
+        c2; // character 2
+    for (var i = 0; i < string.length; ++i) {
+        c1 = string.charCodeAt(i);
+        if (c1 < 128) {
+            buffer[offset++] = c1;
+        } else if (c1 < 2048) {
+            buffer[offset++] = c1 >> 6       | 192;
+            buffer[offset++] = c1       & 63 | 128;
+        } else if ((c1 & 0xFC00) === 0xD800 && ((c2 = string.charCodeAt(i + 1)) & 0xFC00) === 0xDC00) {
+            c1 = 0x10000 + ((c1 & 0x03FF) << 10) + (c2 & 0x03FF);
+            ++i;
+            buffer[offset++] = c1 >> 18      | 240;
+            buffer[offset++] = c1 >> 12 & 63 | 128;
+            buffer[offset++] = c1 >> 6  & 63 | 128;
+            buffer[offset++] = c1       & 63 | 128;
+        } else {
+            buffer[offset++] = c1 >> 12      | 224;
+            buffer[offset++] = c1 >> 6  & 63 | 128;
+            buffer[offset++] = c1       & 63 | 128;
+        }
+    }
+    return offset - start;
+};
+
+},{}],16:[function(require,module,exports){
 // base-x encoding / decoding
 // Copyright (c) 2018 base-x contributors
 // Copyright (c) 2014-2018 The Bitcoin Core developers (base58.cpp)
@@ -526,7 +1390,7 @@ module.exports = function base (ALPHABET) {
   }
 }
 
-},{"safe-buffer":16}],10:[function(require,module,exports){
+},{"safe-buffer":36}],17:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -679,17 +1543,17 @@ function fromByteArray (uint8) {
   return parts.join('')
 }
 
-},{}],11:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 
-},{}],12:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"dup":11}],13:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
+arguments[4][18][0].apply(exports,arguments)
+},{"dup":18}],20:[function(require,module,exports){
 var basex = require('base-x')
 var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
 module.exports = basex(ALPHABET)
 
-},{"base-x":9}],14:[function(require,module,exports){
+},{"base-x":16}],21:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -2468,7 +3332,7 @@ function numberIsNaN (obj) {
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":10,"ieee754":15}],15:[function(require,module,exports){
+},{"base64-js":17,"ieee754":22}],22:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = (nBytes * 8) - mLen - 1
@@ -2554,7 +3418,2578 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],16:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
+(function (process,global){
+/**
+ * [js-sha256]{@link https://github.com/emn178/js-sha256}
+ *
+ * @version 0.9.0
+ * @author Chen, Yi-Cyuan [emn178@gmail.com]
+ * @copyright Chen, Yi-Cyuan 2014-2017
+ * @license MIT
+ */
+/*jslint bitwise: true */
+(function () {
+  'use strict';
+
+  var ERROR = 'input is invalid type';
+  var WINDOW = typeof window === 'object';
+  var root = WINDOW ? window : {};
+  if (root.JS_SHA256_NO_WINDOW) {
+    WINDOW = false;
+  }
+  var WEB_WORKER = !WINDOW && typeof self === 'object';
+  var NODE_JS = !root.JS_SHA256_NO_NODE_JS && typeof process === 'object' && process.versions && process.versions.node;
+  if (NODE_JS) {
+    root = global;
+  } else if (WEB_WORKER) {
+    root = self;
+  }
+  var COMMON_JS = !root.JS_SHA256_NO_COMMON_JS && typeof module === 'object' && module.exports;
+  var AMD = typeof define === 'function' && define.amd;
+  var ARRAY_BUFFER = !root.JS_SHA256_NO_ARRAY_BUFFER && typeof ArrayBuffer !== 'undefined';
+  var HEX_CHARS = '0123456789abcdef'.split('');
+  var EXTRA = [-2147483648, 8388608, 32768, 128];
+  var SHIFT = [24, 16, 8, 0];
+  var K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  var OUTPUT_TYPES = ['hex', 'array', 'digest', 'arrayBuffer'];
+
+  var blocks = [];
+
+  if (root.JS_SHA256_NO_NODE_JS || !Array.isArray) {
+    Array.isArray = function (obj) {
+      return Object.prototype.toString.call(obj) === '[object Array]';
+    };
+  }
+
+  if (ARRAY_BUFFER && (root.JS_SHA256_NO_ARRAY_BUFFER_IS_VIEW || !ArrayBuffer.isView)) {
+    ArrayBuffer.isView = function (obj) {
+      return typeof obj === 'object' && obj.buffer && obj.buffer.constructor === ArrayBuffer;
+    };
+  }
+
+  var createOutputMethod = function (outputType, is224) {
+    return function (message) {
+      return new Sha256(is224, true).update(message)[outputType]();
+    };
+  };
+
+  var createMethod = function (is224) {
+    var method = createOutputMethod('hex', is224);
+    if (NODE_JS) {
+      method = nodeWrap(method, is224);
+    }
+    method.create = function () {
+      return new Sha256(is224);
+    };
+    method.update = function (message) {
+      return method.create().update(message);
+    };
+    for (var i = 0; i < OUTPUT_TYPES.length; ++i) {
+      var type = OUTPUT_TYPES[i];
+      method[type] = createOutputMethod(type, is224);
+    }
+    return method;
+  };
+
+  var nodeWrap = function (method, is224) {
+    var crypto = eval("require('crypto')");
+    var Buffer = eval("require('buffer').Buffer");
+    var algorithm = is224 ? 'sha224' : 'sha256';
+    var nodeMethod = function (message) {
+      if (typeof message === 'string') {
+        return crypto.createHash(algorithm).update(message, 'utf8').digest('hex');
+      } else {
+        if (message === null || message === undefined) {
+          throw new Error(ERROR);
+        } else if (message.constructor === ArrayBuffer) {
+          message = new Uint8Array(message);
+        }
+      }
+      if (Array.isArray(message) || ArrayBuffer.isView(message) ||
+        message.constructor === Buffer) {
+        return crypto.createHash(algorithm).update(new Buffer(message)).digest('hex');
+      } else {
+        return method(message);
+      }
+    };
+    return nodeMethod;
+  };
+
+  var createHmacOutputMethod = function (outputType, is224) {
+    return function (key, message) {
+      return new HmacSha256(key, is224, true).update(message)[outputType]();
+    };
+  };
+
+  var createHmacMethod = function (is224) {
+    var method = createHmacOutputMethod('hex', is224);
+    method.create = function (key) {
+      return new HmacSha256(key, is224);
+    };
+    method.update = function (key, message) {
+      return method.create(key).update(message);
+    };
+    for (var i = 0; i < OUTPUT_TYPES.length; ++i) {
+      var type = OUTPUT_TYPES[i];
+      method[type] = createHmacOutputMethod(type, is224);
+    }
+    return method;
+  };
+
+  function Sha256(is224, sharedMemory) {
+    if (sharedMemory) {
+      blocks[0] = blocks[16] = blocks[1] = blocks[2] = blocks[3] =
+        blocks[4] = blocks[5] = blocks[6] = blocks[7] =
+        blocks[8] = blocks[9] = blocks[10] = blocks[11] =
+        blocks[12] = blocks[13] = blocks[14] = blocks[15] = 0;
+      this.blocks = blocks;
+    } else {
+      this.blocks = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    }
+
+    if (is224) {
+      this.h0 = 0xc1059ed8;
+      this.h1 = 0x367cd507;
+      this.h2 = 0x3070dd17;
+      this.h3 = 0xf70e5939;
+      this.h4 = 0xffc00b31;
+      this.h5 = 0x68581511;
+      this.h6 = 0x64f98fa7;
+      this.h7 = 0xbefa4fa4;
+    } else { // 256
+      this.h0 = 0x6a09e667;
+      this.h1 = 0xbb67ae85;
+      this.h2 = 0x3c6ef372;
+      this.h3 = 0xa54ff53a;
+      this.h4 = 0x510e527f;
+      this.h5 = 0x9b05688c;
+      this.h6 = 0x1f83d9ab;
+      this.h7 = 0x5be0cd19;
+    }
+
+    this.block = this.start = this.bytes = this.hBytes = 0;
+    this.finalized = this.hashed = false;
+    this.first = true;
+    this.is224 = is224;
+  }
+
+  Sha256.prototype.update = function (message) {
+    if (this.finalized) {
+      return;
+    }
+    var notString, type = typeof message;
+    if (type !== 'string') {
+      if (type === 'object') {
+        if (message === null) {
+          throw new Error(ERROR);
+        } else if (ARRAY_BUFFER && message.constructor === ArrayBuffer) {
+          message = new Uint8Array(message);
+        } else if (!Array.isArray(message)) {
+          if (!ARRAY_BUFFER || !ArrayBuffer.isView(message)) {
+            throw new Error(ERROR);
+          }
+        }
+      } else {
+        throw new Error(ERROR);
+      }
+      notString = true;
+    }
+    var code, index = 0, i, length = message.length, blocks = this.blocks;
+
+    while (index < length) {
+      if (this.hashed) {
+        this.hashed = false;
+        blocks[0] = this.block;
+        blocks[16] = blocks[1] = blocks[2] = blocks[3] =
+          blocks[4] = blocks[5] = blocks[6] = blocks[7] =
+          blocks[8] = blocks[9] = blocks[10] = blocks[11] =
+          blocks[12] = blocks[13] = blocks[14] = blocks[15] = 0;
+      }
+
+      if (notString) {
+        for (i = this.start; index < length && i < 64; ++index) {
+          blocks[i >> 2] |= message[index] << SHIFT[i++ & 3];
+        }
+      } else {
+        for (i = this.start; index < length && i < 64; ++index) {
+          code = message.charCodeAt(index);
+          if (code < 0x80) {
+            blocks[i >> 2] |= code << SHIFT[i++ & 3];
+          } else if (code < 0x800) {
+            blocks[i >> 2] |= (0xc0 | (code >> 6)) << SHIFT[i++ & 3];
+            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
+          } else if (code < 0xd800 || code >= 0xe000) {
+            blocks[i >> 2] |= (0xe0 | (code >> 12)) << SHIFT[i++ & 3];
+            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
+            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
+          } else {
+            code = 0x10000 + (((code & 0x3ff) << 10) | (message.charCodeAt(++index) & 0x3ff));
+            blocks[i >> 2] |= (0xf0 | (code >> 18)) << SHIFT[i++ & 3];
+            blocks[i >> 2] |= (0x80 | ((code >> 12) & 0x3f)) << SHIFT[i++ & 3];
+            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
+            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
+          }
+        }
+      }
+
+      this.lastByteIndex = i;
+      this.bytes += i - this.start;
+      if (i >= 64) {
+        this.block = blocks[16];
+        this.start = i - 64;
+        this.hash();
+        this.hashed = true;
+      } else {
+        this.start = i;
+      }
+    }
+    if (this.bytes > 4294967295) {
+      this.hBytes += this.bytes / 4294967296 << 0;
+      this.bytes = this.bytes % 4294967296;
+    }
+    return this;
+  };
+
+  Sha256.prototype.finalize = function () {
+    if (this.finalized) {
+      return;
+    }
+    this.finalized = true;
+    var blocks = this.blocks, i = this.lastByteIndex;
+    blocks[16] = this.block;
+    blocks[i >> 2] |= EXTRA[i & 3];
+    this.block = blocks[16];
+    if (i >= 56) {
+      if (!this.hashed) {
+        this.hash();
+      }
+      blocks[0] = this.block;
+      blocks[16] = blocks[1] = blocks[2] = blocks[3] =
+        blocks[4] = blocks[5] = blocks[6] = blocks[7] =
+        blocks[8] = blocks[9] = blocks[10] = blocks[11] =
+        blocks[12] = blocks[13] = blocks[14] = blocks[15] = 0;
+    }
+    blocks[14] = this.hBytes << 3 | this.bytes >>> 29;
+    blocks[15] = this.bytes << 3;
+    this.hash();
+  };
+
+  Sha256.prototype.hash = function () {
+    var a = this.h0, b = this.h1, c = this.h2, d = this.h3, e = this.h4, f = this.h5, g = this.h6,
+      h = this.h7, blocks = this.blocks, j, s0, s1, maj, t1, t2, ch, ab, da, cd, bc;
+
+    for (j = 16; j < 64; ++j) {
+      // rightrotate
+      t1 = blocks[j - 15];
+      s0 = ((t1 >>> 7) | (t1 << 25)) ^ ((t1 >>> 18) | (t1 << 14)) ^ (t1 >>> 3);
+      t1 = blocks[j - 2];
+      s1 = ((t1 >>> 17) | (t1 << 15)) ^ ((t1 >>> 19) | (t1 << 13)) ^ (t1 >>> 10);
+      blocks[j] = blocks[j - 16] + s0 + blocks[j - 7] + s1 << 0;
+    }
+
+    bc = b & c;
+    for (j = 0; j < 64; j += 4) {
+      if (this.first) {
+        if (this.is224) {
+          ab = 300032;
+          t1 = blocks[0] - 1413257819;
+          h = t1 - 150054599 << 0;
+          d = t1 + 24177077 << 0;
+        } else {
+          ab = 704751109;
+          t1 = blocks[0] - 210244248;
+          h = t1 - 1521486534 << 0;
+          d = t1 + 143694565 << 0;
+        }
+        this.first = false;
+      } else {
+        s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+        s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+        ab = a & b;
+        maj = ab ^ (a & c) ^ bc;
+        ch = (e & f) ^ (~e & g);
+        t1 = h + s1 + ch + K[j] + blocks[j];
+        t2 = s0 + maj;
+        h = d + t1 << 0;
+        d = t1 + t2 << 0;
+      }
+      s0 = ((d >>> 2) | (d << 30)) ^ ((d >>> 13) | (d << 19)) ^ ((d >>> 22) | (d << 10));
+      s1 = ((h >>> 6) | (h << 26)) ^ ((h >>> 11) | (h << 21)) ^ ((h >>> 25) | (h << 7));
+      da = d & a;
+      maj = da ^ (d & b) ^ ab;
+      ch = (h & e) ^ (~h & f);
+      t1 = g + s1 + ch + K[j + 1] + blocks[j + 1];
+      t2 = s0 + maj;
+      g = c + t1 << 0;
+      c = t1 + t2 << 0;
+      s0 = ((c >>> 2) | (c << 30)) ^ ((c >>> 13) | (c << 19)) ^ ((c >>> 22) | (c << 10));
+      s1 = ((g >>> 6) | (g << 26)) ^ ((g >>> 11) | (g << 21)) ^ ((g >>> 25) | (g << 7));
+      cd = c & d;
+      maj = cd ^ (c & a) ^ da;
+      ch = (g & h) ^ (~g & e);
+      t1 = f + s1 + ch + K[j + 2] + blocks[j + 2];
+      t2 = s0 + maj;
+      f = b + t1 << 0;
+      b = t1 + t2 << 0;
+      s0 = ((b >>> 2) | (b << 30)) ^ ((b >>> 13) | (b << 19)) ^ ((b >>> 22) | (b << 10));
+      s1 = ((f >>> 6) | (f << 26)) ^ ((f >>> 11) | (f << 21)) ^ ((f >>> 25) | (f << 7));
+      bc = b & c;
+      maj = bc ^ (b & d) ^ cd;
+      ch = (f & g) ^ (~f & h);
+      t1 = e + s1 + ch + K[j + 3] + blocks[j + 3];
+      t2 = s0 + maj;
+      e = a + t1 << 0;
+      a = t1 + t2 << 0;
+    }
+
+    this.h0 = this.h0 + a << 0;
+    this.h1 = this.h1 + b << 0;
+    this.h2 = this.h2 + c << 0;
+    this.h3 = this.h3 + d << 0;
+    this.h4 = this.h4 + e << 0;
+    this.h5 = this.h5 + f << 0;
+    this.h6 = this.h6 + g << 0;
+    this.h7 = this.h7 + h << 0;
+  };
+
+  Sha256.prototype.hex = function () {
+    this.finalize();
+
+    var h0 = this.h0, h1 = this.h1, h2 = this.h2, h3 = this.h3, h4 = this.h4, h5 = this.h5,
+      h6 = this.h6, h7 = this.h7;
+
+    var hex = HEX_CHARS[(h0 >> 28) & 0x0F] + HEX_CHARS[(h0 >> 24) & 0x0F] +
+      HEX_CHARS[(h0 >> 20) & 0x0F] + HEX_CHARS[(h0 >> 16) & 0x0F] +
+      HEX_CHARS[(h0 >> 12) & 0x0F] + HEX_CHARS[(h0 >> 8) & 0x0F] +
+      HEX_CHARS[(h0 >> 4) & 0x0F] + HEX_CHARS[h0 & 0x0F] +
+      HEX_CHARS[(h1 >> 28) & 0x0F] + HEX_CHARS[(h1 >> 24) & 0x0F] +
+      HEX_CHARS[(h1 >> 20) & 0x0F] + HEX_CHARS[(h1 >> 16) & 0x0F] +
+      HEX_CHARS[(h1 >> 12) & 0x0F] + HEX_CHARS[(h1 >> 8) & 0x0F] +
+      HEX_CHARS[(h1 >> 4) & 0x0F] + HEX_CHARS[h1 & 0x0F] +
+      HEX_CHARS[(h2 >> 28) & 0x0F] + HEX_CHARS[(h2 >> 24) & 0x0F] +
+      HEX_CHARS[(h2 >> 20) & 0x0F] + HEX_CHARS[(h2 >> 16) & 0x0F] +
+      HEX_CHARS[(h2 >> 12) & 0x0F] + HEX_CHARS[(h2 >> 8) & 0x0F] +
+      HEX_CHARS[(h2 >> 4) & 0x0F] + HEX_CHARS[h2 & 0x0F] +
+      HEX_CHARS[(h3 >> 28) & 0x0F] + HEX_CHARS[(h3 >> 24) & 0x0F] +
+      HEX_CHARS[(h3 >> 20) & 0x0F] + HEX_CHARS[(h3 >> 16) & 0x0F] +
+      HEX_CHARS[(h3 >> 12) & 0x0F] + HEX_CHARS[(h3 >> 8) & 0x0F] +
+      HEX_CHARS[(h3 >> 4) & 0x0F] + HEX_CHARS[h3 & 0x0F] +
+      HEX_CHARS[(h4 >> 28) & 0x0F] + HEX_CHARS[(h4 >> 24) & 0x0F] +
+      HEX_CHARS[(h4 >> 20) & 0x0F] + HEX_CHARS[(h4 >> 16) & 0x0F] +
+      HEX_CHARS[(h4 >> 12) & 0x0F] + HEX_CHARS[(h4 >> 8) & 0x0F] +
+      HEX_CHARS[(h4 >> 4) & 0x0F] + HEX_CHARS[h4 & 0x0F] +
+      HEX_CHARS[(h5 >> 28) & 0x0F] + HEX_CHARS[(h5 >> 24) & 0x0F] +
+      HEX_CHARS[(h5 >> 20) & 0x0F] + HEX_CHARS[(h5 >> 16) & 0x0F] +
+      HEX_CHARS[(h5 >> 12) & 0x0F] + HEX_CHARS[(h5 >> 8) & 0x0F] +
+      HEX_CHARS[(h5 >> 4) & 0x0F] + HEX_CHARS[h5 & 0x0F] +
+      HEX_CHARS[(h6 >> 28) & 0x0F] + HEX_CHARS[(h6 >> 24) & 0x0F] +
+      HEX_CHARS[(h6 >> 20) & 0x0F] + HEX_CHARS[(h6 >> 16) & 0x0F] +
+      HEX_CHARS[(h6 >> 12) & 0x0F] + HEX_CHARS[(h6 >> 8) & 0x0F] +
+      HEX_CHARS[(h6 >> 4) & 0x0F] + HEX_CHARS[h6 & 0x0F];
+    if (!this.is224) {
+      hex += HEX_CHARS[(h7 >> 28) & 0x0F] + HEX_CHARS[(h7 >> 24) & 0x0F] +
+        HEX_CHARS[(h7 >> 20) & 0x0F] + HEX_CHARS[(h7 >> 16) & 0x0F] +
+        HEX_CHARS[(h7 >> 12) & 0x0F] + HEX_CHARS[(h7 >> 8) & 0x0F] +
+        HEX_CHARS[(h7 >> 4) & 0x0F] + HEX_CHARS[h7 & 0x0F];
+    }
+    return hex;
+  };
+
+  Sha256.prototype.toString = Sha256.prototype.hex;
+
+  Sha256.prototype.digest = function () {
+    this.finalize();
+
+    var h0 = this.h0, h1 = this.h1, h2 = this.h2, h3 = this.h3, h4 = this.h4, h5 = this.h5,
+      h6 = this.h6, h7 = this.h7;
+
+    var arr = [
+      (h0 >> 24) & 0xFF, (h0 >> 16) & 0xFF, (h0 >> 8) & 0xFF, h0 & 0xFF,
+      (h1 >> 24) & 0xFF, (h1 >> 16) & 0xFF, (h1 >> 8) & 0xFF, h1 & 0xFF,
+      (h2 >> 24) & 0xFF, (h2 >> 16) & 0xFF, (h2 >> 8) & 0xFF, h2 & 0xFF,
+      (h3 >> 24) & 0xFF, (h3 >> 16) & 0xFF, (h3 >> 8) & 0xFF, h3 & 0xFF,
+      (h4 >> 24) & 0xFF, (h4 >> 16) & 0xFF, (h4 >> 8) & 0xFF, h4 & 0xFF,
+      (h5 >> 24) & 0xFF, (h5 >> 16) & 0xFF, (h5 >> 8) & 0xFF, h5 & 0xFF,
+      (h6 >> 24) & 0xFF, (h6 >> 16) & 0xFF, (h6 >> 8) & 0xFF, h6 & 0xFF
+    ];
+    if (!this.is224) {
+      arr.push((h7 >> 24) & 0xFF, (h7 >> 16) & 0xFF, (h7 >> 8) & 0xFF, h7 & 0xFF);
+    }
+    return arr;
+  };
+
+  Sha256.prototype.array = Sha256.prototype.digest;
+
+  Sha256.prototype.arrayBuffer = function () {
+    this.finalize();
+
+    var buffer = new ArrayBuffer(this.is224 ? 28 : 32);
+    var dataView = new DataView(buffer);
+    dataView.setUint32(0, this.h0);
+    dataView.setUint32(4, this.h1);
+    dataView.setUint32(8, this.h2);
+    dataView.setUint32(12, this.h3);
+    dataView.setUint32(16, this.h4);
+    dataView.setUint32(20, this.h5);
+    dataView.setUint32(24, this.h6);
+    if (!this.is224) {
+      dataView.setUint32(28, this.h7);
+    }
+    return buffer;
+  };
+
+  function HmacSha256(key, is224, sharedMemory) {
+    var i, type = typeof key;
+    if (type === 'string') {
+      var bytes = [], length = key.length, index = 0, code;
+      for (i = 0; i < length; ++i) {
+        code = key.charCodeAt(i);
+        if (code < 0x80) {
+          bytes[index++] = code;
+        } else if (code < 0x800) {
+          bytes[index++] = (0xc0 | (code >> 6));
+          bytes[index++] = (0x80 | (code & 0x3f));
+        } else if (code < 0xd800 || code >= 0xe000) {
+          bytes[index++] = (0xe0 | (code >> 12));
+          bytes[index++] = (0x80 | ((code >> 6) & 0x3f));
+          bytes[index++] = (0x80 | (code & 0x3f));
+        } else {
+          code = 0x10000 + (((code & 0x3ff) << 10) | (key.charCodeAt(++i) & 0x3ff));
+          bytes[index++] = (0xf0 | (code >> 18));
+          bytes[index++] = (0x80 | ((code >> 12) & 0x3f));
+          bytes[index++] = (0x80 | ((code >> 6) & 0x3f));
+          bytes[index++] = (0x80 | (code & 0x3f));
+        }
+      }
+      key = bytes;
+    } else {
+      if (type === 'object') {
+        if (key === null) {
+          throw new Error(ERROR);
+        } else if (ARRAY_BUFFER && key.constructor === ArrayBuffer) {
+          key = new Uint8Array(key);
+        } else if (!Array.isArray(key)) {
+          if (!ARRAY_BUFFER || !ArrayBuffer.isView(key)) {
+            throw new Error(ERROR);
+          }
+        }
+      } else {
+        throw new Error(ERROR);
+      }
+    }
+
+    if (key.length > 64) {
+      key = (new Sha256(is224, true)).update(key).array();
+    }
+
+    var oKeyPad = [], iKeyPad = [];
+    for (i = 0; i < 64; ++i) {
+      var b = key[i] || 0;
+      oKeyPad[i] = 0x5c ^ b;
+      iKeyPad[i] = 0x36 ^ b;
+    }
+
+    Sha256.call(this, is224, sharedMemory);
+
+    this.update(iKeyPad);
+    this.oKeyPad = oKeyPad;
+    this.inner = true;
+    this.sharedMemory = sharedMemory;
+  }
+  HmacSha256.prototype = new Sha256();
+
+  HmacSha256.prototype.finalize = function () {
+    Sha256.prototype.finalize.call(this);
+    if (this.inner) {
+      this.inner = false;
+      var innerHash = this.array();
+      Sha256.call(this, this.is224, this.sharedMemory);
+      this.update(this.oKeyPad);
+      this.update(innerHash);
+      Sha256.prototype.finalize.call(this);
+    }
+  };
+
+  var exports = createMethod();
+  exports.sha256 = exports;
+  exports.sha224 = createMethod(true);
+  exports.sha256.hmac = createHmacMethod();
+  exports.sha224.hmac = createHmacMethod(true);
+
+  if (COMMON_JS) {
+    module.exports = exports;
+  } else {
+    root.sha256 = exports.sha256;
+    root.sha224 = exports.sha224;
+    if (AMD) {
+      define(function () {
+        return exports;
+      });
+    }
+  }
+})();
+
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"_process":24}],24:[function(require,module,exports){
+// shim for using process in browser
+var process = module.exports = {};
+
+// cached from whatever global is present so that test runners that stub it
+// don't break things.  But we need to wrap it in a try catch in case it is
+// wrapped in strict mode code which doesn't define any globals.  It's inside a
+// function because try/catches deoptimize in certain engines.
+
+var cachedSetTimeout;
+var cachedClearTimeout;
+
+function defaultSetTimout() {
+    throw new Error('setTimeout has not been defined');
+}
+function defaultClearTimeout () {
+    throw new Error('clearTimeout has not been defined');
+}
+(function () {
+    try {
+        if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+        } else {
+            cachedSetTimeout = defaultSetTimout;
+        }
+    } catch (e) {
+        cachedSetTimeout = defaultSetTimout;
+    }
+    try {
+        if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+        } else {
+            cachedClearTimeout = defaultClearTimeout;
+        }
+    } catch (e) {
+        cachedClearTimeout = defaultClearTimeout;
+    }
+} ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    // if setTimeout wasn't available but was latter defined
+    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+        cachedSetTimeout = setTimeout;
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    // if clearTimeout wasn't available but was latter defined
+    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+        cachedClearTimeout = clearTimeout;
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    if (!draining || !currentQueue) {
+        return;
+    }
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = runTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    runClearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        runTimeout(drainQueue);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}],25:[function(require,module,exports){
+// minimal library entry point.
+
+"use strict";
+module.exports = require("./src/index-minimal");
+
+},{"./src/index-minimal":26}],26:[function(require,module,exports){
+"use strict";
+var protobuf = exports;
+
+/**
+ * Build type, one of `"full"`, `"light"` or `"minimal"`.
+ * @name build
+ * @type {string}
+ * @const
+ */
+protobuf.build = "minimal";
+
+// Serialization
+protobuf.Writer       = require("./writer");
+protobuf.BufferWriter = require("./writer_buffer");
+protobuf.Reader       = require("./reader");
+protobuf.BufferReader = require("./reader_buffer");
+
+// Utility
+protobuf.util         = require("./util/minimal");
+protobuf.rpc          = require("./rpc");
+protobuf.roots        = require("./roots");
+protobuf.configure    = configure;
+
+/* istanbul ignore next */
+/**
+ * Reconfigures the library according to the environment.
+ * @returns {undefined}
+ */
+function configure() {
+    protobuf.Reader._configure(protobuf.BufferReader);
+    protobuf.util._configure();
+}
+
+// Set up buffer utility according to the environment
+protobuf.Writer._configure(protobuf.BufferWriter);
+configure();
+
+},{"./reader":27,"./reader_buffer":28,"./roots":29,"./rpc":30,"./util/minimal":33,"./writer":34,"./writer_buffer":35}],27:[function(require,module,exports){
+"use strict";
+module.exports = Reader;
+
+var util      = require("./util/minimal");
+
+var BufferReader; // cyclic
+
+var LongBits  = util.LongBits,
+    utf8      = util.utf8;
+
+/* istanbul ignore next */
+function indexOutOfRange(reader, writeLength) {
+    return RangeError("index out of range: " + reader.pos + " + " + (writeLength || 1) + " > " + reader.len);
+}
+
+/**
+ * Constructs a new reader instance using the specified buffer.
+ * @classdesc Wire format reader using `Uint8Array` if available, otherwise `Array`.
+ * @constructor
+ * @param {Uint8Array} buffer Buffer to read from
+ */
+function Reader(buffer) {
+
+    /**
+     * Read buffer.
+     * @type {Uint8Array}
+     */
+    this.buf = buffer;
+
+    /**
+     * Read buffer position.
+     * @type {number}
+     */
+    this.pos = 0;
+
+    /**
+     * Read buffer length.
+     * @type {number}
+     */
+    this.len = buffer.length;
+}
+
+var create_array = typeof Uint8Array !== "undefined"
+    ? function create_typed_array(buffer) {
+        if (buffer instanceof Uint8Array || Array.isArray(buffer))
+            return new Reader(buffer);
+        throw Error("illegal buffer");
+    }
+    /* istanbul ignore next */
+    : function create_array(buffer) {
+        if (Array.isArray(buffer))
+            return new Reader(buffer);
+        throw Error("illegal buffer");
+    };
+
+/**
+ * Creates a new reader using the specified buffer.
+ * @function
+ * @param {Uint8Array|Buffer} buffer Buffer to read from
+ * @returns {Reader|BufferReader} A {@link BufferReader} if `buffer` is a Buffer, otherwise a {@link Reader}
+ * @throws {Error} If `buffer` is not a valid buffer
+ */
+Reader.create = util.Buffer
+    ? function create_buffer_setup(buffer) {
+        return (Reader.create = function create_buffer(buffer) {
+            return util.Buffer.isBuffer(buffer)
+                ? new BufferReader(buffer)
+                /* istanbul ignore next */
+                : create_array(buffer);
+        })(buffer);
+    }
+    /* istanbul ignore next */
+    : create_array;
+
+Reader.prototype._slice = util.Array.prototype.subarray || /* istanbul ignore next */ util.Array.prototype.slice;
+
+/**
+ * Reads a varint as an unsigned 32 bit value.
+ * @function
+ * @returns {number} Value read
+ */
+Reader.prototype.uint32 = (function read_uint32_setup() {
+    var value = 4294967295; // optimizer type-hint, tends to deopt otherwise (?!)
+    return function read_uint32() {
+        value = (         this.buf[this.pos] & 127       ) >>> 0; if (this.buf[this.pos++] < 128) return value;
+        value = (value | (this.buf[this.pos] & 127) <<  7) >>> 0; if (this.buf[this.pos++] < 128) return value;
+        value = (value | (this.buf[this.pos] & 127) << 14) >>> 0; if (this.buf[this.pos++] < 128) return value;
+        value = (value | (this.buf[this.pos] & 127) << 21) >>> 0; if (this.buf[this.pos++] < 128) return value;
+        value = (value | (this.buf[this.pos] &  15) << 28) >>> 0; if (this.buf[this.pos++] < 128) return value;
+
+        /* istanbul ignore if */
+        if ((this.pos += 5) > this.len) {
+            this.pos = this.len;
+            throw indexOutOfRange(this, 10);
+        }
+        return value;
+    };
+})();
+
+/**
+ * Reads a varint as a signed 32 bit value.
+ * @returns {number} Value read
+ */
+Reader.prototype.int32 = function read_int32() {
+    return this.uint32() | 0;
+};
+
+/**
+ * Reads a zig-zag encoded varint as a signed 32 bit value.
+ * @returns {number} Value read
+ */
+Reader.prototype.sint32 = function read_sint32() {
+    var value = this.uint32();
+    return value >>> 1 ^ -(value & 1) | 0;
+};
+
+/* eslint-disable no-invalid-this */
+
+function readLongVarint() {
+    // tends to deopt with local vars for octet etc.
+    var bits = new LongBits(0, 0);
+    var i = 0;
+    if (this.len - this.pos > 4) { // fast route (lo)
+        for (; i < 4; ++i) {
+            // 1st..4th
+            bits.lo = (bits.lo | (this.buf[this.pos] & 127) << i * 7) >>> 0;
+            if (this.buf[this.pos++] < 128)
+                return bits;
+        }
+        // 5th
+        bits.lo = (bits.lo | (this.buf[this.pos] & 127) << 28) >>> 0;
+        bits.hi = (bits.hi | (this.buf[this.pos] & 127) >>  4) >>> 0;
+        if (this.buf[this.pos++] < 128)
+            return bits;
+        i = 0;
+    } else {
+        for (; i < 3; ++i) {
+            /* istanbul ignore if */
+            if (this.pos >= this.len)
+                throw indexOutOfRange(this);
+            // 1st..3th
+            bits.lo = (bits.lo | (this.buf[this.pos] & 127) << i * 7) >>> 0;
+            if (this.buf[this.pos++] < 128)
+                return bits;
+        }
+        // 4th
+        bits.lo = (bits.lo | (this.buf[this.pos++] & 127) << i * 7) >>> 0;
+        return bits;
+    }
+    if (this.len - this.pos > 4) { // fast route (hi)
+        for (; i < 5; ++i) {
+            // 6th..10th
+            bits.hi = (bits.hi | (this.buf[this.pos] & 127) << i * 7 + 3) >>> 0;
+            if (this.buf[this.pos++] < 128)
+                return bits;
+        }
+    } else {
+        for (; i < 5; ++i) {
+            /* istanbul ignore if */
+            if (this.pos >= this.len)
+                throw indexOutOfRange(this);
+            // 6th..10th
+            bits.hi = (bits.hi | (this.buf[this.pos] & 127) << i * 7 + 3) >>> 0;
+            if (this.buf[this.pos++] < 128)
+                return bits;
+        }
+    }
+    /* istanbul ignore next */
+    throw Error("invalid varint encoding");
+}
+
+/* eslint-enable no-invalid-this */
+
+/**
+ * Reads a varint as a signed 64 bit value.
+ * @name Reader#int64
+ * @function
+ * @returns {Long} Value read
+ */
+
+/**
+ * Reads a varint as an unsigned 64 bit value.
+ * @name Reader#uint64
+ * @function
+ * @returns {Long} Value read
+ */
+
+/**
+ * Reads a zig-zag encoded varint as a signed 64 bit value.
+ * @name Reader#sint64
+ * @function
+ * @returns {Long} Value read
+ */
+
+/**
+ * Reads a varint as a boolean.
+ * @returns {boolean} Value read
+ */
+Reader.prototype.bool = function read_bool() {
+    return this.uint32() !== 0;
+};
+
+function readFixed32_end(buf, end) { // note that this uses `end`, not `pos`
+    return (buf[end - 4]
+          | buf[end - 3] << 8
+          | buf[end - 2] << 16
+          | buf[end - 1] << 24) >>> 0;
+}
+
+/**
+ * Reads fixed 32 bits as an unsigned 32 bit integer.
+ * @returns {number} Value read
+ */
+Reader.prototype.fixed32 = function read_fixed32() {
+
+    /* istanbul ignore if */
+    if (this.pos + 4 > this.len)
+        throw indexOutOfRange(this, 4);
+
+    return readFixed32_end(this.buf, this.pos += 4);
+};
+
+/**
+ * Reads fixed 32 bits as a signed 32 bit integer.
+ * @returns {number} Value read
+ */
+Reader.prototype.sfixed32 = function read_sfixed32() {
+
+    /* istanbul ignore if */
+    if (this.pos + 4 > this.len)
+        throw indexOutOfRange(this, 4);
+
+    return readFixed32_end(this.buf, this.pos += 4) | 0;
+};
+
+/* eslint-disable no-invalid-this */
+
+function readFixed64(/* this: Reader */) {
+
+    /* istanbul ignore if */
+    if (this.pos + 8 > this.len)
+        throw indexOutOfRange(this, 8);
+
+    return new LongBits(readFixed32_end(this.buf, this.pos += 4), readFixed32_end(this.buf, this.pos += 4));
+}
+
+/* eslint-enable no-invalid-this */
+
+/**
+ * Reads fixed 64 bits.
+ * @name Reader#fixed64
+ * @function
+ * @returns {Long} Value read
+ */
+
+/**
+ * Reads zig-zag encoded fixed 64 bits.
+ * @name Reader#sfixed64
+ * @function
+ * @returns {Long} Value read
+ */
+
+/**
+ * Reads a float (32 bit) as a number.
+ * @function
+ * @returns {number} Value read
+ */
+Reader.prototype.float = function read_float() {
+
+    /* istanbul ignore if */
+    if (this.pos + 4 > this.len)
+        throw indexOutOfRange(this, 4);
+
+    var value = util.float.readFloatLE(this.buf, this.pos);
+    this.pos += 4;
+    return value;
+};
+
+/**
+ * Reads a double (64 bit float) as a number.
+ * @function
+ * @returns {number} Value read
+ */
+Reader.prototype.double = function read_double() {
+
+    /* istanbul ignore if */
+    if (this.pos + 8 > this.len)
+        throw indexOutOfRange(this, 4);
+
+    var value = util.float.readDoubleLE(this.buf, this.pos);
+    this.pos += 8;
+    return value;
+};
+
+/**
+ * Reads a sequence of bytes preceeded by its length as a varint.
+ * @returns {Uint8Array} Value read
+ */
+Reader.prototype.bytes = function read_bytes() {
+    var length = this.uint32(),
+        start  = this.pos,
+        end    = this.pos + length;
+
+    /* istanbul ignore if */
+    if (end > this.len)
+        throw indexOutOfRange(this, length);
+
+    this.pos += length;
+    if (Array.isArray(this.buf)) // plain array
+        return this.buf.slice(start, end);
+    return start === end // fix for IE 10/Win8 and others' subarray returning array of size 1
+        ? new this.buf.constructor(0)
+        : this._slice.call(this.buf, start, end);
+};
+
+/**
+ * Reads a string preceeded by its byte length as a varint.
+ * @returns {string} Value read
+ */
+Reader.prototype.string = function read_string() {
+    var bytes = this.bytes();
+    return utf8.read(bytes, 0, bytes.length);
+};
+
+/**
+ * Skips the specified number of bytes if specified, otherwise skips a varint.
+ * @param {number} [length] Length if known, otherwise a varint is assumed
+ * @returns {Reader} `this`
+ */
+Reader.prototype.skip = function skip(length) {
+    if (typeof length === "number") {
+        /* istanbul ignore if */
+        if (this.pos + length > this.len)
+            throw indexOutOfRange(this, length);
+        this.pos += length;
+    } else {
+        do {
+            /* istanbul ignore if */
+            if (this.pos >= this.len)
+                throw indexOutOfRange(this);
+        } while (this.buf[this.pos++] & 128);
+    }
+    return this;
+};
+
+/**
+ * Skips the next element of the specified wire type.
+ * @param {number} wireType Wire type received
+ * @returns {Reader} `this`
+ */
+Reader.prototype.skipType = function(wireType) {
+    switch (wireType) {
+        case 0:
+            this.skip();
+            break;
+        case 1:
+            this.skip(8);
+            break;
+        case 2:
+            this.skip(this.uint32());
+            break;
+        case 3:
+            while ((wireType = this.uint32() & 7) !== 4) {
+                this.skipType(wireType);
+            }
+            break;
+        case 5:
+            this.skip(4);
+            break;
+
+        /* istanbul ignore next */
+        default:
+            throw Error("invalid wire type " + wireType + " at offset " + this.pos);
+    }
+    return this;
+};
+
+Reader._configure = function(BufferReader_) {
+    BufferReader = BufferReader_;
+
+    var fn = util.Long ? "toLong" : /* istanbul ignore next */ "toNumber";
+    util.merge(Reader.prototype, {
+
+        int64: function read_int64() {
+            return readLongVarint.call(this)[fn](false);
+        },
+
+        uint64: function read_uint64() {
+            return readLongVarint.call(this)[fn](true);
+        },
+
+        sint64: function read_sint64() {
+            return readLongVarint.call(this).zzDecode()[fn](false);
+        },
+
+        fixed64: function read_fixed64() {
+            return readFixed64.call(this)[fn](true);
+        },
+
+        sfixed64: function read_sfixed64() {
+            return readFixed64.call(this)[fn](false);
+        }
+
+    });
+};
+
+},{"./util/minimal":33}],28:[function(require,module,exports){
+"use strict";
+module.exports = BufferReader;
+
+// extends Reader
+var Reader = require("./reader");
+(BufferReader.prototype = Object.create(Reader.prototype)).constructor = BufferReader;
+
+var util = require("./util/minimal");
+
+/**
+ * Constructs a new buffer reader instance.
+ * @classdesc Wire format reader using node buffers.
+ * @extends Reader
+ * @constructor
+ * @param {Buffer} buffer Buffer to read from
+ */
+function BufferReader(buffer) {
+    Reader.call(this, buffer);
+
+    /**
+     * Read buffer.
+     * @name BufferReader#buf
+     * @type {Buffer}
+     */
+}
+
+/* istanbul ignore else */
+if (util.Buffer)
+    BufferReader.prototype._slice = util.Buffer.prototype.slice;
+
+/**
+ * @override
+ */
+BufferReader.prototype.string = function read_string_buffer() {
+    var len = this.uint32(); // modifies pos
+    return this.buf.utf8Slice(this.pos, this.pos = Math.min(this.pos + len, this.len));
+};
+
+/**
+ * Reads a sequence of bytes preceeded by its length as a varint.
+ * @name BufferReader#bytes
+ * @function
+ * @returns {Buffer} Value read
+ */
+
+},{"./reader":27,"./util/minimal":33}],29:[function(require,module,exports){
+"use strict";
+module.exports = {};
+
+/**
+ * Named roots.
+ * This is where pbjs stores generated structures (the option `-r, --root` specifies a name).
+ * Can also be used manually to make roots available accross modules.
+ * @name roots
+ * @type {Object.<string,Root>}
+ * @example
+ * // pbjs -r myroot -o compiled.js ...
+ *
+ * // in another module:
+ * require("./compiled.js");
+ *
+ * // in any subsequent module:
+ * var root = protobuf.roots["myroot"];
+ */
+
+},{}],30:[function(require,module,exports){
+"use strict";
+
+/**
+ * Streaming RPC helpers.
+ * @namespace
+ */
+var rpc = exports;
+
+/**
+ * RPC implementation passed to {@link Service#create} performing a service request on network level, i.e. by utilizing http requests or websockets.
+ * @typedef RPCImpl
+ * @type {function}
+ * @param {Method|rpc.ServiceMethod<Message<{}>,Message<{}>>} method Reflected or static method being called
+ * @param {Uint8Array} requestData Request data
+ * @param {RPCImplCallback} callback Callback function
+ * @returns {undefined}
+ * @example
+ * function rpcImpl(method, requestData, callback) {
+ *     if (protobuf.util.lcFirst(method.name) !== "myMethod") // compatible with static code
+ *         throw Error("no such method");
+ *     asynchronouslyObtainAResponse(requestData, function(err, responseData) {
+ *         callback(err, responseData);
+ *     });
+ * }
+ */
+
+/**
+ * Node-style callback as used by {@link RPCImpl}.
+ * @typedef RPCImplCallback
+ * @type {function}
+ * @param {Error|null} error Error, if any, otherwise `null`
+ * @param {Uint8Array|null} [response] Response data or `null` to signal end of stream, if there hasn't been an error
+ * @returns {undefined}
+ */
+
+rpc.Service = require("./rpc/service");
+
+},{"./rpc/service":31}],31:[function(require,module,exports){
+"use strict";
+module.exports = Service;
+
+var util = require("../util/minimal");
+
+// Extends EventEmitter
+(Service.prototype = Object.create(util.EventEmitter.prototype)).constructor = Service;
+
+/**
+ * A service method callback as used by {@link rpc.ServiceMethod|ServiceMethod}.
+ *
+ * Differs from {@link RPCImplCallback} in that it is an actual callback of a service method which may not return `response = null`.
+ * @typedef rpc.ServiceMethodCallback
+ * @template TRes extends Message<TRes>
+ * @type {function}
+ * @param {Error|null} error Error, if any
+ * @param {TRes} [response] Response message
+ * @returns {undefined}
+ */
+
+/**
+ * A service method part of a {@link rpc.Service} as created by {@link Service.create}.
+ * @typedef rpc.ServiceMethod
+ * @template TReq extends Message<TReq>
+ * @template TRes extends Message<TRes>
+ * @type {function}
+ * @param {TReq|Properties<TReq>} request Request message or plain object
+ * @param {rpc.ServiceMethodCallback<TRes>} [callback] Node-style callback called with the error, if any, and the response message
+ * @returns {Promise<Message<TRes>>} Promise if `callback` has been omitted, otherwise `undefined`
+ */
+
+/**
+ * Constructs a new RPC service instance.
+ * @classdesc An RPC service as returned by {@link Service#create}.
+ * @exports rpc.Service
+ * @extends util.EventEmitter
+ * @constructor
+ * @param {RPCImpl} rpcImpl RPC implementation
+ * @param {boolean} [requestDelimited=false] Whether requests are length-delimited
+ * @param {boolean} [responseDelimited=false] Whether responses are length-delimited
+ */
+function Service(rpcImpl, requestDelimited, responseDelimited) {
+
+    if (typeof rpcImpl !== "function")
+        throw TypeError("rpcImpl must be a function");
+
+    util.EventEmitter.call(this);
+
+    /**
+     * RPC implementation. Becomes `null` once the service is ended.
+     * @type {RPCImpl|null}
+     */
+    this.rpcImpl = rpcImpl;
+
+    /**
+     * Whether requests are length-delimited.
+     * @type {boolean}
+     */
+    this.requestDelimited = Boolean(requestDelimited);
+
+    /**
+     * Whether responses are length-delimited.
+     * @type {boolean}
+     */
+    this.responseDelimited = Boolean(responseDelimited);
+}
+
+/**
+ * Calls a service method through {@link rpc.Service#rpcImpl|rpcImpl}.
+ * @param {Method|rpc.ServiceMethod<TReq,TRes>} method Reflected or static method
+ * @param {Constructor<TReq>} requestCtor Request constructor
+ * @param {Constructor<TRes>} responseCtor Response constructor
+ * @param {TReq|Properties<TReq>} request Request message or plain object
+ * @param {rpc.ServiceMethodCallback<TRes>} callback Service callback
+ * @returns {undefined}
+ * @template TReq extends Message<TReq>
+ * @template TRes extends Message<TRes>
+ */
+Service.prototype.rpcCall = function rpcCall(method, requestCtor, responseCtor, request, callback) {
+
+    if (!request)
+        throw TypeError("request must be specified");
+
+    var self = this;
+    if (!callback)
+        return util.asPromise(rpcCall, self, method, requestCtor, responseCtor, request);
+
+    if (!self.rpcImpl) {
+        setTimeout(function() { callback(Error("already ended")); }, 0);
+        return undefined;
+    }
+
+    try {
+        return self.rpcImpl(
+            method,
+            requestCtor[self.requestDelimited ? "encodeDelimited" : "encode"](request).finish(),
+            function rpcCallback(err, response) {
+
+                if (err) {
+                    self.emit("error", err, method);
+                    return callback(err);
+                }
+
+                if (response === null) {
+                    self.end(/* endedByRPC */ true);
+                    return undefined;
+                }
+
+                if (!(response instanceof responseCtor)) {
+                    try {
+                        response = responseCtor[self.responseDelimited ? "decodeDelimited" : "decode"](response);
+                    } catch (err) {
+                        self.emit("error", err, method);
+                        return callback(err);
+                    }
+                }
+
+                self.emit("data", response, method);
+                return callback(null, response);
+            }
+        );
+    } catch (err) {
+        self.emit("error", err, method);
+        setTimeout(function() { callback(err); }, 0);
+        return undefined;
+    }
+};
+
+/**
+ * Ends this service and emits the `end` event.
+ * @param {boolean} [endedByRPC=false] Whether the service has been ended by the RPC implementation.
+ * @returns {rpc.Service} `this`
+ */
+Service.prototype.end = function end(endedByRPC) {
+    if (this.rpcImpl) {
+        if (!endedByRPC) // signal end to rpcImpl
+            this.rpcImpl(null, null, null);
+        this.rpcImpl = null;
+        this.emit("end").off();
+    }
+    return this;
+};
+
+},{"../util/minimal":33}],32:[function(require,module,exports){
+"use strict";
+module.exports = LongBits;
+
+var util = require("../util/minimal");
+
+/**
+ * Constructs new long bits.
+ * @classdesc Helper class for working with the low and high bits of a 64 bit value.
+ * @memberof util
+ * @constructor
+ * @param {number} lo Low 32 bits, unsigned
+ * @param {number} hi High 32 bits, unsigned
+ */
+function LongBits(lo, hi) {
+
+    // note that the casts below are theoretically unnecessary as of today, but older statically
+    // generated converter code might still call the ctor with signed 32bits. kept for compat.
+
+    /**
+     * Low bits.
+     * @type {number}
+     */
+    this.lo = lo >>> 0;
+
+    /**
+     * High bits.
+     * @type {number}
+     */
+    this.hi = hi >>> 0;
+}
+
+/**
+ * Zero bits.
+ * @memberof util.LongBits
+ * @type {util.LongBits}
+ */
+var zero = LongBits.zero = new LongBits(0, 0);
+
+zero.toNumber = function() { return 0; };
+zero.zzEncode = zero.zzDecode = function() { return this; };
+zero.length = function() { return 1; };
+
+/**
+ * Zero hash.
+ * @memberof util.LongBits
+ * @type {string}
+ */
+var zeroHash = LongBits.zeroHash = "\0\0\0\0\0\0\0\0";
+
+/**
+ * Constructs new long bits from the specified number.
+ * @param {number} value Value
+ * @returns {util.LongBits} Instance
+ */
+LongBits.fromNumber = function fromNumber(value) {
+    if (value === 0)
+        return zero;
+    var sign = value < 0;
+    if (sign)
+        value = -value;
+    var lo = value >>> 0,
+        hi = (value - lo) / 4294967296 >>> 0;
+    if (sign) {
+        hi = ~hi >>> 0;
+        lo = ~lo >>> 0;
+        if (++lo > 4294967295) {
+            lo = 0;
+            if (++hi > 4294967295)
+                hi = 0;
+        }
+    }
+    return new LongBits(lo, hi);
+};
+
+/**
+ * Constructs new long bits from a number, long or string.
+ * @param {Long|number|string} value Value
+ * @returns {util.LongBits} Instance
+ */
+LongBits.from = function from(value) {
+    if (typeof value === "number")
+        return LongBits.fromNumber(value);
+    if (util.isString(value)) {
+        /* istanbul ignore else */
+        if (util.Long)
+            value = util.Long.fromString(value);
+        else
+            return LongBits.fromNumber(parseInt(value, 10));
+    }
+    return value.low || value.high ? new LongBits(value.low >>> 0, value.high >>> 0) : zero;
+};
+
+/**
+ * Converts this long bits to a possibly unsafe JavaScript number.
+ * @param {boolean} [unsigned=false] Whether unsigned or not
+ * @returns {number} Possibly unsafe number
+ */
+LongBits.prototype.toNumber = function toNumber(unsigned) {
+    if (!unsigned && this.hi >>> 31) {
+        var lo = ~this.lo + 1 >>> 0,
+            hi = ~this.hi     >>> 0;
+        if (!lo)
+            hi = hi + 1 >>> 0;
+        return -(lo + hi * 4294967296);
+    }
+    return this.lo + this.hi * 4294967296;
+};
+
+/**
+ * Converts this long bits to a long.
+ * @param {boolean} [unsigned=false] Whether unsigned or not
+ * @returns {Long} Long
+ */
+LongBits.prototype.toLong = function toLong(unsigned) {
+    return util.Long
+        ? new util.Long(this.lo | 0, this.hi | 0, Boolean(unsigned))
+        /* istanbul ignore next */
+        : { low: this.lo | 0, high: this.hi | 0, unsigned: Boolean(unsigned) };
+};
+
+var charCodeAt = String.prototype.charCodeAt;
+
+/**
+ * Constructs new long bits from the specified 8 characters long hash.
+ * @param {string} hash Hash
+ * @returns {util.LongBits} Bits
+ */
+LongBits.fromHash = function fromHash(hash) {
+    if (hash === zeroHash)
+        return zero;
+    return new LongBits(
+        ( charCodeAt.call(hash, 0)
+        | charCodeAt.call(hash, 1) << 8
+        | charCodeAt.call(hash, 2) << 16
+        | charCodeAt.call(hash, 3) << 24) >>> 0
+    ,
+        ( charCodeAt.call(hash, 4)
+        | charCodeAt.call(hash, 5) << 8
+        | charCodeAt.call(hash, 6) << 16
+        | charCodeAt.call(hash, 7) << 24) >>> 0
+    );
+};
+
+/**
+ * Converts this long bits to a 8 characters long hash.
+ * @returns {string} Hash
+ */
+LongBits.prototype.toHash = function toHash() {
+    return String.fromCharCode(
+        this.lo        & 255,
+        this.lo >>> 8  & 255,
+        this.lo >>> 16 & 255,
+        this.lo >>> 24      ,
+        this.hi        & 255,
+        this.hi >>> 8  & 255,
+        this.hi >>> 16 & 255,
+        this.hi >>> 24
+    );
+};
+
+/**
+ * Zig-zag encodes this long bits.
+ * @returns {util.LongBits} `this`
+ */
+LongBits.prototype.zzEncode = function zzEncode() {
+    var mask =   this.hi >> 31;
+    this.hi  = ((this.hi << 1 | this.lo >>> 31) ^ mask) >>> 0;
+    this.lo  = ( this.lo << 1                   ^ mask) >>> 0;
+    return this;
+};
+
+/**
+ * Zig-zag decodes this long bits.
+ * @returns {util.LongBits} `this`
+ */
+LongBits.prototype.zzDecode = function zzDecode() {
+    var mask = -(this.lo & 1);
+    this.lo  = ((this.lo >>> 1 | this.hi << 31) ^ mask) >>> 0;
+    this.hi  = ( this.hi >>> 1                  ^ mask) >>> 0;
+    return this;
+};
+
+/**
+ * Calculates the length of this longbits when encoded as a varint.
+ * @returns {number} Length
+ */
+LongBits.prototype.length = function length() {
+    var part0 =  this.lo,
+        part1 = (this.lo >>> 28 | this.hi << 4) >>> 0,
+        part2 =  this.hi >>> 24;
+    return part2 === 0
+         ? part1 === 0
+           ? part0 < 16384
+             ? part0 < 128 ? 1 : 2
+             : part0 < 2097152 ? 3 : 4
+           : part1 < 16384
+             ? part1 < 128 ? 5 : 6
+             : part1 < 2097152 ? 7 : 8
+         : part2 < 128 ? 9 : 10;
+};
+
+},{"../util/minimal":33}],33:[function(require,module,exports){
+(function (global){
+"use strict";
+var util = exports;
+
+// used to return a Promise where callback is omitted
+util.asPromise = require("@protobufjs/aspromise");
+
+// converts to / from base64 encoded strings
+util.base64 = require("@protobufjs/base64");
+
+// base class of rpc.Service
+util.EventEmitter = require("@protobufjs/eventemitter");
+
+// float handling accross browsers
+util.float = require("@protobufjs/float");
+
+// requires modules optionally and hides the call from bundlers
+util.inquire = require("@protobufjs/inquire");
+
+// converts to / from utf8 encoded strings
+util.utf8 = require("@protobufjs/utf8");
+
+// provides a node-like buffer pool in the browser
+util.pool = require("@protobufjs/pool");
+
+// utility to work with the low and high bits of a 64 bit value
+util.LongBits = require("./longbits");
+
+// global object reference
+util.global = typeof window !== "undefined" && window
+           || typeof global !== "undefined" && global
+           || typeof self   !== "undefined" && self
+           || this; // eslint-disable-line no-invalid-this
+
+/**
+ * An immuable empty array.
+ * @memberof util
+ * @type {Array.<*>}
+ * @const
+ */
+util.emptyArray = Object.freeze ? Object.freeze([]) : /* istanbul ignore next */ []; // used on prototypes
+
+/**
+ * An immutable empty object.
+ * @type {Object}
+ * @const
+ */
+util.emptyObject = Object.freeze ? Object.freeze({}) : /* istanbul ignore next */ {}; // used on prototypes
+
+/**
+ * Whether running within node or not.
+ * @memberof util
+ * @type {boolean}
+ * @const
+ */
+util.isNode = Boolean(util.global.process && util.global.process.versions && util.global.process.versions.node);
+
+/**
+ * Tests if the specified value is an integer.
+ * @function
+ * @param {*} value Value to test
+ * @returns {boolean} `true` if the value is an integer
+ */
+util.isInteger = Number.isInteger || /* istanbul ignore next */ function isInteger(value) {
+    return typeof value === "number" && isFinite(value) && Math.floor(value) === value;
+};
+
+/**
+ * Tests if the specified value is a string.
+ * @param {*} value Value to test
+ * @returns {boolean} `true` if the value is a string
+ */
+util.isString = function isString(value) {
+    return typeof value === "string" || value instanceof String;
+};
+
+/**
+ * Tests if the specified value is a non-null object.
+ * @param {*} value Value to test
+ * @returns {boolean} `true` if the value is a non-null object
+ */
+util.isObject = function isObject(value) {
+    return value && typeof value === "object";
+};
+
+/**
+ * Checks if a property on a message is considered to be present.
+ * This is an alias of {@link util.isSet}.
+ * @function
+ * @param {Object} obj Plain object or message instance
+ * @param {string} prop Property name
+ * @returns {boolean} `true` if considered to be present, otherwise `false`
+ */
+util.isset =
+
+/**
+ * Checks if a property on a message is considered to be present.
+ * @param {Object} obj Plain object or message instance
+ * @param {string} prop Property name
+ * @returns {boolean} `true` if considered to be present, otherwise `false`
+ */
+util.isSet = function isSet(obj, prop) {
+    var value = obj[prop];
+    if (value != null && obj.hasOwnProperty(prop)) // eslint-disable-line eqeqeq, no-prototype-builtins
+        return typeof value !== "object" || (Array.isArray(value) ? value.length : Object.keys(value).length) > 0;
+    return false;
+};
+
+/**
+ * Any compatible Buffer instance.
+ * This is a minimal stand-alone definition of a Buffer instance. The actual type is that exported by node's typings.
+ * @interface Buffer
+ * @extends Uint8Array
+ */
+
+/**
+ * Node's Buffer class if available.
+ * @type {Constructor<Buffer>}
+ */
+util.Buffer = (function() {
+    try {
+        var Buffer = util.inquire("buffer").Buffer;
+        // refuse to use non-node buffers if not explicitly assigned (perf reasons):
+        return Buffer.prototype.utf8Write ? Buffer : /* istanbul ignore next */ null;
+    } catch (e) {
+        /* istanbul ignore next */
+        return null;
+    }
+})();
+
+// Internal alias of or polyfull for Buffer.from.
+util._Buffer_from = null;
+
+// Internal alias of or polyfill for Buffer.allocUnsafe.
+util._Buffer_allocUnsafe = null;
+
+/**
+ * Creates a new buffer of whatever type supported by the environment.
+ * @param {number|number[]} [sizeOrArray=0] Buffer size or number array
+ * @returns {Uint8Array|Buffer} Buffer
+ */
+util.newBuffer = function newBuffer(sizeOrArray) {
+    /* istanbul ignore next */
+    return typeof sizeOrArray === "number"
+        ? util.Buffer
+            ? util._Buffer_allocUnsafe(sizeOrArray)
+            : new util.Array(sizeOrArray)
+        : util.Buffer
+            ? util._Buffer_from(sizeOrArray)
+            : typeof Uint8Array === "undefined"
+                ? sizeOrArray
+                : new Uint8Array(sizeOrArray);
+};
+
+/**
+ * Array implementation used in the browser. `Uint8Array` if supported, otherwise `Array`.
+ * @type {Constructor<Uint8Array>}
+ */
+util.Array = typeof Uint8Array !== "undefined" ? Uint8Array /* istanbul ignore next */ : Array;
+
+/**
+ * Any compatible Long instance.
+ * This is a minimal stand-alone definition of a Long instance. The actual type is that exported by long.js.
+ * @interface Long
+ * @property {number} low Low bits
+ * @property {number} high High bits
+ * @property {boolean} unsigned Whether unsigned or not
+ */
+
+/**
+ * Long.js's Long class if available.
+ * @type {Constructor<Long>}
+ */
+util.Long = /* istanbul ignore next */ util.global.dcodeIO && /* istanbul ignore next */ util.global.dcodeIO.Long
+         || /* istanbul ignore next */ util.global.Long
+         || util.inquire("long");
+
+/**
+ * Regular expression used to verify 2 bit (`bool`) map keys.
+ * @type {RegExp}
+ * @const
+ */
+util.key2Re = /^true|false|0|1$/;
+
+/**
+ * Regular expression used to verify 32 bit (`int32` etc.) map keys.
+ * @type {RegExp}
+ * @const
+ */
+util.key32Re = /^-?(?:0|[1-9][0-9]*)$/;
+
+/**
+ * Regular expression used to verify 64 bit (`int64` etc.) map keys.
+ * @type {RegExp}
+ * @const
+ */
+util.key64Re = /^(?:[\\x00-\\xff]{8}|-?(?:0|[1-9][0-9]*))$/;
+
+/**
+ * Converts a number or long to an 8 characters long hash string.
+ * @param {Long|number} value Value to convert
+ * @returns {string} Hash
+ */
+util.longToHash = function longToHash(value) {
+    return value
+        ? util.LongBits.from(value).toHash()
+        : util.LongBits.zeroHash;
+};
+
+/**
+ * Converts an 8 characters long hash string to a long or number.
+ * @param {string} hash Hash
+ * @param {boolean} [unsigned=false] Whether unsigned or not
+ * @returns {Long|number} Original value
+ */
+util.longFromHash = function longFromHash(hash, unsigned) {
+    var bits = util.LongBits.fromHash(hash);
+    if (util.Long)
+        return util.Long.fromBits(bits.lo, bits.hi, unsigned);
+    return bits.toNumber(Boolean(unsigned));
+};
+
+/**
+ * Merges the properties of the source object into the destination object.
+ * @memberof util
+ * @param {Object.<string,*>} dst Destination object
+ * @param {Object.<string,*>} src Source object
+ * @param {boolean} [ifNotSet=false] Merges only if the key is not already set
+ * @returns {Object.<string,*>} Destination object
+ */
+function merge(dst, src, ifNotSet) { // used by converters
+    for (var keys = Object.keys(src), i = 0; i < keys.length; ++i)
+        if (dst[keys[i]] === undefined || !ifNotSet)
+            dst[keys[i]] = src[keys[i]];
+    return dst;
+}
+
+util.merge = merge;
+
+/**
+ * Converts the first character of a string to lower case.
+ * @param {string} str String to convert
+ * @returns {string} Converted string
+ */
+util.lcFirst = function lcFirst(str) {
+    return str.charAt(0).toLowerCase() + str.substring(1);
+};
+
+/**
+ * Creates a custom error constructor.
+ * @memberof util
+ * @param {string} name Error name
+ * @returns {Constructor<Error>} Custom error constructor
+ */
+function newError(name) {
+
+    function CustomError(message, properties) {
+
+        if (!(this instanceof CustomError))
+            return new CustomError(message, properties);
+
+        // Error.call(this, message);
+        // ^ just returns a new error instance because the ctor can be called as a function
+
+        Object.defineProperty(this, "message", { get: function() { return message; } });
+
+        /* istanbul ignore next */
+        if (Error.captureStackTrace) // node
+            Error.captureStackTrace(this, CustomError);
+        else
+            Object.defineProperty(this, "stack", { value: (new Error()).stack || "" });
+
+        if (properties)
+            merge(this, properties);
+    }
+
+    (CustomError.prototype = Object.create(Error.prototype)).constructor = CustomError;
+
+    Object.defineProperty(CustomError.prototype, "name", { get: function() { return name; } });
+
+    CustomError.prototype.toString = function toString() {
+        return this.name + ": " + this.message;
+    };
+
+    return CustomError;
+}
+
+util.newError = newError;
+
+/**
+ * Constructs a new protocol error.
+ * @classdesc Error subclass indicating a protocol specifc error.
+ * @memberof util
+ * @extends Error
+ * @template T extends Message<T>
+ * @constructor
+ * @param {string} message Error message
+ * @param {Object.<string,*>} [properties] Additional properties
+ * @example
+ * try {
+ *     MyMessage.decode(someBuffer); // throws if required fields are missing
+ * } catch (e) {
+ *     if (e instanceof ProtocolError && e.instance)
+ *         console.log("decoded so far: " + JSON.stringify(e.instance));
+ * }
+ */
+util.ProtocolError = newError("ProtocolError");
+
+/**
+ * So far decoded message instance.
+ * @name util.ProtocolError#instance
+ * @type {Message<T>}
+ */
+
+/**
+ * A OneOf getter as returned by {@link util.oneOfGetter}.
+ * @typedef OneOfGetter
+ * @type {function}
+ * @returns {string|undefined} Set field name, if any
+ */
+
+/**
+ * Builds a getter for a oneof's present field name.
+ * @param {string[]} fieldNames Field names
+ * @returns {OneOfGetter} Unbound getter
+ */
+util.oneOfGetter = function getOneOf(fieldNames) {
+    var fieldMap = {};
+    for (var i = 0; i < fieldNames.length; ++i)
+        fieldMap[fieldNames[i]] = 1;
+
+    /**
+     * @returns {string|undefined} Set field name, if any
+     * @this Object
+     * @ignore
+     */
+    return function() { // eslint-disable-line consistent-return
+        for (var keys = Object.keys(this), i = keys.length - 1; i > -1; --i)
+            if (fieldMap[keys[i]] === 1 && this[keys[i]] !== undefined && this[keys[i]] !== null)
+                return keys[i];
+    };
+};
+
+/**
+ * A OneOf setter as returned by {@link util.oneOfSetter}.
+ * @typedef OneOfSetter
+ * @type {function}
+ * @param {string|undefined} value Field name
+ * @returns {undefined}
+ */
+
+/**
+ * Builds a setter for a oneof's present field name.
+ * @param {string[]} fieldNames Field names
+ * @returns {OneOfSetter} Unbound setter
+ */
+util.oneOfSetter = function setOneOf(fieldNames) {
+
+    /**
+     * @param {string} name Field name
+     * @returns {undefined}
+     * @this Object
+     * @ignore
+     */
+    return function(name) {
+        for (var i = 0; i < fieldNames.length; ++i)
+            if (fieldNames[i] !== name)
+                delete this[fieldNames[i]];
+    };
+};
+
+/**
+ * Default conversion options used for {@link Message#toJSON} implementations.
+ *
+ * These options are close to proto3's JSON mapping with the exception that internal types like Any are handled just like messages. More precisely:
+ *
+ * - Longs become strings
+ * - Enums become string keys
+ * - Bytes become base64 encoded strings
+ * - (Sub-)Messages become plain objects
+ * - Maps become plain objects with all string keys
+ * - Repeated fields become arrays
+ * - NaN and Infinity for float and double fields become strings
+ *
+ * @type {IConversionOptions}
+ * @see https://developers.google.com/protocol-buffers/docs/proto3?hl=en#json
+ */
+util.toJSONOptions = {
+    longs: String,
+    enums: String,
+    bytes: String,
+    json: true
+};
+
+// Sets up buffer utility according to the environment (called in index-minimal)
+util._configure = function() {
+    var Buffer = util.Buffer;
+    /* istanbul ignore if */
+    if (!Buffer) {
+        util._Buffer_from = util._Buffer_allocUnsafe = null;
+        return;
+    }
+    // because node 4.x buffers are incompatible & immutable
+    // see: https://github.com/dcodeIO/protobuf.js/pull/665
+    util._Buffer_from = Buffer.from !== Uint8Array.from && Buffer.from ||
+        /* istanbul ignore next */
+        function Buffer_from(value, encoding) {
+            return new Buffer(value, encoding);
+        };
+    util._Buffer_allocUnsafe = Buffer.allocUnsafe ||
+        /* istanbul ignore next */
+        function Buffer_allocUnsafe(size) {
+            return new Buffer(size);
+        };
+};
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./longbits":32,"@protobufjs/aspromise":9,"@protobufjs/base64":10,"@protobufjs/eventemitter":11,"@protobufjs/float":12,"@protobufjs/inquire":13,"@protobufjs/pool":14,"@protobufjs/utf8":15}],34:[function(require,module,exports){
+"use strict";
+module.exports = Writer;
+
+var util      = require("./util/minimal");
+
+var BufferWriter; // cyclic
+
+var LongBits  = util.LongBits,
+    base64    = util.base64,
+    utf8      = util.utf8;
+
+/**
+ * Constructs a new writer operation instance.
+ * @classdesc Scheduled writer operation.
+ * @constructor
+ * @param {function(*, Uint8Array, number)} fn Function to call
+ * @param {number} len Value byte length
+ * @param {*} val Value to write
+ * @ignore
+ */
+function Op(fn, len, val) {
+
+    /**
+     * Function to call.
+     * @type {function(Uint8Array, number, *)}
+     */
+    this.fn = fn;
+
+    /**
+     * Value byte length.
+     * @type {number}
+     */
+    this.len = len;
+
+    /**
+     * Next operation.
+     * @type {Writer.Op|undefined}
+     */
+    this.next = undefined;
+
+    /**
+     * Value to write.
+     * @type {*}
+     */
+    this.val = val; // type varies
+}
+
+/* istanbul ignore next */
+function noop() {} // eslint-disable-line no-empty-function
+
+/**
+ * Constructs a new writer state instance.
+ * @classdesc Copied writer state.
+ * @memberof Writer
+ * @constructor
+ * @param {Writer} writer Writer to copy state from
+ * @ignore
+ */
+function State(writer) {
+
+    /**
+     * Current head.
+     * @type {Writer.Op}
+     */
+    this.head = writer.head;
+
+    /**
+     * Current tail.
+     * @type {Writer.Op}
+     */
+    this.tail = writer.tail;
+
+    /**
+     * Current buffer length.
+     * @type {number}
+     */
+    this.len = writer.len;
+
+    /**
+     * Next state.
+     * @type {State|null}
+     */
+    this.next = writer.states;
+}
+
+/**
+ * Constructs a new writer instance.
+ * @classdesc Wire format writer using `Uint8Array` if available, otherwise `Array`.
+ * @constructor
+ */
+function Writer() {
+
+    /**
+     * Current length.
+     * @type {number}
+     */
+    this.len = 0;
+
+    /**
+     * Operations head.
+     * @type {Object}
+     */
+    this.head = new Op(noop, 0, 0);
+
+    /**
+     * Operations tail
+     * @type {Object}
+     */
+    this.tail = this.head;
+
+    /**
+     * Linked forked states.
+     * @type {Object|null}
+     */
+    this.states = null;
+
+    // When a value is written, the writer calculates its byte length and puts it into a linked
+    // list of operations to perform when finish() is called. This both allows us to allocate
+    // buffers of the exact required size and reduces the amount of work we have to do compared
+    // to first calculating over objects and then encoding over objects. In our case, the encoding
+    // part is just a linked list walk calling operations with already prepared values.
+}
+
+/**
+ * Creates a new writer.
+ * @function
+ * @returns {BufferWriter|Writer} A {@link BufferWriter} when Buffers are supported, otherwise a {@link Writer}
+ */
+Writer.create = util.Buffer
+    ? function create_buffer_setup() {
+        return (Writer.create = function create_buffer() {
+            return new BufferWriter();
+        })();
+    }
+    /* istanbul ignore next */
+    : function create_array() {
+        return new Writer();
+    };
+
+/**
+ * Allocates a buffer of the specified size.
+ * @param {number} size Buffer size
+ * @returns {Uint8Array} Buffer
+ */
+Writer.alloc = function alloc(size) {
+    return new util.Array(size);
+};
+
+// Use Uint8Array buffer pool in the browser, just like node does with buffers
+/* istanbul ignore else */
+if (util.Array !== Array)
+    Writer.alloc = util.pool(Writer.alloc, util.Array.prototype.subarray);
+
+/**
+ * Pushes a new operation to the queue.
+ * @param {function(Uint8Array, number, *)} fn Function to call
+ * @param {number} len Value byte length
+ * @param {number} val Value to write
+ * @returns {Writer} `this`
+ * @private
+ */
+Writer.prototype._push = function push(fn, len, val) {
+    this.tail = this.tail.next = new Op(fn, len, val);
+    this.len += len;
+    return this;
+};
+
+function writeByte(val, buf, pos) {
+    buf[pos] = val & 255;
+}
+
+function writeVarint32(val, buf, pos) {
+    while (val > 127) {
+        buf[pos++] = val & 127 | 128;
+        val >>>= 7;
+    }
+    buf[pos] = val;
+}
+
+/**
+ * Constructs a new varint writer operation instance.
+ * @classdesc Scheduled varint writer operation.
+ * @extends Op
+ * @constructor
+ * @param {number} len Value byte length
+ * @param {number} val Value to write
+ * @ignore
+ */
+function VarintOp(len, val) {
+    this.len = len;
+    this.next = undefined;
+    this.val = val;
+}
+
+VarintOp.prototype = Object.create(Op.prototype);
+VarintOp.prototype.fn = writeVarint32;
+
+/**
+ * Writes an unsigned 32 bit value as a varint.
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.uint32 = function write_uint32(value) {
+    // here, the call to this.push has been inlined and a varint specific Op subclass is used.
+    // uint32 is by far the most frequently used operation and benefits significantly from this.
+    this.len += (this.tail = this.tail.next = new VarintOp(
+        (value = value >>> 0)
+                < 128       ? 1
+        : value < 16384     ? 2
+        : value < 2097152   ? 3
+        : value < 268435456 ? 4
+        :                     5,
+    value)).len;
+    return this;
+};
+
+/**
+ * Writes a signed 32 bit value as a varint.
+ * @function
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.int32 = function write_int32(value) {
+    return value < 0
+        ? this._push(writeVarint64, 10, LongBits.fromNumber(value)) // 10 bytes per spec
+        : this.uint32(value);
+};
+
+/**
+ * Writes a 32 bit value as a varint, zig-zag encoded.
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.sint32 = function write_sint32(value) {
+    return this.uint32((value << 1 ^ value >> 31) >>> 0);
+};
+
+function writeVarint64(val, buf, pos) {
+    while (val.hi) {
+        buf[pos++] = val.lo & 127 | 128;
+        val.lo = (val.lo >>> 7 | val.hi << 25) >>> 0;
+        val.hi >>>= 7;
+    }
+    while (val.lo > 127) {
+        buf[pos++] = val.lo & 127 | 128;
+        val.lo = val.lo >>> 7;
+    }
+    buf[pos++] = val.lo;
+}
+
+/**
+ * Writes an unsigned 64 bit value as a varint.
+ * @param {Long|number|string} value Value to write
+ * @returns {Writer} `this`
+ * @throws {TypeError} If `value` is a string and no long library is present.
+ */
+Writer.prototype.uint64 = function write_uint64(value) {
+    var bits = LongBits.from(value);
+    return this._push(writeVarint64, bits.length(), bits);
+};
+
+/**
+ * Writes a signed 64 bit value as a varint.
+ * @function
+ * @param {Long|number|string} value Value to write
+ * @returns {Writer} `this`
+ * @throws {TypeError} If `value` is a string and no long library is present.
+ */
+Writer.prototype.int64 = Writer.prototype.uint64;
+
+/**
+ * Writes a signed 64 bit value as a varint, zig-zag encoded.
+ * @param {Long|number|string} value Value to write
+ * @returns {Writer} `this`
+ * @throws {TypeError} If `value` is a string and no long library is present.
+ */
+Writer.prototype.sint64 = function write_sint64(value) {
+    var bits = LongBits.from(value).zzEncode();
+    return this._push(writeVarint64, bits.length(), bits);
+};
+
+/**
+ * Writes a boolish value as a varint.
+ * @param {boolean} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.bool = function write_bool(value) {
+    return this._push(writeByte, 1, value ? 1 : 0);
+};
+
+function writeFixed32(val, buf, pos) {
+    buf[pos    ] =  val         & 255;
+    buf[pos + 1] =  val >>> 8   & 255;
+    buf[pos + 2] =  val >>> 16  & 255;
+    buf[pos + 3] =  val >>> 24;
+}
+
+/**
+ * Writes an unsigned 32 bit value as fixed 32 bits.
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.fixed32 = function write_fixed32(value) {
+    return this._push(writeFixed32, 4, value >>> 0);
+};
+
+/**
+ * Writes a signed 32 bit value as fixed 32 bits.
+ * @function
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.sfixed32 = Writer.prototype.fixed32;
+
+/**
+ * Writes an unsigned 64 bit value as fixed 64 bits.
+ * @param {Long|number|string} value Value to write
+ * @returns {Writer} `this`
+ * @throws {TypeError} If `value` is a string and no long library is present.
+ */
+Writer.prototype.fixed64 = function write_fixed64(value) {
+    var bits = LongBits.from(value);
+    return this._push(writeFixed32, 4, bits.lo)._push(writeFixed32, 4, bits.hi);
+};
+
+/**
+ * Writes a signed 64 bit value as fixed 64 bits.
+ * @function
+ * @param {Long|number|string} value Value to write
+ * @returns {Writer} `this`
+ * @throws {TypeError} If `value` is a string and no long library is present.
+ */
+Writer.prototype.sfixed64 = Writer.prototype.fixed64;
+
+/**
+ * Writes a float (32 bit).
+ * @function
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.float = function write_float(value) {
+    return this._push(util.float.writeFloatLE, 4, value);
+};
+
+/**
+ * Writes a double (64 bit float).
+ * @function
+ * @param {number} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.double = function write_double(value) {
+    return this._push(util.float.writeDoubleLE, 8, value);
+};
+
+var writeBytes = util.Array.prototype.set
+    ? function writeBytes_set(val, buf, pos) {
+        buf.set(val, pos); // also works for plain array values
+    }
+    /* istanbul ignore next */
+    : function writeBytes_for(val, buf, pos) {
+        for (var i = 0; i < val.length; ++i)
+            buf[pos + i] = val[i];
+    };
+
+/**
+ * Writes a sequence of bytes.
+ * @param {Uint8Array|string} value Buffer or base64 encoded string to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.bytes = function write_bytes(value) {
+    var len = value.length >>> 0;
+    if (!len)
+        return this._push(writeByte, 1, 0);
+    if (util.isString(value)) {
+        var buf = Writer.alloc(len = base64.length(value));
+        base64.decode(value, buf, 0);
+        value = buf;
+    }
+    return this.uint32(len)._push(writeBytes, len, value);
+};
+
+/**
+ * Writes a string.
+ * @param {string} value Value to write
+ * @returns {Writer} `this`
+ */
+Writer.prototype.string = function write_string(value) {
+    var len = utf8.length(value);
+    return len
+        ? this.uint32(len)._push(utf8.write, len, value)
+        : this._push(writeByte, 1, 0);
+};
+
+/**
+ * Forks this writer's state by pushing it to a stack.
+ * Calling {@link Writer#reset|reset} or {@link Writer#ldelim|ldelim} resets the writer to the previous state.
+ * @returns {Writer} `this`
+ */
+Writer.prototype.fork = function fork() {
+    this.states = new State(this);
+    this.head = this.tail = new Op(noop, 0, 0);
+    this.len = 0;
+    return this;
+};
+
+/**
+ * Resets this instance to the last state.
+ * @returns {Writer} `this`
+ */
+Writer.prototype.reset = function reset() {
+    if (this.states) {
+        this.head   = this.states.head;
+        this.tail   = this.states.tail;
+        this.len    = this.states.len;
+        this.states = this.states.next;
+    } else {
+        this.head = this.tail = new Op(noop, 0, 0);
+        this.len  = 0;
+    }
+    return this;
+};
+
+/**
+ * Resets to the last state and appends the fork state's current write length as a varint followed by its operations.
+ * @returns {Writer} `this`
+ */
+Writer.prototype.ldelim = function ldelim() {
+    var head = this.head,
+        tail = this.tail,
+        len  = this.len;
+    this.reset().uint32(len);
+    if (len) {
+        this.tail.next = head.next; // skip noop
+        this.tail = tail;
+        this.len += len;
+    }
+    return this;
+};
+
+/**
+ * Finishes the write operation.
+ * @returns {Uint8Array} Finished buffer
+ */
+Writer.prototype.finish = function finish() {
+    var head = this.head.next, // skip noop
+        buf  = this.constructor.alloc(this.len),
+        pos  = 0;
+    while (head) {
+        head.fn(head.val, buf, pos);
+        pos += head.len;
+        head = head.next;
+    }
+    // this.head = this.tail = null;
+    return buf;
+};
+
+Writer._configure = function(BufferWriter_) {
+    BufferWriter = BufferWriter_;
+};
+
+},{"./util/minimal":33}],35:[function(require,module,exports){
+"use strict";
+module.exports = BufferWriter;
+
+// extends Writer
+var Writer = require("./writer");
+(BufferWriter.prototype = Object.create(Writer.prototype)).constructor = BufferWriter;
+
+var util = require("./util/minimal");
+
+var Buffer = util.Buffer;
+
+/**
+ * Constructs a new buffer writer instance.
+ * @classdesc Wire format writer using node buffers.
+ * @extends Writer
+ * @constructor
+ */
+function BufferWriter() {
+    Writer.call(this);
+}
+
+/**
+ * Allocates a buffer of the specified size.
+ * @param {number} size Buffer size
+ * @returns {Buffer} Buffer
+ */
+BufferWriter.alloc = function alloc_buffer(size) {
+    return (BufferWriter.alloc = util._Buffer_allocUnsafe)(size);
+};
+
+var writeBytesBuffer = Buffer && Buffer.prototype instanceof Uint8Array && Buffer.prototype.set.name === "set"
+    ? function writeBytesBuffer_set(val, buf, pos) {
+        buf.set(val, pos); // faster than copy (requires node >= 4 where Buffers extend Uint8Array and set is properly inherited)
+                           // also works for plain array values
+    }
+    /* istanbul ignore next */
+    : function writeBytesBuffer_copy(val, buf, pos) {
+        if (val.copy) // Buffer values
+            val.copy(buf, pos, 0, val.length);
+        else for (var i = 0; i < val.length;) // plain array values
+            buf[pos++] = val[i++];
+    };
+
+/**
+ * @override
+ */
+BufferWriter.prototype.bytes = function write_bytes_buffer(value) {
+    if (util.isString(value))
+        value = util._Buffer_from(value, "base64");
+    var len = value.length >>> 0;
+    this.uint32(len);
+    if (len)
+        this._push(writeBytesBuffer, len, value);
+    return this;
+};
+
+function writeStringBuffer(val, buf, pos) {
+    if (val.length < 40) // plain js is faster for short strings (probably due to redundant assertions)
+        util.utf8.write(val, buf, pos);
+    else
+        buf.utf8Write(val, pos);
+}
+
+/**
+ * @override
+ */
+BufferWriter.prototype.string = function write_string_buffer(value) {
+    var len = Buffer.byteLength(value);
+    this.uint32(len);
+    if (len)
+        this._push(writeStringBuffer, len, value);
+    return this;
+};
+
+
+/**
+ * Finishes the write operation.
+ * @name BufferWriter#finish
+ * @function
+ * @returns {Buffer} Finished buffer
+ */
+
+},{"./util/minimal":33,"./writer":34}],36:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -2618,7 +6053,7 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-},{"buffer":14}],17:[function(require,module,exports){
+},{"buffer":21}],37:[function(require,module,exports){
 (function(nacl) {
 'use strict';
 
@@ -4997,7 +8432,2227 @@ nacl.setPRNG = function(fn) {
 
 })(typeof module !== 'undefined' && module.exports ? module.exports : (self.nacl = self.nacl || {}));
 
-},{"crypto":11}],18:[function(require,module,exports){
+},{"crypto":18}],38:[function(require,module,exports){
+/*eslint-disable block-scoped-var, id-length, no-control-regex, no-magic-numbers, no-prototype-builtins, no-redeclare, no-shadow, no-var, sort-vars*/
+"use strict";
+
+var $protobuf = require("protobufjs/minimal");
+
+// Common aliases
+var $Reader = $protobuf.Reader, $Writer = $protobuf.Writer, $util = $protobuf.util;
+
+// Exported root namespace
+var $root = $protobuf.roots["default"] || ($protobuf.roots["default"] = {});
+
+$root.CreateAccountTransaction = (function() {
+
+    /**
+     * Properties of a CreateAccountTransaction.
+     * @exports ICreateAccountTransaction
+     * @interface ICreateAccountTransaction
+     * @property {number|Long|null} [nonce] CreateAccountTransaction nonce
+     * @property {string|null} [originator] CreateAccountTransaction originator
+     * @property {string|null} [newAccountId] CreateAccountTransaction newAccountId
+     * @property {number|Long|null} [amount] CreateAccountTransaction amount
+     * @property {Uint8Array|null} [publicKey] CreateAccountTransaction publicKey
+     */
+
+    /**
+     * Constructs a new CreateAccountTransaction.
+     * @exports CreateAccountTransaction
+     * @classdesc Represents a CreateAccountTransaction.
+     * @implements ICreateAccountTransaction
+     * @constructor
+     * @param {ICreateAccountTransaction=} [properties] Properties to set
+     */
+    function CreateAccountTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * CreateAccountTransaction nonce.
+     * @member {number|Long} nonce
+     * @memberof CreateAccountTransaction
+     * @instance
+     */
+    CreateAccountTransaction.prototype.nonce = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * CreateAccountTransaction originator.
+     * @member {string} originator
+     * @memberof CreateAccountTransaction
+     * @instance
+     */
+    CreateAccountTransaction.prototype.originator = "";
+
+    /**
+     * CreateAccountTransaction newAccountId.
+     * @member {string} newAccountId
+     * @memberof CreateAccountTransaction
+     * @instance
+     */
+    CreateAccountTransaction.prototype.newAccountId = "";
+
+    /**
+     * CreateAccountTransaction amount.
+     * @member {number|Long} amount
+     * @memberof CreateAccountTransaction
+     * @instance
+     */
+    CreateAccountTransaction.prototype.amount = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * CreateAccountTransaction publicKey.
+     * @member {Uint8Array} publicKey
+     * @memberof CreateAccountTransaction
+     * @instance
+     */
+    CreateAccountTransaction.prototype.publicKey = $util.newBuffer([]);
+
+    /**
+     * Creates a new CreateAccountTransaction instance using the specified properties.
+     * @function create
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {ICreateAccountTransaction=} [properties] Properties to set
+     * @returns {CreateAccountTransaction} CreateAccountTransaction instance
+     */
+    CreateAccountTransaction.create = function create(properties) {
+        return new CreateAccountTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified CreateAccountTransaction message. Does not implicitly {@link CreateAccountTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {ICreateAccountTransaction} message CreateAccountTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    CreateAccountTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
+        if (message.newAccountId != null && message.hasOwnProperty("newAccountId"))
+            writer.uint32(/* id 3, wireType 2 =*/26).string(message.newAccountId);
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            writer.uint32(/* id 4, wireType 0 =*/32).uint64(message.amount);
+        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+            writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.publicKey);
+        return writer;
+    };
+
+    /**
+     * Encodes the specified CreateAccountTransaction message, length delimited. Does not implicitly {@link CreateAccountTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {ICreateAccountTransaction} message CreateAccountTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    CreateAccountTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a CreateAccountTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {CreateAccountTransaction} CreateAccountTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    CreateAccountTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.CreateAccountTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.nonce = reader.uint64();
+                break;
+            case 2:
+                message.originator = reader.string();
+                break;
+            case 3:
+                message.newAccountId = reader.string();
+                break;
+            case 4:
+                message.amount = reader.uint64();
+                break;
+            case 5:
+                message.publicKey = reader.bytes();
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a CreateAccountTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {CreateAccountTransaction} CreateAccountTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    CreateAccountTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a CreateAccountTransaction message.
+     * @function verify
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    CreateAccountTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
+                return "nonce: integer|Long expected";
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            if (!$util.isString(message.originator))
+                return "originator: string expected";
+        if (message.newAccountId != null && message.hasOwnProperty("newAccountId"))
+            if (!$util.isString(message.newAccountId))
+                return "newAccountId: string expected";
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
+                return "amount: integer|Long expected";
+        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+            if (!(message.publicKey && typeof message.publicKey.length === "number" || $util.isString(message.publicKey)))
+                return "publicKey: buffer expected";
+        return null;
+    };
+
+    /**
+     * Creates a CreateAccountTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {CreateAccountTransaction} CreateAccountTransaction
+     */
+    CreateAccountTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.CreateAccountTransaction)
+            return object;
+        var message = new $root.CreateAccountTransaction();
+        if (object.nonce != null)
+            if ($util.Long)
+                (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
+            else if (typeof object.nonce === "string")
+                message.nonce = parseInt(object.nonce, 10);
+            else if (typeof object.nonce === "number")
+                message.nonce = object.nonce;
+            else if (typeof object.nonce === "object")
+                message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
+        if (object.originator != null)
+            message.originator = String(object.originator);
+        if (object.newAccountId != null)
+            message.newAccountId = String(object.newAccountId);
+        if (object.amount != null)
+            if ($util.Long)
+                (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
+            else if (typeof object.amount === "string")
+                message.amount = parseInt(object.amount, 10);
+            else if (typeof object.amount === "number")
+                message.amount = object.amount;
+            else if (typeof object.amount === "object")
+                message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
+        if (object.publicKey != null)
+            if (typeof object.publicKey === "string")
+                $util.base64.decode(object.publicKey, message.publicKey = $util.newBuffer($util.base64.length(object.publicKey)), 0);
+            else if (object.publicKey.length)
+                message.publicKey = object.publicKey;
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a CreateAccountTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof CreateAccountTransaction
+     * @static
+     * @param {CreateAccountTransaction} message CreateAccountTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    CreateAccountTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults) {
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.nonce = options.longs === String ? "0" : 0;
+            object.originator = "";
+            object.newAccountId = "";
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.amount = options.longs === String ? "0" : 0;
+            if (options.bytes === String)
+                object.publicKey = "";
+            else {
+                object.publicKey = [];
+                if (options.bytes !== Array)
+                    object.publicKey = $util.newBuffer(object.publicKey);
+            }
+        }
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (typeof message.nonce === "number")
+                object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
+            else
+                object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            object.originator = message.originator;
+        if (message.newAccountId != null && message.hasOwnProperty("newAccountId"))
+            object.newAccountId = message.newAccountId;
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (typeof message.amount === "number")
+                object.amount = options.longs === String ? String(message.amount) : message.amount;
+            else
+                object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
+        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+            object.publicKey = options.bytes === String ? $util.base64.encode(message.publicKey, 0, message.publicKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.publicKey) : message.publicKey;
+        return object;
+    };
+
+    /**
+     * Converts this CreateAccountTransaction to JSON.
+     * @function toJSON
+     * @memberof CreateAccountTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    CreateAccountTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return CreateAccountTransaction;
+})();
+
+$root.DeployContractTransaction = (function() {
+
+    /**
+     * Properties of a DeployContractTransaction.
+     * @exports IDeployContractTransaction
+     * @interface IDeployContractTransaction
+     * @property {number|Long|null} [nonce] DeployContractTransaction nonce
+     * @property {string|null} [originator] DeployContractTransaction originator
+     * @property {string|null} [contractId] DeployContractTransaction contractId
+     * @property {Uint8Array|null} [wasmByteArray] DeployContractTransaction wasmByteArray
+     * @property {Uint8Array|null} [publicKey] DeployContractTransaction publicKey
+     */
+
+    /**
+     * Constructs a new DeployContractTransaction.
+     * @exports DeployContractTransaction
+     * @classdesc Represents a DeployContractTransaction.
+     * @implements IDeployContractTransaction
+     * @constructor
+     * @param {IDeployContractTransaction=} [properties] Properties to set
+     */
+    function DeployContractTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * DeployContractTransaction nonce.
+     * @member {number|Long} nonce
+     * @memberof DeployContractTransaction
+     * @instance
+     */
+    DeployContractTransaction.prototype.nonce = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * DeployContractTransaction originator.
+     * @member {string} originator
+     * @memberof DeployContractTransaction
+     * @instance
+     */
+    DeployContractTransaction.prototype.originator = "";
+
+    /**
+     * DeployContractTransaction contractId.
+     * @member {string} contractId
+     * @memberof DeployContractTransaction
+     * @instance
+     */
+    DeployContractTransaction.prototype.contractId = "";
+
+    /**
+     * DeployContractTransaction wasmByteArray.
+     * @member {Uint8Array} wasmByteArray
+     * @memberof DeployContractTransaction
+     * @instance
+     */
+    DeployContractTransaction.prototype.wasmByteArray = $util.newBuffer([]);
+
+    /**
+     * DeployContractTransaction publicKey.
+     * @member {Uint8Array} publicKey
+     * @memberof DeployContractTransaction
+     * @instance
+     */
+    DeployContractTransaction.prototype.publicKey = $util.newBuffer([]);
+
+    /**
+     * Creates a new DeployContractTransaction instance using the specified properties.
+     * @function create
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {IDeployContractTransaction=} [properties] Properties to set
+     * @returns {DeployContractTransaction} DeployContractTransaction instance
+     */
+    DeployContractTransaction.create = function create(properties) {
+        return new DeployContractTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified DeployContractTransaction message. Does not implicitly {@link DeployContractTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {IDeployContractTransaction} message DeployContractTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    DeployContractTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
+        if (message.contractId != null && message.hasOwnProperty("contractId"))
+            writer.uint32(/* id 3, wireType 2 =*/26).string(message.contractId);
+        if (message.wasmByteArray != null && message.hasOwnProperty("wasmByteArray"))
+            writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.wasmByteArray);
+        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+            writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.publicKey);
+        return writer;
+    };
+
+    /**
+     * Encodes the specified DeployContractTransaction message, length delimited. Does not implicitly {@link DeployContractTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {IDeployContractTransaction} message DeployContractTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    DeployContractTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a DeployContractTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {DeployContractTransaction} DeployContractTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    DeployContractTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.DeployContractTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.nonce = reader.uint64();
+                break;
+            case 2:
+                message.originator = reader.string();
+                break;
+            case 3:
+                message.contractId = reader.string();
+                break;
+            case 4:
+                message.wasmByteArray = reader.bytes();
+                break;
+            case 5:
+                message.publicKey = reader.bytes();
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a DeployContractTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {DeployContractTransaction} DeployContractTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    DeployContractTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a DeployContractTransaction message.
+     * @function verify
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    DeployContractTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
+                return "nonce: integer|Long expected";
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            if (!$util.isString(message.originator))
+                return "originator: string expected";
+        if (message.contractId != null && message.hasOwnProperty("contractId"))
+            if (!$util.isString(message.contractId))
+                return "contractId: string expected";
+        if (message.wasmByteArray != null && message.hasOwnProperty("wasmByteArray"))
+            if (!(message.wasmByteArray && typeof message.wasmByteArray.length === "number" || $util.isString(message.wasmByteArray)))
+                return "wasmByteArray: buffer expected";
+        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+            if (!(message.publicKey && typeof message.publicKey.length === "number" || $util.isString(message.publicKey)))
+                return "publicKey: buffer expected";
+        return null;
+    };
+
+    /**
+     * Creates a DeployContractTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {DeployContractTransaction} DeployContractTransaction
+     */
+    DeployContractTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.DeployContractTransaction)
+            return object;
+        var message = new $root.DeployContractTransaction();
+        if (object.nonce != null)
+            if ($util.Long)
+                (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
+            else if (typeof object.nonce === "string")
+                message.nonce = parseInt(object.nonce, 10);
+            else if (typeof object.nonce === "number")
+                message.nonce = object.nonce;
+            else if (typeof object.nonce === "object")
+                message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
+        if (object.originator != null)
+            message.originator = String(object.originator);
+        if (object.contractId != null)
+            message.contractId = String(object.contractId);
+        if (object.wasmByteArray != null)
+            if (typeof object.wasmByteArray === "string")
+                $util.base64.decode(object.wasmByteArray, message.wasmByteArray = $util.newBuffer($util.base64.length(object.wasmByteArray)), 0);
+            else if (object.wasmByteArray.length)
+                message.wasmByteArray = object.wasmByteArray;
+        if (object.publicKey != null)
+            if (typeof object.publicKey === "string")
+                $util.base64.decode(object.publicKey, message.publicKey = $util.newBuffer($util.base64.length(object.publicKey)), 0);
+            else if (object.publicKey.length)
+                message.publicKey = object.publicKey;
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a DeployContractTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof DeployContractTransaction
+     * @static
+     * @param {DeployContractTransaction} message DeployContractTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    DeployContractTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults) {
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.nonce = options.longs === String ? "0" : 0;
+            object.originator = "";
+            object.contractId = "";
+            if (options.bytes === String)
+                object.wasmByteArray = "";
+            else {
+                object.wasmByteArray = [];
+                if (options.bytes !== Array)
+                    object.wasmByteArray = $util.newBuffer(object.wasmByteArray);
+            }
+            if (options.bytes === String)
+                object.publicKey = "";
+            else {
+                object.publicKey = [];
+                if (options.bytes !== Array)
+                    object.publicKey = $util.newBuffer(object.publicKey);
+            }
+        }
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (typeof message.nonce === "number")
+                object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
+            else
+                object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            object.originator = message.originator;
+        if (message.contractId != null && message.hasOwnProperty("contractId"))
+            object.contractId = message.contractId;
+        if (message.wasmByteArray != null && message.hasOwnProperty("wasmByteArray"))
+            object.wasmByteArray = options.bytes === String ? $util.base64.encode(message.wasmByteArray, 0, message.wasmByteArray.length) : options.bytes === Array ? Array.prototype.slice.call(message.wasmByteArray) : message.wasmByteArray;
+        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+            object.publicKey = options.bytes === String ? $util.base64.encode(message.publicKey, 0, message.publicKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.publicKey) : message.publicKey;
+        return object;
+    };
+
+    /**
+     * Converts this DeployContractTransaction to JSON.
+     * @function toJSON
+     * @memberof DeployContractTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    DeployContractTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return DeployContractTransaction;
+})();
+
+$root.FunctionCallTransaction = (function() {
+
+    /**
+     * Properties of a FunctionCallTransaction.
+     * @exports IFunctionCallTransaction
+     * @interface IFunctionCallTransaction
+     * @property {number|Long|null} [nonce] FunctionCallTransaction nonce
+     * @property {string|null} [originator] FunctionCallTransaction originator
+     * @property {string|null} [contractId] FunctionCallTransaction contractId
+     * @property {Uint8Array|null} [methodName] FunctionCallTransaction methodName
+     * @property {Uint8Array|null} [args] FunctionCallTransaction args
+     * @property {number|Long|null} [amount] FunctionCallTransaction amount
+     */
+
+    /**
+     * Constructs a new FunctionCallTransaction.
+     * @exports FunctionCallTransaction
+     * @classdesc Represents a FunctionCallTransaction.
+     * @implements IFunctionCallTransaction
+     * @constructor
+     * @param {IFunctionCallTransaction=} [properties] Properties to set
+     */
+    function FunctionCallTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * FunctionCallTransaction nonce.
+     * @member {number|Long} nonce
+     * @memberof FunctionCallTransaction
+     * @instance
+     */
+    FunctionCallTransaction.prototype.nonce = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * FunctionCallTransaction originator.
+     * @member {string} originator
+     * @memberof FunctionCallTransaction
+     * @instance
+     */
+    FunctionCallTransaction.prototype.originator = "";
+
+    /**
+     * FunctionCallTransaction contractId.
+     * @member {string} contractId
+     * @memberof FunctionCallTransaction
+     * @instance
+     */
+    FunctionCallTransaction.prototype.contractId = "";
+
+    /**
+     * FunctionCallTransaction methodName.
+     * @member {Uint8Array} methodName
+     * @memberof FunctionCallTransaction
+     * @instance
+     */
+    FunctionCallTransaction.prototype.methodName = $util.newBuffer([]);
+
+    /**
+     * FunctionCallTransaction args.
+     * @member {Uint8Array} args
+     * @memberof FunctionCallTransaction
+     * @instance
+     */
+    FunctionCallTransaction.prototype.args = $util.newBuffer([]);
+
+    /**
+     * FunctionCallTransaction amount.
+     * @member {number|Long} amount
+     * @memberof FunctionCallTransaction
+     * @instance
+     */
+    FunctionCallTransaction.prototype.amount = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * Creates a new FunctionCallTransaction instance using the specified properties.
+     * @function create
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {IFunctionCallTransaction=} [properties] Properties to set
+     * @returns {FunctionCallTransaction} FunctionCallTransaction instance
+     */
+    FunctionCallTransaction.create = function create(properties) {
+        return new FunctionCallTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified FunctionCallTransaction message. Does not implicitly {@link FunctionCallTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {IFunctionCallTransaction} message FunctionCallTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    FunctionCallTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
+        if (message.contractId != null && message.hasOwnProperty("contractId"))
+            writer.uint32(/* id 3, wireType 2 =*/26).string(message.contractId);
+        if (message.methodName != null && message.hasOwnProperty("methodName"))
+            writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.methodName);
+        if (message.args != null && message.hasOwnProperty("args"))
+            writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.args);
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            writer.uint32(/* id 6, wireType 0 =*/48).uint64(message.amount);
+        return writer;
+    };
+
+    /**
+     * Encodes the specified FunctionCallTransaction message, length delimited. Does not implicitly {@link FunctionCallTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {IFunctionCallTransaction} message FunctionCallTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    FunctionCallTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a FunctionCallTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {FunctionCallTransaction} FunctionCallTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    FunctionCallTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.FunctionCallTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.nonce = reader.uint64();
+                break;
+            case 2:
+                message.originator = reader.string();
+                break;
+            case 3:
+                message.contractId = reader.string();
+                break;
+            case 4:
+                message.methodName = reader.bytes();
+                break;
+            case 5:
+                message.args = reader.bytes();
+                break;
+            case 6:
+                message.amount = reader.uint64();
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a FunctionCallTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {FunctionCallTransaction} FunctionCallTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    FunctionCallTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a FunctionCallTransaction message.
+     * @function verify
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    FunctionCallTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
+                return "nonce: integer|Long expected";
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            if (!$util.isString(message.originator))
+                return "originator: string expected";
+        if (message.contractId != null && message.hasOwnProperty("contractId"))
+            if (!$util.isString(message.contractId))
+                return "contractId: string expected";
+        if (message.methodName != null && message.hasOwnProperty("methodName"))
+            if (!(message.methodName && typeof message.methodName.length === "number" || $util.isString(message.methodName)))
+                return "methodName: buffer expected";
+        if (message.args != null && message.hasOwnProperty("args"))
+            if (!(message.args && typeof message.args.length === "number" || $util.isString(message.args)))
+                return "args: buffer expected";
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
+                return "amount: integer|Long expected";
+        return null;
+    };
+
+    /**
+     * Creates a FunctionCallTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {FunctionCallTransaction} FunctionCallTransaction
+     */
+    FunctionCallTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.FunctionCallTransaction)
+            return object;
+        var message = new $root.FunctionCallTransaction();
+        if (object.nonce != null)
+            if ($util.Long)
+                (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
+            else if (typeof object.nonce === "string")
+                message.nonce = parseInt(object.nonce, 10);
+            else if (typeof object.nonce === "number")
+                message.nonce = object.nonce;
+            else if (typeof object.nonce === "object")
+                message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
+        if (object.originator != null)
+            message.originator = String(object.originator);
+        if (object.contractId != null)
+            message.contractId = String(object.contractId);
+        if (object.methodName != null)
+            if (typeof object.methodName === "string")
+                $util.base64.decode(object.methodName, message.methodName = $util.newBuffer($util.base64.length(object.methodName)), 0);
+            else if (object.methodName.length)
+                message.methodName = object.methodName;
+        if (object.args != null)
+            if (typeof object.args === "string")
+                $util.base64.decode(object.args, message.args = $util.newBuffer($util.base64.length(object.args)), 0);
+            else if (object.args.length)
+                message.args = object.args;
+        if (object.amount != null)
+            if ($util.Long)
+                (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
+            else if (typeof object.amount === "string")
+                message.amount = parseInt(object.amount, 10);
+            else if (typeof object.amount === "number")
+                message.amount = object.amount;
+            else if (typeof object.amount === "object")
+                message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a FunctionCallTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof FunctionCallTransaction
+     * @static
+     * @param {FunctionCallTransaction} message FunctionCallTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    FunctionCallTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults) {
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.nonce = options.longs === String ? "0" : 0;
+            object.originator = "";
+            object.contractId = "";
+            if (options.bytes === String)
+                object.methodName = "";
+            else {
+                object.methodName = [];
+                if (options.bytes !== Array)
+                    object.methodName = $util.newBuffer(object.methodName);
+            }
+            if (options.bytes === String)
+                object.args = "";
+            else {
+                object.args = [];
+                if (options.bytes !== Array)
+                    object.args = $util.newBuffer(object.args);
+            }
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.amount = options.longs === String ? "0" : 0;
+        }
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (typeof message.nonce === "number")
+                object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
+            else
+                object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            object.originator = message.originator;
+        if (message.contractId != null && message.hasOwnProperty("contractId"))
+            object.contractId = message.contractId;
+        if (message.methodName != null && message.hasOwnProperty("methodName"))
+            object.methodName = options.bytes === String ? $util.base64.encode(message.methodName, 0, message.methodName.length) : options.bytes === Array ? Array.prototype.slice.call(message.methodName) : message.methodName;
+        if (message.args != null && message.hasOwnProperty("args"))
+            object.args = options.bytes === String ? $util.base64.encode(message.args, 0, message.args.length) : options.bytes === Array ? Array.prototype.slice.call(message.args) : message.args;
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (typeof message.amount === "number")
+                object.amount = options.longs === String ? String(message.amount) : message.amount;
+            else
+                object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
+        return object;
+    };
+
+    /**
+     * Converts this FunctionCallTransaction to JSON.
+     * @function toJSON
+     * @memberof FunctionCallTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    FunctionCallTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return FunctionCallTransaction;
+})();
+
+$root.SendMoneyTransaction = (function() {
+
+    /**
+     * Properties of a SendMoneyTransaction.
+     * @exports ISendMoneyTransaction
+     * @interface ISendMoneyTransaction
+     * @property {number|Long|null} [nonce] SendMoneyTransaction nonce
+     * @property {string|null} [originator] SendMoneyTransaction originator
+     * @property {string|null} [receiver] SendMoneyTransaction receiver
+     * @property {number|Long|null} [amount] SendMoneyTransaction amount
+     */
+
+    /**
+     * Constructs a new SendMoneyTransaction.
+     * @exports SendMoneyTransaction
+     * @classdesc Represents a SendMoneyTransaction.
+     * @implements ISendMoneyTransaction
+     * @constructor
+     * @param {ISendMoneyTransaction=} [properties] Properties to set
+     */
+    function SendMoneyTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * SendMoneyTransaction nonce.
+     * @member {number|Long} nonce
+     * @memberof SendMoneyTransaction
+     * @instance
+     */
+    SendMoneyTransaction.prototype.nonce = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * SendMoneyTransaction originator.
+     * @member {string} originator
+     * @memberof SendMoneyTransaction
+     * @instance
+     */
+    SendMoneyTransaction.prototype.originator = "";
+
+    /**
+     * SendMoneyTransaction receiver.
+     * @member {string} receiver
+     * @memberof SendMoneyTransaction
+     * @instance
+     */
+    SendMoneyTransaction.prototype.receiver = "";
+
+    /**
+     * SendMoneyTransaction amount.
+     * @member {number|Long} amount
+     * @memberof SendMoneyTransaction
+     * @instance
+     */
+    SendMoneyTransaction.prototype.amount = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * Creates a new SendMoneyTransaction instance using the specified properties.
+     * @function create
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {ISendMoneyTransaction=} [properties] Properties to set
+     * @returns {SendMoneyTransaction} SendMoneyTransaction instance
+     */
+    SendMoneyTransaction.create = function create(properties) {
+        return new SendMoneyTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified SendMoneyTransaction message. Does not implicitly {@link SendMoneyTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {ISendMoneyTransaction} message SendMoneyTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    SendMoneyTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
+        if (message.receiver != null && message.hasOwnProperty("receiver"))
+            writer.uint32(/* id 3, wireType 2 =*/26).string(message.receiver);
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            writer.uint32(/* id 4, wireType 0 =*/32).uint64(message.amount);
+        return writer;
+    };
+
+    /**
+     * Encodes the specified SendMoneyTransaction message, length delimited. Does not implicitly {@link SendMoneyTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {ISendMoneyTransaction} message SendMoneyTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    SendMoneyTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a SendMoneyTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {SendMoneyTransaction} SendMoneyTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    SendMoneyTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.SendMoneyTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.nonce = reader.uint64();
+                break;
+            case 2:
+                message.originator = reader.string();
+                break;
+            case 3:
+                message.receiver = reader.string();
+                break;
+            case 4:
+                message.amount = reader.uint64();
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a SendMoneyTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {SendMoneyTransaction} SendMoneyTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    SendMoneyTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a SendMoneyTransaction message.
+     * @function verify
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    SendMoneyTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
+                return "nonce: integer|Long expected";
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            if (!$util.isString(message.originator))
+                return "originator: string expected";
+        if (message.receiver != null && message.hasOwnProperty("receiver"))
+            if (!$util.isString(message.receiver))
+                return "receiver: string expected";
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
+                return "amount: integer|Long expected";
+        return null;
+    };
+
+    /**
+     * Creates a SendMoneyTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {SendMoneyTransaction} SendMoneyTransaction
+     */
+    SendMoneyTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.SendMoneyTransaction)
+            return object;
+        var message = new $root.SendMoneyTransaction();
+        if (object.nonce != null)
+            if ($util.Long)
+                (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
+            else if (typeof object.nonce === "string")
+                message.nonce = parseInt(object.nonce, 10);
+            else if (typeof object.nonce === "number")
+                message.nonce = object.nonce;
+            else if (typeof object.nonce === "object")
+                message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
+        if (object.originator != null)
+            message.originator = String(object.originator);
+        if (object.receiver != null)
+            message.receiver = String(object.receiver);
+        if (object.amount != null)
+            if ($util.Long)
+                (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
+            else if (typeof object.amount === "string")
+                message.amount = parseInt(object.amount, 10);
+            else if (typeof object.amount === "number")
+                message.amount = object.amount;
+            else if (typeof object.amount === "object")
+                message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a SendMoneyTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof SendMoneyTransaction
+     * @static
+     * @param {SendMoneyTransaction} message SendMoneyTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    SendMoneyTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults) {
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.nonce = options.longs === String ? "0" : 0;
+            object.originator = "";
+            object.receiver = "";
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.amount = options.longs === String ? "0" : 0;
+        }
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (typeof message.nonce === "number")
+                object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
+            else
+                object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            object.originator = message.originator;
+        if (message.receiver != null && message.hasOwnProperty("receiver"))
+            object.receiver = message.receiver;
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (typeof message.amount === "number")
+                object.amount = options.longs === String ? String(message.amount) : message.amount;
+            else
+                object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
+        return object;
+    };
+
+    /**
+     * Converts this SendMoneyTransaction to JSON.
+     * @function toJSON
+     * @memberof SendMoneyTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    SendMoneyTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return SendMoneyTransaction;
+})();
+
+$root.StakeTransaction = (function() {
+
+    /**
+     * Properties of a StakeTransaction.
+     * @exports IStakeTransaction
+     * @interface IStakeTransaction
+     * @property {number|Long|null} [nonce] StakeTransaction nonce
+     * @property {string|null} [originator] StakeTransaction originator
+     * @property {number|Long|null} [amount] StakeTransaction amount
+     */
+
+    /**
+     * Constructs a new StakeTransaction.
+     * @exports StakeTransaction
+     * @classdesc Represents a StakeTransaction.
+     * @implements IStakeTransaction
+     * @constructor
+     * @param {IStakeTransaction=} [properties] Properties to set
+     */
+    function StakeTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * StakeTransaction nonce.
+     * @member {number|Long} nonce
+     * @memberof StakeTransaction
+     * @instance
+     */
+    StakeTransaction.prototype.nonce = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * StakeTransaction originator.
+     * @member {string} originator
+     * @memberof StakeTransaction
+     * @instance
+     */
+    StakeTransaction.prototype.originator = "";
+
+    /**
+     * StakeTransaction amount.
+     * @member {number|Long} amount
+     * @memberof StakeTransaction
+     * @instance
+     */
+    StakeTransaction.prototype.amount = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * Creates a new StakeTransaction instance using the specified properties.
+     * @function create
+     * @memberof StakeTransaction
+     * @static
+     * @param {IStakeTransaction=} [properties] Properties to set
+     * @returns {StakeTransaction} StakeTransaction instance
+     */
+    StakeTransaction.create = function create(properties) {
+        return new StakeTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified StakeTransaction message. Does not implicitly {@link StakeTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof StakeTransaction
+     * @static
+     * @param {IStakeTransaction} message StakeTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    StakeTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            writer.uint32(/* id 3, wireType 0 =*/24).uint64(message.amount);
+        return writer;
+    };
+
+    /**
+     * Encodes the specified StakeTransaction message, length delimited. Does not implicitly {@link StakeTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof StakeTransaction
+     * @static
+     * @param {IStakeTransaction} message StakeTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    StakeTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a StakeTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof StakeTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {StakeTransaction} StakeTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    StakeTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.StakeTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.nonce = reader.uint64();
+                break;
+            case 2:
+                message.originator = reader.string();
+                break;
+            case 3:
+                message.amount = reader.uint64();
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a StakeTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof StakeTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {StakeTransaction} StakeTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    StakeTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a StakeTransaction message.
+     * @function verify
+     * @memberof StakeTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    StakeTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
+                return "nonce: integer|Long expected";
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            if (!$util.isString(message.originator))
+                return "originator: string expected";
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
+                return "amount: integer|Long expected";
+        return null;
+    };
+
+    /**
+     * Creates a StakeTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof StakeTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {StakeTransaction} StakeTransaction
+     */
+    StakeTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.StakeTransaction)
+            return object;
+        var message = new $root.StakeTransaction();
+        if (object.nonce != null)
+            if ($util.Long)
+                (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
+            else if (typeof object.nonce === "string")
+                message.nonce = parseInt(object.nonce, 10);
+            else if (typeof object.nonce === "number")
+                message.nonce = object.nonce;
+            else if (typeof object.nonce === "object")
+                message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
+        if (object.originator != null)
+            message.originator = String(object.originator);
+        if (object.amount != null)
+            if ($util.Long)
+                (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
+            else if (typeof object.amount === "string")
+                message.amount = parseInt(object.amount, 10);
+            else if (typeof object.amount === "number")
+                message.amount = object.amount;
+            else if (typeof object.amount === "object")
+                message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a StakeTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof StakeTransaction
+     * @static
+     * @param {StakeTransaction} message StakeTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    StakeTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults) {
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.nonce = options.longs === String ? "0" : 0;
+            object.originator = "";
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.amount = options.longs === String ? "0" : 0;
+        }
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (typeof message.nonce === "number")
+                object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
+            else
+                object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            object.originator = message.originator;
+        if (message.amount != null && message.hasOwnProperty("amount"))
+            if (typeof message.amount === "number")
+                object.amount = options.longs === String ? String(message.amount) : message.amount;
+            else
+                object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
+        return object;
+    };
+
+    /**
+     * Converts this StakeTransaction to JSON.
+     * @function toJSON
+     * @memberof StakeTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    StakeTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return StakeTransaction;
+})();
+
+$root.SwapKeyTransaction = (function() {
+
+    /**
+     * Properties of a SwapKeyTransaction.
+     * @exports ISwapKeyTransaction
+     * @interface ISwapKeyTransaction
+     * @property {number|Long|null} [nonce] SwapKeyTransaction nonce
+     * @property {string|null} [originator] SwapKeyTransaction originator
+     * @property {Uint8Array|null} [curKey] SwapKeyTransaction curKey
+     * @property {Uint8Array|null} [newKey] SwapKeyTransaction newKey
+     */
+
+    /**
+     * Constructs a new SwapKeyTransaction.
+     * @exports SwapKeyTransaction
+     * @classdesc Represents a SwapKeyTransaction.
+     * @implements ISwapKeyTransaction
+     * @constructor
+     * @param {ISwapKeyTransaction=} [properties] Properties to set
+     */
+    function SwapKeyTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * SwapKeyTransaction nonce.
+     * @member {number|Long} nonce
+     * @memberof SwapKeyTransaction
+     * @instance
+     */
+    SwapKeyTransaction.prototype.nonce = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+    /**
+     * SwapKeyTransaction originator.
+     * @member {string} originator
+     * @memberof SwapKeyTransaction
+     * @instance
+     */
+    SwapKeyTransaction.prototype.originator = "";
+
+    /**
+     * SwapKeyTransaction curKey.
+     * @member {Uint8Array} curKey
+     * @memberof SwapKeyTransaction
+     * @instance
+     */
+    SwapKeyTransaction.prototype.curKey = $util.newBuffer([]);
+
+    /**
+     * SwapKeyTransaction newKey.
+     * @member {Uint8Array} newKey
+     * @memberof SwapKeyTransaction
+     * @instance
+     */
+    SwapKeyTransaction.prototype.newKey = $util.newBuffer([]);
+
+    /**
+     * Creates a new SwapKeyTransaction instance using the specified properties.
+     * @function create
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {ISwapKeyTransaction=} [properties] Properties to set
+     * @returns {SwapKeyTransaction} SwapKeyTransaction instance
+     */
+    SwapKeyTransaction.create = function create(properties) {
+        return new SwapKeyTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified SwapKeyTransaction message. Does not implicitly {@link SwapKeyTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {ISwapKeyTransaction} message SwapKeyTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    SwapKeyTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
+        if (message.curKey != null && message.hasOwnProperty("curKey"))
+            writer.uint32(/* id 3, wireType 2 =*/26).bytes(message.curKey);
+        if (message.newKey != null && message.hasOwnProperty("newKey"))
+            writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.newKey);
+        return writer;
+    };
+
+    /**
+     * Encodes the specified SwapKeyTransaction message, length delimited. Does not implicitly {@link SwapKeyTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {ISwapKeyTransaction} message SwapKeyTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    SwapKeyTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a SwapKeyTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {SwapKeyTransaction} SwapKeyTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    SwapKeyTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.SwapKeyTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.nonce = reader.uint64();
+                break;
+            case 2:
+                message.originator = reader.string();
+                break;
+            case 3:
+                message.curKey = reader.bytes();
+                break;
+            case 4:
+                message.newKey = reader.bytes();
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a SwapKeyTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {SwapKeyTransaction} SwapKeyTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    SwapKeyTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a SwapKeyTransaction message.
+     * @function verify
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    SwapKeyTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
+                return "nonce: integer|Long expected";
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            if (!$util.isString(message.originator))
+                return "originator: string expected";
+        if (message.curKey != null && message.hasOwnProperty("curKey"))
+            if (!(message.curKey && typeof message.curKey.length === "number" || $util.isString(message.curKey)))
+                return "curKey: buffer expected";
+        if (message.newKey != null && message.hasOwnProperty("newKey"))
+            if (!(message.newKey && typeof message.newKey.length === "number" || $util.isString(message.newKey)))
+                return "newKey: buffer expected";
+        return null;
+    };
+
+    /**
+     * Creates a SwapKeyTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {SwapKeyTransaction} SwapKeyTransaction
+     */
+    SwapKeyTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.SwapKeyTransaction)
+            return object;
+        var message = new $root.SwapKeyTransaction();
+        if (object.nonce != null)
+            if ($util.Long)
+                (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
+            else if (typeof object.nonce === "string")
+                message.nonce = parseInt(object.nonce, 10);
+            else if (typeof object.nonce === "number")
+                message.nonce = object.nonce;
+            else if (typeof object.nonce === "object")
+                message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
+        if (object.originator != null)
+            message.originator = String(object.originator);
+        if (object.curKey != null)
+            if (typeof object.curKey === "string")
+                $util.base64.decode(object.curKey, message.curKey = $util.newBuffer($util.base64.length(object.curKey)), 0);
+            else if (object.curKey.length)
+                message.curKey = object.curKey;
+        if (object.newKey != null)
+            if (typeof object.newKey === "string")
+                $util.base64.decode(object.newKey, message.newKey = $util.newBuffer($util.base64.length(object.newKey)), 0);
+            else if (object.newKey.length)
+                message.newKey = object.newKey;
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a SwapKeyTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof SwapKeyTransaction
+     * @static
+     * @param {SwapKeyTransaction} message SwapKeyTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    SwapKeyTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults) {
+            if ($util.Long) {
+                var long = new $util.Long(0, 0, true);
+                object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+            } else
+                object.nonce = options.longs === String ? "0" : 0;
+            object.originator = "";
+            if (options.bytes === String)
+                object.curKey = "";
+            else {
+                object.curKey = [];
+                if (options.bytes !== Array)
+                    object.curKey = $util.newBuffer(object.curKey);
+            }
+            if (options.bytes === String)
+                object.newKey = "";
+            else {
+                object.newKey = [];
+                if (options.bytes !== Array)
+                    object.newKey = $util.newBuffer(object.newKey);
+            }
+        }
+        if (message.nonce != null && message.hasOwnProperty("nonce"))
+            if (typeof message.nonce === "number")
+                object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
+            else
+                object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
+        if (message.originator != null && message.hasOwnProperty("originator"))
+            object.originator = message.originator;
+        if (message.curKey != null && message.hasOwnProperty("curKey"))
+            object.curKey = options.bytes === String ? $util.base64.encode(message.curKey, 0, message.curKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.curKey) : message.curKey;
+        if (message.newKey != null && message.hasOwnProperty("newKey"))
+            object.newKey = options.bytes === String ? $util.base64.encode(message.newKey, 0, message.newKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.newKey) : message.newKey;
+        return object;
+    };
+
+    /**
+     * Converts this SwapKeyTransaction to JSON.
+     * @function toJSON
+     * @memberof SwapKeyTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    SwapKeyTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return SwapKeyTransaction;
+})();
+
+$root.SignedTransaction = (function() {
+
+    /**
+     * Properties of a SignedTransaction.
+     * @exports ISignedTransaction
+     * @interface ISignedTransaction
+     * @property {Uint8Array|null} [signature] SignedTransaction signature
+     * @property {ICreateAccountTransaction|null} [createAccount] SignedTransaction createAccount
+     * @property {IDeployContractTransaction|null} [deployContract] SignedTransaction deployContract
+     * @property {IFunctionCallTransaction|null} [functionCall] SignedTransaction functionCall
+     * @property {ISendMoneyTransaction|null} [sendMoney] SignedTransaction sendMoney
+     * @property {IStakeTransaction|null} [stake] SignedTransaction stake
+     * @property {ISwapKeyTransaction|null} [swapKey] SignedTransaction swapKey
+     */
+
+    /**
+     * Constructs a new SignedTransaction.
+     * @exports SignedTransaction
+     * @classdesc Represents a SignedTransaction.
+     * @implements ISignedTransaction
+     * @constructor
+     * @param {ISignedTransaction=} [properties] Properties to set
+     */
+    function SignedTransaction(properties) {
+        if (properties)
+            for (var keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                if (properties[keys[i]] != null)
+                    this[keys[i]] = properties[keys[i]];
+    }
+
+    /**
+     * SignedTransaction signature.
+     * @member {Uint8Array} signature
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.signature = $util.newBuffer([]);
+
+    /**
+     * SignedTransaction createAccount.
+     * @member {ICreateAccountTransaction|null|undefined} createAccount
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.createAccount = null;
+
+    /**
+     * SignedTransaction deployContract.
+     * @member {IDeployContractTransaction|null|undefined} deployContract
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.deployContract = null;
+
+    /**
+     * SignedTransaction functionCall.
+     * @member {IFunctionCallTransaction|null|undefined} functionCall
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.functionCall = null;
+
+    /**
+     * SignedTransaction sendMoney.
+     * @member {ISendMoneyTransaction|null|undefined} sendMoney
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.sendMoney = null;
+
+    /**
+     * SignedTransaction stake.
+     * @member {IStakeTransaction|null|undefined} stake
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.stake = null;
+
+    /**
+     * SignedTransaction swapKey.
+     * @member {ISwapKeyTransaction|null|undefined} swapKey
+     * @memberof SignedTransaction
+     * @instance
+     */
+    SignedTransaction.prototype.swapKey = null;
+
+    // OneOf field names bound to virtual getters and setters
+    var $oneOfFields;
+
+    /**
+     * SignedTransaction body.
+     * @member {"createAccount"|"deployContract"|"functionCall"|"sendMoney"|"stake"|"swapKey"|undefined} body
+     * @memberof SignedTransaction
+     * @instance
+     */
+    Object.defineProperty(SignedTransaction.prototype, "body", {
+        get: $util.oneOfGetter($oneOfFields = ["createAccount", "deployContract", "functionCall", "sendMoney", "stake", "swapKey"]),
+        set: $util.oneOfSetter($oneOfFields)
+    });
+
+    /**
+     * Creates a new SignedTransaction instance using the specified properties.
+     * @function create
+     * @memberof SignedTransaction
+     * @static
+     * @param {ISignedTransaction=} [properties] Properties to set
+     * @returns {SignedTransaction} SignedTransaction instance
+     */
+    SignedTransaction.create = function create(properties) {
+        return new SignedTransaction(properties);
+    };
+
+    /**
+     * Encodes the specified SignedTransaction message. Does not implicitly {@link SignedTransaction.verify|verify} messages.
+     * @function encode
+     * @memberof SignedTransaction
+     * @static
+     * @param {ISignedTransaction} message SignedTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    SignedTransaction.encode = function encode(message, writer) {
+        if (!writer)
+            writer = $Writer.create();
+        if (message.signature != null && message.hasOwnProperty("signature"))
+            writer.uint32(/* id 1, wireType 2 =*/10).bytes(message.signature);
+        if (message.createAccount != null && message.hasOwnProperty("createAccount"))
+            $root.CreateAccountTransaction.encode(message.createAccount, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
+        if (message.deployContract != null && message.hasOwnProperty("deployContract"))
+            $root.DeployContractTransaction.encode(message.deployContract, writer.uint32(/* id 3, wireType 2 =*/26).fork()).ldelim();
+        if (message.functionCall != null && message.hasOwnProperty("functionCall"))
+            $root.FunctionCallTransaction.encode(message.functionCall, writer.uint32(/* id 4, wireType 2 =*/34).fork()).ldelim();
+        if (message.sendMoney != null && message.hasOwnProperty("sendMoney"))
+            $root.SendMoneyTransaction.encode(message.sendMoney, writer.uint32(/* id 5, wireType 2 =*/42).fork()).ldelim();
+        if (message.stake != null && message.hasOwnProperty("stake"))
+            $root.StakeTransaction.encode(message.stake, writer.uint32(/* id 6, wireType 2 =*/50).fork()).ldelim();
+        if (message.swapKey != null && message.hasOwnProperty("swapKey"))
+            $root.SwapKeyTransaction.encode(message.swapKey, writer.uint32(/* id 7, wireType 2 =*/58).fork()).ldelim();
+        return writer;
+    };
+
+    /**
+     * Encodes the specified SignedTransaction message, length delimited. Does not implicitly {@link SignedTransaction.verify|verify} messages.
+     * @function encodeDelimited
+     * @memberof SignedTransaction
+     * @static
+     * @param {ISignedTransaction} message SignedTransaction message or plain object to encode
+     * @param {$protobuf.Writer} [writer] Writer to encode to
+     * @returns {$protobuf.Writer} Writer
+     */
+    SignedTransaction.encodeDelimited = function encodeDelimited(message, writer) {
+        return this.encode(message, writer).ldelim();
+    };
+
+    /**
+     * Decodes a SignedTransaction message from the specified reader or buffer.
+     * @function decode
+     * @memberof SignedTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @param {number} [length] Message length if known beforehand
+     * @returns {SignedTransaction} SignedTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    SignedTransaction.decode = function decode(reader, length) {
+        if (!(reader instanceof $Reader))
+            reader = $Reader.create(reader);
+        var end = length === undefined ? reader.len : reader.pos + length, message = new $root.SignedTransaction();
+        while (reader.pos < end) {
+            var tag = reader.uint32();
+            switch (tag >>> 3) {
+            case 1:
+                message.signature = reader.bytes();
+                break;
+            case 2:
+                message.createAccount = $root.CreateAccountTransaction.decode(reader, reader.uint32());
+                break;
+            case 3:
+                message.deployContract = $root.DeployContractTransaction.decode(reader, reader.uint32());
+                break;
+            case 4:
+                message.functionCall = $root.FunctionCallTransaction.decode(reader, reader.uint32());
+                break;
+            case 5:
+                message.sendMoney = $root.SendMoneyTransaction.decode(reader, reader.uint32());
+                break;
+            case 6:
+                message.stake = $root.StakeTransaction.decode(reader, reader.uint32());
+                break;
+            case 7:
+                message.swapKey = $root.SwapKeyTransaction.decode(reader, reader.uint32());
+                break;
+            default:
+                reader.skipType(tag & 7);
+                break;
+            }
+        }
+        return message;
+    };
+
+    /**
+     * Decodes a SignedTransaction message from the specified reader or buffer, length delimited.
+     * @function decodeDelimited
+     * @memberof SignedTransaction
+     * @static
+     * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+     * @returns {SignedTransaction} SignedTransaction
+     * @throws {Error} If the payload is not a reader or valid buffer
+     * @throws {$protobuf.util.ProtocolError} If required fields are missing
+     */
+    SignedTransaction.decodeDelimited = function decodeDelimited(reader) {
+        if (!(reader instanceof $Reader))
+            reader = new $Reader(reader);
+        return this.decode(reader, reader.uint32());
+    };
+
+    /**
+     * Verifies a SignedTransaction message.
+     * @function verify
+     * @memberof SignedTransaction
+     * @static
+     * @param {Object.<string,*>} message Plain object to verify
+     * @returns {string|null} `null` if valid, otherwise the reason why it is not
+     */
+    SignedTransaction.verify = function verify(message) {
+        if (typeof message !== "object" || message === null)
+            return "object expected";
+        var properties = {};
+        if (message.signature != null && message.hasOwnProperty("signature"))
+            if (!(message.signature && typeof message.signature.length === "number" || $util.isString(message.signature)))
+                return "signature: buffer expected";
+        if (message.createAccount != null && message.hasOwnProperty("createAccount")) {
+            properties.body = 1;
+            {
+                var error = $root.CreateAccountTransaction.verify(message.createAccount);
+                if (error)
+                    return "createAccount." + error;
+            }
+        }
+        if (message.deployContract != null && message.hasOwnProperty("deployContract")) {
+            if (properties.body === 1)
+                return "body: multiple values";
+            properties.body = 1;
+            {
+                var error = $root.DeployContractTransaction.verify(message.deployContract);
+                if (error)
+                    return "deployContract." + error;
+            }
+        }
+        if (message.functionCall != null && message.hasOwnProperty("functionCall")) {
+            if (properties.body === 1)
+                return "body: multiple values";
+            properties.body = 1;
+            {
+                var error = $root.FunctionCallTransaction.verify(message.functionCall);
+                if (error)
+                    return "functionCall." + error;
+            }
+        }
+        if (message.sendMoney != null && message.hasOwnProperty("sendMoney")) {
+            if (properties.body === 1)
+                return "body: multiple values";
+            properties.body = 1;
+            {
+                var error = $root.SendMoneyTransaction.verify(message.sendMoney);
+                if (error)
+                    return "sendMoney." + error;
+            }
+        }
+        if (message.stake != null && message.hasOwnProperty("stake")) {
+            if (properties.body === 1)
+                return "body: multiple values";
+            properties.body = 1;
+            {
+                var error = $root.StakeTransaction.verify(message.stake);
+                if (error)
+                    return "stake." + error;
+            }
+        }
+        if (message.swapKey != null && message.hasOwnProperty("swapKey")) {
+            if (properties.body === 1)
+                return "body: multiple values";
+            properties.body = 1;
+            {
+                var error = $root.SwapKeyTransaction.verify(message.swapKey);
+                if (error)
+                    return "swapKey." + error;
+            }
+        }
+        return null;
+    };
+
+    /**
+     * Creates a SignedTransaction message from a plain object. Also converts values to their respective internal types.
+     * @function fromObject
+     * @memberof SignedTransaction
+     * @static
+     * @param {Object.<string,*>} object Plain object
+     * @returns {SignedTransaction} SignedTransaction
+     */
+    SignedTransaction.fromObject = function fromObject(object) {
+        if (object instanceof $root.SignedTransaction)
+            return object;
+        var message = new $root.SignedTransaction();
+        if (object.signature != null)
+            if (typeof object.signature === "string")
+                $util.base64.decode(object.signature, message.signature = $util.newBuffer($util.base64.length(object.signature)), 0);
+            else if (object.signature.length)
+                message.signature = object.signature;
+        if (object.createAccount != null) {
+            if (typeof object.createAccount !== "object")
+                throw TypeError(".SignedTransaction.createAccount: object expected");
+            message.createAccount = $root.CreateAccountTransaction.fromObject(object.createAccount);
+        }
+        if (object.deployContract != null) {
+            if (typeof object.deployContract !== "object")
+                throw TypeError(".SignedTransaction.deployContract: object expected");
+            message.deployContract = $root.DeployContractTransaction.fromObject(object.deployContract);
+        }
+        if (object.functionCall != null) {
+            if (typeof object.functionCall !== "object")
+                throw TypeError(".SignedTransaction.functionCall: object expected");
+            message.functionCall = $root.FunctionCallTransaction.fromObject(object.functionCall);
+        }
+        if (object.sendMoney != null) {
+            if (typeof object.sendMoney !== "object")
+                throw TypeError(".SignedTransaction.sendMoney: object expected");
+            message.sendMoney = $root.SendMoneyTransaction.fromObject(object.sendMoney);
+        }
+        if (object.stake != null) {
+            if (typeof object.stake !== "object")
+                throw TypeError(".SignedTransaction.stake: object expected");
+            message.stake = $root.StakeTransaction.fromObject(object.stake);
+        }
+        if (object.swapKey != null) {
+            if (typeof object.swapKey !== "object")
+                throw TypeError(".SignedTransaction.swapKey: object expected");
+            message.swapKey = $root.SwapKeyTransaction.fromObject(object.swapKey);
+        }
+        return message;
+    };
+
+    /**
+     * Creates a plain object from a SignedTransaction message. Also converts values to other types if specified.
+     * @function toObject
+     * @memberof SignedTransaction
+     * @static
+     * @param {SignedTransaction} message SignedTransaction
+     * @param {$protobuf.IConversionOptions} [options] Conversion options
+     * @returns {Object.<string,*>} Plain object
+     */
+    SignedTransaction.toObject = function toObject(message, options) {
+        if (!options)
+            options = {};
+        var object = {};
+        if (options.defaults)
+            if (options.bytes === String)
+                object.signature = "";
+            else {
+                object.signature = [];
+                if (options.bytes !== Array)
+                    object.signature = $util.newBuffer(object.signature);
+            }
+        if (message.signature != null && message.hasOwnProperty("signature"))
+            object.signature = options.bytes === String ? $util.base64.encode(message.signature, 0, message.signature.length) : options.bytes === Array ? Array.prototype.slice.call(message.signature) : message.signature;
+        if (message.createAccount != null && message.hasOwnProperty("createAccount")) {
+            object.createAccount = $root.CreateAccountTransaction.toObject(message.createAccount, options);
+            if (options.oneofs)
+                object.body = "createAccount";
+        }
+        if (message.deployContract != null && message.hasOwnProperty("deployContract")) {
+            object.deployContract = $root.DeployContractTransaction.toObject(message.deployContract, options);
+            if (options.oneofs)
+                object.body = "deployContract";
+        }
+        if (message.functionCall != null && message.hasOwnProperty("functionCall")) {
+            object.functionCall = $root.FunctionCallTransaction.toObject(message.functionCall, options);
+            if (options.oneofs)
+                object.body = "functionCall";
+        }
+        if (message.sendMoney != null && message.hasOwnProperty("sendMoney")) {
+            object.sendMoney = $root.SendMoneyTransaction.toObject(message.sendMoney, options);
+            if (options.oneofs)
+                object.body = "sendMoney";
+        }
+        if (message.stake != null && message.hasOwnProperty("stake")) {
+            object.stake = $root.StakeTransaction.toObject(message.stake, options);
+            if (options.oneofs)
+                object.body = "stake";
+        }
+        if (message.swapKey != null && message.hasOwnProperty("swapKey")) {
+            object.swapKey = $root.SwapKeyTransaction.toObject(message.swapKey, options);
+            if (options.oneofs)
+                object.body = "swapKey";
+        }
+        return object;
+    };
+
+    /**
+     * Converts this SignedTransaction to JSON.
+     * @function toJSON
+     * @memberof SignedTransaction
+     * @instance
+     * @returns {Object.<string,*>} JSON object
+     */
+    SignedTransaction.prototype.toJSON = function toJSON() {
+        return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+    };
+
+    return SignedTransaction;
+})();
+
+module.exports = $root;
+
+},{"protobufjs/minimal":25}],39:[function(require,module,exports){
 /**
  * Stores keys in the browser local storage. This allows to retain keys between
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
@@ -5054,7 +10709,7 @@ class BrowserLocalStorageKeystore {
 }
 
 module.exports = BrowserLocalStorageKeystore;
-},{"./key_pair":20}],19:[function(require,module,exports){
+},{"./key_pair":41}],40:[function(require,module,exports){
 /**
  * Simple in-memory keystore for testing purposes.
  */
@@ -5073,7 +10728,7 @@ class InMemoryKeyStore {
 }
 
 module.exports = InMemoryKeyStore;
-},{}],20:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 (function (Buffer){
 
 const bs58 = require('bs58');
@@ -5131,12 +10786,13 @@ class KeyPair {
 }
 module.exports = KeyPair;
 }).call(this,require("buffer").Buffer)
-},{"bs58":13,"buffer":14,"tweetnacl":17}],21:[function(require,module,exports){
+},{"bs58":20,"buffer":21,"tweetnacl":37}],42:[function(require,module,exports){
 /**
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
 const bs58 = require('bs58');
-const nacl = require('tweetnacl');
+const nacl = require("tweetnacl");
+const { sha256 } = require('js-sha256');
 
 class SimpleKeyStoreSigner {
     constructor(keyStore) {
@@ -5144,33 +10800,23 @@ class SimpleKeyStoreSigner {
     }
 
     /**
-     * Sign a given hash. If the key for senderAccountId is not present, this operation
-     * will fail.
-     * @param {Buffer} hash
+     * Sign a transaction body. If the key for senderAccountId is not present, 
+     * this operation will fail.
+     * @param {object} body
      * @param {string} senderAccountId
      */
-    async signHash(hash, senderAccountId) {
+    async signTransactionBody(body, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
-        const message = bs58.decode(hash);
+        const message = new Uint8Array(sha256.array(body));
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(message, key)];
         return signature;
     }
-
-    /**
-     * Sign a transaction. If the key for senderAccountId is not present, this operation
-     * will fail.
-     * @param {object} tx Transaction details
-     * @param {string} senderAccountId
-     */
-    signTransaction(tx, senderAccountId) {
-        return this.signHash(tx.hash, senderAccountId);
-    }
-
 }
 
 module.exports = SimpleKeyStoreSigner;
-},{"bs58":13,"tweetnacl":17}],22:[function(require,module,exports){
+
+},{"bs58":20,"js-sha256":23,"tweetnacl":37}],43:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
@@ -5325,4 +10971,4 @@ class WalletAccount {
 module.exports = WalletAccount;
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":14}]},{},[2]);
+},{"buffer":21}]},{},[2]);
