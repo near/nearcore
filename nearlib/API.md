@@ -4,20 +4,20 @@
 
 ### Table of Contents
 
--   [Account](#account)
-    -   [Parameters](#parameters)
-    -   [createAccount](#createaccount)
-        -   [Parameters](#parameters-1)
-    -   [createAccountWithRandomKey](#createaccountwithrandomkey)
-        -   [Parameters](#parameters-2)
-    -   [viewAccount](#viewaccount)
-        -   [Parameters](#parameters-3)
 -   [KeyPair](#keypair)
-    -   [Parameters](#parameters-4)
+    -   [Parameters](#parameters)
     -   [getPublicKey](#getpublickey)
     -   [getSecretKey](#getsecretkey)
     -   [fromRandomSeed](#fromrandomseed)
     -   [encodeBufferInBs58](#encodebufferinbs58)
+        -   [Parameters](#parameters-1)
+-   [Account](#account)
+    -   [Parameters](#parameters-2)
+    -   [createAccount](#createaccount)
+        -   [Parameters](#parameters-3)
+    -   [createAccountWithRandomKey](#createaccountwithrandomkey)
+        -   [Parameters](#parameters-4)
+    -   [viewAccount](#viewaccount)
         -   [Parameters](#parameters-5)
 -   [Near](#near)
     -   [Parameters](#parameters-6)
@@ -27,46 +27,12 @@
         -   [Parameters](#parameters-8)
     -   [deployContract](#deploycontract)
         -   [Parameters](#parameters-9)
-    -   [loadContract](#loadcontract)
+    -   [getTransactionStatus](#gettransactionstatus)
         -   [Parameters](#parameters-10)
-    -   [createDefaultConfig](#createdefaultconfig)
+    -   [loadContract](#loadcontract)
         -   [Parameters](#parameters-11)
-
-## Account
-
-Near account and account related operations.
-
-### Parameters
-
--   `nearClient`  
-
-### createAccount
-
-Creates a new account with a given name and key,
-
-#### Parameters
-
--   `newAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the new account.
--   `publicKey` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** public key to associate with the new account
--   `amount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of tokens to transfer from originator account id to the new account as part of the creation.
--   `originatorAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** existing account on the blockchain to use for transferring tokens into the new account
-
-### createAccountWithRandomKey
-
-Creates a new account with a new random key pair. Returns the key pair to the caller. It's the caller's responsibility to
-manage this key pair.
-
-#### Parameters
-
--   `newAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the new account
--   `amount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of tokens to transfer from originator account id to the new account as part of the creation.
--   `originatorAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** existing account on the blockchain to use for transferring tokens into the new account
-
-### viewAccount
-
-#### Parameters
-
--   `accountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the account to look up
+    -   [createDefaultConfig](#createdefaultconfig)
+        -   [Parameters](#parameters-12)
 
 ## KeyPair
 
@@ -97,6 +63,43 @@ Encode a buffer as string using bs58
 
 -   `buffer` **[Buffer](https://nodejs.org/api/buffer.html)** 
 
+## Account
+
+Near account and account related operations.
+
+### Parameters
+
+-   `nearClient`  
+
+### createAccount
+
+Creates a new account with a given name and key,
+
+#### Parameters
+
+-   `newAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the new account.
+-   `publicKey` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** public key to associate with the new account
+-   `amount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of tokens to transfer from originator account id to the new account as part of the creation.
+-   `originator`  
+-   `originatorAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** existing account on the blockchain to use for transferring tokens into the new account
+
+### createAccountWithRandomKey
+
+Creates a new account with a new random key pair. Returns the key pair to the caller. It's the caller's responsibility to
+manage this key pair.
+
+#### Parameters
+
+-   `newAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the new account
+-   `amount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of tokens to transfer from originator account id to the new account as part of the creation.
+-   `originatorAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** existing account on the blockchain to use for transferring tokens into the new account
+
+### viewAccount
+
+#### Parameters
+
+-   `accountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the account to look up
+
 ## Near
 
 Javascript library for interacting with near.
@@ -124,10 +127,12 @@ check the status of the transaction later.
 #### Parameters
 
 -   `amount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of tokens to transfer as part of the operation
--   `sender` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the sender
--   `contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the contract
+-   `originator`  
+-   `contractId`  
 -   `methodName` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** method to call
 -   `args` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** arguments to pass to the method
+-   `sender` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the sender
+-   `contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the contract
 
 ### deployContract
 
@@ -135,9 +140,20 @@ Deploys a smart contract to the block chain
 
 #### Parameters
 
+-   `originator`  
+-   `contractId`  
+-   `wasmByteArray`  
 -   `sender` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the sender
 -   `contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the contract
 -   `wasmArray` **[Uint8Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array)** wasm binary
+
+### getTransactionStatus
+
+Get a status of a single transaction identified by the transaction hash.
+
+#### Parameters
+
+-   `transactionHash` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** unique identifier of the transaction
 
 ### loadContract
 
