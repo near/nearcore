@@ -9,7 +9,7 @@ use primitives::types::{
 };
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
 use transaction::{
-    FinalTransactionStatus, SignedTransaction, Transaction, TransactionResult,
+    FinalTransactionResult, SignedTransaction, Transaction, TransactionResult,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -244,10 +244,8 @@ pub struct GetTransactionRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct TransactionResultResponse {
-    /// Status of given transaction, including it's receipts.
-    pub status: FinalTransactionStatus,
-    /// Result of given transaction.
-    pub result: TransactionResult,
+    /// Final result of given transaction, including it's receipts.
+    pub result: FinalTransactionResult,
 }
 
 #[derive(Serialize, Deserialize)]

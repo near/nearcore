@@ -27,8 +27,10 @@
         -   [Parameters](#parameters-8)
     -   [deployContract](#deploycontract)
         -   [Parameters](#parameters-9)
-    -   [createDefaultConfig](#createdefaultconfig)
+    -   [loadContract](#loadcontract)
         -   [Parameters](#parameters-10)
+    -   [createDefaultConfig](#createdefaultconfig)
+        -   [Parameters](#parameters-11)
 
 ## Account
 
@@ -136,6 +138,28 @@ Deploys a smart contract to the block chain
 -   `sender` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the sender
 -   `contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the contract
 -   `wasmArray` **[Uint8Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array)** wasm binary
+
+### loadContract
+
+Load given contract and expose it's methods.
+
+Every method is taking named arguments as JS object, e.g.:
+`{ paramName1: "val1", paramName2: 123 }`
+
+View method returns promise which is resolved to result when it's available.
+State change method returns promise which is resolved when state change is succesful and rejected otherwise.
+
+Note that `options` param is only needed temporary while contract introspection capabilities are missing.
+
+#### Parameters
+
+-   `contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** contract account name
+-   `options` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** object used to pass named parameters
+    -   `options.sender` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account name of user which is sending transactions
+    -   `options.viewMethods` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)&lt;[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)>** list of view methods to load (which don't change state)
+    -   `options.changeMethods` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)&lt;[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)>** list of methods to load that change state
+
+Returns **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** object with methods corresponding to given contract methods.
 
 ### createDefaultConfig
 
