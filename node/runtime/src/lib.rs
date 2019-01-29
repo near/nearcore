@@ -1395,7 +1395,7 @@ mod tests {
             nonce: 1,
             originator: alice_account(),
             contract_id: eve_account(),
-            public_key: pub_key.encode().unwrap(),
+            public_key: pub_key.0[..].to_vec(),
             wasm_byte_array: wasm_binary.to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
@@ -1598,7 +1598,7 @@ mod tests {
             originator: alice_account(),
             new_account_id: eve_account(),
             amount: 10,
-            public_key: pub_key.encode().unwrap()
+            public_key: pub_key.0[..].to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
@@ -1737,7 +1737,7 @@ mod tests {
             originator: alice_account(),
             new_account_id: eve_account(),
             amount: 10,
-            public_key: pub_key1.encode().unwrap()
+            public_key: pub_key1.0[..].to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
