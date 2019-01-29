@@ -20,7 +20,8 @@ module.exports = {
             try {
                 const accountLookupResult = await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
-            } catch (_) {
+            } catch (e) {
+                console.log("Error looking up temp account", e);
                 // Something went wrong! Recreate user by continuing the flow
             }
         } else {
