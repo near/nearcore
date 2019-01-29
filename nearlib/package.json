@@ -10,6 +10,8 @@
   "main": "index.js",
   "dependencies": {
     "bs58": "^4.0.1",
+    "js-sha256": "^0.9.0",
+    "protobufjs": "^6.8.8",
     "node-fetch": "^2.3.0",
     "tweetnacl": "^1.0.0"
   },

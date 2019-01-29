@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
 import subprocess
 import sys
+
+from protos import signed_transaction_pb2
 
 try:
     # py2
@@ -61,6 +65,38 @@ def b58encode(v):
     result = b58encode_int(acc, default_one=False)
 
     return alphabet[0:1] * pad_size + result
+
+
+def b58decode(s):
+    if not s:
+        return b''
+
+    # Convert the string to an integer
+    n = 0
+    for c in s:
+        n *= 58
+        if c not in alphabet:
+            msg = "Character {} is not a valid base58 character".format(c)
+            raise Exception(msg)
+
+        digit = alphabet.index(c)
+        n += digit
+
+    # Convert the integer to bytes
+    h = '%x' % n
+    if len(h) % 2:
+        h = '0' + h
+    res = binascii.unhexlify(h.encode('utf8'))
+
+    # Add padding back.
+    pad = 0
+    for c in s[:-1]:
+        if c == alphabet[0]:
+            pad += 1
+        else:
+            break
+
+    return b'\x00' * pad + res
 
 
 def _get_account_id(account_alias):
@@ -125,10 +161,15 @@ class NearRPC(object):
         else:
             args = 'cargo run -p keystore --'.split()
 
+        body = body.SerializeToString()
+        m = hashlib.sha256()
+        m.update(body)
+        hashed = m.digest()
+        data = base64.b64encode(hashed)
         args += [
-            'sign_transaction',
+            'sign',
             '--data',
-            json.dumps(body),
+            data,
             '--keystore-path',
             self._keystore_path,
         ]
@@ -143,11 +184,13 @@ class NearRPC(object):
             sys.stdout.write(stdout)
             exit(1)
 
-        return json.loads(stdout)
+        return base64.b64decode(stdout)
 
-    def _handle_prepared_transaction_body_response(self, response):
-        signed_transaction = self._sign_transaction_body(response['body'])
-        return self._call_rpc('submit_transaction', signed_transaction)
+    def _submit_transaction(self, transaction):
+        transaction = transaction.SerializeToString()
+        transaction = base64.b64encode(transaction)
+        params = {'transaction': transaction}
+        return self._call_rpc('submit_transaction', params)
 
     def _get_public_key(self):
         if self._public_key is None:
@@ -176,42 +219,60 @@ class NearRPC(object):
 
     def deploy_contract(self, sender, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
-            wasm_byte_array = list(bytearray(f.read()))
+            wasm_byte_array = f.read()
 
         nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'originator': _get_account_id(sender),
-            'contract_account_id': _get_account_id(contract_name),
-            'wasm_byte_array': wasm_byte_array,
-            'public_key': self._get_public_key(),
-        }
+
+        deploy_contract = signed_transaction_pb2.DeployContractTransaction()
+        deploy_contract.nonce = nonce
+        deploy_contract.originator = _get_account_id(sender)
+        deploy_contract.contract_id = _get_account_id(contract_name)
+        deploy_contract.wasm_byte_array = wasm_byte_array
+        deploy_contract.public_key = b58decode(self._get_public_key())
+
+        signature = self._sign_transaction_body(deploy_contract)
+
+        signed_transaction = signed_transaction_pb2.SignedTransaction()
+        signed_transaction.deploy_contract.CopyFrom(deploy_contract)
+        signed_transaction.signature = signature
+
         self._update_nonce(sender)
-        response = self._call_rpc('deploy_contract', params)
-        return self._handle_prepared_transaction_body_response(response)
+        return self._submit_transaction(signed_transaction)
 
     def send_money(self, sender, receiver, amount):
         nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'originator': _get_account_id(sender),
-            'receiver_account_id': _get_account_id(receiver),
-            'amount': amount,
-        }
+
+        send_money = signed_transaction_pb2.SendMoneyTransaction()
+        send_money.nonce = nonce
+        send_money.originator = _get_account_id(sender)
+        send_money.receiver = _get_account_id(receiver)
+        send_money.amount = amount
+
+        signature = self._sign_transaction_body(send_money)
+
+        signed_transaction = signed_transaction_pb2.SignedTransaction()
+        signed_transaction.send_money.CopyFrom(send_money)
+        signed_transaction.signature = signature
+
         self._update_nonce(sender)
-        response = self._call_rpc('send_money', params)
-        return self._handle_prepared_transaction_body_response(response)
+        return self._submit_transaction(signed_transaction)
 
     def stake(self, sender, amount):
         nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'originator': sender,
-            'amount': amount,
-        }
+
+        stake = signed_transaction_pb2.StakeTransaction()
+        stake.nonce = nonce
+        stake.originator = _get_account_id(sender)
+        stake.amount = amount
+
+        signature = self._sign_transaction_body(stake)
+
+        signed_transaction = signed_transaction_pb2.SignedTransaction()
+        signed_transaction.stake.CopyFrom(stake)
+        signed_transaction.signature = signature
+
         self._update_nonce(sender)
-        response = self._call_rpc('stake', params)
-        return self._handle_prepared_transaction_body_response(response)
+        return self._submit_transaction(signed_transaction)
 
     def schedule_function_call(
         self,
@@ -223,20 +284,24 @@ class NearRPC(object):
     ):
         if args is None:
             args = "{}"
-        args = list(bytearray(args))
 
         nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'originator': _get_account_id(sender),
-            'contract_account_id': _get_account_id(contract_name),
-            'method_name': method_name,
-            'args': args,
-            'amount': amount,
-        }
+        function_call = signed_transaction_pb2.FunctionCallTransaction()
+        function_call.nonce = nonce
+        function_call.originator = _get_account_id(sender)
+        function_call.contract_id = _get_account_id(contract_name)
+        function_call.method_name = method_name.encode('utf-8')
+        function_call.args = args.encode('utf-8')
+        function_call.amount = amount
+
+        signature = self._sign_transaction_body(function_call)
+
+        signed_transaction = signed_transaction_pb2.SignedTransaction()
+        signed_transaction.function_call.CopyFrom(function_call)
+        signed_transaction.signature = signature
+
         self._update_nonce(sender)
-        response = self._call_rpc('schedule_function_call', params)
-        return self._handle_prepared_transaction_body_response(response)
+        return self._submit_transaction(signed_transaction)
 
     def view_state(self, contract_name):
         params = {'contract_account_id': _get_account_id(contract_name)}
@@ -267,16 +332,22 @@ class NearRPC(object):
             account_public_key = self._get_public_key()
 
         nonce = self._get_nonce(sender)
-        params = {
-            'nonce': nonce,
-            'originator': _get_account_id(sender),
-            'new_account_id': _get_account_id(account_alias),
-            'amount': amount,
-            'public_key': account_public_key,
-        }
+
+        create_account = signed_transaction_pb2.CreateAccountTransaction()
+        create_account.nonce = nonce
+        create_account.originator = _get_account_id(sender)
+        create_account.new_account_id = _get_account_id(account_alias)
+        create_account.amount = amount
+        create_account.public_key = b58decode(account_public_key)
+
+        signature = self._sign_transaction_body(create_account)
+
+        signed_transaction = signed_transaction_pb2.SignedTransaction()
+        signed_transaction.create_account.CopyFrom(create_account)
+        signed_transaction.signature = signature
+
         self._update_nonce(sender)
-        response = self._call_rpc('create_account', params)
-        return self._handle_prepared_transaction_body_response(response)
+        return self._submit_transaction(signed_transaction)
 
     def swap_key(
         self,
@@ -285,15 +356,21 @@ class NearRPC(object):
         new_key,
     ):
         nonce = self._get_nonce(account)
-        params = {
-            'nonce': nonce,
-            'account': _get_account_id(account),
-            'current_key': current_key,
-            'new_key': new_key,
-        }
+
+        swap_key = signed_transaction_pb2.SwapKeyTransaction()
+        swap_key.nonce = nonce
+        swap_key.originator = _get_account_id(account)
+        swap_key.cur_key = b58decode(current_key)
+        swap_key.new_key = b58decode(new_key)
+
+        signature = self._sign_transaction_body(swap_key)
+
+        signed_transaction = signed_transaction_pb2.SignedTransaction()
+        signed_transaction.swap_key.CopyFrom(swap_key)
+        signed_transaction.signature = signature
+
         self._update_nonce(account)
-        response = self._call_rpc('swap_key', params)
-        return self._handle_prepared_transaction_body_response(response)
+        return self._submit_transaction(signed_transaction)
 
     def view_account(self, account_alias):
         params = {

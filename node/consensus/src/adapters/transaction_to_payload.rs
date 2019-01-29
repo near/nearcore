@@ -41,7 +41,7 @@ mod tests {
                     amount: i,
                 };
                 let t = TransactionBody::SendMoney(t);
-                let t = SignedTransaction { signature: DEFAULT_SIGNATURE, body: t };
+                let t = SignedTransaction::new(DEFAULT_SIGNATURE, t);
                 transactions.push(Transaction::SignedTransaction(t));
             }
 

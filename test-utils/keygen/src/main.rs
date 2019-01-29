@@ -1,13 +1,6 @@
-extern crate keystore;
-extern crate clap;
-extern crate primitives;
-extern crate serde_json;
-
 use clap::{App, Arg, ArgMatches, SubCommand};
-use primitives::hash::hash_struct;
 use primitives::signature::{get_key_pair, sign};
 use primitives::signer::{get_key_file, write_key_file};
-use transaction::{SignedTransaction, TransactionBody};
 use primitives::test_utils::get_key_pair_from_seed;
 use std::path::PathBuf;
 use std::process;
@@ -19,21 +12,17 @@ fn get_key_store_path(matches: &ArgMatches) -> PathBuf {
         .unwrap()
 }
 
-fn sign_transaction(matches: &ArgMatches) {
+fn sign_data(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
 
     let public_key = matches.value_of("public_key").map(String::from);
     let key_file = get_key_file(&key_store_path, public_key);
 
     let data = matches.value_of("data").unwrap();
-    let body: TransactionBody = serde_json::from_str(data).unwrap();
-    let hash = hash_struct(&body);
-    let sender_sig = sign(hash.as_ref(), &key_file.secret_key);
-    let transaction = SignedTransaction::new(
-        sender_sig,
-        body,
-    );
-    print!("{}", serde_json::to_string(&transaction).unwrap());
+    let bytes = base64::decode(data).unwrap();
+    let signature = sign(&bytes, &key_file.secret_key);
+    let encoded = base64::encode(&signature);
+    print!("{}", encoded);
 }
 
 fn generate_key(matches: &ArgMatches) {
@@ -65,24 +54,24 @@ fn main() {
         .subcommand(SubCommand::with_name("keygen")
             .arg(key_store_path_arg)
             .arg(Arg::with_name("test_seed")
-                .long("test-seed")
-                .value_name("TEST_SEED")
-                .help(
-                    "Specify a seed for generating a key pair.\
+                     .long("test-seed")
+                     .value_name("TEST_SEED")
+                     .help(
+                         "Specify a seed for generating a key pair.\
                      This should only be used for deterministically \
                      creating key pairs during tests.",
-                )
-                .takes_value(true),
+                     )
+                     .takes_value(true),
             ))
         .subcommand(SubCommand::with_name("get_public_key")
             .arg(key_store_path_arg))
-        .subcommand(SubCommand::with_name("sign_transaction")
+        .subcommand(SubCommand::with_name("sign")
             .arg(key_store_path_arg)
             .arg(Arg::with_name("data")
                 .short("d")
                 .long("data")
                 .value_name("DATA")
-                .help("JSON encoded transaction body to sign")
+                .help("base64 encoded bytes")
                 .required(true)
                 .takes_value(true)
             )
@@ -98,8 +87,8 @@ fn main() {
 
     if let Some(sub) = matches.subcommand_matches("keygen") {
         generate_key(sub);
-    } else if let Some(sub) = matches.subcommand_matches("sign_transaction") {
-        sign_transaction(sub);
+    } else if let Some(sub) = matches.subcommand_matches("sign") {
+        sign_data(sub);
     } else if let Some(sub) = matches.subcommand_matches("get_public_key") {
         get_public_key(sub);
     } else {

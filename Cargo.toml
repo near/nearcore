@@ -11,6 +11,9 @@ path = "node/src/main.rs"
 [dependencies]
 testnet = { path = "./node/testnet" }
 
+[build-dependencies]
+protos-autogen = { path = "./protos/builder" }
+
 [workspace]
 members = [
     "core/chain",
@@ -29,6 +32,7 @@ members = [
     "node/devnet",
     "node/http",
     "node/network",
+    "protos/builder",
     "node/runtime",
     "node/shard",
     "node/testnet",

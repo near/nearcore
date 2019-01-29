@@ -16,7 +16,7 @@ use primitives::types::{AccountId, Gossip, UID};
 use shard::SignedShardBlock;
 use transaction::{ChainPayload, Transaction};
 
-use crate::message::{self, Message};
+use crate::message::{self, Message, Status};
 
 /// current version of the protocol
 pub(crate) const CURRENT_VERSION: u32 = 1;
@@ -155,7 +155,7 @@ impl Protocol {
     fn on_status_message(
         &self,
         peer: NodeIndex,
-        status: &message::Status,
+        status: &Status,
     ) -> Result<(), (NodeIndex, Severity)> {
         debug!(target: "network", "Status message received from {:?}: {:?}", peer, status);
         if status.version != CURRENT_VERSION {

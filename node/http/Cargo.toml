@@ -11,10 +11,11 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 
+beacon = { path = "../beacon" }
 chain = { path = "../../core/chain" }
-beacon = { path = "../../node/beacon" }
+client = { path = "../client" }
 node-runtime = { path = "../runtime" }
 primitives = { path = "../../core/primitives" }
+near-protos = { path = "../../core/protos", features = ["with-serde"] }
+shard = { path = "../shard" }
 transaction = { path = "../../core/transaction" }
-client = { path = "../../node/client" }
-shard = { path = "../../node/shard" }

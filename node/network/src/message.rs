@@ -6,7 +6,7 @@ use shard::SignedShardBlock;
 
 pub type RequestId = u64;
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub enum Message {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members

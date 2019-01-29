@@ -1,6 +1,18 @@
+const { SignedTransaction } = require('./protos');
+
 /**
  * Client for communicating with near blockchain. 
  */
+
+function _arrayBufferToBase64( buffer ) {
+    var binary = '';
+    var bytes = new Uint8Array( buffer );
+    var len = bytes.byteLength;
+    for (var i = 0; i < len; i++) {
+        binary += String.fromCharCode( bytes[ i ] );
+    }
+    return window.btoa( binary );
+}
 
 class NearClient {
     constructor (signer, nearConnection) {
@@ -15,23 +27,17 @@ class NearClient {
         return viewAccountResponse;
     }
 
-    async submitTransaction (method, args) {
-        const senderKey = 'originator';
-        const sender = args[senderKey];
-        const nonce = await this.getNonce(sender);
-        const tx_args = Object.assign({}, args, { nonce });
-        const response = await this.request(method, tx_args);
-        const signature = await this.signer.signTransaction(response, sender);
-        const signedTransaction = {
-            body: response.body,
-            signature: signature
-        };
+    async submitTransaction (signedTransaction) {
+        const buffer = SignedTransaction.encode(signedTransaction).finish();
+        const transaction = _arrayBufferToBase64(buffer);
+        const data = { transaction };
         var submitResponse;
         try {
-            submitResponse = await this.request('submit_transaction', signedTransaction);
+            submitResponse = await this.request('submit_transaction', data);
         } catch(e) {
-            console.log(e.response.text);
-            throw (e);
+            if (e.response) { console.log(e.response.text) }
+            else { console.log(e) }
+            throw (e)
         }
         return submitResponse;
     }

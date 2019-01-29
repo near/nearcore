@@ -47,13 +47,11 @@ const COL_CODE: &[u8] = &[2];
 const COL_TX_STAKE: &[u8] = &[3];
 const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 
-const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
-const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
+/// const does not allow function call, so have to resort to this
+fn system_account() -> AccountId { "system".to_string() }
 
-// const does not allow function call, so have to resort to this
-fn system_account() -> AccountId {
-    "system".to_string()
-}
+const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
+const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -420,7 +418,7 @@ impl Runtime {
                         self.send_money(
                             state_update,
                             &t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             &mut sender,
                             accounting_info,
                         )
@@ -438,7 +436,7 @@ impl Runtime {
                         self.call_function(
                             state_update,
                             &t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             &mut sender,
                             accounting_info,
                             mana,
@@ -447,7 +445,7 @@ impl Runtime {
                     TransactionBody::DeployContract(ref t) => {
                         self.deploy(
                             t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             accounting_info,
                         )
                     },
@@ -455,7 +453,7 @@ impl Runtime {
                         self.create_account(
                             state_update,
                             t,
-                            transaction.transaction_hash(),
+                            transaction.get_hash(),
                             &mut sender,
                             accounting_info,
                         )
@@ -500,7 +498,7 @@ impl Runtime {
         }
         let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
        
-        let public_key = Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
+        let public_key = PublicKey::new(&call.args)?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -529,9 +527,9 @@ impl Runtime {
         call: &AsyncCall,
         account_id: &AccountId,
     ) -> Result<Vec<Transaction>, String> {
-        let (public_key, code): (Vec<u8>, Vec<u8>) = 
+        let (public_key, code): (Vec<u8>, Vec<u8>) =
             Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
-        let public_key = Decode::decode(&public_key).map_err(|_| "cannot decode public key")?;
+        let public_key = PublicKey::new(&public_key)?;
         let new_account = Account::new(
             vec![public_key],
             call.amount,
@@ -1397,7 +1395,7 @@ mod tests {
             nonce: 1,
             originator: alice_account(),
             contract_id: eve_account(),
-            public_key: pub_key.encode().unwrap(),
+            public_key: pub_key.0[..].to_vec(),
             wasm_byte_array: wasm_binary.to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
@@ -1600,7 +1598,7 @@ mod tests {
             originator: alice_account(),
             new_account_id: eve_account(),
             amount: 10,
-            public_key: pub_key.encode().unwrap()
+            public_key: pub_key.0[..].to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {
@@ -1739,7 +1737,7 @@ mod tests {
             originator: alice_account(),
             new_account_id: eve_account(),
             amount: 10,
-            public_key: pub_key1.encode().unwrap()
+            public_key: pub_key1.0[..].to_vec(),
         });
         let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
         let apply_state = ApplyState {

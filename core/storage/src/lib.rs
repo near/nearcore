@@ -184,7 +184,7 @@ impl<'a> Iterator for StateDbUpdateIterator<'a> {
                 match (self.trie_iter.peek(), self.overlay_iter.peek()) {
                     (Some(&Ok((ref left_key, _))), Some(&(ref right_key, _))) => {
                         match (left_key.starts_with(&self.prefix), right_key.starts_with(&self.prefix)) {
-                            (true, true) => if left_key < right_key {
+                            (true, true) => if left_key < *right_key {
                                 Ordering::Trie
                             } else {
                                 if &left_key == right_key { Ordering::Both } else { Ordering::Overlay }

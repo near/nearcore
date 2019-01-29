@@ -1,10 +1,11 @@
-use chain::SignedBlock;
-use chain::SignedHeader;
+use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
-use primitives::types::{AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId};
+use primitives::types::{
+    AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId,
+};
 use transaction::Transaction;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
     pub shard_id: ShardId,
@@ -12,7 +13,7 @@ pub struct ShardBlockHeader {
     pub merkle_root_state: MerkleHash,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
@@ -20,14 +21,14 @@ pub struct SignedShardBlockHeader {
     pub signature: MultiSignature,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlock {
     pub header: ShardBlockHeader,
     pub transactions: Vec<Transaction>,
     pub new_receipts: Vec<Transaction>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,

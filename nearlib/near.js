@@ -1,7 +1,12 @@
+const bs58 = require('bs58');
+
 const NearClient = require('./nearclient');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
 const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 const LocalNodeConnection = require('./local_node_connection');
+const {
+    DeployContractTransaction, FunctionCallTransaction, SignedTransaction
+} = require('./protos');
 
 const MAX_STATUS_POLL_ATTEMPTS = 3;
 const STATUS_POLL_PERIOD_MS = 250;
@@ -61,18 +66,39 @@ class Near {
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
      */
-    async scheduleFunctionCall(amount, sender, contractAccountId, methodName, args) {
+    async scheduleFunctionCall(amount, originator, contractId, methodName, args) {
         if (!args) {
             args = {};
         }
-        const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        return await this.nearClient.submitTransaction('schedule_function_call', {
-            amount: amount,
-            originator: sender,
-            contract_account_id: contractAccountId,
-            method_name: methodName,
-            args: serializedArgs
+        methodName = new Uint8Array(Buffer.from(methodName));
+        args = new Uint8Array(Buffer.from(JSON.stringify(args)));
+        const nonce = await this.nearClient.getNonce(originator);
+        const functionCall = FunctionCallTransaction.create({
+            originator,
+            contractId,
+            methodName,
+            args,
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            functionCall.nonce = nonce;
+        }
+        if (amount !== 0) {
+            functionCall.amount = amount;
+        }
+
+        const buffer = FunctionCallTransaction.encode(functionCall).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            functionCall,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**
@@ -81,13 +107,35 @@ class Near {
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
      */
-    async deployContract(sender, contractAccountId, wasmArray) {
-        return await this.nearClient.submitTransaction('deploy_contract', {
-            originator: sender,
-            contract_account_id: contractAccountId,
-            wasm_byte_array: wasmArray,
-            public_key: '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE' // This parameter is not working properly yet. Use some fake value
+    async deployContract(originator, contractId, wasmByteArray) {
+        const nonce = await this.nearClient.getNonce(originator);
+
+        // This parameter is not working properly yet. Use some fake value
+        var publicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
+        publicKey = bs58.decode(publicKey);
+        const deployContract = DeployContractTransaction.create({
+            originator,
+            contractId,
+            wasmByteArray,
+            publicKey, 
         });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            deployContract.nonce = nonce;
+        }
+
+        const buffer = DeployContractTransaction.encode(deployContract).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            deployContract,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 
      /**

@@ -1,4 +1,7 @@
-const KeyPair = require('./signing/key_pair');
+const bs58 = require('bs58');
+
+const { CreateAccountTransaction, SignedTransaction } = require('./protos');
+const KeyPair = require("./signing/key_pair");
 
 /**
  * Near account and account related operations. 
@@ -15,16 +18,32 @@ class Account {
      * @param {number} amount amount of tokens to transfer from originator account id to the new account as part of the creation. 
      * @param {string} originatorAccountId existing account on the blockchain to use for transferring tokens into the new account
      */
-    async createAccount (newAccountId, publicKey, amount, originatorAccountId) {
-        const createAccountParams = {
-            originator: originatorAccountId,
-            new_account_id: newAccountId,
-            amount: amount,
-            public_key: publicKey,
-        };
+    async createAccount (newAccountId, publicKey, amount, originator) {
+        const nonce = await this.nearClient.getNonce(originator);
+        publicKey = bs58.decode(publicKey);
+        const createAccount = CreateAccountTransaction.create({
+            originator,
+            newAccountId,
+            amount,
+            publicKey,
+        });
+        // Integers with value of 0 must be omitted
+        // https://github.com/dcodeIO/protobuf.js/issues/1138
+        if (nonce !== 0) {
+            createAccount.nonce = nonce;
+        }
 
-        const transactionResponse = await this.nearClient.submitTransaction('create_account', createAccountParams);
-        return transactionResponse;
+        const buffer = CreateAccountTransaction.encode(createAccount).finish();
+        const signature = await this.nearClient.signer.signTransactionBody(
+            buffer,
+            originator,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            createAccount,
+            signature,
+        });
+        return await this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**
@@ -37,8 +56,12 @@ class Account {
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
         const createAccountResult = await this.createAccount(
-            newAccountId, keyWithRandomSeed.getPublicKey(), amount, originatorAccountId);
-        return { key: keyWithRandomSeed, ...createAccountResult };
+            newAccountId,
+            keyWithRandomSeed.getPublicKey(),
+            amount,
+            originatorAccountId,
+        );
+        return { key: keyWithRandomSeed, ...createAccountResult }; 
     }
 
     /**

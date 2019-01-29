@@ -81,7 +81,7 @@ pub type TxFlowHash = u64;
 /// Endorsement of a representative message. Includes the epoch of the message that it endorses as
 /// well as the BLS signature part. The leader should also include such self-endorsement upon
 /// creation of the representative message.
-#[derive(Hash, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endorsement {
     pub epoch: u64,
     pub signature: MultiSignature,
@@ -164,7 +164,7 @@ pub struct ConsensusBlockHeader {
     pub prev_block_body_hash: CryptoHash,
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq)]
 pub struct ConsensusBlockBody<P> {
     /// TxFlow messages that constitute that consensus block together with the endorsements.
     pub messages: Vec<SignedMessageData<P>>,
@@ -173,7 +173,7 @@ pub struct ConsensusBlockBody<P> {
 
 // Gossip-specific structs.
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GossipBody<P> {
     /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
     Unsolicited(SignedMessageData<P>),
@@ -186,14 +186,13 @@ pub enum GossipBody<P> {
 }
 
 /// A single unit of communication between the TxFlow participants.
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gossip<P> {
     pub sender_uid: UID,
     pub receiver_uid: UID,
     pub sender_sig: StructSignature,
     pub body: GossipBody<P>,
 }
-
 
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]

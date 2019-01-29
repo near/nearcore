@@ -1,68 +1,16 @@
 use std::collections::HashMap;
 
 use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
+use near_protos::serde::b64_format as protos_b64_format;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, AuthorityStake, Balance, MerkleHash, ShardId
 };
 use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
-use transaction::{FinalTransactionResult, SignedTransaction, Transaction, TransactionBody, TransactionResult};
-
-#[derive(Serialize, Deserialize)]
-pub struct SendMoneyRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub receiver_account_id: AccountId,
-    pub amount: Balance,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StakeRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub amount: Balance,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct DeployContractRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub contract_account_id: AccountId,
-    pub wasm_byte_array: Vec<u8>,
-    #[serde(with = "bs58_pub_key_format")]
-    pub public_key: PublicKey,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CreateAccountRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub new_account_id: AccountId,
-    pub amount: u64,
-    #[serde(with = "bs58_pub_key_format")]
-    pub public_key: PublicKey
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SwapKeyRequest {
-    pub nonce: u64,
-    pub account: AccountId,
-    #[serde(with = "bs58_pub_key_format")]
-    pub current_key: PublicKey,
-    #[serde(with = "bs58_pub_key_format")]
-    pub new_key: PublicKey,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ScheduleFunctionCallRequest {
-    pub nonce: u64,
-    pub originator: AccountId,
-    pub contract_account_id: AccountId,
-    pub method_name: String,
-    pub args: Vec<u8>,
-    pub amount: Balance,
-}
+use transaction::{
+    FinalTransactionResult, SignedTransaction, Transaction, TransactionResult,
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
@@ -90,13 +38,6 @@ pub struct CallViewFunctionRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CallViewFunctionResponse {
     pub result: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct PreparedTransactionBodyResponse {
-    pub body: TransactionBody,
-    #[serde(with = "bs58_format")]
-    pub hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -213,15 +154,14 @@ impl From<ShardBlockHeader> for ShardBlockHeaderResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ShardBlockResponse {
     pub header: ShardBlockHeaderResponse,
-    // TODO(#301): should have a bs58 format for TransactionResponse
     pub transactions: Vec<SignedTransactionResponse>,
-    // TODO(#301): should have a bs58 format for TransactionResponse
     pub new_receipts: Vec<Transaction>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedTransactionResponse {
-    pub body: TransactionBody,
+    #[serde(with = "protos_b64_format")]
+    pub body: near_protos::signed_transaction::SignedTransaction,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
 }
@@ -229,8 +169,8 @@ pub struct SignedTransactionResponse {
 impl From<SignedTransaction> for SignedTransactionResponse {
     fn from(transaction: SignedTransaction) -> Self {
         Self {
-            body: transaction.body.clone(),
-            hash: transaction.transaction_hash(),
+            body: transaction.clone().into(),
+            hash: transaction.get_hash(),
         }
     }
 }
@@ -319,4 +259,10 @@ pub struct TransactionInfoResponse {
     pub transaction: SignedTransactionResponse,
     pub block_index: u64,
     pub result: TransactionResult,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SubmitTransactionRequest {
+    #[serde(with = "protos_b64_format")]
+    pub transaction: near_protos::signed_transaction::SignedTransaction,
 }

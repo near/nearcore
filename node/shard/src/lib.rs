@@ -231,7 +231,7 @@ impl ShardBlockChain {
             .map(|(i, transaction)| {
                 let key = match transaction {
                     Transaction::SignedTransaction(t) => with_index(
-                            &t.transaction_hash(),
+                            &t.get_hash(),
                             ExtrasIndex::TransactionAddress,
                     ),
                     Transaction::Receipt(r) => with_index(
@@ -256,7 +256,7 @@ impl ShardBlockChain {
             .map(|(i, transaction)| {
                 let key = match transaction {
                     Transaction::SignedTransaction(t) => with_index(
-                        &t.transaction_hash(),
+                        &t.get_hash(),
                         ExtrasIndex::TransactionResult,
                     ),
                     Transaction::Receipt(r) => with_index(
@@ -341,7 +341,7 @@ mod tests {
         let (block, db_changes, _, tx_status) = chain.prepare_new_block(chain.genesis_hash(), vec![Transaction::SignedTransaction(tx.clone())]);
         chain.insert_block(&block, db_changes, tx_status);
 
-        let result = chain.get_transaction_result(&tx.transaction_hash());
+        let result = chain.get_transaction_result(&tx.get_hash());
         assert_eq!(result.status, TransactionStatus::Failed);
     }
 
@@ -352,14 +352,14 @@ mod tests {
         let (block, db_changes, _, tx_status) = chain.prepare_new_block(chain.genesis_hash(), vec![Transaction::SignedTransaction(tx.clone())]);
         chain.insert_block(&block, db_changes, tx_status);
 
-        let result = chain.get_transaction_result(&tx.transaction_hash());
+        let result = chain.get_transaction_result(&tx.get_hash());
         assert_eq!(result.status, TransactionStatus::Completed);
         assert_eq!(result.receipts.len(), 1);
-        assert_ne!(result.receipts[0], tx.transaction_hash());
-        let final_result = chain.get_transaction_final_result(&tx.transaction_hash());
+        assert_ne!(result.receipts[0], tx.get_hash());
+        let final_result = chain.get_transaction_final_result(&tx.get_hash());
         assert_eq!(final_result.status, FinalTransactionStatus::Started);
         assert_eq!(final_result.logs.len(), 2);
-        assert_eq!(final_result.logs[0].hash, tx.transaction_hash());
+        assert_eq!(final_result.logs[0].hash, tx.get_hash());
         assert_eq!(final_result.logs[0].lines.len(), 0);
         assert_eq!(final_result.logs[0].receipts.len(), 1);
 
@@ -368,10 +368,10 @@ mod tests {
 
         let result2 = chain.get_transaction_result(&result.receipts[0]);
         assert_eq!(result2.status, TransactionStatus::Completed);
-        let final_result2 = chain.get_transaction_final_result(&tx.transaction_hash());
+        let final_result2 = chain.get_transaction_final_result(&tx.get_hash());
         assert_eq!(final_result2.status, FinalTransactionStatus::Completed);
         assert_eq!(final_result2.logs.len(), 2);
-        assert_eq!(final_result2.logs[0].hash, tx.transaction_hash());
+        assert_eq!(final_result2.logs[0].hash, tx.get_hash());
         assert_eq!(final_result2.logs[1].hash, result.receipts[0]);
         assert_eq!(final_result2.logs[1].receipts.len(), 0);
     }
@@ -391,7 +391,7 @@ mod tests {
         );
         let db_changes = HashMap::default();
         chain.insert_block(&block, db_changes, vec![TransactionResult::default()]);
-        let address = chain.get_transaction_address(&t.transaction_hash());
+        let address = chain.get_transaction_address(&t.get_hash());
         let expected = TransactionAddress {
             block_hash: block.hash,
             index: 0,
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(address, Some(expected.clone()));
 
         let cache_key = with_index(
-            &t.transaction_hash(),
+            &t.get_hash(),
             ExtrasIndex::TransactionAddress,
         );
         let read = chain.transaction_addresses.read();
