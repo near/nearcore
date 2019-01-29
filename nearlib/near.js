@@ -101,8 +101,27 @@ class Near {
         return transactionStatusResponse;
     }
 
+    /**
+     * Load given contract and expose it's methods.
+     *
+     * Every method is taking named arguments as JS object, e.g.:
+     * `{ paramName1: "val1", paramName2: 123 }`
+     *
+     * View method returns promise which is resolved to result when it's available.
+     * State change method returns promise which is resolved when state change is succesful and rejected otherwise.
+     *
+     * Note that `options` param is only needed temporary while contract introspection capabilities are missing.
+     *
+     * @param {string} contractAccountId contract account name
+     * @param {object} options object used to pass named parameters
+     * @param {string} options.sender account name of user which is sending transactions
+     * @param {string[]} options.viewMethods list of view methods to load (which don't change state)
+     * @param {string[]} options.changeMethods list of methods to load that change state
+     * @returns {object} object with methods corresponding to given contract methods.
+     *
+     */
     async loadContract(contractAccountId, options) {
-        // TODO: Introspection of contract methods + move this to account context to avoid options
+        // TODO: Move this to account context to avoid options.sender
         let contract = {};
         let near = this;
         options.viewMethods.forEach((methodName) => {
