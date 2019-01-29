@@ -70,6 +70,7 @@ class Near {
         if (!args) {
             args = {};
         }
+        methodName = new Uint8Array(Buffer.from(methodName));
         args = new Uint8Array(Buffer.from(JSON.stringify(args)));
         const nonce = await this.nearClient.getNonce(originator);
         const functionCall = FunctionCallTransaction.create({
