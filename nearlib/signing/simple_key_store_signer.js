@@ -29,8 +29,8 @@ class SimpleKeyStoreSigner {
      * @param {object} tx Transaction details
      * @param {string} senderAccountId
      */
-    async signTransaction(tx, senderAccountId) {
-        return await this.signHash(tx.hash, senderAccountId);
+    signTransaction(tx, senderAccountId) {
+        return this.signHash(tx.hash, senderAccountId);
     }
 
 }

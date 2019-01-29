@@ -5141,16 +5141,17 @@ const LOGIN_WALLET_URL_SUFFIX = '/login/';
 const RANDOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const REQUEST_ID_LENGTH = 32;
 
-const LOCAL_STORAGE_KEY = 'wallet_auth_key';
+const LOCAL_STORAGE_KEY_SUFFIX = '_wallet_auth_key';
 
 class WalletAccount {
 
-    constructor(walletBaseUrl = 'https://wallet.nearprotocol.com') {
+    constructor(appKeyPrefix, walletBaseUrl = 'https://wallet.nearprotocol.com') {
         this._walletBaseUrl = walletBaseUrl;
+        this._authDataKey = appKeyPrefix + LOCAL_STORAGE_KEY_SUFFIX;
 
         this._initHtmlElements();
         this._signatureRequests = {};
-        this._authData = JSON.parse(window.localStorage.getItem(LOCAL_STORAGE_KEY) || '{}');
+        this._authData = JSON.parse(window.localStorage.getItem(this._authDataKey) || '{}');
 
         if (!this.isSignedIn()) {
             this._tryInitFromUrl();
@@ -5179,7 +5180,7 @@ class WalletAccount {
 
     signOut() {
         this._authData = {};
-        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+        window.localStorage.removeItem(this._authDataKey);
     }
 
     _tryInitFromUrl() {
@@ -5191,7 +5192,7 @@ class WalletAccount {
                 authToken,
                 accountId,
             };
-            window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(this._authData));
+            window.localStorage.setItem(this._authDataKey, JSON.stringify(this._authData));
         }
     }
 
