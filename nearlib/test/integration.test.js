@@ -90,8 +90,8 @@ describe('with deployed contract', () => {
         oldLog = console.log;
         logs = [];
         console.log = function() {
-            logs.push(Array.from(arguments).join(" "));
-        }
+            logs.push(Array.from(arguments).join(' '));
+        };
     });
 
     afterEach(async () => {
@@ -131,12 +131,12 @@ describe('with deployed contract', () => {
 
     test('can get logs from method result', async () => {
         await contract.generateLogs();
-        expect(logs).toEqual(["[test_contract]: LOG: log1", "[test_contract]: LOG: log2"]);
+        expect(logs).toEqual(['[test_contract]: LOG: log1', '[test_contract]: LOG: log2']);
     });
 
     test('can get assert message from method result', async () => {
         await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed.+expected to fail/);
-        expect(logs).toEqual(["[test_contract]: LOG: log before assert", "[test_contract]: ABORT: \"expected to fail\" filename: \"main.near.ts\" line: 48 col: 2"]);
+        expect(logs).toEqual(['[test_contract]: LOG: log before assert', '[test_contract]: ABORT: "expected to fail" filename: "main.near.ts" line: 48 col: 2']);
     });
 });
 

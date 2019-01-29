@@ -18,10 +18,10 @@ module.exports = {
             // Make sure the user actually exists and recreate it if it doesn't
             const accountLib = new nearlib.Account(near.nearClient);
             try {
-                const accountLookupResult = await accountLib.viewAccount(tempUserAccountId);
+                await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
             } catch (e) {
-                console.log("Error looking up temp account", e);
+                console.log('Error looking up temp account', e);
                 // Something went wrong! Recreate user by continuing the flow
             }
         } else {

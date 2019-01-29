@@ -90,7 +90,7 @@ class Near {
         });
     }
 
-     /**
+    /**
      * Get a status of a single transaction identified by the transaction hash. 
      * @param {string} transactionHash unique identifier of the transaction
      */
