@@ -68,16 +68,24 @@ module.exports = {
     connect: async function(nodeUrl) {
         const studioConfig = await this.getConfig();
         const near = nearlib.Near.createDefaultConfig(nodeUrl || studioConfig.nodeUrl);
-        await this.getOrCreateDevUser();
+        await this.getOrCreateDevUser(near);
         return near;
-    }, 
-    getOrCreateDevUser: async function () {
+    },
+    getOrCreateDevUser: async function (near) {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
         if (tempUserAccountId) {
-            return tempUserAccountId;
+            // Make sure the user actually exists and recreate it if it doesn't
+            const accountLib = new nearlib.Account(near.nearClient);
+            try {
+                await accountLib.viewAccount(tempUserAccountId);
+                return tempUserAccountId;
+            } catch (e) {
+                console.log('Error looking up temp account', e);
+                // Something went wrong! Recreate user by continuing the flow
+            }
+        } else {
+            tempUserAccountId = 'devuser' + Date.now();
         }
-
-        tempUserAccountId = 'devuser' + Date.now();
         const keypair = await nearlib.KeyPair.fromRandomSeed();
         const nearConfig = await this.getConfig();
         await sendJson('POST', `${nearConfig.baseUrl}/account`, {
@@ -225,7 +233,7 @@ class Near {
     }
 
     /**
-     *  Deploys a smart contract to the block chain
+     * Deploys a smart contract to the block chain
      * @param {string} sender account id of the sender
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
@@ -239,15 +247,38 @@ class Near {
         });
     }
 
-    async getTransactionStatus(transaction_hash) {
+    /**
+     * Get a status of a single transaction identified by the transaction hash. 
+     * @param {string} transactionHash unique identifier of the transaction
+     */
+    async getTransactionStatus(transactionHash) {
         const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
-            hash: transaction_hash,
+            hash: transactionHash,
         });
         return transactionStatusResponse;
     }
 
+    /**
+     * Load given contract and expose it's methods.
+     *
+     * Every method is taking named arguments as JS object, e.g.:
+     * `{ paramName1: "val1", paramName2: 123 }`
+     *
+     * View method returns promise which is resolved to result when it's available.
+     * State change method returns promise which is resolved when state change is succesful and rejected otherwise.
+     *
+     * Note that `options` param is only needed temporary while contract introspection capabilities are missing.
+     *
+     * @param {string} contractAccountId contract account name
+     * @param {object} options object used to pass named parameters
+     * @param {string} options.sender account name of user which is sending transactions
+     * @param {string[]} options.viewMethods list of view methods to load (which don't change state)
+     * @param {string[]} options.changeMethods list of methods to load that change state
+     * @returns {object} object with methods corresponding to given contract methods.
+     *
+     */
     async loadContract(contractAccountId, options) {
-        // TODO: Introspection of contract methods + move this to account context to avoid options
+        // TODO: Move this to account context to avoid options.sender
         let contract = {};
         let near = this;
         options.viewMethods.forEach((methodName) => {
@@ -260,16 +291,24 @@ class Near {
             contract[methodName] = async function (args) {
                 args = args || {};
                 const response = await near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
-                let status;
+                let result;
                 for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
                     await sleep(STATUS_POLL_PERIOD_MS);
-                    status = await near.getTransactionStatus(response.hash);
-                    if (status.status == 'Completed') {
-                        return status;
+                    result = (await near.getTransactionStatus(response.hash)).result;
+                    const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
+                    flatLog.forEach(line => {
+                        console.log(`[${contractAccountId}]: ${line}`);
+                    });
+                    if (result.status == 'Completed') {
+                        return result;
+                    }
+                    if (result.status == 'Failed') {
+                        const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
+                        throw new Error(`Transaction ${response.hash} failed. ${errorMessage}`);
                     }
                 }
                 throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
-                    `for transaction ${response.hash} with status: ${status.status}`);
+                    `for transaction ${response.hash} with status: ${result.status}`);
             };
         });
         return contract;
@@ -5124,8 +5163,8 @@ class SimpleKeyStoreSigner {
      * @param {object} tx Transaction details
      * @param {string} senderAccountId
      */
-    async signTransaction(tx, senderAccountId) {
-        return await this.signHash(tx.hash, senderAccountId);
+    signTransaction(tx, senderAccountId) {
+        return this.signHash(tx.hash, senderAccountId);
     }
 
 }
@@ -5159,7 +5198,6 @@ class WalletAccount {
     }
 
     isSignedIn() {
-        // Later it should call wallet to check auth token is still up to date.
         return !!this._authData.accountId;
     }
 
@@ -5186,7 +5224,7 @@ class WalletAccount {
     _tryInitFromUrl() {
         let currentUrl = new URL(window.location.href);
         let authToken = currentUrl.searchParams.get('auth_token') || '';
-        let accountId =currentUrl.searchParams.get('account_id') || '';
+        let accountId = currentUrl.searchParams.get('account_id') || '';
         if (!!authToken && !!accountId) {
             this._authData = {
                 authToken,
@@ -5246,6 +5284,7 @@ class WalletAccount {
     }
 
     _remoteSign(hash, methodName, args) {
+        // TODO(#482): Add timeout.
         return new Promise((resolve, reject) => {
             const request_id = this._randomRequestId();
             this._signatureRequests[request_id] = {
