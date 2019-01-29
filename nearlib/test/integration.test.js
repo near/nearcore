@@ -136,7 +136,8 @@ describe('with deployed contract', () => {
 
     test('can get assert message from method result', async () => {
         await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed.+expected to fail/);
-        expect(logs).toEqual(['[test_contract]: LOG: log before assert', '[test_contract]: ABORT: "expected to fail" filename: "main.near.ts" line: 48 col: 2']);
+        expect(logs).toEqual(["[test_contract]: LOG: log before assert",
+            "[test_contract]: ABORT: \"expected to fail\" filename: \"main.ts\" line: 35 col: 2"]);
     });
 });
 
