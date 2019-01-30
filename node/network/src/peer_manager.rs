@@ -19,12 +19,9 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::timer::Interval;
 
-/// Frequency of gossiping the peers info.
-const GOSSIP_INTERVAL_MS: u64 = 50;
-/// How many peers should we gossip info to.
-const GOSSIP_SAMPLE_SIZE: usize = 5;
-
 pub struct PeerManager {
+    gossip_interval_ms: u64,
+    gossip_sample_size: usize,
     node_info: PeerInfo,
     all_peers: Arc<RwLock<AllPeers>>,
     inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
@@ -32,11 +29,15 @@ pub struct PeerManager {
 
 impl PeerManager {
     /// Args:
+    /// * `gossip_interval_ms`: Frequency of gossiping the peers info;
+    /// * `gossip_sample_size`: How many peers should we gossip info to;
     /// * `node_info`: Information about the current node;
     /// * `boot_nodes`: list of verified info about boot nodes from which we can join the network;
     /// * `inc_msg_tx`: channel from which we receive incoming messages;
     /// * `out_msg_tx`: channel into which we send outgoing messages.
     pub fn new(
+        gossip_interval_ms: u64,
+        gossip_sample_size: usize,
         node_info: PeerInfo,
         boot_nodes: &Vec<PeerInfo>,
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
@@ -45,6 +46,8 @@ impl PeerManager {
         let (check_new_peers_tx, check_new_peers_rx) = channel(1024);
         let node_info1 = node_info.clone();
         let res = Self {
+            gossip_interval_ms,
+            gossip_sample_size,
             node_info,
             all_peers: Arc::new(RwLock::new(AllPeers::new(
                 node_info1,
@@ -86,13 +89,15 @@ impl PeerManager {
             .map_err(|_| warn!(target: "network", "Error checking for peers"));
         tokio::spawn(task);
 
+        let gossip_interval_ms = self.gossip_interval_ms;
+        let gossip_sample_size = self.gossip_sample_size;
         // Spawn the task that gossips.
         let all_peers = self.all_peers.clone();
-        let task = Interval::new_interval(Duration::from_millis(GOSSIP_INTERVAL_MS))
+        let task = Interval::new_interval(Duration::from_millis(gossip_interval_ms))
             .for_each(move |_| {
                 let guard = all_peers.read();
                 let peers_info = guard.peers_info();
-                for ch in guard.sample_ready_peers(GOSSIP_SAMPLE_SIZE) {
+                for ch in guard.sample_ready_peers(gossip_sample_size) {
                     tokio::spawn(
                         ch.send(PeerMessage::InfoGossip(peers_info.clone()))
                             .map(|_| ())
@@ -170,6 +175,8 @@ mod tests {
         let (inc_msg_tx1, _) = channel(1024);
         let task = futures::lazy(move || {
             PeerManager::new(
+                5000,
+                1,
                 PeerInfo {
                     id: hash_struct(&0),
                     addr: SocketAddr::from_str("127.0.0.1:4000").unwrap(),
@@ -188,6 +195,8 @@ mod tests {
         let (inc_msg_tx2, inc_msg_rx2) = channel(1024);
         let task = futures::lazy(move || {
             PeerManager::new(
+                5000,
+                1,
                 PeerInfo {
                     id: hash_struct(&1),
                     addr: SocketAddr::from_str("127.0.0.1:4001").unwrap(),
@@ -257,6 +266,8 @@ mod tests {
                     });
                 }
                 PeerManager::new(
+                    if i == 0 { 50 } else { 5000 },
+                    if i == 0 { NUM_TASKS - 1 } else { 1 },
                     PeerInfo {
                         id: hash_struct(&i),
                         addr: SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16),
