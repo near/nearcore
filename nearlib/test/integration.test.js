@@ -71,6 +71,7 @@ describe('with deployed contract', () => {
     let contract;
     let oldLog;
     let logs;
+
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
         const data = [...fs.readFileSync('../tests/hello.wasm')];
@@ -143,18 +144,12 @@ describe('with deployed contract', () => {
 
 const callUntilConditionIsMet = async (functToPoll, condition, description, maxRetries = TEST_MAX_RETRIES) => {
     for (let i = 0; i < maxRetries; i++) {
-        try {
-            const response = await functToPoll();
-            if (condition(response)) {
-                console.log('Success ' + description + ' in ' + (i + 1) + ' attempts.');
-                return response;
-            }
-        } catch (e) {
-            if (i == TEST_MAX_RETRIES - 1) {
-                fail('exceeded number of retries for ' + description + '. Last error ' + e.toString());
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
+        const response = await functToPoll();
+        if (condition(response)) {
+            console.log('Success ' + description + ' in ' + (i + 1) + ' attempts.');
+            return response;
         }
+        console.log("response", response);
         await sleep(500);
     }
     fail('exceeded number of retries for ' + description);
@@ -169,9 +164,11 @@ const waitForTransactionToComplete = async (submitTransactionResult) => {
             if (response.result.status == 'Completed') {
                 console.log('Transaction ' + submitTransactionResult.hash + ' completed');
                 return true;
-            } else {
-                return false;
             }
+            if (response.result.status == 'Failed') {
+                throw new Error('Transaction ' + submitTransactionResult.hash + ' failed');
+            }
+            return false;
         },
         'Call get transaction status until transaction is completed',
         TRANSACTION_COMPLETE_MAX_RETRIES
@@ -179,12 +176,7 @@ const waitForTransactionToComplete = async (submitTransactionResult) => {
 };
 
 const waitForContractToDeploy = async (deployResult) => {
-    await callUntilConditionIsMet(
-        async () => { return await nearjs.getTransactionStatus(deployResult.hash); },
-        (response) => { return response['result']['status'] == 'Completed'; },
-        'Call account status until contract is deployed',
-        TRANSACTION_COMPLETE_MAX_RETRIES
-    );
+    return waitForTransactionToComplete(deployResult);
 };
 
 function sleep(time) {
