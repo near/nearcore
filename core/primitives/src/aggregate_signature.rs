@@ -154,7 +154,7 @@ impl<E: Engine> From<&SecretKey<E>> for Vec<u8> {
     }
 }
 
-// TODO: TryFrom instead of From since conversion can fail
+// TODO(#502): TryFrom instead of From since conversion can fail
 impl<E: Engine> From<Vec<u8>> for SecretKey<E> {
     fn from(v: Vec<u8>) -> Self {
         let mut repr : <E::Fr as PrimeField>::Repr = Default::default();
@@ -171,7 +171,7 @@ impl<E: Engine> From<&PublicKey<E>> for Vec<u8> {
     }
 }
 
-// TODO: TryFrom instead of From since conversion can fail
+// TODO(#502): TryFrom instead of From since conversion can fail
 impl<E: Engine> From<Vec<u8>> for PublicKey<E> {
     fn from(v: Vec<u8>) -> Self {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
@@ -190,7 +190,7 @@ impl<E: Engine> From<&Signature<E>> for Vec<u8> {
     }
 }
 
-// TODO: TryFrom instead of From since conversion can fail
+// TODO(#502): TryFrom instead of From since conversion can fail
 impl<E: Engine> From<Vec<u8>> for Signature<E> {
     fn from(v: Vec<u8>) -> Self {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();

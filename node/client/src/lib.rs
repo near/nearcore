@@ -22,7 +22,6 @@ use parking_lot::RwLock;
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
 use chain::SignedBlock;
 use configs::ClientConfig;
-use primitives::aggregate_signature::BlsSignature;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
@@ -153,10 +152,6 @@ impl Client {
                 block.add_signature(block_signature, i);
                 break;
             }
-        }
-        // TODO: Remove.  This is a hack to make tests pass.
-        if block.weight() == 0 {
-            block.add_signature(BlsSignature::empty(), authorities.len());
         }
 
         if self.beacon_chain.chain.is_known(&block.hash) {
