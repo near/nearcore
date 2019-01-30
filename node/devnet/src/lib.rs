@@ -49,6 +49,7 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
             payload_rx,
             consensus_control_rx,
             beacon_block_consensus_body_tx,
+            client.beacon_chain.chain.best_index(),
             devnet_cfg.block_period,
         );
         Ok(())
