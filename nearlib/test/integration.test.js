@@ -71,16 +71,14 @@ describe('with deployed contract', () => {
     let contract;
     let oldLog;
     let logs;
+    let contractName = 'test_contract_' + Date.now();
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
         const data = [...fs.readFileSync('../tests/hello.wasm')];
-        const deployResult = await nearjs.deployContract(
-            aliceAccountName,
-            'test_contract',
-            data);
-        await waitForContractToDeploy(deployResult);
-        contract = await nearjs.loadContract('test_contract', {
+        await waitForTransactionToComplete(
+            await nearjs.deployContract(aliceAccountName, contractName, data));
+        contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
             viewMethods: ['getAllKeys'],
             changeMethods: ['generateLogs', 'triggerAssert']
@@ -105,7 +103,7 @@ describe('with deployed contract', () => {
         };
         const viewFunctionResult = await nearjs.callViewFunction(
             aliceAccountName,
-            'test_contract',
+            contractName,
             'hello', // this is the function defined in hello.wasm file that we are calling
             args);
         expect(viewFunctionResult).toEqual('hello trex');
@@ -117,14 +115,14 @@ describe('with deployed contract', () => {
         const scheduleResult = await nearjs.scheduleFunctionCall(
             0,
             aliceAccountName,
-            'test_contract',
+            contractName,
             'setValue', // this is the function defined in hello.wasm file that we are calling
             setArgs);
         expect(scheduleResult.hash).not.toBeFalsy();
         await waitForTransactionToComplete(scheduleResult);
         const secondViewFunctionResult = await nearjs.callViewFunction(
             aliceAccountName,
-            'test_contract',
+            contractName,
             'getValue', // this is the function defined in hello.wasm file that we are calling
             {});
         expect(secondViewFunctionResult).toEqual(setCallValue);
@@ -132,13 +130,13 @@ describe('with deployed contract', () => {
 
     test('can get logs from method result', async () => {
         await contract.generateLogs();
-        expect(logs).toEqual(['[test_contract]: LOG: log1', '[test_contract]: LOG: log2']);
+        expect(logs).toEqual([`[${contractName}]: LOG: log1`, `[${contractName}]: LOG: log2`]);
     });
 
     test('can get assert message from method result', async () => {
         await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed.+expected to fail/);
-        expect(logs).toEqual(["[test_contract]: LOG: log before assert",
-            "[test_contract]: ABORT: \"expected to fail\" filename: \"main.ts\" line: 35 col: 2"]);
+        expect(logs).toEqual([`[${contractName}]: LOG: log before assert`,
+            `[${contractName}]: ABORT: "expected to fail" filename: "main.ts" line: 35 col: 2`]);
     });
 });
 
