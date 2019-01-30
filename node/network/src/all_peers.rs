@@ -6,12 +6,10 @@ use futures::future::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::Sender;
 use log::{error, warn};
+use primitives::types::PeerId;
 use rand::{seq::IteratorRandom, thread_rng};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::Error;
-use std::io::ErrorKind;
-
 
 /// Information on all peers, including this one. The relationship between these collections:
 /// `peers_info` \supseteq `locked_peers` \supseteq `ready_peers`
@@ -25,6 +23,8 @@ use std::io::ErrorKind;
 /// * `peers_info`. All peers that we know some information of. This is the information that we
 ///   gossip. Also when we decide whom we should connect we iterate over `peers_info`\`locked_peers`.
 pub struct AllPeers {
+    /// Info of the peer that is running this client.
+    node_info: PeerInfo,
     /// Information on all peers, even those that we have not connected yet.
     peers_info: HashSet<PeerInfo>,
     /// List of peer addresses to make sure we do not initialize or drop them concurrently.
@@ -36,22 +36,28 @@ pub struct AllPeers {
 }
 
 impl AllPeers {
-    pub fn new(boot_nodes: &Vec<PeerInfo>, check_new_peers_tx: Sender<()>) -> Self {
+    pub fn new(
+        node_info: PeerInfo,
+        boot_nodes: &Vec<PeerInfo>,
+        check_new_peers_tx: Sender<()>,
+    ) -> Self {
         let mut res = Self {
+            node_info,
             peers_info: HashSet::new(),
             locked_peers: HashSet::new(),
             ready_peers: HashMap::new(),
             check_new_peers_tx: check_new_peers_tx.clone(),
         };
-        res.peers_info.extend(boot_nodes.iter().cloned());
-
-        // Immediately let know that there are new peers that we need connecting to.
-        tokio::spawn(
-            check_new_peers_tx
-                .send(())
-                .map(|_| ())
-                .map_err(|_| warn!(target: "network", "Error notifying about boot nodes.")),
-        );
+        if !boot_nodes.is_empty() {
+            res.peers_info.extend(boot_nodes.iter().cloned());
+            // Immediately let know that there are new peers that we need connecting to.
+            tokio::spawn(
+                check_new_peers_tx
+                    .send(())
+                    .map(|_| ())
+                    .map_err(|_| warn!(target: "network", "Error notifying about boot nodes.")),
+            );
+        }
         res
     }
 
@@ -81,19 +87,17 @@ impl AllPeers {
         }
     }
 
-    /// Merges info on all newly (re)discovered peers. Returns ref for chaining.
+    /// Merges info on all newly (re)discovered peers. Returns `self` for chaining.
     pub fn merge_peers_info(&mut self, peers_info: Vec<PeerInfo>) -> &mut Self {
         let peers_to_add: Vec<_> = peers_info
             .iter()
-            .filter_map(
-                |info| {
-                    if self.peers_info.contains(info) {
-                        None
-                    } else {
-                        Some(info.clone())
-                    }
-                },
-            )
+            .filter_map(|info| {
+                if self.peers_info.contains(info) || info == &self.node_info {
+                    None
+                } else {
+                    Some(info.clone())
+                }
+            })
             .collect();
         if !peers_to_add.is_empty() {
             tokio::spawn(
@@ -134,19 +138,20 @@ impl AllPeers {
     }
 
     /// Get channel of the peer. If peer is not ready returns `None`.
-    pub fn get_ready_channel(&self, info: &PeerInfo) -> Option<Sender<PeerMessage>> {
-        self.ready_peers.get(info).map(|c| c.clone())
+    pub fn get_ready_channel(&self, id: &PeerId) -> Option<Sender<PeerMessage>> {
+        self.ready_peers.get(id).map(|c| c.clone())
     }
 
-    /// Try locking incoming peer. If peer was already locked return `Err`, otherwise
-    /// returns `self` for chaining.
-    pub fn add_incoming_peer(&mut self, info: &PeerInfo) -> Result<&mut Self, Error> {
+    /// Try locking incoming peer. If peer was already locked return `false`, otherwise
+    /// returns `tru` for chaining.
+    pub fn add_incoming_peer(&mut self, info: &PeerInfo) -> bool {
         self.peers_info.insert(info.clone());
         if self.locked_peers.contains(info) {
-            Err(Error::new(ErrorKind::AddrInUse, format!("Peer {} is already locked.", info)))
+            warn!(target: "network", "A concurrent connection was already established for {}", info);
+            false
         } else {
             self.locked_peers.insert(info.clone());
-            Ok(self)
+            true
         }
     }
 }

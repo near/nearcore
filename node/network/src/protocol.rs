@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
-use ::futures::{Future, Sink, stream};
+use ::futures::{Future, Sink};
 use ::futures::sync::mpsc::Sender;
 use ::parking_lot::RwLock;
 use ::log::{debug, error, trace, info};

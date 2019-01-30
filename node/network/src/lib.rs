@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +8,7 @@ use tokio::timer::Interval;
 use ::log::error;
 use beacon::types::SignedBeaconBlock;
 use shard::types::SignedShardBlock;
-use primitives::types::{Gossip, UID, AuthorityStake};
+use primitives::types::{Gossip, AuthorityStake};
 use transaction::ChainPayload;
 
 use crate::message::Message;
@@ -21,8 +20,8 @@ pub mod message;
 pub mod protocol;
 pub mod service;
 pub mod test_utils;
-pub mod peer;
-pub mod all_peers;
+mod peer;
+mod all_peers;
 pub mod peer_manager;
 
 const TICK_TIMEOUT: Duration = Duration::from_millis(1000);
