@@ -65,13 +65,17 @@ impl PeerManager {
         let all_peer_states1 = all_peer_states.clone();
         let task = out_msg_rx
             .filter_map(move |(id, data)| {
-                all_peer_states1.read().expect(POISONED_LOCK_ERR).get(&id).and_then(|locked_peer| {
-                    match locked_peer.read().expect(POISONED_LOCK_ERR).deref() {
+                let states_guard = all_peer_states1.read().expect(POISONED_LOCK_ERR);
+                let res =
+                states_guard.get(&id).and_then(|locked_peer| {
+                    let locked_peer_guard = locked_peer.read().expect(POISONED_LOCK_ERR);
+                    match locked_peer_guard.deref() {
                         // We only use peers that are ready to communicate.
                         PeerState::Ready { out_msg_tx, .. } => Some((out_msg_tx.clone(), data)),
                         _ => None,
                     }
-                })
+                });
+                res
             })
             .for_each(|(ch, data)| {
                 ch.send(PeerMessage::Message(data))
@@ -239,7 +243,7 @@ mod tests {
         // Spawn five managers send five messages from each manager to another manager.
         // Manager i sends to manager j message five*i + j.
 
-        const NUM_TASKS: usize = 3;
+        const NUM_TASKS: usize = 10;
 
         let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
 
@@ -259,7 +263,7 @@ mod tests {
                 }
                 PeerManager::new(
                     50,
-                    if i == 0 { 50 } else { 5000 },
+                    if i == 0 { 50 } else { 500000 },
                     if i == 0 { NUM_TASKS - 1 } else { 1 },
                     PeerInfo {
                         id: hash_struct(&i),
@@ -290,8 +294,8 @@ mod tests {
                     }
                     let task = v_out_msg_tx[i]
                         .clone()
-                        .send_all(iter_ok(messages))
-                        .map(|_| ())
+                        .send_all(iter_ok(messages.to_vec()))
+                        .map(move |_| ())
                         .map_err(|_| panic!("Error sending messages"));
                     tokio::spawn(task);
 
@@ -305,6 +309,9 @@ mod tests {
                             let receiver = data[1] as usize;
                             if hash_struct(&sender) == id && receiver == i {
                                 acc.write().insert(data);
+                                println!("Received by {} : {}", i, sender);
+                            } else {
+                                println!("ERROR")
                             }
                             future::ok(())
                         })
