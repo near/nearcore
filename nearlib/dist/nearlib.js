@@ -398,20 +398,15 @@ module.exports = Near;
 
 }).call(this,require("buffer").Buffer)
 },{"./local_node_connection":6,"./nearclient":8,"./protos":38,"./signing/browser_local_storage_key_store":39,"./signing/simple_key_store_signer":42,"bs58":20,"buffer":21}],8:[function(require,module,exports){
+(function (Buffer){
 const { SignedTransaction } = require('./protos');
 
 /**
  * Client for communicating with near blockchain. 
  */
 
-function _arrayBufferToBase64( buffer ) {
-    var binary = '';
-    var bytes = new Uint8Array( buffer );
-    var len = bytes.byteLength;
-    for (var i = 0; i < len; i++) {
-        binary += String.fromCharCode( bytes[ i ] );
-    }
-    return window.btoa( binary );
+function _arrayBufferToBase64(buffer) {
+    return Buffer.from(buffer).toString('base64');
 }
 
 class NearClient {
@@ -452,7 +447,9 @@ class NearClient {
 }
 
 module.exports = NearClient;
-},{"./protos":38}],9:[function(require,module,exports){
+
+}).call(this,require("buffer").Buffer)
+},{"./protos":38,"buffer":21}],9:[function(require,module,exports){
 "use strict";
 module.exports = asPromise;
 
