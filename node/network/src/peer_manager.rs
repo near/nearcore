@@ -234,91 +234,91 @@ mod tests {
         wait(move || acc1.read().is_some(), 50, 1000);
     }
 
-//    #[test]
-//    fn test_five_five() {
-//        // Spawn five managers send five messages from each manager to another manager.
-//        // Manager i sends to manager j message five*i + j.
-//
-//        const NUM_TASKS: usize = 10;
-//
-//        let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
-//
-//        for i in 0..NUM_TASKS {
-//            let (out_msg_tx, out_msg_rx) = channel(1024);
-//            let (inc_msg_tx, inc_msg_rx) = channel(1024);
-//            v_out_msg_tx.push(out_msg_tx);
-//            v_inc_msg_rx.push(inc_msg_rx);
-//            let task = futures::lazy(move || {
-//                let mut boot_nodes = vec![];
-//                if i != 0 {
-//                    boot_nodes.push(PeerInfo {
-//                        id: hash_struct(&(0 as usize)),
-//                        addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
-//                        account_id: None,
-//                    });
-//                }
-//                PeerManager::new(
-//                    50,
-//                    if i == 0 { 50 } else { 5000 },
-//                    if i == 0 { NUM_TASKS - 1 } else { 1 },
-//                    PeerInfo {
-//                        id: hash_struct(&i),
-//                        addr: SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16),
-//                        account_id: None,
-//                    },
-//                    &boot_nodes,
-//                    inc_msg_tx,
-//                    out_msg_rx,
-//                );
-//                Ok(())
-//            });
-//            thread::spawn(move || tokio::run(task));
-//        }
-//
-//        let acc = Arc::new(RwLock::new(HashSet::new()));
-//        let acc1 = acc.clone();
-//
-//        // Send 10 messages from each peer to each other peer and check the receival.
-//        let task = Delay::new(Instant::now() + Duration::from_millis(2000))
-//            .map(move |_| {
-//                for i in 0..NUM_TASKS {
-//                    let mut messages = vec![];
-//                    for j in 0..NUM_TASKS {
-//                        if j != i {
-//                            messages.push((hash_struct(&j), vec![i as u8, j as u8]));
-//                        }
-//                    }
-//                    let task = v_out_msg_tx[i]
-//                        .clone()
-//                        .send_all(iter_ok(messages))
-//                        .map(|_| ())
-//                        .map_err(|_| panic!("Error sending messages"));
-//                    tokio::spawn(task);
-//
-//                    // Create task that waits for 1 sec to receive message.
-//                    let inc_msg_rx = v_inc_msg_rx.remove(0);
-//                    let acc = acc.clone();
-//                    let task = inc_msg_rx
-//                        .for_each(move |msg| {
-//                            let (id, data) = msg;
-//                            let sender = data[0] as usize;
-//                            let receiver = data[1] as usize;
-//                            if hash_struct(&sender) == id && receiver == i {
-//                                acc.write().insert(data);
-//                            }
-//                            future::ok(())
-//                        })
-//                        .map(|_| ())
-//                        .map_err(|_| ());
-//                    tokio::spawn(task);
-//                }
-//            })
-//            .map(|_| ())
-//            .map_err(|_| ());
-//        thread::spawn(move || tokio::run(task));
-//
-//        wait(move || acc1.read().len() == NUM_TASKS * (NUM_TASKS - 1), 50, 10000);
-//    }
+    #[test]
+    fn test_five_five() {
+        // Spawn five managers send five messages from each manager to another manager.
+        // Manager i sends to manager j message five*i + j.
+
+        const NUM_TASKS: usize = 3;
+
+        let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
+
+        for i in 0..NUM_TASKS {
+            let (out_msg_tx, out_msg_rx) = channel(1024);
+            let (inc_msg_tx, inc_msg_rx) = channel(1024);
+            v_out_msg_tx.push(out_msg_tx);
+            v_inc_msg_rx.push(inc_msg_rx);
+            let task = futures::lazy(move || {
+                let mut boot_nodes = vec![];
+                if i != 0 {
+                    boot_nodes.push(PeerInfo {
+                        id: hash_struct(&(0 as usize)),
+                        addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
+                        account_id: None,
+                    });
+                }
+                PeerManager::new(
+                    50,
+                    if i == 0 { 50 } else { 5000 },
+                    if i == 0 { NUM_TASKS - 1 } else { 1 },
+                    PeerInfo {
+                        id: hash_struct(&i),
+                        addr: SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16),
+                        account_id: None,
+                    },
+                    &boot_nodes,
+                    inc_msg_tx,
+                    out_msg_rx,
+                );
+                Ok(())
+            });
+            thread::spawn(move || tokio::run(task));
+        }
+
+        let acc = Arc::new(RwLock::new(HashSet::new()));
+        let acc1 = acc.clone();
+
+        // Send 10 messages from each peer to each other peer and check the receival.
+        let task = Delay::new(Instant::now() + Duration::from_millis(1000))
+            .map(move |_| {
+                for i in 0..NUM_TASKS {
+                    let mut messages = vec![];
+                    for j in 0..NUM_TASKS {
+                        if j != i {
+                            messages.push((hash_struct(&j), vec![i as u8, j as u8]));
+                        }
+                    }
+                    let task = v_out_msg_tx[i]
+                        .clone()
+                        .send_all(iter_ok(messages))
+                        .map(|_| ())
+                        .map_err(|_| panic!("Error sending messages"));
+                    tokio::spawn(task);
+
+                    // Create task that waits for 1 sec to receive message.
+                    let inc_msg_rx = v_inc_msg_rx.remove(0);
+                    let acc = acc.clone();
+                    let task = inc_msg_rx
+                        .for_each(move |msg| {
+                            let (id, data) = msg;
+                            let sender = data[0] as usize;
+                            let receiver = data[1] as usize;
+                            if hash_struct(&sender) == id && receiver == i {
+                                acc.write().insert(data);
+                            }
+                            future::ok(())
+                        })
+                        .map(|_| ())
+                        .map_err(|_| ());
+                    tokio::spawn(task);
+                }
+            })
+            .map(|_| ())
+            .map_err(|_| ());
+        thread::spawn(move || tokio::run(task));
+
+        wait(move || acc1.read().len() == NUM_TASKS * (NUM_TASKS - 1), 50, 10000);
+    }
 
     fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
     where
