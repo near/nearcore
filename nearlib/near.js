@@ -38,18 +38,16 @@ class Near {
 
     /**
      * Calls a view function. Returns the same value that the function returns.
-     * @param {string} sender account id of the sender
      * @param {string} contractAccountId account id of the contract
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
      */
-    async callViewFunction(sender, contractAccountId, methodName, args) {
+    async callViewFunction(contractAccountId, methodName, args) {
         if (!args) {
             args = {};
         }
         const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
         const response = await this.nearClient.request('call_view_function', {
-            originator: sender,
             contract_account_id: contractAccountId,
             method_name: methodName,
             args: serializedArgs
