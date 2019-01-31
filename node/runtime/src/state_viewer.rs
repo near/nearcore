@@ -74,7 +74,8 @@ impl StateDbViewer {
     pub fn view_state(
         &self,
         root: MerkleHash,
-        account_id: &AccountId) -> ViewStateResult {
+        account_id: &AccountId
+    ) -> ViewStateResult {
         let mut values = HashMap::default();
         let state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);

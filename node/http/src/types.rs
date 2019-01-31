@@ -7,9 +7,9 @@ use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, AuthorityStake, Balance, MerkleHash, ShardId
 };
-use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock};
+use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
 use transaction::{
-    FinalTransactionResult, SignedTransaction, Transaction, TransactionResult,
+    FinalTransactionResult, SignedTransaction, TransactionResult,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -155,7 +155,7 @@ impl From<ShardBlockHeader> for ShardBlockHeaderResponse {
 pub struct ShardBlockResponse {
     pub header: ShardBlockHeaderResponse,
     pub transactions: Vec<SignedTransactionResponse>,
-    pub new_receipts: Vec<Transaction>,
+    pub receipts: Vec<ReceiptBlock>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -178,19 +178,12 @@ impl From<SignedTransaction> for SignedTransactionResponse {
 impl From<ShardBlock> for ShardBlockResponse {
     fn from(block: ShardBlock) -> Self {
         let transactions = block.transactions.into_iter()
-            .filter_map(|x| {
-                match x {
-                    Transaction::SignedTransaction(t) => {
-                        Some(SignedTransactionResponse::from(t))
-                    },
-                    Transaction::Receipt(_) => None
-                }
-            })
+            .map(SignedTransactionResponse::from)
             .collect();
         ShardBlockResponse {
             header: block.header.into(),
             transactions,
-            new_receipts: block.new_receipts,
+            receipts: block.receipts,
         }
     }
 }

@@ -7,7 +7,7 @@ use primitives::signer::InMemorySigner;
 use primitives::test_utils::get_key_pair_from_seed;
 use storage::StateDb;
 use storage::test_utils::create_memory_db;
-use transaction::Transaction;
+use transaction::{SignedTransaction, ReceiptTransaction};
 
 use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
@@ -73,13 +73,15 @@ impl Runtime {
     pub fn apply_all_vec(
         &mut self,
         apply_state: ApplyState,
-        transactions: Vec<Transaction>,
+        prev_receipts: Vec<ReceiptTransaction>,
+        transactions: Vec<SignedTransaction>,
     ) -> Vec<ApplyResult> {
         let mut cur_apply_state = apply_state;
-        let mut cur_transactions = transactions;
+        let mut receipts = prev_receipts;
+        let mut txs = transactions;
         let mut results = vec![];
         loop {
-            let apply_result = self.apply(&cur_apply_state, &[], &cur_transactions);
+            let mut apply_result = self.apply(&cur_apply_state, &receipts, &txs);
             results.push(apply_result.clone());
             if apply_result.new_receipts.is_empty() {
                 return results;
@@ -91,15 +93,16 @@ impl Runtime {
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
             };
-            cur_transactions = apply_result.new_receipts;
+            receipts = apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
+            txs = vec![];
         }
     }
 
     pub fn apply_all(
         &mut self,
         apply_state: ApplyState,
-        transactions: Vec<Transaction>,
+        transactions: Vec<SignedTransaction>,
     ) -> ApplyResult {
-        self.apply_all_vec(apply_state, transactions).pop().unwrap()
+        self.apply_all_vec(apply_state, vec![], transactions).pop().unwrap()
     }
 }
