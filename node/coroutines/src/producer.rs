@@ -55,8 +55,8 @@ pub fn spawn_block_producer(
                     let receipt_block = client.shard_chain.get_receipt_block(
                         new_shard_block.index(),
                         new_shard_block.shard_id()
-                    );
-                    if let Some(receipt_block) = receipt_block {
+                    ).expect("No receipts for shard block");
+                    if !receipt_block.receipts.is_empty() {
                         let receipts_task = new_receipts_tx
                         .clone()
                         .send(receipt_block)
