@@ -2,7 +2,7 @@ use clap::{Arg, ArgMatches};
 use std::net::SocketAddr;
 
 use crate::ClientConfig;
-use ::primitives::{hash::hash_struct, types::PeerId};
+use primitives::{hash::hash_struct, types::PeerId};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:3000";
 // const NETWORK_CONFIG_PATH: &str = "storage";

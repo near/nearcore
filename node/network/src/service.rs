@@ -10,7 +10,7 @@ use tokio::timer::Interval;
 use std::time::Duration;
 use futures::sync::mpsc::{channel, Sender, Receiver};
 use futures::{Stream, Future, Sink, future};
-use log::error;
+use log::{error, debug};
 use serde_derive::{Serialize, Deserialize};
 use rand::{thread_rng, seq::IteratorRandom};
 use parking_lot::RwLock;
@@ -84,9 +84,9 @@ impl ConnectionHandler {
         stream: SplitStream<Framed<TcpStream, Codec<ServiceEvent, ServiceEvent>>>
     ) {
         let task = stream.for_each(move |event| {
+            debug!(target: "service", "service event: {:?}", event);
             match event {
                 ServiceEvent::HandShake { peer_id, account_id } => {
-                    info!("Connected {:?} with {:?}", peer_id, account_id);
                     if self.banned_nodes.read().contains(&peer_id) {
                         // node is banned, we end the connection
                         self.peer_state.write().remove(&addr);
@@ -219,15 +219,16 @@ impl Service {
         tokio::spawn(futures::lazy(move || {
             service.spawn_background_tasks(listener);
             for node in config.boot_nodes.iter() {
-                match service.dial(*node) {
-                    _ => {}
-                };
+                if let Err(e) = service.dial(*node) {
+                    error!("error dialing node: {}", e);
+                }
             }
             tokio::spawn(message_rx.for_each(move |m| {
                 match m {
                     Ok((peer_id, message)) => {
                         let data = message.encode().expect("cannot encode message");
-                        service.clone().send_message(&peer_id, data);
+                        let fut = service.clone().send_message(&peer_id, data);
+                        tokio::spawn(fut);
                     }
                     Err((peer_id, Severity::Timeout)) => {
                         service.clone().drop_node(peer_id);
@@ -273,7 +274,6 @@ impl Service {
     /// try to dial peer, if we are already connected to the peer or are waiting to connect,
     /// returns error. Otherwise we spawn a task that initiates the connection
     pub fn dial(&self, addr: SocketAddr) -> Result<(), Error> {
-        info!("Dialing {:?}", addr);
         if self.peer_state.read().contains_key(&addr) {
             return Err(Error::new(
                 ErrorKind::Other,
