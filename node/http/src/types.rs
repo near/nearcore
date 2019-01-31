@@ -29,7 +29,6 @@ pub struct ViewAccountResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionRequest {
-    pub originator: AccountId,
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
