@@ -1,7 +1,7 @@
 const bs58 = require('bs58');
 
 const { CreateAccountTransaction, SignedTransaction } = require('./protos');
-const KeyPair = require("./signing/key_pair");
+const KeyPair = require('./signing/key_pair');
 
 /**
  * Near account and account related operations. 

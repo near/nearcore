@@ -1,4 +1,5 @@
 const bs58 = require('bs58');
+const createError = require('http-errors');
 
 const NearClient = require('./nearclient');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
@@ -117,7 +118,7 @@ class Near {
             originator,
             contractId,
             wasmByteArray,
-            publicKey, 
+            publicKey,
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
@@ -139,7 +140,7 @@ class Near {
     }
 
     /**
-     * Get a status of a single transaction identified by the transaction hash. 
+     * Get a status of a single transaction identified by the transaction hash.
      * @param {string} transactionHash unique identifier of the transaction
      */
     async getTransactionStatus(transactionHash) {
@@ -147,6 +148,40 @@ class Near {
             hash: transactionHash,
         });
         return transactionStatusResponse;
+    }
+
+    /**
+     * Wait until transaction is completed or failed.
+     * Automatically sends logs from contract to `console.log`.
+     *
+     * {@link MAX_STATUS_POLL_ATTEMPTS} defines how many attempts are made.
+     * {@link STATUS_POLL_PERIOD_MS} defines delay between subsequent {@link getTransactionStatus} calls.
+     *
+     * @param {string | object} transactionResponseOrHash hash of transaction or object returned from {@link submitTransaction}
+     * @param {object} options object used to pass named parameters
+     * @param {string} options.contractAccountId specifies contract ID for better logs and error messages
+     */
+    async waitForTransactionResult(transactionResponseOrHash, options = {}) {
+        const transactionHash = transactionResponseOrHash.hasOwnProperty('hash') ? transactionResponseOrHash.hash : transactionResponseOrHash;
+        const contractAccountId = options.contractAccountId || 'unknown contract';
+        let result;
+        for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
+            await sleep(STATUS_POLL_PERIOD_MS);
+            result = (await this.getTransactionStatus(transactionHash)).result;
+            const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
+            flatLog.forEach(line => {
+                console.log(`[${contractAccountId}]: ${line}`);
+            });
+            if (result.status == 'Completed') {
+                return result;
+            }
+            if (result.status == 'Failed') {
+                const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
+                throw createError(400, `Transaction ${transactionHash} on ${contractAccountId} failed. ${errorMessage}`);
+            }
+        }
+        throw createError(408, `Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
+            `for transaction ${transactionHash} on ${contractAccountId} with status: ${result.status}`);
     }
 
     /**
@@ -182,24 +217,7 @@ class Near {
             contract[methodName] = async function (args) {
                 args = args || {};
                 const response = await near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
-                let result;
-                for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
-                    await sleep(STATUS_POLL_PERIOD_MS);
-                    result = (await near.getTransactionStatus(response.hash)).result;
-                    const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
-                    flatLog.forEach(line => {
-                        console.log(`[${contractAccountId}]: ${line}`);
-                    });
-                    if (result.status == 'Completed') {
-                        return result;
-                    }
-                    if (result.status == 'Failed') {
-                        const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
-                        throw new Error(`Transaction ${response.hash} failed. ${errorMessage}`);
-                    }
-                }
-                throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
-                    `for transaction ${response.hash} with status: ${result.status}`);
+                return near.waitForTransactionResult(response.hash, { contractAccountId });
             };
         });
         return contract;

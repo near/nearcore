@@ -2,7 +2,7 @@
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
 const bs58 = require('bs58');
-const nacl = require("tweetnacl");
+const nacl = require('tweetnacl');
 const { sha256 } = require('js-sha256');
 
 class SimpleKeyStoreSigner {

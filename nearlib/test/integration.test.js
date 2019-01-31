@@ -13,8 +13,6 @@ const localNodeConnection = new LocalNodeConnection('http://localhost:3030');
 const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
 const account = new Account(nearClient);
 const nearjs = new Near(nearClient);
-const TEST_MAX_RETRIES = 10;
-const TRANSACTION_COMPLETE_MAX_RETRIES = 10;
 
 test('test creating default config', async () => {
     // Make sure createDefaultConfig doesn't crash.
@@ -32,7 +30,7 @@ test('create account and then view account returns the created account', async (
     const newAccountName = await generateUniqueString('create.account.test');
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
-    await waitForTransactionToComplete(createAccountResponse);
+    await nearjs.waitForTransactionResult(createAccountResponse);
     const expctedAccount = {
         nonce: 0,
         account_id: newAccountName,
@@ -52,7 +50,7 @@ test('create account with a new key and then view account returns the created ac
         newAccountName,
         amount,
         aliceAccountName);
-    await waitForTransactionToComplete(createAccountResponse);
+    await nearjs.waitForTransactionResult(createAccountResponse);
     expect(createAccountResponse['key']).not.toBeFalsy();
     const expctedAccount = {
         nonce: 0,
@@ -76,7 +74,7 @@ describe('with deployed contract', () => {
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
         const data = [...fs.readFileSync('../tests/hello.wasm')];
-        await waitForTransactionToComplete(
+        await nearjs.waitForTransactionResult(
             await nearjs.deployContract(aliceAccountName, contractName, data));
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
@@ -119,7 +117,7 @@ describe('with deployed contract', () => {
             'setValue', // this is the function defined in hello.wasm file that we are calling
             setArgs);
         expect(scheduleResult.hash).not.toBeFalsy();
-        await waitForTransactionToComplete(scheduleResult);
+        await nearjs.waitForTransactionResult(scheduleResult);
         const secondViewFunctionResult = await nearjs.callViewFunction(
             aliceAccountName,
             contractName,
@@ -139,49 +137,6 @@ describe('with deployed contract', () => {
             `[${contractName}]: ABORT: "expected to fail" filename: "main.ts" line: 35 col: 2`]);
     });
 });
-
-const callUntilConditionIsMet = async (functToPoll, condition, description, maxRetries = TEST_MAX_RETRIES) => {
-    for (let i = 0; i < maxRetries; i++) {
-        const response = await functToPoll();
-        if (condition(response)) {
-            console.log('Success ' + description + ' in ' + (i + 1) + ' attempts.');
-            return response;
-        }
-        console.log("response", response);
-        await sleep(500);
-    }
-    fail('exceeded number of retries for ' + description);
-};
-
-const waitForTransactionToComplete = async (submitTransactionResult) => {
-    expect(submitTransactionResult.hash).not.toBeFalsy();
-    console.log('Waiting for transaction', submitTransactionResult.hash);
-    await callUntilConditionIsMet(
-        async () => { return await nearjs.getTransactionStatus(submitTransactionResult.hash); },
-        (response) => {
-            if (response.result.status == 'Completed') {
-                console.log('Transaction ' + submitTransactionResult.hash + ' completed');
-                return true;
-            }
-            if (response.result.status == 'Failed') {
-                throw new Error('Transaction ' + submitTransactionResult.hash + ' failed');
-            }
-            return false;
-        },
-        'Call get transaction status until transaction is completed',
-        TRANSACTION_COMPLETE_MAX_RETRIES
-    );
-};
-
-const waitForContractToDeploy = async (deployResult) => {
-    return waitForTransactionToComplete(deployResult);
-};
-
-function sleep(time) {
-    return new Promise(function (resolve) {
-        setTimeout(resolve, time);
-    });
-}
 
 // Generate some unique string with a given prefix using the alice nonce. 
 const generateUniqueString = async (prefix) => {
