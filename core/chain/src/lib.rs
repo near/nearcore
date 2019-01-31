@@ -57,7 +57,7 @@ pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + Seri
     }
 
     /// Add signature to multi sign.
-    fn add_signature(&mut self, signature: PartialSignature);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize);
 
     /// Returns stake weight of given block signers.
     fn weight(&self) -> u128;

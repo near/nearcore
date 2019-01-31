@@ -1,7 +1,7 @@
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{
-    AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId,
+    GroupSignature, MerkleHash, PartialSignature, ShardId,
 };
 use transaction::Transaction;
 
@@ -17,8 +17,7 @@ pub struct ShardBlockHeader {
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    pub signature: MultiSignature,
+    pub signature: GroupSignature,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,8 +31,7 @@ pub struct ShardBlock {
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    pub signature: MultiSignature,
+    pub signature: GroupSignature,
 }
 
 impl SignedHeader for SignedShardBlockHeader {
@@ -74,8 +72,7 @@ impl SignedShardBlock {
                 new_receipts,
             },
             hash,
-            signature: vec![],
-            authority_mask: vec![],
+            signature: GroupSignature::default(),
         }
     }
 
@@ -99,7 +96,6 @@ impl SignedBlock for SignedShardBlock {
             body: self.body.header.clone(),
             hash: self.hash,
             signature: self.signature.clone(),
-            authority_mask: self.authority_mask.clone(),
         }
     }
 
@@ -113,8 +109,8 @@ impl SignedBlock for SignedShardBlock {
         self.hash
     }
 
-    fn add_signature(&mut self, signature: PartialSignature) {
-        self.signature.push(signature);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
+        self.signature.add_signature(signature, authority_id);
     }
 
     fn weight(&self) -> u128 {

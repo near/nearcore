@@ -143,14 +143,14 @@ impl Client {
             authority_proposals,
             shard_block.block_hash(),
         );
-        // TODO(#377): We should have a proper mask computation once we have a correct consensus.
-        let authority_mask: Vec<bool> = authorities.iter().map(|_| true).collect();
-        let signature = shard_block.sign(&self.signer);
-        shard_block.add_signature(signature);
-        shard_block.authority_mask = authority_mask.clone();
-        let signature = block.sign(&self.signer);
-        block.add_signature(signature);
-        block.authority_mask = authority_mask;
+        let shard_block_signature = shard_block.sign(&self.signer);
+        let block_signature = block.sign(&self.signer);
+        for (i, authority) in authorities.iter().enumerate() {
+            if authority.account_id == self.signer.account_id {
+                shard_block.add_signature(&shard_block_signature, i);
+                block.add_signature(&block_signature, i);
+            }
+        }
 
         if self.beacon_chain.chain.is_known(&block.hash) {
             info!(target: "client", "The block was already imported, before we managed to produce it.");
