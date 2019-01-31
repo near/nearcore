@@ -211,7 +211,6 @@ impl ShardBlockChain {
 
     pub fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
         let key = with_index(&hash, ExtrasIndex::TransactionResult);
-        println!("look for key: {:?}", key.to_vec());
         match read_with_cache(
             &self.storage.clone(),
             storage::COL_EXTRA,
