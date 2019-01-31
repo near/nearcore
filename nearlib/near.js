@@ -9,7 +9,7 @@ const {
 } = require('./protos');
 
 const MAX_STATUS_POLL_ATTEMPTS = 3;
-const STATUS_POLL_PERIOD_MS = 250;
+const STATUS_POLL_PERIOD_MS = 750;
 
 /**
  * Javascript library for interacting with near.

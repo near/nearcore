@@ -95,11 +95,10 @@ impl HttpApi {
         Ok(SubmitTransactionResponse { hash: transaction.get_hash() })
     }
 
-    pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {
+    pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
-        let result =
-        self.client.shard_chain.statedb_viewer
-                .view_state(self.client.shard_chain.chain.best_block().merkle_root_state(), &r.contract_account_id);
+        let result = self.client.shard_chain.statedb_viewer
+            .view_state(self.client.shard_chain.chain.best_block().merkle_root_state(), &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect(),

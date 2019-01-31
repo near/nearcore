@@ -131,7 +131,12 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
                                     .body(Body::from(serde_json::to_string(&response).unwrap()))
                                     .unwrap()
                             }
-                            Err(_) => unreachable!()
+                            Err(e) => {
+                                build_response()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Body::from(e))
+                                    .unwrap()
+                            }
                         }
                     }
                     Err(e) => {

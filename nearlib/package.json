@@ -1,7 +1,7 @@
 {
   "name": "nearlib",
   "description": "Javascript library to interact with near blockchain",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "repository": {
     "type": "git",
     "url": "git@:nearprotocol/nearcore.git"

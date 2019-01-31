@@ -15,6 +15,7 @@ pub fn spawn_consensus(
     payload_rx: Receiver<ChainPayload>,
     control_rx: Receiver<Control<BeaconWitnessSelector>>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
+    initial_beacon_block_index: u64,
     block_period: Duration,
 ) {
     let interval_stream =
@@ -22,7 +23,7 @@ pub fn spawn_consensus(
     let payload_stream = payload_rx.map(Some);
     let task = payload_stream
         .select(interval_stream)
-        .fold((control_rx, vec![], 0), move |(control_rx, mut acc, mut beacon_block_index), p| {
+        .fold((control_rx, vec![], initial_beacon_block_index), move |(control_rx, mut acc, mut beacon_block_index), p| {
             if let Some(payload) = p {
                 let message: SignedMessageData<ChainPayload> = SignedMessageData {
                     owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
