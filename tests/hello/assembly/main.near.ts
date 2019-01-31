@@ -32,18 +32,18 @@ export function getValue(): string {
 
 export function getAllKeys(): string[] {
   let keys = globalStorage.keys("n");
-  // assert(keys.length == 1);
-  // assert(keys[0] == "name");
+  assert(keys.length == 1);
+  assert(keys[0] == "name");
   return keys;
 }
 
 export function benchmark(): string[] {
-    let i = 0;
+  let i = 0;
   while (i < 10) {
-    globalStorage.setItem("n" + i.toString(), "123123");
+    globalStorage.setItem(i.toString(), "123123");
     i += 1;
   }
-  return getAllKeys();
+  return globalStorage.keys("");
 }
 
 export function generateLogs(): void {
