@@ -8,7 +8,7 @@ use tokio::timer::Interval;
 use ::log::error;
 use beacon::types::SignedBeaconBlock;
 use shard::types::SignedShardBlock;
-use primitives::types::{Gossip, AuthorityStake};
+use primitives::types::Gossip;
 use transaction::ChainPayload;
 
 use crate::message::Message;

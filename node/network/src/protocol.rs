@@ -2,21 +2,21 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time;
 
-use ::futures::{Future, Sink};
-use ::futures::sync::mpsc::Sender;
-use ::parking_lot::RwLock;
-use ::log::{debug, error, trace, info};
+use futures::{Future, Sink};
+use futures::sync::mpsc::Sender;
+use parking_lot::RwLock;
+use log::{debug, error, trace, info};
 
-use ::beacon::types::SignedBeaconBlock;
-use ::chain::{SignedBlock, SignedHeader};
-use ::shard::SignedShardBlock;
-use ::client::Client;
-use ::primitives::hash::CryptoHash;
-use ::primitives::traits::Decode;
-use ::primitives::types::{
-    AccountId, BlockId, Gossip, UID, AuthorityStake, PeerId
+use beacon::types::SignedBeaconBlock;
+use chain::{SignedBlock, SignedHeader};
+use shard::SignedShardBlock;
+use client::Client;
+use primitives::hash::CryptoHash;
+use primitives::traits::Decode;
+use primitives::types::{
+    AccountId, Gossip, UID, PeerId
 };
-use ::transaction::{ChainPayload, Transaction};
+use transaction::{ChainPayload, Transaction};
 
 use crate::message::{self, Message, BlockAnnounce};
 use crate::service::Severity;

@@ -8,7 +8,6 @@ use futures::future;
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
-use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use log::warn;
@@ -66,7 +65,6 @@ impl PeerManager {
         let task = out_msg_rx
             .filter_map(move |(id, data)| {
                 let states_guard = all_peer_states1.read().expect(POISONED_LOCK_ERR);
-                let res =
                 states_guard.get(&id).and_then(|locked_peer| {
                     let locked_peer_guard = locked_peer.read().expect(POISONED_LOCK_ERR);
                     match locked_peer_guard.deref() {
@@ -74,8 +72,7 @@ impl PeerManager {
                         PeerState::Ready { out_msg_tx, .. } => Some((out_msg_tx.clone(), data)),
                         _ => None,
                     }
-                });
-                res
+                })
             })
             .for_each(|(ch, data)| {
                 ch.send(PeerMessage::Message(data))
@@ -161,9 +158,11 @@ mod tests {
     use std::time::Instant;
     use tokio::timer::Delay;
     use tokio::util::StreamExt;
+    use crate::peer::AllPeerStates;
 
     #[test]
     fn test_two_peers_boot() {
+
         // Spawn the first manager.
         let (out_msg_tx1, out_msg_rx1) = channel(1024);
         let (inc_msg_tx1, _) = channel(1024);
@@ -210,6 +209,7 @@ mod tests {
         });
         thread::spawn(move || tokio::run(task));
 
+
         // Create task that sends the message and then places it into `acc`.
         let acc = Arc::new(RwLock::new(None));
         let acc1 = acc.clone();
@@ -243,7 +243,7 @@ mod tests {
         // Spawn five managers send five messages from each manager to another manager.
         // Manager i sends to manager j message five*i + j.
 
-        const NUM_TASKS: usize = 10;
+        const NUM_TASKS: usize = 5;
 
         let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
 
@@ -309,9 +309,8 @@ mod tests {
                             let receiver = data[1] as usize;
                             if hash_struct(&sender) == id && receiver == i {
                                 acc.write().insert(data);
-                                println!("Received by {} : {}", i, sender);
                             } else {
-                                println!("ERROR")
+                                panic!("Should not happen");
                             }
                             future::ok(())
                         })

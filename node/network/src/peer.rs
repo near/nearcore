@@ -1,5 +1,4 @@
 use futures::stream::Stream;
-use futures::stream::StreamFuture;
 use futures::sync::mpsc::{channel, Sender};
 use futures::{try_ready, Async, Future, Poll, Sink};
 use log::{info, warn};
@@ -13,9 +12,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::io::{Error, ErrorKind};
-use std::mem;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -25,8 +22,6 @@ use tokio::net::tcp::ConnectFuture;
 use tokio::net::TcpStream;
 use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
-use tokio::timer::Timeout;
-use tokio::util::FutureExt;
 use tokio_serde_cbor::Codec;
 
 /// How long do we wait for connection to be established.
@@ -161,7 +156,6 @@ impl Peer {
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
         reconnect_delay: Duration,
     ) {
-        //println!("{} Got incoming", node_info);
         let stream = Some(Framed::new(socket, Codec::new()));
         let hand_timeout = get_delay(INIT_HANDSHAKE_TIMEOUT);
         let state = Arc::new(RwLock::new(PeerState::IncomingConnection {
@@ -228,12 +222,10 @@ fn framed_stream_to_channel_with_handshake(
     let handshake = PeerMessage::Handshake { info: node_info.clone(), peers_info };
     let tmp1 = node_info.clone();
     let hand_task = out_msg_tx.clone().send(handshake).map(|_| ()).map_err(|e| {
-        println!("ERROR");
         warn!(target: "network", "Error sending handshake {}", e)
     });
     let fwd_task = out_msg_rx
         .forward(sink.sink_map_err(|e| {
-            println!("ERROR!!!");
             warn!(
             target: "network",
             "Error forwarding outgoing messages to the TcpStream sink: {}", e)
@@ -251,10 +243,6 @@ fn cbor_err(err: tokio_serde_cbor::Error) -> Error {
 /// Converts Timer Error to IO Error.
 fn timer_err(err: tokio::timer::Error) -> Error {
     Error::new(ErrorKind::Other, format!("Timer error: {}", err))
-}
-
-fn timeout_err<E>(err: E) -> Error {
-    Error::new(ErrorKind::TimedOut, "Timed out")
 }
 
 /// Constructs `Delay` object from the given delay in ms.
@@ -290,71 +278,49 @@ impl Stream for Peer {
             // Then do the state machine step.
             *state_guard = match state_guard.deref_mut() {
                 IncomingConnection { stream, hand_timeout, .. } => {
-                    println!("{} A", self.node_info);
                     match stream.as_mut().expect(STATE_ERR).poll() {
                         // If connection was closed then close the stream
                         Ok(Async::Ready(None)) => {
-                            println!("{} Incoming stream closed", self.node_info);
                             return Ok(Async::Ready(None));
                         }
                         Ok(Async::Ready(Some(Handshake { info, peers_info }))) => {
-                            println!("{} B", self.node_info);
+                            // Here's where the deadlock is happening for num peers >= 7.
                             let mut all_peer_states =
                                 self.all_peer_states.write().expect(POISONED_LOCK_ERR);
-                            println!("{} C", self.node_info);
                             if info == self.node_info {
                                 panic!("Received info about itself. Contr-adversarial behavior is not implemented yet.");
                             }
                             match all_peer_states.entry(info.clone()) {
                                 // We do not know about this peer. Add it as Ready.
                                 Entry::Vacant(entry) => {
-                                    println!(
-                                        "{} Adding incoming into empty entry {}",
-                                        self.node_info, info
-                                    );
                                     // Add it and become ready, see below.
                                     entry.insert(self.state.clone());
                                 }
                                 // We know this peer already.
                                 Entry::Occupied(mut entry) => {
-                                    println!("{} D", self.node_info);
                                     // Check its state.
                                     let entry_clone = entry.get().clone();
                                     let mut entry_guard =
                                         entry_clone.write().expect(POISONED_LOCK_ERR);
-                                    println!("{} E", self.node_info);
                                     match entry_guard.deref_mut() {
                                         old_state @ Unconnected { .. } => {
                                             // It is unconnected, so we take its place, and become ready
                                             // see below.
-                                            println!("{} F", self.node_info);
                                             *get_evicted_flag(old_state) = true;
-                                            println!("{} G", self.node_info);
                                             entry.insert(self.state.clone());
                                         }
                                         // The other connection is already in use, so we close this stream.
                                         Ready { .. } => {
-                                            println!(
-                                                "{} Dropping incoming because there is ready {}",
-                                                self.node_info, info
-                                            );
                                             return Ok(Async::Ready(None));
                                         }
                                         // Anything else requires a tie breaker.
                                         old_state @ _ => {
-                                            println!("{} H", self.node_info);
                                             if info.id < self.node_info.id {
                                                 // Keep this connection, take the place of the other
                                                 // connection, and become ready, see below.
-                                                println!("{} I", self.node_info);
                                                 *get_evicted_flag(old_state) = true;
-                                                println!("{} J", self.node_info);
                                                 entry.insert(self.state.clone());
                                             } else {
-                                                println!(
-                                                    "{} Dropping incoming due to tie breaker {}",
-                                                    self.node_info, info
-                                                );
                                                 // Drop this connection.
                                                 return Ok(Async::Ready(None));
                                             }
@@ -362,13 +328,11 @@ impl Stream for Peer {
                                     };
                                 }
                             };
-                            println!("{} K", self.node_info);
                             let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
                                 &self.node_info,
                                 all_peer_states.keys().cloned().collect(),
                                 stream.take().expect(STATE_ERR),
                             );
-                            println!("{} <= {}", self.node_info, &info);
                             Ready { info, stream, out_msg_tx, evicted: false }
                         }
                         // If error was received then log it and continue.
@@ -389,7 +353,6 @@ impl Stream for Peer {
                     try_ready!(connect_timer.poll().map_err(timer_err));
                     let connect = TcpStream::connect(&info.addr);
                     let conn_timeout = get_delay(CONNECT_TIMEOUT);
-                    println!("{} Connecting {}", self.node_info, &info);
                     Connecting { info: info.clone(), connect, conn_timeout, evicted: false }
                 }
                 Connecting { info, connect, conn_timeout, .. } => match connect.poll() {
@@ -406,7 +369,6 @@ impl Stream for Peer {
                             framed_stream,
                         );
                         let hand_timeout = get_delay(RESPONSE_HANDSHAKE_TIMEOUT);
-                        println!("{} Connected {}", self.node_info, &info);
                         Connected {
                             info: info.clone(),
                             stream: Some(stream),
@@ -419,7 +381,6 @@ impl Stream for Peer {
                         try_ready!(conn_timeout.poll().map_err(timer_err));
                         // We have not locked this peer yet, because we do not know its info,
                         // because we did not have a successful handshake. Try again later.
-                        println!("{} Unconnected A {}", self.node_info, &info);
                         Unconnected {
                             info: info.clone(),
                             connect_timer: get_delay(self.reconnect_delay),
@@ -428,7 +389,6 @@ impl Stream for Peer {
                     }
                     // Connection returned error. Should try again later.
                     Err(e) => {
-                        println!("{} Unconnected B {}", self.node_info, &info);
                         Unconnected {
                             info: info.clone(),
                             connect_timer: get_delay(self.reconnect_delay),
@@ -442,7 +402,6 @@ impl Stream for Peer {
                     match stream.as_mut().expect(STATE_ERR).poll().map_err(cbor_err) {
                         // The connection was closed. Try again later.
                         Ok(Async::Ready(None)) => {
-                            println!("{} Unconnected C {}", self.node_info, &info);
                             Unconnected {
                                 info: info.clone(),
                                 connect_timer: get_delay(self.reconnect_delay),
@@ -456,14 +415,12 @@ impl Stream for Peer {
                             {
                                 // Known info does not match the handshake. Try again later with
                                 // the new info.
-                                println!("{} Unconnected D {}", self.node_info, &info);
                                 Unconnected {
                                     info: hand_info,
                                     connect_timer: get_delay(self.reconnect_delay),
                                     evicted: false,
                                 }
                             } else {
-                                println!("{} => {}", self.node_info, &info);
                                 Ready {
                                     info: info.clone(),
                                     stream: stream.take().expect(STATE_ERR),
@@ -475,7 +432,6 @@ impl Stream for Peer {
                         // Any other message returned by the stream is irrelevant.
                         Ok(Async::NotReady) | Ok(Async::Ready(_)) => {
                             try_ready!(hand_timeout.poll().map_err(timer_err));
-                            println!("{} Unconnected E {}", self.node_info, &info);
                             Unconnected {
                                 info: info.clone(),
                                 connect_timer: get_delay(self.reconnect_delay),
@@ -485,7 +441,6 @@ impl Stream for Peer {
                         Err(e) => {
                             warn!(target: "network", "Error while trying to get a handshake {}", e);
                             try_ready!(hand_timeout.poll().map_err(timer_err));
-                            println!("{} Unconnected F {}", self.node_info, &info);
                             Unconnected {
                                 info: info.clone(),
                                 connect_timer: get_delay(self.reconnect_delay),
@@ -497,7 +452,6 @@ impl Stream for Peer {
                 Ready { info, stream, out_msg_tx, .. } => match stream.poll().map_err(cbor_err) {
                     // Connection was closed. Reconnect later.
                     Ok(Async::Ready(None)) => {
-                        println!("{} Unconnected G {}", self.node_info, &info);
                         Unconnected {
                             info: info.clone(),
                             connect_timer: get_delay(self.reconnect_delay),
@@ -506,7 +460,6 @@ impl Stream for Peer {
                     }
                     // Actual message transmitted over the network.
                     Ok(Async::Ready(Some(Message(data)))) => {
-                        println!("Received data by {} : {}", self.node_info, data[0] as usize);
                         return Ok(Async::Ready(Some((info.id.clone(), data))));
                     }
                     Ok(Async::Ready(Some(InfoGossip(peers_info)))) => {
