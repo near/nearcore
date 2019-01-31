@@ -372,7 +372,7 @@ mod tests {
     fn test_transaction_failed() {
         let chain = get_test_chain();
         let tx = send_money_tx("xyz.near", "bob.near", 100);
-        let (block, db_changes, _, tx_status, receipts) = chain.prepare_new_block(
+        let (block, (db_changes, _, tx_status, receipts)) = chain.prepare_new_block(
             chain.genesis_hash(), 
             vec![],
             vec![tx.clone()]
@@ -387,7 +387,7 @@ mod tests {
     fn test_get_transaction_status_complete() {
         let chain = get_test_chain();
         let tx = send_money_tx("alice.near", "bob.near", 10);
-        let (block, db_changes, _, tx_status, new_receipts) = chain.prepare_new_block(
+        let (block, (db_changes, _, tx_status, new_receipts)) = chain.prepare_new_block(
             chain.genesis_hash(),
             vec![],
             vec![tx.clone()]
@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(final_result.logs[0].receipts.len(), 1);
 
         let receipt_block = chain.get_receipt_block(block.index(), block.shard_id()).unwrap();
-        let (block2, db_changes2, _, tx_status2, receipts) = chain.prepare_new_block(
+        let (block2, (db_changes2, _, tx_status2, receipts)) = chain.prepare_new_block(
             block.hash, vec![receipt_block], vec![]
         );
         chain.insert_block(&block2, db_changes2, tx_status2, receipts);
