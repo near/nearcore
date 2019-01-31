@@ -16,14 +16,14 @@ fn runtime_send_money(bench: &mut Bencher) {
 fn runtime_wasm_set_value(bench: &mut Bencher) {
     let (mut user, mut root) = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        root = user.call_function(root, "test", "setValue", "{\"value\": \"123\"}");
+        root = user.call_function(root, "test_contract", "setValue", "{\"value\": \"123\"}");
     });
 }
 
 fn runtime_wasm_benchmark(bench: &mut Bencher) {
     let (mut user, mut root) = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        root = user.call_function(root, "test", "benchmark", "{}");
+        root = user.call_function(root, "test_contract", "benchmark", "{}");
     });
 }
 

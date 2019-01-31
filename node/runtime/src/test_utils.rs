@@ -179,7 +179,7 @@ impl User {
 pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
     let (runtime, _, genesis_root) = get_runtime_and_state_db_viewer();
     let mut user = User::new(runtime, "alice.near");
-    let root = user.deploy_contract(genesis_root, "test", wasm_binary);
+    let root = user.deploy_contract(genesis_root, "test_contract", wasm_binary);
     assert_ne!(root, genesis_root);
     (user, root)
 }
