@@ -98,8 +98,8 @@ impl SignedBlock for SignedBeaconBlock {
         self.hash
     }
 
-    fn add_signature(&mut self, signature: PartialSignature, authority_id: usize) {
-        self.signature.add_signature(&signature, authority_id);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
+        self.signature.add_signature(signature, authority_id);
     }
 
     fn weight(&self) -> u128 {
@@ -160,7 +160,7 @@ mod tests {
         let mut block1 = SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
         let signer = InMemorySigner::default();
         let sig = block1.sign(&signer);
-        block1.add_signature(sig, 0);
+        block1.add_signature(&sig, 0);
         assert_eq!(bc.insert_block(block1.clone()), false);
         let best_block = bc.best_block();
         let best_block_header = best_block.header();
@@ -204,7 +204,7 @@ mod tests {
             for i in 0..*sign_count {
                 // Having proper signing here is far too slow, and unnecessary for this test
                 let sig = BlsSignature::empty();
-                block.add_signature(sig, i);
+                block.add_signature(&sig, i);
             }
             blocks.insert(*self_id, block.clone());
             assert_eq!(bc.insert_block(block.clone()), false);

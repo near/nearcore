@@ -109,8 +109,8 @@ impl SignedBlock for SignedShardBlock {
         self.hash
     }
 
-    fn add_signature(&mut self, signature: PartialSignature, authority_id: usize) {
-        self.signature.add_signature(&signature, authority_id);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
+        self.signature.add_signature(signature, authority_id);
     }
 
     fn weight(&self) -> u128 {
