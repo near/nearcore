@@ -2,7 +2,7 @@
 const bs58 = require('bs58');
 
 const { CreateAccountTransaction, SignedTransaction } = require('./protos');
-const KeyPair = require("./signing/key_pair");
+const KeyPair = require('./signing/key_pair');
 
 /**
  * Near account and account related operations. 
@@ -75,7 +75,7 @@ class Account {
 }
 module.exports = Account;
 
-},{"./protos":38,"./signing/key_pair":41,"bs58":20}],2:[function(require,module,exports){
+},{"./protos":45,"./signing/key_pair":48,"bs58":20}],2:[function(require,module,exports){
 window.nearlib = require('./index');
 window.nearlib.dev = require('./dev');
 
@@ -144,7 +144,7 @@ module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyS
 
 
 
-},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":39,"./signing/in_memory_key_store":40,"./signing/key_pair":41,"./signing/simple_key_store_signer":42,"./wallet-account":43}],5:[function(require,module,exports){
+},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":46,"./signing/in_memory_key_store":47,"./signing/key_pair":48,"./signing/simple_key_store_signer":49,"./wallet-account":50}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
@@ -180,6 +180,7 @@ module.exports = LocalNodeConnection;
 },{"./internal/send-json":5}],7:[function(require,module,exports){
 (function (Buffer){
 const bs58 = require('bs58');
+const createError = require('http-errors');
 
 const NearClient = require('./nearclient');
 const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
@@ -298,7 +299,7 @@ class Near {
             originator,
             contractId,
             wasmByteArray,
-            publicKey, 
+            publicKey,
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
@@ -320,7 +321,7 @@ class Near {
     }
 
     /**
-     * Get a status of a single transaction identified by the transaction hash. 
+     * Get a status of a single transaction identified by the transaction hash.
      * @param {string} transactionHash unique identifier of the transaction
      */
     async getTransactionStatus(transactionHash) {
@@ -328,6 +329,40 @@ class Near {
             hash: transactionHash,
         });
         return transactionStatusResponse;
+    }
+
+    /**
+     * Wait until transaction is completed or failed.
+     * Automatically sends logs from contract to `console.log`.
+     *
+     * {@link MAX_STATUS_POLL_ATTEMPTS} defines how many attempts are made.
+     * {@link STATUS_POLL_PERIOD_MS} defines delay between subsequent {@link getTransactionStatus} calls.
+     *
+     * @param {string | object} transactionResponseOrHash hash of transaction or object returned from {@link submitTransaction}
+     * @param {object} options object used to pass named parameters
+     * @param {string} options.contractAccountId specifies contract ID for better logs and error messages
+     */
+    async waitForTransactionResult(transactionResponseOrHash, options = {}) {
+        const transactionHash = transactionResponseOrHash.hasOwnProperty('hash') ? transactionResponseOrHash.hash : transactionResponseOrHash;
+        const contractAccountId = options.contractAccountId || 'unknown contract';
+        let result;
+        for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
+            await sleep(STATUS_POLL_PERIOD_MS);
+            result = (await this.getTransactionStatus(transactionHash)).result;
+            const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
+            flatLog.forEach(line => {
+                console.log(`[${contractAccountId}]: ${line}`);
+            });
+            if (result.status == 'Completed') {
+                return result;
+            }
+            if (result.status == 'Failed') {
+                const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
+                throw createError(400, `Transaction ${transactionHash} on ${contractAccountId} failed. ${errorMessage}`);
+            }
+        }
+        throw createError(408, `Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
+            `for transaction ${transactionHash} on ${contractAccountId} with status: ${result.status}`);
     }
 
     /**
@@ -363,24 +398,7 @@ class Near {
             contract[methodName] = async function (args) {
                 args = args || {};
                 const response = await near.scheduleFunctionCall(0, options.sender, contractAccountId, methodName, args);
-                let result;
-                for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
-                    await sleep(STATUS_POLL_PERIOD_MS);
-                    result = (await near.getTransactionStatus(response.hash)).result;
-                    const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
-                    flatLog.forEach(line => {
-                        console.log(`[${contractAccountId}]: ${line}`);
-                    });
-                    if (result.status == 'Completed') {
-                        return result;
-                    }
-                    if (result.status == 'Failed') {
-                        const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
-                        throw new Error(`Transaction ${response.hash} failed. ${errorMessage}`);
-                    }
-                }
-                throw new Error(`Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
-                    `for transaction ${response.hash} with status: ${result.status}`);
+                return near.waitForTransactionResult(response.hash, { contractAccountId });
             };
         });
         return contract;
@@ -397,21 +415,16 @@ module.exports = Near;
 
 
 }).call(this,require("buffer").Buffer)
-},{"./local_node_connection":6,"./nearclient":8,"./protos":38,"./signing/browser_local_storage_key_store":39,"./signing/simple_key_store_signer":42,"bs58":20,"buffer":21}],8:[function(require,module,exports){
+},{"./local_node_connection":6,"./nearclient":8,"./protos":45,"./signing/browser_local_storage_key_store":46,"./signing/simple_key_store_signer":49,"bs58":20,"buffer":21,"http-errors":23}],8:[function(require,module,exports){
+(function (Buffer){
 const { SignedTransaction } = require('./protos');
 
 /**
  * Client for communicating with near blockchain. 
  */
 
-function _arrayBufferToBase64( buffer ) {
-    var binary = '';
-    var bytes = new Uint8Array( buffer );
-    var len = bytes.byteLength;
-    for (var i = 0; i < len; i++) {
-        binary += String.fromCharCode( bytes[ i ] );
-    }
-    return window.btoa( binary );
+function _arrayBufferToBase64(buffer) {
+    return Buffer.from(buffer).toString('base64');
 }
 
 class NearClient {
@@ -431,15 +444,14 @@ class NearClient {
         const buffer = SignedTransaction.encode(signedTransaction).finish();
         const transaction = _arrayBufferToBase64(buffer);
         const data = { transaction };
-        var submitResponse;
         try {
-            submitResponse = await this.request('submit_transaction', data);
+            return await this.request('submit_transaction', data);
         } catch(e) {
-            if (e.response) { console.log(e.response.text) }
-            else { console.log(e) }
-            throw (e)
+            if (e.response) { 
+                throw new Error(e.response.text);
+            }
+            throw e;
         }
-        return submitResponse;
     }
 
     async getNonce (account_id) {
@@ -452,7 +464,9 @@ class NearClient {
 }
 
 module.exports = NearClient;
-},{"./protos":38}],9:[function(require,module,exports){
+
+}).call(this,require("buffer").Buffer)
+},{"./protos":45,"buffer":21}],9:[function(require,module,exports){
 "use strict";
 module.exports = asPromise;
 
@@ -1390,7 +1404,7 @@ module.exports = function base (ALPHABET) {
   }
 }
 
-},{"safe-buffer":36}],17:[function(require,module,exports){
+},{"safe-buffer":39}],17:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -3332,7 +3346,354 @@ function numberIsNaN (obj) {
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":17,"ieee754":22}],22:[function(require,module,exports){
+},{"base64-js":17,"ieee754":24}],22:[function(require,module,exports){
+/*!
+ * depd
+ * Copyright(c) 2015 Douglas Christopher Wilson
+ * MIT Licensed
+ */
+
+'use strict'
+
+/**
+ * Module exports.
+ * @public
+ */
+
+module.exports = depd
+
+/**
+ * Create deprecate for namespace in caller.
+ */
+
+function depd (namespace) {
+  if (!namespace) {
+    throw new TypeError('argument namespace is required')
+  }
+
+  function deprecate (message) {
+    // no-op in browser
+  }
+
+  deprecate._file = undefined
+  deprecate._ignored = true
+  deprecate._namespace = namespace
+  deprecate._traced = false
+  deprecate._warned = Object.create(null)
+
+  deprecate.function = wrapfunction
+  deprecate.property = wrapproperty
+
+  return deprecate
+}
+
+/**
+ * Return a wrapped function in a deprecation message.
+ *
+ * This is a no-op version of the wrapper, which does nothing but call
+ * validation.
+ */
+
+function wrapfunction (fn, message) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('argument fn must be a function')
+  }
+
+  return fn
+}
+
+/**
+ * Wrap property in a deprecation message.
+ *
+ * This is a no-op version of the wrapper, which does nothing but call
+ * validation.
+ */
+
+function wrapproperty (obj, prop, message) {
+  if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) {
+    throw new TypeError('argument obj must be object')
+  }
+
+  var descriptor = Object.getOwnPropertyDescriptor(obj, prop)
+
+  if (!descriptor) {
+    throw new TypeError('must call property on owner object')
+  }
+
+  if (!descriptor.configurable) {
+    throw new TypeError('property must be configurable')
+  }
+}
+
+},{}],23:[function(require,module,exports){
+/*!
+ * http-errors
+ * Copyright(c) 2014 Jonathan Ong
+ * Copyright(c) 2016 Douglas Christopher Wilson
+ * MIT Licensed
+ */
+
+'use strict'
+
+/**
+ * Module dependencies.
+ * @private
+ */
+
+var deprecate = require('depd')('http-errors')
+var setPrototypeOf = require('setprototypeof')
+var statuses = require('statuses')
+var inherits = require('inherits')
+var toIdentifier = require('toidentifier')
+
+/**
+ * Module exports.
+ * @public
+ */
+
+module.exports = createError
+module.exports.HttpError = createHttpErrorConstructor()
+
+// Populate exports for all constructors
+populateConstructorExports(module.exports, statuses.codes, module.exports.HttpError)
+
+/**
+ * Get the code class of a status code.
+ * @private
+ */
+
+function codeClass (status) {
+  return Number(String(status).charAt(0) + '00')
+}
+
+/**
+ * Create a new HTTP Error.
+ *
+ * @returns {Error}
+ * @public
+ */
+
+function createError () {
+  // so much arity going on ~_~
+  var err
+  var msg
+  var status = 500
+  var props = {}
+  for (var i = 0; i < arguments.length; i++) {
+    var arg = arguments[i]
+    if (arg instanceof Error) {
+      err = arg
+      status = err.status || err.statusCode || status
+      continue
+    }
+    switch (typeof arg) {
+      case 'string':
+        msg = arg
+        break
+      case 'number':
+        status = arg
+        if (i !== 0) {
+          deprecate('non-first-argument status code; replace with createError(' + arg + ', ...)')
+        }
+        break
+      case 'object':
+        props = arg
+        break
+    }
+  }
+
+  if (typeof status === 'number' && (status < 400 || status >= 600)) {
+    deprecate('non-error status code; use only 4xx or 5xx status codes')
+  }
+
+  if (typeof status !== 'number' ||
+    (!statuses[status] && (status < 400 || status >= 600))) {
+    status = 500
+  }
+
+  // constructor
+  var HttpError = createError[status] || createError[codeClass(status)]
+
+  if (!err) {
+    // create error
+    err = HttpError
+      ? new HttpError(msg)
+      : new Error(msg || statuses[status])
+    Error.captureStackTrace(err, createError)
+  }
+
+  if (!HttpError || !(err instanceof HttpError) || err.status !== status) {
+    // add properties to generic error
+    err.expose = status < 500
+    err.status = err.statusCode = status
+  }
+
+  for (var key in props) {
+    if (key !== 'status' && key !== 'statusCode') {
+      err[key] = props[key]
+    }
+  }
+
+  return err
+}
+
+/**
+ * Create HTTP error abstract base class.
+ * @private
+ */
+
+function createHttpErrorConstructor () {
+  function HttpError () {
+    throw new TypeError('cannot construct abstract class')
+  }
+
+  inherits(HttpError, Error)
+
+  return HttpError
+}
+
+/**
+ * Create a constructor for a client error.
+ * @private
+ */
+
+function createClientErrorConstructor (HttpError, name, code) {
+  var className = name.match(/Error$/) ? name : name + 'Error'
+
+  function ClientError (message) {
+    // create the error object
+    var msg = message != null ? message : statuses[code]
+    var err = new Error(msg)
+
+    // capture a stack trace to the construction point
+    Error.captureStackTrace(err, ClientError)
+
+    // adjust the [[Prototype]]
+    setPrototypeOf(err, ClientError.prototype)
+
+    // redefine the error message
+    Object.defineProperty(err, 'message', {
+      enumerable: true,
+      configurable: true,
+      value: msg,
+      writable: true
+    })
+
+    // redefine the error name
+    Object.defineProperty(err, 'name', {
+      enumerable: false,
+      configurable: true,
+      value: className,
+      writable: true
+    })
+
+    return err
+  }
+
+  inherits(ClientError, HttpError)
+  nameFunc(ClientError, className)
+
+  ClientError.prototype.status = code
+  ClientError.prototype.statusCode = code
+  ClientError.prototype.expose = true
+
+  return ClientError
+}
+
+/**
+ * Create a constructor for a server error.
+ * @private
+ */
+
+function createServerErrorConstructor (HttpError, name, code) {
+  var className = name.match(/Error$/) ? name : name + 'Error'
+
+  function ServerError (message) {
+    // create the error object
+    var msg = message != null ? message : statuses[code]
+    var err = new Error(msg)
+
+    // capture a stack trace to the construction point
+    Error.captureStackTrace(err, ServerError)
+
+    // adjust the [[Prototype]]
+    setPrototypeOf(err, ServerError.prototype)
+
+    // redefine the error message
+    Object.defineProperty(err, 'message', {
+      enumerable: true,
+      configurable: true,
+      value: msg,
+      writable: true
+    })
+
+    // redefine the error name
+    Object.defineProperty(err, 'name', {
+      enumerable: false,
+      configurable: true,
+      value: className,
+      writable: true
+    })
+
+    return err
+  }
+
+  inherits(ServerError, HttpError)
+  nameFunc(ServerError, className)
+
+  ServerError.prototype.status = code
+  ServerError.prototype.statusCode = code
+  ServerError.prototype.expose = false
+
+  return ServerError
+}
+
+/**
+ * Set the name of a function, if possible.
+ * @private
+ */
+
+function nameFunc (func, name) {
+  var desc = Object.getOwnPropertyDescriptor(func, 'name')
+
+  if (desc && desc.configurable) {
+    desc.value = name
+    Object.defineProperty(func, 'name', desc)
+  }
+}
+
+/**
+ * Populate the exports object with constructors for every error class.
+ * @private
+ */
+
+function populateConstructorExports (exports, codes, HttpError) {
+  codes.forEach(function forEachCode (code) {
+    var CodeError
+    var name = toIdentifier(statuses[code])
+
+    switch (codeClass(code)) {
+      case 400:
+        CodeError = createClientErrorConstructor(HttpError, name, code)
+        break
+      case 500:
+        CodeError = createServerErrorConstructor(HttpError, name, code)
+        break
+    }
+
+    if (CodeError) {
+      // export the constructor
+      exports[code] = CodeError
+      exports[name] = CodeError
+    }
+  })
+
+  // backwards-compatibility
+  exports["I'mateapot"] = deprecate.function(exports.ImATeapot,
+    '"I\'mateapot"; use "ImATeapot" instead')
+}
+
+},{"depd":22,"inherits":25,"setprototypeof":40,"statuses":42,"toidentifier":43}],24:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = (nBytes * 8) - mLen - 1
@@ -3418,7 +3779,32 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],23:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],26:[function(require,module,exports){
 (function (process,global){
 /**
  * [js-sha256]{@link https://github.com/emn178/js-sha256}
@@ -3940,7 +4326,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
 })();
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":24}],24:[function(require,module,exports){
+},{"_process":27}],27:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -4126,13 +4512,13 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],25:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 // minimal library entry point.
 
 "use strict";
 module.exports = require("./src/index-minimal");
 
-},{"./src/index-minimal":26}],26:[function(require,module,exports){
+},{"./src/index-minimal":29}],29:[function(require,module,exports){
 "use strict";
 var protobuf = exports;
 
@@ -4170,7 +4556,7 @@ function configure() {
 protobuf.Writer._configure(protobuf.BufferWriter);
 configure();
 
-},{"./reader":27,"./reader_buffer":28,"./roots":29,"./rpc":30,"./util/minimal":33,"./writer":34,"./writer_buffer":35}],27:[function(require,module,exports){
+},{"./reader":30,"./reader_buffer":31,"./roots":32,"./rpc":33,"./util/minimal":36,"./writer":37,"./writer_buffer":38}],30:[function(require,module,exports){
 "use strict";
 module.exports = Reader;
 
@@ -4577,7 +4963,7 @@ Reader._configure = function(BufferReader_) {
     });
 };
 
-},{"./util/minimal":33}],28:[function(require,module,exports){
+},{"./util/minimal":36}],31:[function(require,module,exports){
 "use strict";
 module.exports = BufferReader;
 
@@ -4623,7 +5009,7 @@ BufferReader.prototype.string = function read_string_buffer() {
  * @returns {Buffer} Value read
  */
 
-},{"./reader":27,"./util/minimal":33}],29:[function(require,module,exports){
+},{"./reader":30,"./util/minimal":36}],32:[function(require,module,exports){
 "use strict";
 module.exports = {};
 
@@ -4643,7 +5029,7 @@ module.exports = {};
  * var root = protobuf.roots["myroot"];
  */
 
-},{}],30:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 "use strict";
 
 /**
@@ -4681,7 +5067,7 @@ var rpc = exports;
 
 rpc.Service = require("./rpc/service");
 
-},{"./rpc/service":31}],31:[function(require,module,exports){
+},{"./rpc/service":34}],34:[function(require,module,exports){
 "use strict";
 module.exports = Service;
 
@@ -4825,7 +5211,7 @@ Service.prototype.end = function end(endedByRPC) {
     return this;
 };
 
-},{"../util/minimal":33}],32:[function(require,module,exports){
+},{"../util/minimal":36}],35:[function(require,module,exports){
 "use strict";
 module.exports = LongBits;
 
@@ -5027,7 +5413,7 @@ LongBits.prototype.length = function length() {
          : part2 < 128 ? 9 : 10;
 };
 
-},{"../util/minimal":33}],33:[function(require,module,exports){
+},{"../util/minimal":36}],36:[function(require,module,exports){
 (function (global){
 "use strict";
 var util = exports;
@@ -5445,7 +5831,7 @@ util._configure = function() {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./longbits":32,"@protobufjs/aspromise":9,"@protobufjs/base64":10,"@protobufjs/eventemitter":11,"@protobufjs/float":12,"@protobufjs/inquire":13,"@protobufjs/pool":14,"@protobufjs/utf8":15}],34:[function(require,module,exports){
+},{"./longbits":35,"@protobufjs/aspromise":9,"@protobufjs/base64":10,"@protobufjs/eventemitter":11,"@protobufjs/float":12,"@protobufjs/inquire":13,"@protobufjs/pool":14,"@protobufjs/utf8":15}],37:[function(require,module,exports){
 "use strict";
 module.exports = Writer;
 
@@ -5906,7 +6292,7 @@ Writer._configure = function(BufferWriter_) {
     BufferWriter = BufferWriter_;
 };
 
-},{"./util/minimal":33}],35:[function(require,module,exports){
+},{"./util/minimal":36}],38:[function(require,module,exports){
 "use strict";
 module.exports = BufferWriter;
 
@@ -5989,7 +6375,7 @@ BufferWriter.prototype.string = function write_string_buffer(value) {
  * @returns {Buffer} Finished buffer
  */
 
-},{"./util/minimal":33,"./writer":34}],36:[function(require,module,exports){
+},{"./util/minimal":36,"./writer":37}],39:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -6053,7 +6439,239 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-},{"buffer":21}],37:[function(require,module,exports){
+},{"buffer":21}],40:[function(require,module,exports){
+module.exports = Object.setPrototypeOf || ({__proto__:[]} instanceof Array ? setProtoOf : mixinProperties);
+
+function setProtoOf(obj, proto) {
+	obj.__proto__ = proto;
+	return obj;
+}
+
+function mixinProperties(obj, proto) {
+	for (var prop in proto) {
+		if (!obj.hasOwnProperty(prop)) {
+			obj[prop] = proto[prop];
+		}
+	}
+	return obj;
+}
+
+},{}],41:[function(require,module,exports){
+module.exports={
+  "100": "Continue",
+  "101": "Switching Protocols",
+  "102": "Processing",
+  "103": "Early Hints",
+  "200": "OK",
+  "201": "Created",
+  "202": "Accepted",
+  "203": "Non-Authoritative Information",
+  "204": "No Content",
+  "205": "Reset Content",
+  "206": "Partial Content",
+  "207": "Multi-Status",
+  "208": "Already Reported",
+  "226": "IM Used",
+  "300": "Multiple Choices",
+  "301": "Moved Permanently",
+  "302": "Found",
+  "303": "See Other",
+  "304": "Not Modified",
+  "305": "Use Proxy",
+  "306": "(Unused)",
+  "307": "Temporary Redirect",
+  "308": "Permanent Redirect",
+  "400": "Bad Request",
+  "401": "Unauthorized",
+  "402": "Payment Required",
+  "403": "Forbidden",
+  "404": "Not Found",
+  "405": "Method Not Allowed",
+  "406": "Not Acceptable",
+  "407": "Proxy Authentication Required",
+  "408": "Request Timeout",
+  "409": "Conflict",
+  "410": "Gone",
+  "411": "Length Required",
+  "412": "Precondition Failed",
+  "413": "Payload Too Large",
+  "414": "URI Too Long",
+  "415": "Unsupported Media Type",
+  "416": "Range Not Satisfiable",
+  "417": "Expectation Failed",
+  "418": "I'm a teapot",
+  "421": "Misdirected Request",
+  "422": "Unprocessable Entity",
+  "423": "Locked",
+  "424": "Failed Dependency",
+  "425": "Unordered Collection",
+  "426": "Upgrade Required",
+  "428": "Precondition Required",
+  "429": "Too Many Requests",
+  "431": "Request Header Fields Too Large",
+  "451": "Unavailable For Legal Reasons",
+  "500": "Internal Server Error",
+  "501": "Not Implemented",
+  "502": "Bad Gateway",
+  "503": "Service Unavailable",
+  "504": "Gateway Timeout",
+  "505": "HTTP Version Not Supported",
+  "506": "Variant Also Negotiates",
+  "507": "Insufficient Storage",
+  "508": "Loop Detected",
+  "509": "Bandwidth Limit Exceeded",
+  "510": "Not Extended",
+  "511": "Network Authentication Required"
+}
+
+},{}],42:[function(require,module,exports){
+/*!
+ * statuses
+ * Copyright(c) 2014 Jonathan Ong
+ * Copyright(c) 2016 Douglas Christopher Wilson
+ * MIT Licensed
+ */
+
+'use strict'
+
+/**
+ * Module dependencies.
+ * @private
+ */
+
+var codes = require('./codes.json')
+
+/**
+ * Module exports.
+ * @public
+ */
+
+module.exports = status
+
+// status code to message map
+status.STATUS_CODES = codes
+
+// array of status codes
+status.codes = populateStatusesMap(status, codes)
+
+// status codes for redirects
+status.redirect = {
+  300: true,
+  301: true,
+  302: true,
+  303: true,
+  305: true,
+  307: true,
+  308: true
+}
+
+// status codes for empty bodies
+status.empty = {
+  204: true,
+  205: true,
+  304: true
+}
+
+// status codes for when you should retry the request
+status.retry = {
+  502: true,
+  503: true,
+  504: true
+}
+
+/**
+ * Populate the statuses map for given codes.
+ * @private
+ */
+
+function populateStatusesMap (statuses, codes) {
+  var arr = []
+
+  Object.keys(codes).forEach(function forEachCode (code) {
+    var message = codes[code]
+    var status = Number(code)
+
+    // Populate properties
+    statuses[status] = message
+    statuses[message] = status
+    statuses[message.toLowerCase()] = status
+
+    // Add to array
+    arr.push(status)
+  })
+
+  return arr
+}
+
+/**
+ * Get the status code.
+ *
+ * Given a number, this will throw if it is not a known status
+ * code, otherwise the code will be returned. Given a string,
+ * the string will be parsed for a number and return the code
+ * if valid, otherwise will lookup the code assuming this is
+ * the status message.
+ *
+ * @param {string|number} code
+ * @returns {number}
+ * @public
+ */
+
+function status (code) {
+  if (typeof code === 'number') {
+    if (!status[code]) throw new Error('invalid status code: ' + code)
+    return code
+  }
+
+  if (typeof code !== 'string') {
+    throw new TypeError('code must be a number or string')
+  }
+
+  // '403'
+  var n = parseInt(code, 10)
+  if (!isNaN(n)) {
+    if (!status[n]) throw new Error('invalid status code: ' + n)
+    return n
+  }
+
+  n = status[code.toLowerCase()]
+  if (!n) throw new Error('invalid status message: "' + code + '"')
+  return n
+}
+
+},{"./codes.json":41}],43:[function(require,module,exports){
+/*!
+ * toidentifier
+ * Copyright(c) 2016 Douglas Christopher Wilson
+ * MIT Licensed
+ */
+
+/**
+ * Module exports.
+ * @public
+ */
+
+module.exports = toIdentifier
+
+/**
+ * Trasform the given string into a JavaScript identifier
+ *
+ * @param {string} str
+ * @returns {string}
+ * @public
+ */
+
+function toIdentifier (str) {
+  return str
+    .split(' ')
+    .map(function (token) {
+      return token.slice(0, 1).toUpperCase() + token.slice(1)
+    })
+    .join('')
+    .replace(/[^ _0-9a-z]/gi, '')
+}
+
+},{}],44:[function(require,module,exports){
 (function(nacl) {
 'use strict';
 
@@ -8432,17 +9050,17 @@ nacl.setPRNG = function(fn) {
 
 })(typeof module !== 'undefined' && module.exports ? module.exports : (self.nacl = self.nacl || {}));
 
-},{"crypto":18}],38:[function(require,module,exports){
+},{"crypto":18}],45:[function(require,module,exports){
 /*eslint-disable block-scoped-var, id-length, no-control-regex, no-magic-numbers, no-prototype-builtins, no-redeclare, no-shadow, no-var, sort-vars*/
-"use strict";
+'use strict';
 
-var $protobuf = require("protobufjs/minimal");
+var $protobuf = require('protobufjs/minimal');
 
 // Common aliases
 var $Reader = $protobuf.Reader, $Writer = $protobuf.Writer, $util = $protobuf.util;
 
 // Exported root namespace
-var $root = $protobuf.roots["default"] || ($protobuf.roots["default"] = {});
+var $root = $protobuf.roots['default'] || ($protobuf.roots['default'] = {});
 
 $root.CreateAccountTransaction = (function() {
 
@@ -8486,7 +9104,7 @@ $root.CreateAccountTransaction = (function() {
      * @memberof CreateAccountTransaction
      * @instance
      */
-    CreateAccountTransaction.prototype.originator = "";
+    CreateAccountTransaction.prototype.originator = '';
 
     /**
      * CreateAccountTransaction newAccountId.
@@ -8494,7 +9112,7 @@ $root.CreateAccountTransaction = (function() {
      * @memberof CreateAccountTransaction
      * @instance
      */
-    CreateAccountTransaction.prototype.newAccountId = "";
+    CreateAccountTransaction.prototype.newAccountId = '';
 
     /**
      * CreateAccountTransaction amount.
@@ -8536,15 +9154,15 @@ $root.CreateAccountTransaction = (function() {
     CreateAccountTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
-        if (message.newAccountId != null && message.hasOwnProperty("newAccountId"))
+        if (message.newAccountId != null && message.hasOwnProperty('newAccountId'))
             writer.uint32(/* id 3, wireType 2 =*/26).string(message.newAccountId);
-        if (message.amount != null && message.hasOwnProperty("amount"))
+        if (message.amount != null && message.hasOwnProperty('amount'))
             writer.uint32(/* id 4, wireType 0 =*/32).uint64(message.amount);
-        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+        if (message.publicKey != null && message.hasOwnProperty('publicKey'))
             writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.publicKey);
         return writer;
     };
@@ -8628,23 +9246,23 @@ $root.CreateAccountTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     CreateAccountTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
-                return "nonce: integer|Long expected";
-        if (message.originator != null && message.hasOwnProperty("originator"))
+                return 'nonce: integer|Long expected';
+        if (message.originator != null && message.hasOwnProperty('originator'))
             if (!$util.isString(message.originator))
-                return "originator: string expected";
-        if (message.newAccountId != null && message.hasOwnProperty("newAccountId"))
+                return 'originator: string expected';
+        if (message.newAccountId != null && message.hasOwnProperty('newAccountId'))
             if (!$util.isString(message.newAccountId))
-                return "newAccountId: string expected";
-        if (message.amount != null && message.hasOwnProperty("amount"))
+                return 'newAccountId: string expected';
+        if (message.amount != null && message.hasOwnProperty('amount'))
             if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
-                return "amount: integer|Long expected";
-        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
-            if (!(message.publicKey && typeof message.publicKey.length === "number" || $util.isString(message.publicKey)))
-                return "publicKey: buffer expected";
+                return 'amount: integer|Long expected';
+        if (message.publicKey != null && message.hasOwnProperty('publicKey'))
+            if (!(message.publicKey && typeof message.publicKey.length === 'number' || $util.isString(message.publicKey)))
+                return 'publicKey: buffer expected';
         return null;
     };
 
@@ -8663,11 +9281,11 @@ $root.CreateAccountTransaction = (function() {
         if (object.nonce != null)
             if ($util.Long)
                 (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
-            else if (typeof object.nonce === "string")
+            else if (typeof object.nonce === 'string')
                 message.nonce = parseInt(object.nonce, 10);
-            else if (typeof object.nonce === "number")
+            else if (typeof object.nonce === 'number')
                 message.nonce = object.nonce;
-            else if (typeof object.nonce === "object")
+            else if (typeof object.nonce === 'object')
                 message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
         if (object.originator != null)
             message.originator = String(object.originator);
@@ -8676,14 +9294,14 @@ $root.CreateAccountTransaction = (function() {
         if (object.amount != null)
             if ($util.Long)
                 (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
-            else if (typeof object.amount === "string")
+            else if (typeof object.amount === 'string')
                 message.amount = parseInt(object.amount, 10);
-            else if (typeof object.amount === "number")
+            else if (typeof object.amount === 'number')
                 message.amount = object.amount;
-            else if (typeof object.amount === "object")
+            else if (typeof object.amount === 'object')
                 message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
         if (object.publicKey != null)
-            if (typeof object.publicKey === "string")
+            if (typeof object.publicKey === 'string')
                 $util.base64.decode(object.publicKey, message.publicKey = $util.newBuffer($util.base64.length(object.publicKey)), 0);
             else if (object.publicKey.length)
                 message.publicKey = object.publicKey;
@@ -8708,37 +9326,37 @@ $root.CreateAccountTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.nonce = options.longs === String ? "0" : 0;
-            object.originator = "";
-            object.newAccountId = "";
+                object.nonce = options.longs === String ? '0' : 0;
+            object.originator = '';
+            object.newAccountId = '';
             if ($util.Long) {
                 var long = new $util.Long(0, 0, true);
                 object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.amount = options.longs === String ? "0" : 0;
+                object.amount = options.longs === String ? '0' : 0;
             if (options.bytes === String)
-                object.publicKey = "";
+                object.publicKey = '';
             else {
                 object.publicKey = [];
                 if (options.bytes !== Array)
                     object.publicKey = $util.newBuffer(object.publicKey);
             }
         }
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
-            if (typeof message.nonce === "number")
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
+            if (typeof message.nonce === 'number')
                 object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
             else
                 object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             object.originator = message.originator;
-        if (message.newAccountId != null && message.hasOwnProperty("newAccountId"))
+        if (message.newAccountId != null && message.hasOwnProperty('newAccountId'))
             object.newAccountId = message.newAccountId;
-        if (message.amount != null && message.hasOwnProperty("amount"))
-            if (typeof message.amount === "number")
+        if (message.amount != null && message.hasOwnProperty('amount'))
+            if (typeof message.amount === 'number')
                 object.amount = options.longs === String ? String(message.amount) : message.amount;
             else
                 object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
-        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+        if (message.publicKey != null && message.hasOwnProperty('publicKey'))
             object.publicKey = options.bytes === String ? $util.base64.encode(message.publicKey, 0, message.publicKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.publicKey) : message.publicKey;
         return object;
     };
@@ -8799,7 +9417,7 @@ $root.DeployContractTransaction = (function() {
      * @memberof DeployContractTransaction
      * @instance
      */
-    DeployContractTransaction.prototype.originator = "";
+    DeployContractTransaction.prototype.originator = '';
 
     /**
      * DeployContractTransaction contractId.
@@ -8807,7 +9425,7 @@ $root.DeployContractTransaction = (function() {
      * @memberof DeployContractTransaction
      * @instance
      */
-    DeployContractTransaction.prototype.contractId = "";
+    DeployContractTransaction.prototype.contractId = '';
 
     /**
      * DeployContractTransaction wasmByteArray.
@@ -8849,15 +9467,15 @@ $root.DeployContractTransaction = (function() {
     DeployContractTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
-        if (message.contractId != null && message.hasOwnProperty("contractId"))
+        if (message.contractId != null && message.hasOwnProperty('contractId'))
             writer.uint32(/* id 3, wireType 2 =*/26).string(message.contractId);
-        if (message.wasmByteArray != null && message.hasOwnProperty("wasmByteArray"))
+        if (message.wasmByteArray != null && message.hasOwnProperty('wasmByteArray'))
             writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.wasmByteArray);
-        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+        if (message.publicKey != null && message.hasOwnProperty('publicKey'))
             writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.publicKey);
         return writer;
     };
@@ -8941,23 +9559,23 @@ $root.DeployContractTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     DeployContractTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
-                return "nonce: integer|Long expected";
-        if (message.originator != null && message.hasOwnProperty("originator"))
+                return 'nonce: integer|Long expected';
+        if (message.originator != null && message.hasOwnProperty('originator'))
             if (!$util.isString(message.originator))
-                return "originator: string expected";
-        if (message.contractId != null && message.hasOwnProperty("contractId"))
+                return 'originator: string expected';
+        if (message.contractId != null && message.hasOwnProperty('contractId'))
             if (!$util.isString(message.contractId))
-                return "contractId: string expected";
-        if (message.wasmByteArray != null && message.hasOwnProperty("wasmByteArray"))
-            if (!(message.wasmByteArray && typeof message.wasmByteArray.length === "number" || $util.isString(message.wasmByteArray)))
-                return "wasmByteArray: buffer expected";
-        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
-            if (!(message.publicKey && typeof message.publicKey.length === "number" || $util.isString(message.publicKey)))
-                return "publicKey: buffer expected";
+                return 'contractId: string expected';
+        if (message.wasmByteArray != null && message.hasOwnProperty('wasmByteArray'))
+            if (!(message.wasmByteArray && typeof message.wasmByteArray.length === 'number' || $util.isString(message.wasmByteArray)))
+                return 'wasmByteArray: buffer expected';
+        if (message.publicKey != null && message.hasOwnProperty('publicKey'))
+            if (!(message.publicKey && typeof message.publicKey.length === 'number' || $util.isString(message.publicKey)))
+                return 'publicKey: buffer expected';
         return null;
     };
 
@@ -8976,23 +9594,23 @@ $root.DeployContractTransaction = (function() {
         if (object.nonce != null)
             if ($util.Long)
                 (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
-            else if (typeof object.nonce === "string")
+            else if (typeof object.nonce === 'string')
                 message.nonce = parseInt(object.nonce, 10);
-            else if (typeof object.nonce === "number")
+            else if (typeof object.nonce === 'number')
                 message.nonce = object.nonce;
-            else if (typeof object.nonce === "object")
+            else if (typeof object.nonce === 'object')
                 message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
         if (object.originator != null)
             message.originator = String(object.originator);
         if (object.contractId != null)
             message.contractId = String(object.contractId);
         if (object.wasmByteArray != null)
-            if (typeof object.wasmByteArray === "string")
+            if (typeof object.wasmByteArray === 'string')
                 $util.base64.decode(object.wasmByteArray, message.wasmByteArray = $util.newBuffer($util.base64.length(object.wasmByteArray)), 0);
             else if (object.wasmByteArray.length)
                 message.wasmByteArray = object.wasmByteArray;
         if (object.publicKey != null)
-            if (typeof object.publicKey === "string")
+            if (typeof object.publicKey === 'string')
                 $util.base64.decode(object.publicKey, message.publicKey = $util.newBuffer($util.base64.length(object.publicKey)), 0);
             else if (object.publicKey.length)
                 message.publicKey = object.publicKey;
@@ -9017,36 +9635,36 @@ $root.DeployContractTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.nonce = options.longs === String ? "0" : 0;
-            object.originator = "";
-            object.contractId = "";
+                object.nonce = options.longs === String ? '0' : 0;
+            object.originator = '';
+            object.contractId = '';
             if (options.bytes === String)
-                object.wasmByteArray = "";
+                object.wasmByteArray = '';
             else {
                 object.wasmByteArray = [];
                 if (options.bytes !== Array)
                     object.wasmByteArray = $util.newBuffer(object.wasmByteArray);
             }
             if (options.bytes === String)
-                object.publicKey = "";
+                object.publicKey = '';
             else {
                 object.publicKey = [];
                 if (options.bytes !== Array)
                     object.publicKey = $util.newBuffer(object.publicKey);
             }
         }
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
-            if (typeof message.nonce === "number")
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
+            if (typeof message.nonce === 'number')
                 object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
             else
                 object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             object.originator = message.originator;
-        if (message.contractId != null && message.hasOwnProperty("contractId"))
+        if (message.contractId != null && message.hasOwnProperty('contractId'))
             object.contractId = message.contractId;
-        if (message.wasmByteArray != null && message.hasOwnProperty("wasmByteArray"))
+        if (message.wasmByteArray != null && message.hasOwnProperty('wasmByteArray'))
             object.wasmByteArray = options.bytes === String ? $util.base64.encode(message.wasmByteArray, 0, message.wasmByteArray.length) : options.bytes === Array ? Array.prototype.slice.call(message.wasmByteArray) : message.wasmByteArray;
-        if (message.publicKey != null && message.hasOwnProperty("publicKey"))
+        if (message.publicKey != null && message.hasOwnProperty('publicKey'))
             object.publicKey = options.bytes === String ? $util.base64.encode(message.publicKey, 0, message.publicKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.publicKey) : message.publicKey;
         return object;
     };
@@ -9108,7 +9726,7 @@ $root.FunctionCallTransaction = (function() {
      * @memberof FunctionCallTransaction
      * @instance
      */
-    FunctionCallTransaction.prototype.originator = "";
+    FunctionCallTransaction.prototype.originator = '';
 
     /**
      * FunctionCallTransaction contractId.
@@ -9116,7 +9734,7 @@ $root.FunctionCallTransaction = (function() {
      * @memberof FunctionCallTransaction
      * @instance
      */
-    FunctionCallTransaction.prototype.contractId = "";
+    FunctionCallTransaction.prototype.contractId = '';
 
     /**
      * FunctionCallTransaction methodName.
@@ -9166,17 +9784,17 @@ $root.FunctionCallTransaction = (function() {
     FunctionCallTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
-        if (message.contractId != null && message.hasOwnProperty("contractId"))
+        if (message.contractId != null && message.hasOwnProperty('contractId'))
             writer.uint32(/* id 3, wireType 2 =*/26).string(message.contractId);
-        if (message.methodName != null && message.hasOwnProperty("methodName"))
+        if (message.methodName != null && message.hasOwnProperty('methodName'))
             writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.methodName);
-        if (message.args != null && message.hasOwnProperty("args"))
+        if (message.args != null && message.hasOwnProperty('args'))
             writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.args);
-        if (message.amount != null && message.hasOwnProperty("amount"))
+        if (message.amount != null && message.hasOwnProperty('amount'))
             writer.uint32(/* id 6, wireType 0 =*/48).uint64(message.amount);
         return writer;
     };
@@ -9263,26 +9881,26 @@ $root.FunctionCallTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     FunctionCallTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
-                return "nonce: integer|Long expected";
-        if (message.originator != null && message.hasOwnProperty("originator"))
+                return 'nonce: integer|Long expected';
+        if (message.originator != null && message.hasOwnProperty('originator'))
             if (!$util.isString(message.originator))
-                return "originator: string expected";
-        if (message.contractId != null && message.hasOwnProperty("contractId"))
+                return 'originator: string expected';
+        if (message.contractId != null && message.hasOwnProperty('contractId'))
             if (!$util.isString(message.contractId))
-                return "contractId: string expected";
-        if (message.methodName != null && message.hasOwnProperty("methodName"))
-            if (!(message.methodName && typeof message.methodName.length === "number" || $util.isString(message.methodName)))
-                return "methodName: buffer expected";
-        if (message.args != null && message.hasOwnProperty("args"))
-            if (!(message.args && typeof message.args.length === "number" || $util.isString(message.args)))
-                return "args: buffer expected";
-        if (message.amount != null && message.hasOwnProperty("amount"))
+                return 'contractId: string expected';
+        if (message.methodName != null && message.hasOwnProperty('methodName'))
+            if (!(message.methodName && typeof message.methodName.length === 'number' || $util.isString(message.methodName)))
+                return 'methodName: buffer expected';
+        if (message.args != null && message.hasOwnProperty('args'))
+            if (!(message.args && typeof message.args.length === 'number' || $util.isString(message.args)))
+                return 'args: buffer expected';
+        if (message.amount != null && message.hasOwnProperty('amount'))
             if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
-                return "amount: integer|Long expected";
+                return 'amount: integer|Long expected';
         return null;
     };
 
@@ -9301,34 +9919,34 @@ $root.FunctionCallTransaction = (function() {
         if (object.nonce != null)
             if ($util.Long)
                 (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
-            else if (typeof object.nonce === "string")
+            else if (typeof object.nonce === 'string')
                 message.nonce = parseInt(object.nonce, 10);
-            else if (typeof object.nonce === "number")
+            else if (typeof object.nonce === 'number')
                 message.nonce = object.nonce;
-            else if (typeof object.nonce === "object")
+            else if (typeof object.nonce === 'object')
                 message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
         if (object.originator != null)
             message.originator = String(object.originator);
         if (object.contractId != null)
             message.contractId = String(object.contractId);
         if (object.methodName != null)
-            if (typeof object.methodName === "string")
+            if (typeof object.methodName === 'string')
                 $util.base64.decode(object.methodName, message.methodName = $util.newBuffer($util.base64.length(object.methodName)), 0);
             else if (object.methodName.length)
                 message.methodName = object.methodName;
         if (object.args != null)
-            if (typeof object.args === "string")
+            if (typeof object.args === 'string')
                 $util.base64.decode(object.args, message.args = $util.newBuffer($util.base64.length(object.args)), 0);
             else if (object.args.length)
                 message.args = object.args;
         if (object.amount != null)
             if ($util.Long)
                 (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
-            else if (typeof object.amount === "string")
+            else if (typeof object.amount === 'string')
                 message.amount = parseInt(object.amount, 10);
-            else if (typeof object.amount === "number")
+            else if (typeof object.amount === 'number')
                 message.amount = object.amount;
-            else if (typeof object.amount === "object")
+            else if (typeof object.amount === 'object')
                 message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
         return message;
     };
@@ -9351,18 +9969,18 @@ $root.FunctionCallTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.nonce = options.longs === String ? "0" : 0;
-            object.originator = "";
-            object.contractId = "";
+                object.nonce = options.longs === String ? '0' : 0;
+            object.originator = '';
+            object.contractId = '';
             if (options.bytes === String)
-                object.methodName = "";
+                object.methodName = '';
             else {
                 object.methodName = [];
                 if (options.bytes !== Array)
                     object.methodName = $util.newBuffer(object.methodName);
             }
             if (options.bytes === String)
-                object.args = "";
+                object.args = '';
             else {
                 object.args = [];
                 if (options.bytes !== Array)
@@ -9372,23 +9990,23 @@ $root.FunctionCallTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.amount = options.longs === String ? "0" : 0;
+                object.amount = options.longs === String ? '0' : 0;
         }
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
-            if (typeof message.nonce === "number")
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
+            if (typeof message.nonce === 'number')
                 object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
             else
                 object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             object.originator = message.originator;
-        if (message.contractId != null && message.hasOwnProperty("contractId"))
+        if (message.contractId != null && message.hasOwnProperty('contractId'))
             object.contractId = message.contractId;
-        if (message.methodName != null && message.hasOwnProperty("methodName"))
+        if (message.methodName != null && message.hasOwnProperty('methodName'))
             object.methodName = options.bytes === String ? $util.base64.encode(message.methodName, 0, message.methodName.length) : options.bytes === Array ? Array.prototype.slice.call(message.methodName) : message.methodName;
-        if (message.args != null && message.hasOwnProperty("args"))
+        if (message.args != null && message.hasOwnProperty('args'))
             object.args = options.bytes === String ? $util.base64.encode(message.args, 0, message.args.length) : options.bytes === Array ? Array.prototype.slice.call(message.args) : message.args;
-        if (message.amount != null && message.hasOwnProperty("amount"))
-            if (typeof message.amount === "number")
+        if (message.amount != null && message.hasOwnProperty('amount'))
+            if (typeof message.amount === 'number')
                 object.amount = options.longs === String ? String(message.amount) : message.amount;
             else
                 object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
@@ -9450,7 +10068,7 @@ $root.SendMoneyTransaction = (function() {
      * @memberof SendMoneyTransaction
      * @instance
      */
-    SendMoneyTransaction.prototype.originator = "";
+    SendMoneyTransaction.prototype.originator = '';
 
     /**
      * SendMoneyTransaction receiver.
@@ -9458,7 +10076,7 @@ $root.SendMoneyTransaction = (function() {
      * @memberof SendMoneyTransaction
      * @instance
      */
-    SendMoneyTransaction.prototype.receiver = "";
+    SendMoneyTransaction.prototype.receiver = '';
 
     /**
      * SendMoneyTransaction amount.
@@ -9492,13 +10110,13 @@ $root.SendMoneyTransaction = (function() {
     SendMoneyTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
-        if (message.receiver != null && message.hasOwnProperty("receiver"))
+        if (message.receiver != null && message.hasOwnProperty('receiver'))
             writer.uint32(/* id 3, wireType 2 =*/26).string(message.receiver);
-        if (message.amount != null && message.hasOwnProperty("amount"))
+        if (message.amount != null && message.hasOwnProperty('amount'))
             writer.uint32(/* id 4, wireType 0 =*/32).uint64(message.amount);
         return writer;
     };
@@ -9579,20 +10197,20 @@ $root.SendMoneyTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     SendMoneyTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
-                return "nonce: integer|Long expected";
-        if (message.originator != null && message.hasOwnProperty("originator"))
+                return 'nonce: integer|Long expected';
+        if (message.originator != null && message.hasOwnProperty('originator'))
             if (!$util.isString(message.originator))
-                return "originator: string expected";
-        if (message.receiver != null && message.hasOwnProperty("receiver"))
+                return 'originator: string expected';
+        if (message.receiver != null && message.hasOwnProperty('receiver'))
             if (!$util.isString(message.receiver))
-                return "receiver: string expected";
-        if (message.amount != null && message.hasOwnProperty("amount"))
+                return 'receiver: string expected';
+        if (message.amount != null && message.hasOwnProperty('amount'))
             if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
-                return "amount: integer|Long expected";
+                return 'amount: integer|Long expected';
         return null;
     };
 
@@ -9611,11 +10229,11 @@ $root.SendMoneyTransaction = (function() {
         if (object.nonce != null)
             if ($util.Long)
                 (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
-            else if (typeof object.nonce === "string")
+            else if (typeof object.nonce === 'string')
                 message.nonce = parseInt(object.nonce, 10);
-            else if (typeof object.nonce === "number")
+            else if (typeof object.nonce === 'number')
                 message.nonce = object.nonce;
-            else if (typeof object.nonce === "object")
+            else if (typeof object.nonce === 'object')
                 message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
         if (object.originator != null)
             message.originator = String(object.originator);
@@ -9624,11 +10242,11 @@ $root.SendMoneyTransaction = (function() {
         if (object.amount != null)
             if ($util.Long)
                 (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
-            else if (typeof object.amount === "string")
+            else if (typeof object.amount === 'string')
                 message.amount = parseInt(object.amount, 10);
-            else if (typeof object.amount === "number")
+            else if (typeof object.amount === 'number')
                 message.amount = object.amount;
-            else if (typeof object.amount === "object")
+            else if (typeof object.amount === 'object')
                 message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
         return message;
     };
@@ -9651,26 +10269,26 @@ $root.SendMoneyTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.nonce = options.longs === String ? "0" : 0;
-            object.originator = "";
-            object.receiver = "";
+                object.nonce = options.longs === String ? '0' : 0;
+            object.originator = '';
+            object.receiver = '';
             if ($util.Long) {
                 var long = new $util.Long(0, 0, true);
                 object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.amount = options.longs === String ? "0" : 0;
+                object.amount = options.longs === String ? '0' : 0;
         }
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
-            if (typeof message.nonce === "number")
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
+            if (typeof message.nonce === 'number')
                 object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
             else
                 object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             object.originator = message.originator;
-        if (message.receiver != null && message.hasOwnProperty("receiver"))
+        if (message.receiver != null && message.hasOwnProperty('receiver'))
             object.receiver = message.receiver;
-        if (message.amount != null && message.hasOwnProperty("amount"))
-            if (typeof message.amount === "number")
+        if (message.amount != null && message.hasOwnProperty('amount'))
+            if (typeof message.amount === 'number')
                 object.amount = options.longs === String ? String(message.amount) : message.amount;
             else
                 object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
@@ -9731,7 +10349,7 @@ $root.StakeTransaction = (function() {
      * @memberof StakeTransaction
      * @instance
      */
-    StakeTransaction.prototype.originator = "";
+    StakeTransaction.prototype.originator = '';
 
     /**
      * StakeTransaction amount.
@@ -9765,11 +10383,11 @@ $root.StakeTransaction = (function() {
     StakeTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
-        if (message.amount != null && message.hasOwnProperty("amount"))
+        if (message.amount != null && message.hasOwnProperty('amount'))
             writer.uint32(/* id 3, wireType 0 =*/24).uint64(message.amount);
         return writer;
     };
@@ -9847,17 +10465,17 @@ $root.StakeTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     StakeTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
-                return "nonce: integer|Long expected";
-        if (message.originator != null && message.hasOwnProperty("originator"))
+                return 'nonce: integer|Long expected';
+        if (message.originator != null && message.hasOwnProperty('originator'))
             if (!$util.isString(message.originator))
-                return "originator: string expected";
-        if (message.amount != null && message.hasOwnProperty("amount"))
+                return 'originator: string expected';
+        if (message.amount != null && message.hasOwnProperty('amount'))
             if (!$util.isInteger(message.amount) && !(message.amount && $util.isInteger(message.amount.low) && $util.isInteger(message.amount.high)))
-                return "amount: integer|Long expected";
+                return 'amount: integer|Long expected';
         return null;
     };
 
@@ -9876,22 +10494,22 @@ $root.StakeTransaction = (function() {
         if (object.nonce != null)
             if ($util.Long)
                 (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
-            else if (typeof object.nonce === "string")
+            else if (typeof object.nonce === 'string')
                 message.nonce = parseInt(object.nonce, 10);
-            else if (typeof object.nonce === "number")
+            else if (typeof object.nonce === 'number')
                 message.nonce = object.nonce;
-            else if (typeof object.nonce === "object")
+            else if (typeof object.nonce === 'object')
                 message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
         if (object.originator != null)
             message.originator = String(object.originator);
         if (object.amount != null)
             if ($util.Long)
                 (message.amount = $util.Long.fromValue(object.amount)).unsigned = true;
-            else if (typeof object.amount === "string")
+            else if (typeof object.amount === 'string')
                 message.amount = parseInt(object.amount, 10);
-            else if (typeof object.amount === "number")
+            else if (typeof object.amount === 'number')
                 message.amount = object.amount;
-            else if (typeof object.amount === "object")
+            else if (typeof object.amount === 'object')
                 message.amount = new $util.LongBits(object.amount.low >>> 0, object.amount.high >>> 0).toNumber(true);
         return message;
     };
@@ -9914,23 +10532,23 @@ $root.StakeTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.nonce = options.longs === String ? "0" : 0;
-            object.originator = "";
+                object.nonce = options.longs === String ? '0' : 0;
+            object.originator = '';
             if ($util.Long) {
                 var long = new $util.Long(0, 0, true);
                 object.amount = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.amount = options.longs === String ? "0" : 0;
+                object.amount = options.longs === String ? '0' : 0;
         }
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
-            if (typeof message.nonce === "number")
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
+            if (typeof message.nonce === 'number')
                 object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
             else
                 object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             object.originator = message.originator;
-        if (message.amount != null && message.hasOwnProperty("amount"))
-            if (typeof message.amount === "number")
+        if (message.amount != null && message.hasOwnProperty('amount'))
+            if (typeof message.amount === 'number')
                 object.amount = options.longs === String ? String(message.amount) : message.amount;
             else
                 object.amount = options.longs === String ? $util.Long.prototype.toString.call(message.amount) : options.longs === Number ? new $util.LongBits(message.amount.low >>> 0, message.amount.high >>> 0).toNumber(true) : message.amount;
@@ -9992,7 +10610,7 @@ $root.SwapKeyTransaction = (function() {
      * @memberof SwapKeyTransaction
      * @instance
      */
-    SwapKeyTransaction.prototype.originator = "";
+    SwapKeyTransaction.prototype.originator = '';
 
     /**
      * SwapKeyTransaction curKey.
@@ -10034,13 +10652,13 @@ $root.SwapKeyTransaction = (function() {
     SwapKeyTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.nonce);
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.originator);
-        if (message.curKey != null && message.hasOwnProperty("curKey"))
+        if (message.curKey != null && message.hasOwnProperty('curKey'))
             writer.uint32(/* id 3, wireType 2 =*/26).bytes(message.curKey);
-        if (message.newKey != null && message.hasOwnProperty("newKey"))
+        if (message.newKey != null && message.hasOwnProperty('newKey'))
             writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.newKey);
         return writer;
     };
@@ -10121,20 +10739,20 @@ $root.SwapKeyTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     SwapKeyTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
             if (!$util.isInteger(message.nonce) && !(message.nonce && $util.isInteger(message.nonce.low) && $util.isInteger(message.nonce.high)))
-                return "nonce: integer|Long expected";
-        if (message.originator != null && message.hasOwnProperty("originator"))
+                return 'nonce: integer|Long expected';
+        if (message.originator != null && message.hasOwnProperty('originator'))
             if (!$util.isString(message.originator))
-                return "originator: string expected";
-        if (message.curKey != null && message.hasOwnProperty("curKey"))
-            if (!(message.curKey && typeof message.curKey.length === "number" || $util.isString(message.curKey)))
-                return "curKey: buffer expected";
-        if (message.newKey != null && message.hasOwnProperty("newKey"))
-            if (!(message.newKey && typeof message.newKey.length === "number" || $util.isString(message.newKey)))
-                return "newKey: buffer expected";
+                return 'originator: string expected';
+        if (message.curKey != null && message.hasOwnProperty('curKey'))
+            if (!(message.curKey && typeof message.curKey.length === 'number' || $util.isString(message.curKey)))
+                return 'curKey: buffer expected';
+        if (message.newKey != null && message.hasOwnProperty('newKey'))
+            if (!(message.newKey && typeof message.newKey.length === 'number' || $util.isString(message.newKey)))
+                return 'newKey: buffer expected';
         return null;
     };
 
@@ -10153,21 +10771,21 @@ $root.SwapKeyTransaction = (function() {
         if (object.nonce != null)
             if ($util.Long)
                 (message.nonce = $util.Long.fromValue(object.nonce)).unsigned = true;
-            else if (typeof object.nonce === "string")
+            else if (typeof object.nonce === 'string')
                 message.nonce = parseInt(object.nonce, 10);
-            else if (typeof object.nonce === "number")
+            else if (typeof object.nonce === 'number')
                 message.nonce = object.nonce;
-            else if (typeof object.nonce === "object")
+            else if (typeof object.nonce === 'object')
                 message.nonce = new $util.LongBits(object.nonce.low >>> 0, object.nonce.high >>> 0).toNumber(true);
         if (object.originator != null)
             message.originator = String(object.originator);
         if (object.curKey != null)
-            if (typeof object.curKey === "string")
+            if (typeof object.curKey === 'string')
                 $util.base64.decode(object.curKey, message.curKey = $util.newBuffer($util.base64.length(object.curKey)), 0);
             else if (object.curKey.length)
                 message.curKey = object.curKey;
         if (object.newKey != null)
-            if (typeof object.newKey === "string")
+            if (typeof object.newKey === 'string')
                 $util.base64.decode(object.newKey, message.newKey = $util.newBuffer($util.base64.length(object.newKey)), 0);
             else if (object.newKey.length)
                 message.newKey = object.newKey;
@@ -10192,33 +10810,33 @@ $root.SwapKeyTransaction = (function() {
                 var long = new $util.Long(0, 0, true);
                 object.nonce = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
             } else
-                object.nonce = options.longs === String ? "0" : 0;
-            object.originator = "";
+                object.nonce = options.longs === String ? '0' : 0;
+            object.originator = '';
             if (options.bytes === String)
-                object.curKey = "";
+                object.curKey = '';
             else {
                 object.curKey = [];
                 if (options.bytes !== Array)
                     object.curKey = $util.newBuffer(object.curKey);
             }
             if (options.bytes === String)
-                object.newKey = "";
+                object.newKey = '';
             else {
                 object.newKey = [];
                 if (options.bytes !== Array)
                     object.newKey = $util.newBuffer(object.newKey);
             }
         }
-        if (message.nonce != null && message.hasOwnProperty("nonce"))
-            if (typeof message.nonce === "number")
+        if (message.nonce != null && message.hasOwnProperty('nonce'))
+            if (typeof message.nonce === 'number')
                 object.nonce = options.longs === String ? String(message.nonce) : message.nonce;
             else
                 object.nonce = options.longs === String ? $util.Long.prototype.toString.call(message.nonce) : options.longs === Number ? new $util.LongBits(message.nonce.low >>> 0, message.nonce.high >>> 0).toNumber(true) : message.nonce;
-        if (message.originator != null && message.hasOwnProperty("originator"))
+        if (message.originator != null && message.hasOwnProperty('originator'))
             object.originator = message.originator;
-        if (message.curKey != null && message.hasOwnProperty("curKey"))
+        if (message.curKey != null && message.hasOwnProperty('curKey'))
             object.curKey = options.bytes === String ? $util.base64.encode(message.curKey, 0, message.curKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.curKey) : message.curKey;
-        if (message.newKey != null && message.hasOwnProperty("newKey"))
+        if (message.newKey != null && message.hasOwnProperty('newKey'))
             object.newKey = options.bytes === String ? $util.base64.encode(message.newKey, 0, message.newKey.length) : options.bytes === Array ? Array.prototype.slice.call(message.newKey) : message.newKey;
         return object;
     };
@@ -10332,8 +10950,8 @@ $root.SignedTransaction = (function() {
      * @memberof SignedTransaction
      * @instance
      */
-    Object.defineProperty(SignedTransaction.prototype, "body", {
-        get: $util.oneOfGetter($oneOfFields = ["createAccount", "deployContract", "functionCall", "sendMoney", "stake", "swapKey"]),
+    Object.defineProperty(SignedTransaction.prototype, 'body', {
+        get: $util.oneOfGetter($oneOfFields = ['createAccount', 'deployContract', 'functionCall', 'sendMoney', 'stake', 'swapKey']),
         set: $util.oneOfSetter($oneOfFields)
     });
 
@@ -10361,19 +10979,19 @@ $root.SignedTransaction = (function() {
     SignedTransaction.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.signature != null && message.hasOwnProperty("signature"))
+        if (message.signature != null && message.hasOwnProperty('signature'))
             writer.uint32(/* id 1, wireType 2 =*/10).bytes(message.signature);
-        if (message.createAccount != null && message.hasOwnProperty("createAccount"))
+        if (message.createAccount != null && message.hasOwnProperty('createAccount'))
             $root.CreateAccountTransaction.encode(message.createAccount, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
-        if (message.deployContract != null && message.hasOwnProperty("deployContract"))
+        if (message.deployContract != null && message.hasOwnProperty('deployContract'))
             $root.DeployContractTransaction.encode(message.deployContract, writer.uint32(/* id 3, wireType 2 =*/26).fork()).ldelim();
-        if (message.functionCall != null && message.hasOwnProperty("functionCall"))
+        if (message.functionCall != null && message.hasOwnProperty('functionCall'))
             $root.FunctionCallTransaction.encode(message.functionCall, writer.uint32(/* id 4, wireType 2 =*/34).fork()).ldelim();
-        if (message.sendMoney != null && message.hasOwnProperty("sendMoney"))
+        if (message.sendMoney != null && message.hasOwnProperty('sendMoney'))
             $root.SendMoneyTransaction.encode(message.sendMoney, writer.uint32(/* id 5, wireType 2 =*/42).fork()).ldelim();
-        if (message.stake != null && message.hasOwnProperty("stake"))
+        if (message.stake != null && message.hasOwnProperty('stake'))
             $root.StakeTransaction.encode(message.stake, writer.uint32(/* id 6, wireType 2 =*/50).fork()).ldelim();
-        if (message.swapKey != null && message.hasOwnProperty("swapKey"))
+        if (message.swapKey != null && message.hasOwnProperty('swapKey'))
             $root.SwapKeyTransaction.encode(message.swapKey, writer.uint32(/* id 7, wireType 2 =*/58).fork()).ldelim();
         return writer;
     };
@@ -10463,68 +11081,68 @@ $root.SignedTransaction = (function() {
      * @returns {string|null} `null` if valid, otherwise the reason why it is not
      */
     SignedTransaction.verify = function verify(message) {
-        if (typeof message !== "object" || message === null)
-            return "object expected";
+        if (typeof message !== 'object' || message === null)
+            return 'object expected';
         var properties = {};
-        if (message.signature != null && message.hasOwnProperty("signature"))
-            if (!(message.signature && typeof message.signature.length === "number" || $util.isString(message.signature)))
-                return "signature: buffer expected";
-        if (message.createAccount != null && message.hasOwnProperty("createAccount")) {
+        if (message.signature != null && message.hasOwnProperty('signature'))
+            if (!(message.signature && typeof message.signature.length === 'number' || $util.isString(message.signature)))
+                return 'signature: buffer expected';
+        if (message.createAccount != null && message.hasOwnProperty('createAccount')) {
             properties.body = 1;
             {
                 var error = $root.CreateAccountTransaction.verify(message.createAccount);
                 if (error)
-                    return "createAccount." + error;
+                    return 'createAccount.' + error;
             }
         }
-        if (message.deployContract != null && message.hasOwnProperty("deployContract")) {
+        if (message.deployContract != null && message.hasOwnProperty('deployContract')) {
             if (properties.body === 1)
-                return "body: multiple values";
+                return 'body: multiple values';
             properties.body = 1;
             {
                 var error = $root.DeployContractTransaction.verify(message.deployContract);
                 if (error)
-                    return "deployContract." + error;
+                    return 'deployContract.' + error;
             }
         }
-        if (message.functionCall != null && message.hasOwnProperty("functionCall")) {
+        if (message.functionCall != null && message.hasOwnProperty('functionCall')) {
             if (properties.body === 1)
-                return "body: multiple values";
+                return 'body: multiple values';
             properties.body = 1;
             {
                 var error = $root.FunctionCallTransaction.verify(message.functionCall);
                 if (error)
-                    return "functionCall." + error;
+                    return 'functionCall.' + error;
             }
         }
-        if (message.sendMoney != null && message.hasOwnProperty("sendMoney")) {
+        if (message.sendMoney != null && message.hasOwnProperty('sendMoney')) {
             if (properties.body === 1)
-                return "body: multiple values";
+                return 'body: multiple values';
             properties.body = 1;
             {
                 var error = $root.SendMoneyTransaction.verify(message.sendMoney);
                 if (error)
-                    return "sendMoney." + error;
+                    return 'sendMoney.' + error;
             }
         }
-        if (message.stake != null && message.hasOwnProperty("stake")) {
+        if (message.stake != null && message.hasOwnProperty('stake')) {
             if (properties.body === 1)
-                return "body: multiple values";
+                return 'body: multiple values';
             properties.body = 1;
             {
                 var error = $root.StakeTransaction.verify(message.stake);
                 if (error)
-                    return "stake." + error;
+                    return 'stake.' + error;
             }
         }
-        if (message.swapKey != null && message.hasOwnProperty("swapKey")) {
+        if (message.swapKey != null && message.hasOwnProperty('swapKey')) {
             if (properties.body === 1)
-                return "body: multiple values";
+                return 'body: multiple values';
             properties.body = 1;
             {
                 var error = $root.SwapKeyTransaction.verify(message.swapKey);
                 if (error)
-                    return "swapKey." + error;
+                    return 'swapKey.' + error;
             }
         }
         return null;
@@ -10543,38 +11161,38 @@ $root.SignedTransaction = (function() {
             return object;
         var message = new $root.SignedTransaction();
         if (object.signature != null)
-            if (typeof object.signature === "string")
+            if (typeof object.signature === 'string')
                 $util.base64.decode(object.signature, message.signature = $util.newBuffer($util.base64.length(object.signature)), 0);
             else if (object.signature.length)
                 message.signature = object.signature;
         if (object.createAccount != null) {
-            if (typeof object.createAccount !== "object")
-                throw TypeError(".SignedTransaction.createAccount: object expected");
+            if (typeof object.createAccount !== 'object')
+                throw TypeError('.SignedTransaction.createAccount: object expected');
             message.createAccount = $root.CreateAccountTransaction.fromObject(object.createAccount);
         }
         if (object.deployContract != null) {
-            if (typeof object.deployContract !== "object")
-                throw TypeError(".SignedTransaction.deployContract: object expected");
+            if (typeof object.deployContract !== 'object')
+                throw TypeError('.SignedTransaction.deployContract: object expected');
             message.deployContract = $root.DeployContractTransaction.fromObject(object.deployContract);
         }
         if (object.functionCall != null) {
-            if (typeof object.functionCall !== "object")
-                throw TypeError(".SignedTransaction.functionCall: object expected");
+            if (typeof object.functionCall !== 'object')
+                throw TypeError('.SignedTransaction.functionCall: object expected');
             message.functionCall = $root.FunctionCallTransaction.fromObject(object.functionCall);
         }
         if (object.sendMoney != null) {
-            if (typeof object.sendMoney !== "object")
-                throw TypeError(".SignedTransaction.sendMoney: object expected");
+            if (typeof object.sendMoney !== 'object')
+                throw TypeError('.SignedTransaction.sendMoney: object expected');
             message.sendMoney = $root.SendMoneyTransaction.fromObject(object.sendMoney);
         }
         if (object.stake != null) {
-            if (typeof object.stake !== "object")
-                throw TypeError(".SignedTransaction.stake: object expected");
+            if (typeof object.stake !== 'object')
+                throw TypeError('.SignedTransaction.stake: object expected');
             message.stake = $root.StakeTransaction.fromObject(object.stake);
         }
         if (object.swapKey != null) {
-            if (typeof object.swapKey !== "object")
-                throw TypeError(".SignedTransaction.swapKey: object expected");
+            if (typeof object.swapKey !== 'object')
+                throw TypeError('.SignedTransaction.swapKey: object expected');
             message.swapKey = $root.SwapKeyTransaction.fromObject(object.swapKey);
         }
         return message;
@@ -10595,43 +11213,43 @@ $root.SignedTransaction = (function() {
         var object = {};
         if (options.defaults)
             if (options.bytes === String)
-                object.signature = "";
+                object.signature = '';
             else {
                 object.signature = [];
                 if (options.bytes !== Array)
                     object.signature = $util.newBuffer(object.signature);
             }
-        if (message.signature != null && message.hasOwnProperty("signature"))
+        if (message.signature != null && message.hasOwnProperty('signature'))
             object.signature = options.bytes === String ? $util.base64.encode(message.signature, 0, message.signature.length) : options.bytes === Array ? Array.prototype.slice.call(message.signature) : message.signature;
-        if (message.createAccount != null && message.hasOwnProperty("createAccount")) {
+        if (message.createAccount != null && message.hasOwnProperty('createAccount')) {
             object.createAccount = $root.CreateAccountTransaction.toObject(message.createAccount, options);
             if (options.oneofs)
-                object.body = "createAccount";
+                object.body = 'createAccount';
         }
-        if (message.deployContract != null && message.hasOwnProperty("deployContract")) {
+        if (message.deployContract != null && message.hasOwnProperty('deployContract')) {
             object.deployContract = $root.DeployContractTransaction.toObject(message.deployContract, options);
             if (options.oneofs)
-                object.body = "deployContract";
+                object.body = 'deployContract';
         }
-        if (message.functionCall != null && message.hasOwnProperty("functionCall")) {
+        if (message.functionCall != null && message.hasOwnProperty('functionCall')) {
             object.functionCall = $root.FunctionCallTransaction.toObject(message.functionCall, options);
             if (options.oneofs)
-                object.body = "functionCall";
+                object.body = 'functionCall';
         }
-        if (message.sendMoney != null && message.hasOwnProperty("sendMoney")) {
+        if (message.sendMoney != null && message.hasOwnProperty('sendMoney')) {
             object.sendMoney = $root.SendMoneyTransaction.toObject(message.sendMoney, options);
             if (options.oneofs)
-                object.body = "sendMoney";
+                object.body = 'sendMoney';
         }
-        if (message.stake != null && message.hasOwnProperty("stake")) {
+        if (message.stake != null && message.hasOwnProperty('stake')) {
             object.stake = $root.StakeTransaction.toObject(message.stake, options);
             if (options.oneofs)
-                object.body = "stake";
+                object.body = 'stake';
         }
-        if (message.swapKey != null && message.hasOwnProperty("swapKey")) {
+        if (message.swapKey != null && message.hasOwnProperty('swapKey')) {
             object.swapKey = $root.SwapKeyTransaction.toObject(message.swapKey, options);
             if (options.oneofs)
-                object.body = "swapKey";
+                object.body = 'swapKey';
         }
         return object;
     };
@@ -10652,7 +11270,7 @@ $root.SignedTransaction = (function() {
 
 module.exports = $root;
 
-},{"protobufjs/minimal":25}],39:[function(require,module,exports){
+},{"protobufjs/minimal":28}],46:[function(require,module,exports){
 /**
  * Stores keys in the browser local storage. This allows to retain keys between
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
@@ -10709,7 +11327,7 @@ class BrowserLocalStorageKeystore {
 }
 
 module.exports = BrowserLocalStorageKeystore;
-},{"./key_pair":41}],40:[function(require,module,exports){
+},{"./key_pair":48}],47:[function(require,module,exports){
 /**
  * Simple in-memory keystore for testing purposes.
  */
@@ -10728,7 +11346,7 @@ class InMemoryKeyStore {
 }
 
 module.exports = InMemoryKeyStore;
-},{}],41:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 (function (Buffer){
 
 const bs58 = require('bs58');
@@ -10786,12 +11404,12 @@ class KeyPair {
 }
 module.exports = KeyPair;
 }).call(this,require("buffer").Buffer)
-},{"bs58":20,"buffer":21,"tweetnacl":37}],42:[function(require,module,exports){
+},{"bs58":20,"buffer":21,"tweetnacl":44}],49:[function(require,module,exports){
 /**
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
 const bs58 = require('bs58');
-const nacl = require("tweetnacl");
+const nacl = require('tweetnacl');
 const { sha256 } = require('js-sha256');
 
 class SimpleKeyStoreSigner {
@@ -10807,6 +11425,9 @@ class SimpleKeyStoreSigner {
      */
     async signTransactionBody(body, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
+        if (!encodedKey) {
+            throw new Error(`Cannot find key for sender ${senderAccountId}`);
+        }
         const message = new Uint8Array(sha256.array(body));
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(message, key)];
@@ -10816,7 +11437,7 @@ class SimpleKeyStoreSigner {
 
 module.exports = SimpleKeyStoreSigner;
 
-},{"bs58":20,"js-sha256":23,"tweetnacl":37}],43:[function(require,module,exports){
+},{"bs58":20,"js-sha256":26,"tweetnacl":44}],50:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
