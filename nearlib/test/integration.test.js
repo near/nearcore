@@ -100,7 +100,6 @@ describe('with deployed contract', () => {
             'name': 'trex'
         };
         const viewFunctionResult = await nearjs.callViewFunction(
-            aliceAccountName,
             contractName,
             'hello', // this is the function defined in hello.wasm file that we are calling
             args);
@@ -119,7 +118,6 @@ describe('with deployed contract', () => {
         expect(scheduleResult.hash).not.toBeFalsy();
         await nearjs.waitForTransactionResult(scheduleResult);
         const secondViewFunctionResult = await nearjs.callViewFunction(
-            aliceAccountName,
             contractName,
             'getValue', // this is the function defined in hello.wasm file that we are calling
             {});
