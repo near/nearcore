@@ -140,7 +140,6 @@ impl Client {
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) =
             self
             .shard_chain
-            // TODO: fix this
             .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,

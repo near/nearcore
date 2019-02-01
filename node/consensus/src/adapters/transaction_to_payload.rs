@@ -1,7 +1,7 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use ::shard::{ChainPayload};
+use shard::{ChainPayload};
 
 // TODO(#265): Include transaction verification here.
 pub fn spawn_task<T: Send + 'static>(

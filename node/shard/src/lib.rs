@@ -190,10 +190,10 @@ impl ShardBlockChain {
             &[],
             &block.body.transactions,
         );
-        if apply_result.root != block.header().body.merkle_root_state {
+        if apply_result.root != block.body.header.merkle_root_state {
             info!(
                 "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
-                block.header().body.merkle_root_state,
+                block.body.header.merkle_root_state,
                 apply_result.root,
                 block
             );

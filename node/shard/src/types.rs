@@ -5,8 +5,9 @@ use primitives::types::{
 };
 use primitives::traits::Payload;
 use transaction::{ReceiptTransaction, SignedTransaction};
+use std::hash::{Hash, Hasher};
 
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
     pub shard_id: ShardId,
@@ -14,7 +15,7 @@ pub struct ShardBlockHeader {
     pub merkle_root_state: MerkleHash,
 }
 
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
@@ -37,11 +38,17 @@ pub struct SignedShardBlock {
     pub signature: MultiSignature,
 }
 
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReceiptBlock {
     pub header: SignedShardBlockHeader,
     pub path: Vec<CryptoHash>,
     pub receipts: Vec<ReceiptTransaction>,
+}
+
+impl Hash for ReceiptBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) { 
+        state.write(hash_struct(&self).as_ref());
+    }
 }
 
 impl SignedHeader for SignedShardBlockHeader {
