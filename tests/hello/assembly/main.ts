@@ -24,6 +24,15 @@ export function getAllKeys(): string[] {
   return keys;
 }
 
+export function benchmark(): string[] {
+  let i = 0;
+  while (i < 10) {
+    globalStorage.setItem(i.toString(), "123123");
+    i += 1;
+  }
+  return globalStorage.keys("");
+}
+
 export function generateLogs(): void {
   globalStorage.setItem("item", "value");
   near.log("log1");

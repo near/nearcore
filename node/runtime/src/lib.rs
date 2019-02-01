@@ -1019,9 +1019,10 @@ impl Runtime {
                         result.status = TransactionStatus::Completed;
                     }
                     Err(s) => {
-                        debug!(target: "runtime", "{}", s);
                         state_update.rollback();
                         result.status = TransactionStatus::Failed;
+                        result.logs.push(format!("Runtime error: {}", s));
+                        debug!(target: "runtime", "{}", s);
                     }
                 }
             }
@@ -1041,16 +1042,18 @@ impl Runtime {
                             result.status = TransactionStatus::Completed;
                         }
                         Err(s) => {
-                            debug!(target: "runtime", "{}", s);
                             state_update.rollback();
                             new_receipts.append(&mut tmp_new_receipts);
                             result.status = TransactionStatus::Failed;
+                            result.logs.push(format!("Runtime error: {}", s));
+                            debug!(target: "runtime", "{}", s);
                         }
                     };
                 } else {
                     // wrong receipt
-                    debug!(target: "runtime", "receipt sent to the wrong shard");
                     result.status = TransactionStatus::Failed;
+                    result.logs.push("Runtime error: receipt sent to the wrong shard".to_string());
+                    debug!(target: "runtime", "receipt sent to the wrong shard");
                 }
             }
         };

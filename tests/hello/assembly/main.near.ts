@@ -2,7 +2,6 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -12,7 +11,53 @@
       @external("env", "input_read_into")
       declare function input_read_into(ptr: usize): void;
     
-import {contractContext as contractContext,globalStorage as globalStorage,near as near} from "./near";
+import "allocator/arena";
+export { memory };
+
+import { contractContext, globalStorage, near } from "./near";
+
+export function hello(name: string): string {
+
+  return "hello " + name;
+}
+
+export function setValue(value: string): string {
+  globalStorage.setItem("name", value);
+  return value;
+}
+
+export function getValue(): string {
+  return globalStorage.getItem("name");
+}
+
+export function getAllKeys(): string[] {
+  let keys = globalStorage.keys("n");
+  assert(keys.length == 1);
+  assert(keys[0] == "name");
+  return keys;
+}
+
+export function benchmark(): string[] {
+  let i = 0;
+  while (i < 10) {
+    globalStorage.setItem(i.toString(), "123123");
+    i += 1;
+  }
+  return globalStorage.keys("");
+}
+
+export function generateLogs(): void {
+  globalStorage.setItem("item", "value");
+  near.log("log1");
+  near.log("log2");
+}
+
+export function triggerAssert(): void {
+  near.log("log before assert");
+  assert(false, "expected to fail");
+}
+
+
 export class __near_ArgsParser_hello extends ThrowingJSONHandler {
         buffer: Uint8Array;
         decoder: JSONDecoder<__near_ArgsParser_hello>;
@@ -60,7 +105,7 @@ export function near_func_hello(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_hello>(handler);
       handler.decoder.deserialize(json);
-let result = wrapped_hello(
+let result = hello(
 handler.__near_param_name
 );
 
@@ -124,7 +169,7 @@ export function near_func_setValue(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_setValue>(handler);
       handler.decoder.deserialize(json);
-let result = wrapped_setValue(
+let result = setValue(
 handler.__near_param_value
 );
 
@@ -175,7 +220,7 @@ export function near_func_getValue(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_getValue>(handler);
       handler.decoder.deserialize(json);
-let result = wrapped_getValue(
+let result = getValue(
 
 );
 
@@ -237,7 +282,7 @@ export function near_func_getAllKeys(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_getAllKeys>(handler);
       handler.decoder.deserialize(json);
-let result = wrapped_getAllKeys(
+let result = getAllKeys(
 
 );
 
@@ -246,7 +291,60 @@ let result = wrapped_getAllKeys(
       
 if (result != null) {
           encoder.pushArray("result");
-          __near_encode_Array_String(<Array<String>>result, encoder);
+          __near_encode_Array_String(result, encoder);
+          encoder.popArray();
+        } else {
+          encoder.setNull("result");
+        }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_benchmark extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_benchmark>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_benchmark(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_benchmark();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_benchmark>(handler);
+      handler.decoder.deserialize(json);
+let result = benchmark(
+
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushArray("result");
+          __near_encode_Array_String(result, encoder);
           encoder.popArray();
         } else {
           encoder.setNull("result");
@@ -290,7 +388,7 @@ export function near_func_generateLogs(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_generateLogs>(handler);
       handler.decoder.deserialize(json);
-wrapped_generateLogs(
+generateLogs(
 
 );
 }
@@ -328,7 +426,7 @@ export function near_func_triggerAssert(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_triggerAssert>(handler);
       handler.decoder.deserialize(json);
-wrapped_triggerAssert(
+triggerAssert(
 
 );
 }

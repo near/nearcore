@@ -3,52 +3,30 @@ extern crate bencher;
 
 use bencher::Bencher;
 
-extern crate primitives;
-extern crate node_runtime;
-extern crate transaction;
-
-use primitives::hash::CryptoHash;
-use primitives::signature::{DEFAULT_SIGNATURE, get_key_pair};
-
-use transaction::{TransactionBody, SendMoneyTransaction, SignedTransaction, Transaction};
-use node_runtime::ApplyState;
-use node_runtime::test_utils::{generate_test_chain_spec, get_runtime_and_state_db_viewer_from_chain_spec};
+use node_runtime::test_utils::{get_runtime_and_state_db_viewer, User, setup_test_contract};
 
 fn runtime_send_money(bench: &mut Bencher) {
-    let (mut chain_spec, _) = generate_test_chain_spec();
-    let public_key = get_key_pair().0;
-    for i in 0..100 {
-        chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 10000));
-    }
-    let (mut runtime, viewer) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
-    let mut root = viewer.get_root();
+    let (runtime, _, mut root) = get_runtime_and_state_db_viewer();
+    let mut user = User::new(runtime, "alice.near");
     bench.iter(|| {
-        for _ in 0..100 {
-            let mut transactions = vec![];
-            for i in 0..100 {
-                transactions.push(Transaction::SignedTransaction(SignedTransaction::new(
-                    DEFAULT_SIGNATURE,
-                    TransactionBody::SendMoney(SendMoneyTransaction {
-                        nonce: 1,
-                        originator: format!("account{}", i % 100),
-                        receiver: format!("account{}", ((i + 1) % 100)),
-                        amount: 1,
-                    }))));
-            }
-            let apply_state = ApplyState {
-                root,
-                shard_id: 0,
-                parent_block_hash: CryptoHash::default(),
-                block_index: 0
-            };
-            let apply_result = runtime.apply_all(
-                apply_state, transactions
-            );
-            runtime.state_db.commit(apply_result.db_changes).unwrap();
-            root = apply_result.root;
-        }
-    })
+        root = user.send_money(root, "bob.near", 1);
+    });
 }
 
-benchmark_group!(benches, runtime_send_money);
-benchmark_main!(benches);
+fn runtime_wasm_set_value(bench: &mut Bencher) {
+    let (mut user, mut root) = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    bench.iter(|| {
+        root = user.call_function(root, "test_contract", "setValue", "{\"value\": \"123\"}");
+    });
+}
+
+fn runtime_wasm_benchmark(bench: &mut Bencher) {
+    let (mut user, mut root) = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    bench.iter(|| {
+        root = user.call_function(root, "test_contract", "benchmark", "{}");
+    });
+}
+
+benchmark_group!(runtime_benches, runtime_send_money);
+benchmark_group!(wasm_benches, runtime_wasm_set_value, runtime_wasm_benchmark);
+benchmark_main!(runtime_benches, wasm_benches);
