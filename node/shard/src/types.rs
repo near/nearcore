@@ -38,11 +38,19 @@ pub struct SignedShardBlock {
     pub signature: MultiSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ReceiptBlock {
     pub header: SignedShardBlockHeader,
     pub path: Vec<CryptoHash>,
     pub receipts: Vec<ReceiptTransaction>,
+}
+
+impl PartialEq for ReceiptBlock {
+    fn eq(&self, other: &ReceiptBlock) -> bool {
+        self.header.hash == other.header.hash
+        && self.path == other.path
+        && self.receipts == other.receipts
+    }
 }
 
 impl Hash for ReceiptBlock {
