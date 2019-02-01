@@ -1,4 +1,7 @@
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
+
+const createError = require('http-errors');
+
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
         method: method,
@@ -6,7 +9,7 @@ module.exports = async function sendJson(method, url, json) {
         headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
-        throw new Error(await response.text());
+        throw createError(response.status, await response.text());
     }
     if (response.status === 204) {
         // No Content
