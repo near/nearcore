@@ -14,4 +14,4 @@ coroutines = { path = "../coroutines" }
 node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }
-shard = { path = "../../node/shard" }
+chain = { path = "../../core/chain" }

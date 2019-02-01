@@ -20,12 +20,12 @@ use env_logger::Builder;
 use parking_lot::RwLock;
 
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use chain::SignedBlock;
+use chain::{SignedBlock, ChainPayload, SignedShardBlock};
 use configs::ClientConfig;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::{ShardBlockChain, SignedShardBlock, ChainPayload};
+use shard::{ShardBlockChain};
 use storage::Storage;
 
 pub struct Client {

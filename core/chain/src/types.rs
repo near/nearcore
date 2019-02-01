@@ -1,4 +1,4 @@
-use chain::{SignedBlock, SignedHeader};
+use crate::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{
     AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId,
@@ -6,6 +6,7 @@ use primitives::types::{
 use primitives::traits::Payload;
 use transaction::{ReceiptTransaction, SignedTransaction};
 use std::hash::{Hash, Hasher};
+use serde_derive::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {

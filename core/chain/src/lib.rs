@@ -1,12 +1,3 @@
-#[macro_use]
-extern crate log;
-extern crate parking_lot;
-extern crate primitives;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate storage;
-
 use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -21,6 +12,15 @@ use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
 use primitives::serialize::{Encode, Decode};
 use storage::{read_with_cache, write_with_cache, Storage};
+use serde_derive::{Serialize, Deserialize};
+use log::info;
+
+pub use crate::types::{
+    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
+    ChainPayload, SignedShardBlockHeader
+};
+
+pub mod types;
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 

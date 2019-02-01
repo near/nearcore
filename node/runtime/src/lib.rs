@@ -35,6 +35,7 @@ use transaction::{
 };
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
+use chain::ReceiptBlock;
 
 use crate::ext::RuntimeExt;
 use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
@@ -1085,7 +1086,7 @@ impl Runtime {
     pub fn apply(
         &mut self,
         apply_state: &ApplyState,
-        prev_receipts: &[ReceiptTransaction],
+        prev_receipts: &[ReceiptBlock],
         transactions: &[SignedTransaction],
     ) -> ApplyResult {
         let mut new_receipts = HashMap::new();
@@ -1094,7 +1095,7 @@ impl Runtime {
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
-        for receipt in prev_receipts {
+        for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
             tx_result.push(Self::process_receipt(
                 self,
                 &mut state_update,
@@ -1798,7 +1799,7 @@ mod tests {
             block_index: 0
         };
         let apply_results = runtime.apply_all_vec(
-            apply_state, vec![receipt], vec![]
+            apply_state, vec![to_receipt_block(vec![receipt])], vec![]
         );
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1838,7 +1839,7 @@ mod tests {
             block_index: 0
         };
         let apply_results = runtime.apply_all_vec(
-            apply_state, vec![receipt], vec![]
+            apply_state, vec![to_receipt_block(vec![receipt])], vec![]
         );
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1952,7 +1953,7 @@ mod tests {
             block_index: 0
         };
         let apply_result = runtime.apply(
-            &apply_state, &[receipt], &[]
+            &apply_state, &[to_receipt_block(vec![receipt])], &[]
         );
         assert_ne!(new_root, apply_result.root);
         runtime.state_db.commit(apply_result.db_changes).unwrap();
@@ -2000,7 +2001,7 @@ mod tests {
             block_index: 0
         };
         let apply_result = runtime.apply(
-            &apply_state, &[receipt], &[]
+            &apply_state, &[to_receipt_block(vec![receipt])], &[]
         );
         // the callback should be removed
         assert_ne!(new_root, apply_result.root);

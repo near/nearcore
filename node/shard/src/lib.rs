@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use chain::{SignedBlock, SignedHeader};
+use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
 use configs::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::StateDbViewer;
@@ -25,12 +25,12 @@ use transaction::{
     ReceiptTransaction
 };
 
-pub use crate::types::{
-    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
-    ChainPayload
-};
-
-pub mod types;
+//pub use crate::types::{
+//    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
+//    ChainPayload
+//};
+//
+//pub mod types;
 
 type H264 = [u8; 33];
 
@@ -144,15 +144,9 @@ impl ShardBlockChain {
             block_index: last_block.body.header.index + 1,
             shard_id: last_block.body.header.shard_id,
         };
-        let mut receipts = vec![];
-        for receipt_block in prev_receipts.iter() {
-            // TODO: check validity of the receipt block
-            // TODO: remove clone here
-            receipts.extend(receipt_block.receipts.clone());
-        }
         let apply_result = self.runtime.write().apply(
             &apply_state,
-            &receipts,
+            &prev_receipts,
             &transactions,
         );
         let shard_block = SignedShardBlock::new(

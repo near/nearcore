@@ -7,7 +7,7 @@ use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
     AccountId, AuthorityMask, AuthorityStake, Balance, MerkleHash, ShardId
 };
-use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
+use chain::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
 use transaction::{
     FinalTransactionResult, SignedTransaction, TransactionResult,
 };

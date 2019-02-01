@@ -17,6 +17,7 @@ storage = { path = "../../core/storage" }
 transaction = { path = "../../core/transaction" }
 wasm = { path = "../../core/wasm" }
 configs = { path = "../configs" }
+chain = { path = "../../core/chain" }
 
 [features]
 test-utils = []

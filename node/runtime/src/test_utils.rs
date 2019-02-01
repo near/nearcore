@@ -5,9 +5,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use primitives::types::MerkleHash;
 use primitives::signer::InMemorySigner;
 use primitives::test_utils::get_key_pair_from_seed;
+use primitives::hash::CryptoHash;
 use storage::StateDb;
 use storage::test_utils::create_memory_db;
 use transaction::{SignedTransaction, ReceiptTransaction};
+use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
 use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
@@ -69,11 +71,30 @@ pub fn encode_int(val: i32) -> [u8; 4] {
     tmp
 }
 
+pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
+    let header = SignedShardBlockHeader {
+        body: ShardBlockHeader {
+            parent_hash: CryptoHash::default(),
+            shard_id: 0,
+            index: 0,
+            merkle_root_state: CryptoHash::default(),
+        },
+        hash: CryptoHash::default(),
+        authority_mask: vec![],
+        signature: vec![],
+    };
+    ReceiptBlock {
+        header,
+        path: vec![],
+        receipts
+    }
+}
+
 impl Runtime {
     pub fn apply_all_vec(
         &mut self,
         apply_state: ApplyState,
-        prev_receipts: Vec<ReceiptTransaction>,
+        prev_receipts: Vec<ReceiptBlock>,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<ApplyResult> {
         let mut cur_apply_state = apply_state;
@@ -93,7 +114,7 @@ impl Runtime {
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
             };
-            receipts = apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
+            receipts = vec![to_receipt_block(apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect())];
             txs = vec![];
         }
     }
