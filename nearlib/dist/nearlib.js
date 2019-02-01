@@ -146,6 +146,9 @@ module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyS
 
 },{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":46,"./signing/in_memory_key_store":47,"./signing/key_pair":48,"./signing/simple_key_store_signer":49,"./wallet-account":50}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
+
+const createError = require('http-errors');
+
 module.exports = async function sendJson(method, url, json) {
     const response = await fetch(url, {
         method: method,
@@ -153,7 +156,7 @@ module.exports = async function sendJson(method, url, json) {
         headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
-        throw new Error(await response.text());
+        throw createError(response.status, await response.text());
     }
     if (response.status === 204) {
         // No Content
@@ -162,7 +165,7 @@ module.exports = async function sendJson(method, url, json) {
     return await response.json();
 };
 
-},{"node-fetch":19}],6:[function(require,module,exports){
+},{"http-errors":23,"node-fetch":19}],6:[function(require,module,exports){
 const sendJson = require('./internal/send-json');
 
 class LocalNodeConnection {
