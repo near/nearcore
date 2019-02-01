@@ -31,6 +31,7 @@ pub use crate::types::{
 };
 
 pub mod types;
+mod merkle;
 
 type H264 = [u8; 33];
 
