@@ -25,13 +25,6 @@ use transaction::{
     ReceiptTransaction
 };
 
-//pub use crate::types::{
-//    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
-//    ChainPayload
-//};
-//
-//pub mod types;
-
 type H264 = [u8; 33];
 
 /// Represents index of extra data in database

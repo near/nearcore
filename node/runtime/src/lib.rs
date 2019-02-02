@@ -828,11 +828,7 @@ impl Runtime {
                                 Ok(vec![])
                             }
                         } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                            debug!(
-                                target: "runtime",
-                                "Account {} already exists",
-                                receipt.receiver,
-                            );
+                            logs.push(format!("Account {} already exists", receipt.receiver));
                             let receipt = ReceiptTransaction::new(
                                 system_account(),
                                 receipt.originator.clone(),
@@ -994,6 +990,13 @@ impl Runtime {
         res
     }
 
+    fn print_log(log: &[LogEntry]) {
+        let log_str = log.iter().fold(String::new(), |acc, s| {
+            acc + "\n" + s
+        });
+        debug!(target: "runtime", "{}", log_str);
+    }
+
     fn process_transaction(
         runtime: &mut Self,
         state_update: &mut StateDbUpdate,
@@ -1025,11 +1028,12 @@ impl Runtime {
                 result.status = TransactionStatus::Completed;
             }
             Err(s) => {
-                debug!(target: "runtime", "{}", s);
                 state_update.rollback();
+                result.logs.push(s);
                 result.status = TransactionStatus::Failed;
             }
         };
+        Self::print_log(&result.logs);
         result
     }
 
@@ -1068,18 +1072,18 @@ impl Runtime {
                     result.status = TransactionStatus::Completed;
                 }
                 Err(s) => {
-                    debug!(target: "runtime", "{}", s);
                     state_update.rollback();
+                    result.logs.push(s);
                     result.status = TransactionStatus::Failed;
                 }
             };
-            result
         } else {
             // wrong receipt
-            debug!(target: "runtime", "receipt sent to the wrong shard");
             result.status = TransactionStatus::Failed;
-            result
-        }
+            result.logs.push("receipt sent to the wrong shard".to_string());
+        };
+        Self::print_log(&result.logs);
+        result
     }
 
     /// apply receipts from previous block and transactions from this block
