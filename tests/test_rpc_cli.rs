@@ -31,7 +31,7 @@ const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
 const WASM_PATH: &str = "./tests/hello";
 const WAIT_FOR_RETRY: u64 = 500;
-const MAX_WAIT_FOR_RETRY: u32 = 5;
+const MAX_WAIT_FOR_RETRY: u32 = 20;
 
 fn test_service_ready() -> bool {
     let mut base_path = Path::new(TMP_DIR).to_owned();
@@ -96,7 +96,7 @@ fn check_result(output: Output) -> Result<String, String> {
 }
 
 fn create_account(account_name: &str) -> Output {
-    Command::new("./scripts/rpc.py")
+    let output = Command::new("./scripts/rpc.py")
         .arg("create_account")
         .arg(account_name)
         .arg("10")
@@ -105,7 +105,11 @@ fn create_account(account_name: &str) -> Output {
         .arg("-k")
         .arg(&*PUBLIC_KEY)
         .output()
-        .expect("create_account command failed to process")
+        .expect("create_account command failed to process");
+
+    wait_for(&|| check_result(view_account(Some(&account_name)))).unwrap();
+
+    output
 }
 
 fn view_account(account_name: Option<&str>) -> Output {

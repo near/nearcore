@@ -29,10 +29,12 @@
         -   [Parameters](#parameters-9)
     -   [getTransactionStatus](#gettransactionstatus)
         -   [Parameters](#parameters-10)
-    -   [loadContract](#loadcontract)
+    -   [waitForTransactionResult](#waitfortransactionresult)
         -   [Parameters](#parameters-11)
-    -   [createDefaultConfig](#createdefaultconfig)
+    -   [loadContract](#loadcontract)
         -   [Parameters](#parameters-12)
+    -   [createDefaultConfig](#createdefaultconfig)
+        -   [Parameters](#parameters-13)
 
 ## KeyPair
 
@@ -114,7 +116,6 @@ Calls a view function. Returns the same value that the function returns.
 
 #### Parameters
 
--   `sender` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the sender
 -   `contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id of the contract
 -   `methodName` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** method to call
 -   `args` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** arguments to pass to the method
@@ -154,6 +155,20 @@ Get a status of a single transaction identified by the transaction hash.
 #### Parameters
 
 -   `transactionHash` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** unique identifier of the transaction
+
+### waitForTransactionResult
+
+Wait until transaction is completed or failed.
+Automatically sends logs from contract to `console.log`.
+
+[MAX_STATUS_POLL_ATTEMPTS](MAX_STATUS_POLL_ATTEMPTS) defines how many attempts are made.
+[STATUS_POLL_PERIOD_MS](STATUS_POLL_PERIOD_MS) defines delay between subsequent [getTransactionStatus](getTransactionStatus) calls.
+
+#### Parameters
+
+-   `transactionResponseOrHash` **([string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String) \| [object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object))** hash of transaction or object returned from [submitTransaction](submitTransaction)
+-   `options` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** object used to pass named parameters (optional, default `{}`)
+    -   `options.contractAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** specifies contract ID for better logs and error messages
 
 ### loadContract
 

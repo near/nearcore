@@ -217,6 +217,29 @@ pub mod bs58_signature_format {
     }
 }
 
+pub mod bs58_serializer {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<T, S>(t: T, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            Vec<u8>: From<T>,
+            S: Serializer,
+    {
+        let bytes = Vec::<u8>::from(t);
+        serializer.serialize_str(&bs58::encode(bytes).into_string())
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+        where
+            T: From<Vec<u8>>,
+            D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let bytes = bs58::decode(s).into_vec().expect("Failed to convert from base58");
+        Ok(T::from(bytes))
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

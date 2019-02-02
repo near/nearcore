@@ -64,7 +64,7 @@ impl HttpApi {
         let best_block = self.client.shard_chain.chain.best_block();
         match self.client.shard_chain.statedb_viewer.call_function(
             best_block.merkle_root_state(), best_block.index(),
-            &r.originator, &r.contract_account_id, &r.method_name, &r.args)
+            &r.contract_account_id, &r.method_name, &r.args)
         {
             Ok(result) => Ok(CallViewFunctionResponse { result }),
             Err(e) => Err(e.to_string()),

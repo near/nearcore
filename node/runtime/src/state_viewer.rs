@@ -104,7 +104,6 @@ impl StateDbViewer {
         &self,
         root: MerkleHash,
         block_index: u64,
-        originator_id: &AccountId,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -122,8 +121,8 @@ impl StateDbViewer {
                     &mut state_update,
                     contract_id,
                     &AccountingInfo {
-                        originator: originator_id.clone(),
-                        contract_id: Some(contract_id.clone()),
+                        originator: contract_id.clone(),
+                        contract_id: None,
                     },
                     &empty_hash,
                 );
@@ -137,7 +136,7 @@ impl StateDbViewer {
                     &RuntimeContext::new(
                         account.amount,
                         0,
-                        originator_id,
+                        contract_id,
                         contract_id,
                         0,
                         block_index,
@@ -195,7 +194,6 @@ mod tests {
         let result = viewer.call_function(
             root, 1,
             &alice_account(),
-            &alice_account(),
             "run_test",
             &vec![]
         );
@@ -209,7 +207,6 @@ mod tests {
 
         let result = viewer.call_function(
             root, 1,
-            &alice_account(),
             &"bad!contract".to_string(),
             "run_test",
             &vec![]
@@ -224,7 +221,6 @@ mod tests {
 
         let result = viewer.call_function(
             root, 1,
-            &alice_account(),
             &alice_account(),
             "run_test_with_storage_change",
             &vec![]
@@ -241,7 +237,6 @@ mod tests {
             .collect::<Vec<_>>();
         let view_call_result = viewer.call_function(
             root, 1,
-            &alice_account(),
             &alice_account(),
             "sum_with_input",
             &args,

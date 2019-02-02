@@ -380,7 +380,6 @@ class NearRPC(object):
 
     def call_view_function(
         self,
-        originator,
         contract_name,
         function_name,
         args=None,
@@ -390,7 +389,6 @@ class NearRPC(object):
         args = list(bytearray(args))
 
         params = {
-            'originator': _get_account_id(originator),
             'contract_account_id': _get_account_id(contract_name),
             'method_name': function_name,
             'args': args,
@@ -618,7 +616,6 @@ get_beacon_block_by_hash  {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.call_view_function(
-            args.sender,
             args.contract_name,
             args.function_name,
             args.args,

@@ -4,14 +4,14 @@ use std::hash::Hash;
 
 use crate::hash::CryptoHash;
 
-use super::signature;
+use super::aggregate_signature;
 use super::types;
 pub use super::serialize::{Encode, Decode};
 
 /// Trait to abstract the way signing happens.
 /// Can be used to not keep private key in the given binary via cross-process communication.
 pub trait Signer: Sync + Send {
-    fn public_key(&self) -> signature::PublicKey;
+    fn public_key(&self) -> aggregate_signature::BlsPublicKey;
     fn sign(&self, hash: &CryptoHash) -> types::PartialSignature;
     fn account_id(&self) -> types::AccountId;
 }
