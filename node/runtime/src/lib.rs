@@ -773,10 +773,10 @@ impl Runtime {
             if receipts.is_err() {
                 // On error, we rollback previous changes and then commit the deletion
                 state_update.rollback();
-                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.remove(&callback_id_to_bytes(&callback_res.info.id));
                 state_update.commit();
             } else {
-                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.remove(&callback_id_to_bytes(&callback_res.info.id));
                 set(
                     state_update,
                     &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
