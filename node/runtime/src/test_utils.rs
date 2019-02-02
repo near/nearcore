@@ -3,15 +3,17 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::types::MerkleHash;
+use primitives::types::{MerkleHash, GroupSignature};
 use primitives::signature::{get_key_pair, DEFAULT_SIGNATURE};
 use primitives::signer::InMemorySigner;
 use primitives::hash::CryptoHash;
 use primitives::test_utils::get_key_pair_from_seed;
-use primitives::hash::CryptoHash;
 use storage::StateDb;
 use storage::test_utils::create_memory_db;
-use transaction::{SignedTransaction, ReceiptTransaction};
+use transaction::{
+    SignedTransaction, ReceiptTransaction, TransactionBody, TransactionStatus,
+    SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction
+};
 use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
 use configs::ChainSpec;
@@ -88,8 +90,7 @@ pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
             merkle_root_state: CryptoHash::default(),
         },
         hash: CryptoHash::default(),
-        authority_mask: vec![],
-        signature: vec![],
+        signature: GroupSignature::default(),
     };
     ReceiptBlock {
         header,
@@ -158,7 +159,7 @@ impl User {
             block_index: 0
         };
         let apply_results = self.runtime.apply_all_vec(
-            apply_state, vec![Transaction::SignedTransaction(transaction)]
+            apply_state, vec![], vec![transaction]
         );
         for apply_result in apply_results.iter() {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed, "{:?}", apply_result);

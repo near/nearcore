@@ -1029,7 +1029,7 @@ impl Runtime {
             }
             Err(s) => {
                 state_update.rollback();
-                result.logs.push(s);
+                result.logs.push(format!("Runtime error: {}", s));
                 result.status = TransactionStatus::Failed;
             }
         };
@@ -1073,7 +1073,7 @@ impl Runtime {
                 }
                 Err(s) => {
                     state_update.rollback();
-                    result.logs.push(s);
+                    result.logs.push(format!("Runtime error: {}", s));
                     result.status = TransactionStatus::Failed;
                 }
             };
