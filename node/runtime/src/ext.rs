@@ -91,6 +91,11 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(value.map(|buf| buf.to_vec()))
     }
 
+    fn storage_remove(&mut self, key: &[u8]) {
+        let storage_key = self.create_storage_key(key);
+        self.state_db_update.remove(&storage_key);
+    }
+
     fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
         self.iters.insert(
             self.last_iter_id,
@@ -99,6 +104,17 @@ impl<'a> External for RuntimeExt<'a> {
             // shrinks the lifetime to the lifetime of `self`.
             unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
                 .iter(&self.create_storage_key(prefix))
+                .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
+        );
+        self.last_iter_id += 1;
+        Ok(self.last_iter_id - 1)
+    }
+
+    fn storage_range(&mut self, start: &[u8], end: &[u8]) -> ExtResult<u32> {
+        self.iters.insert(
+            self.last_iter_id,
+            unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
+                .range(&self.storage_prefix, start, end)
                 .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
         );
         self.last_iter_id += 1;
@@ -122,6 +138,10 @@ impl<'a> External for RuntimeExt<'a> {
             None => return Err(ExtError::TrieIteratorMissing),
         };
         Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
+    }
+
+    fn storage_iter_remove(&mut self, id: u32) {
+        self.iters.remove(&id);
     }
 
     fn promise_create(
