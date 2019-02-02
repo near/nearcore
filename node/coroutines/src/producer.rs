@@ -3,14 +3,12 @@
 use std::sync::Arc;
 
 use futures::sync::mpsc::{Receiver, Sender};
-use futures::{future, stream, Future, Sink, Stream};
+use futures::{future, Future, Sink, Stream};
 
 use crate::control_builder::get_control;
 use beacon::types::SignedBeaconBlock;
-use chain::{SignedBlock, SignedHeader};
+use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
 use client::{ChainConsensusBlockBody, Client};
-use shard::SignedShardBlock;
-use transaction::Transaction;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 
@@ -18,7 +16,7 @@ pub fn spawn_block_producer(
     client: Arc<Client>,
     receiver: Receiver<ChainConsensusBlockBody>,
     block_announce_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
-    new_receipts_tx: Sender<Transaction>,
+    new_receipts_tx: Sender<ReceiptBlock>,
     control_tx: Sender<Control<BeaconWitnessSelector>>,
 ) {
     let control = get_control(&*client, client.beacon_chain.chain.best_block().header().index() + 1);
@@ -53,14 +51,20 @@ pub fn spawn_block_producer(
                     .map(|_| ())
                     .map_err(|e| error!("Error sending control to TxFlow: {}", e));
                 if needs_receipt_rerouting {
-                    let receipts_task = new_receipts_tx
+                    let receipt_block = client.shard_chain.get_receipt_block(
+                        new_shard_block.index(),
+                        new_shard_block.shard_id()
+                    ).expect("No receipts for shard block");
+                    if !receipt_block.receipts.is_empty() {
+                        let receipts_task = new_receipts_tx
                         .clone()
-                        .send_all(stream::iter_ok(new_shard_block.body.new_receipts.to_vec()))
+                        .send(receipt_block)
                         .map(|_| ())
                         .map_err(|e| error!("Error sending receipts: {}", e));
-                    // First tells TxFlow to reset.
-                    // Then, redirect the receipts from the previous block for processing in the next one.
-                    tokio::spawn(txflow_task.and_then(|_| receipts_task));
+                        // First tells TxFlow to reset.
+                        // Then, redirect the receipts from the previous block for processing in the next one.
+                        tokio::spawn(txflow_task.and_then(|_| receipts_task));
+                    }
                 } else {
                     // Tells TxFlow to stop.
                     tokio::spawn(txflow_task);

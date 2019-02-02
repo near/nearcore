@@ -1,8 +1,7 @@
 use beacon::types::SignedBeaconBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AccountId, Gossip};
-use transaction::{SignedTransaction, ReceiptTransaction, ChainPayload};
-use shard::SignedShardBlock;
+use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 
 pub type RequestId = u64;
 
@@ -10,8 +9,7 @@ pub type RequestId = u64;
 pub enum Message {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
-    Transaction(Box<SignedTransaction>),
-    Receipt(Box<ReceiptTransaction>),
+    Receipt(Box<ReceiptBlock>),
     Status(Status),
     BlockAnnounce(Box<(SignedBeaconBlock, SignedShardBlock)>),
     Gossip(Box<Gossip<ChainPayload>>),

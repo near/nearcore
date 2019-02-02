@@ -9,7 +9,8 @@ use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use client::Client;
 use consensus::adapters::transaction_to_payload;
 use consensus::passthrough::spawn_consensus;
-use transaction::Transaction;
+use transaction::SignedTransaction;
+use chain::ChainPayload;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -21,6 +22,7 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (transactions_tx, transactions_rx) = channel(1024);
+        let (receipts_tx, receipts_rx) = channel(1024);
         spawn_rpc_server_task(transactions_tx.clone(), &rpc_cfg, client.clone());
 
         // Create a task that receives new blocks from importer/producer
@@ -37,13 +39,22 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
             client.clone(),
             beacon_block_consensus_body_rx,
             outgoing_block_tx,
-            transactions_tx.clone(),
+            receipts_tx.clone(),
             consensus_control_tx,
         );
 
         // Spawn consensus tasks.
         let (payload_tx, payload_rx) = channel(1024);
-        transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
+        transaction_to_payload::spawn_task(
+            transactions_rx,
+            |t| ChainPayload { transactions: vec![t], receipts: vec![] },
+            payload_tx.clone()
+        );
+        transaction_to_payload::spawn_task(
+            receipts_rx,
+            |r| ChainPayload { transactions: vec![], receipts: vec![r] },
+            payload_tx.clone()
+        );
 
         spawn_consensus(
             payload_rx,
@@ -57,7 +68,7 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
 }
 
 fn spawn_rpc_server_task(
-    transactions_tx: Sender<Transaction>,
+    transactions_tx: Sender<SignedTransaction>,
     rpc_config: &RPCConfig,
     client: Arc<Client>,
 ) {

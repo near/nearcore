@@ -1,9 +1,12 @@
-use chain::{SignedBlock, SignedHeader};
+use crate::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{
     GroupSignature, MerkleHash, PartialSignature, ShardId,
 };
-use transaction::Transaction;
+use primitives::traits::Payload;
+use transaction::{ReceiptTransaction, SignedTransaction};
+use std::hash::{Hash, Hasher};
+use serde_derive::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -23,8 +26,8 @@ pub struct SignedShardBlockHeader {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlock {
     pub header: ShardBlockHeader,
-    pub transactions: Vec<Transaction>,
-    pub new_receipts: Vec<Transaction>,
+    pub transactions: Vec<SignedTransaction>,
+    pub receipts: Vec<ReceiptBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +35,27 @@ pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
+}
+
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+pub struct ReceiptBlock {
+    pub header: SignedShardBlockHeader,
+    pub path: Vec<CryptoHash>,
+    pub receipts: Vec<ReceiptTransaction>,
+}
+
+impl PartialEq for ReceiptBlock {
+    fn eq(&self, other: &ReceiptBlock) -> bool {
+        self.header.hash == other.header.hash
+        && self.path == other.path
+        && self.receipts == other.receipts
+    }
+}
+
+impl Hash for ReceiptBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) { 
+        state.write(hash_struct(&self).as_ref());
+    }
 }
 
 impl SignedHeader for SignedShardBlockHeader {
@@ -55,8 +79,8 @@ impl SignedShardBlock {
         index: u64,
         parent_hash: CryptoHash,
         merkle_root_state: MerkleHash,
-        transactions: Vec<Transaction>,
-        new_receipts: Vec<Transaction>,
+        transactions: Vec<SignedTransaction>,
+        receipts: Vec<ReceiptBlock>,
     ) -> Self {
         let header = ShardBlockHeader {
             shard_id,
@@ -69,7 +93,7 @@ impl SignedShardBlock {
             body: ShardBlock {
                 header,
                 transactions,
-                new_receipts,
+                receipts,
             },
             hash,
             signature: GroupSignature::default(),
@@ -85,6 +109,11 @@ impl SignedShardBlock {
     #[inline]
     pub fn merkle_root_state(&self) -> MerkleHash {
         self.body.header.merkle_root_state
+    }
+
+    #[inline]
+    pub fn shard_id(&self) -> ShardId {
+        self.body.header.shard_id
     }
 }
 
@@ -115,5 +144,33 @@ impl SignedBlock for SignedShardBlock {
 
     fn weight(&self) -> u128 {
         1
+    }
+}
+
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct ChainPayload {
+    pub transactions: Vec<SignedTransaction>,
+    pub receipts: Vec<ReceiptBlock>,
+}
+
+impl Payload for ChainPayload {
+    fn verify(&self) -> Result<(), &'static str> {
+        Ok(())
+    }
+
+    fn union_update(&mut self, mut other: Self) {
+        self.transactions.extend(other.transactions.drain(..));
+        self.receipts.extend(other.receipts.drain(..))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.transactions.is_empty() && self.receipts.is_empty()
+    }
+
+    fn new() -> Self {
+        Self {
+            transactions: vec![],
+            receipts: vec![],
+        }
     }
 }

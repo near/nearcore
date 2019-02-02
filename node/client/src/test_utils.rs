@@ -15,7 +15,7 @@ use storage::test_utils::create_memory_db;
 /// * It has in-memory storage.
 pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Client {
     let storage = Arc::new(create_memory_db());
-    let shard_chain = Arc::new(ShardBlockChain::new(chain_spec, storage.clone()));
+    let shard_chain = ShardBlockChain::new(chain_spec, storage.clone());
     let genesis = SignedBeaconBlock::genesis(shard_chain.chain.genesis_hash);
     let beacon_chain = BeaconBlockChain::new(genesis, chain_spec, storage.clone());
     Client {

@@ -13,8 +13,7 @@ use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{AccountId, Gossip, UID};
-use shard::SignedShardBlock;
-use transaction::{ChainPayload, Transaction};
+use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 
 use crate::message::{self, Message, Status};
 
@@ -71,8 +70,8 @@ pub struct Protocol {
     client: Arc<Client>,
     /// Channel into which the protocol sends the new blocks.
     incoming_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
-    /// Channel into which the protocol sends the received transactions and receipts.
-    transaction_sender: Sender<Transaction>,
+    /// Channel into which the protocol sends the received receipts.
+    receipt_sender: Sender<ReceiptBlock>,
     /// Channel into which the protocol sends the messages that should be send back to the network.
     message_sender: Sender<(NodeIndex, Message)>,
     /// Channel into which the protocol sends the gossips that should be processed by TxFlow.
@@ -84,7 +83,7 @@ impl Protocol {
         config: ProtocolConfig,
         client: Arc<Client>,
         incoming_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
-        transaction_sender: Sender<Transaction>,
+        receipt_sender: Sender<ReceiptBlock>,
         message_sender: Sender<(NodeIndex, Message)>,
         gossip_sender: Sender<Gossip<ChainPayload>>,
     ) -> Self {
@@ -95,7 +94,7 @@ impl Protocol {
             peer_account_info: RwLock::new(HashMap::new()),
             client,
             incoming_block_tx,
-            transaction_sender,
+            receipt_sender,
             message_sender,
             gossip_sender,
         }
@@ -124,7 +123,6 @@ impl Protocol {
     pub fn on_peer_disconnected(&self, peer: NodeIndex) {
         if let Some(peer_info) = self.peer_info.read().get(&peer) {
             if let Some(account_id) = peer_info.account_id.clone() {
-                println!("Forgetting account_id {}", account_id);
                 self.peer_account_info.write().remove(&account_id);
             }
         }
@@ -132,11 +130,11 @@ impl Protocol {
         self.peer_info.write().remove(&peer);
     }
 
-    pub fn on_transaction_message(&self, transaction: Transaction) {
-        let copied_tx = self.transaction_sender.clone();
+    pub fn on_receipt(&self, receipt: ReceiptBlock) {
+        let copied_tx = self.receipt_sender.clone();
         tokio::spawn(
             copied_tx
-                .send(transaction)
+                .send(receipt)
                 .map(|_| ())
                 .map_err(|e| error!("Failure to send the transactions {:?}", e)),
         );
@@ -209,14 +207,10 @@ impl Protocol {
             Decode::decode(data).map_err(|_| (peer, Severity::Bad("Cannot decode message.")))?;
 
         debug!(target: "network", "message received: {:?}", message);
-//        println!("Message received");
 
         match message {
-            Message::Transaction(tx) => {
-                self.on_transaction_message(Transaction::SignedTransaction(*tx));
-            }
             Message::Receipt(receipt) => {
-                self.on_transaction_message(Transaction::Receipt(*receipt));
+                self.on_receipt(*receipt);
             }
             Message::Status(status) => {
                 self.on_status_message(peer, &status)?;
@@ -247,24 +241,5 @@ impl Protocol {
                 |(uid_, auth)| if uid_ == &uid { Some(auth.account_id.clone()) } else { None },
             )
             .and_then(|account_id| self.peer_account_info.read().get(&account_id).cloned())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate storage;
-
-    use primitives::traits::Encode;
-    use transaction::SignedTransaction;
-
-    use super::*;
-
-    #[test]
-    fn test_serialization() {
-        let tx = SignedTransaction::empty();
-        let message: Message = Message::Transaction(Box::new(tx));
-        let encoded = Encode::encode(&message).unwrap();
-        let decoded = Decode::decode(&encoded).unwrap();
-        assert_eq!(message, decoded);
     }
 }

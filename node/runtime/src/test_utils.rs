@@ -3,14 +3,18 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::types::MerkleHash;
+use primitives::types::{MerkleHash, GroupSignature};
 use primitives::signature::{get_key_pair, DEFAULT_SIGNATURE};
 use primitives::signer::InMemorySigner;
 use primitives::hash::CryptoHash;
 use primitives::test_utils::get_key_pair_from_seed;
 use storage::StateDb;
 use storage::test_utils::create_memory_db;
-use transaction::{Transaction, TransactionBody, SignedTransaction, DeployContractTransaction, TransactionStatus, FunctionCallTransaction, SendMoneyTransaction};
+use transaction::{
+    SignedTransaction, ReceiptTransaction, TransactionBody, TransactionStatus,
+    SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction
+};
+use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
 use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
@@ -77,17 +81,37 @@ pub fn encode_int(val: i32) -> [u8; 4] {
     tmp
 }
 
+pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
+    let header = SignedShardBlockHeader {
+        body: ShardBlockHeader {
+            parent_hash: CryptoHash::default(),
+            shard_id: 0,
+            index: 0,
+            merkle_root_state: CryptoHash::default(),
+        },
+        hash: CryptoHash::default(),
+        signature: GroupSignature::default(),
+    };
+    ReceiptBlock {
+        header,
+        path: vec![],
+        receipts
+    }
+}
+
 impl Runtime {
     pub fn apply_all_vec(
         &mut self,
         apply_state: ApplyState,
-        transactions: Vec<Transaction>,
+        prev_receipts: Vec<ReceiptBlock>,
+        transactions: Vec<SignedTransaction>,
     ) -> Vec<ApplyResult> {
         let mut cur_apply_state = apply_state;
-        let mut cur_transactions = transactions;
+        let mut receipts = prev_receipts;
+        let mut txs = transactions;
         let mut results = vec![];
         loop {
-            let apply_result = self.apply(&cur_apply_state, &[], &cur_transactions);
+            let mut apply_result = self.apply(&cur_apply_state, &receipts, &txs);
             results.push(apply_result.clone());
             if apply_result.new_receipts.is_empty() {
                 return results;
@@ -99,16 +123,17 @@ impl Runtime {
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
             };
-            cur_transactions = apply_result.new_receipts;
+            receipts = vec![to_receipt_block(apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect())];
+            txs = vec![];
         }
     }
 
     pub fn apply_all(
         &mut self,
         apply_state: ApplyState,
-        transactions: Vec<Transaction>,
+        transactions: Vec<SignedTransaction>,
     ) -> ApplyResult {
-        self.apply_all_vec(apply_state, transactions).pop().unwrap()
+        self.apply_all_vec(apply_state, vec![], transactions).pop().unwrap()
     }
 }
 
@@ -134,7 +159,7 @@ impl User {
             block_index: 0
         };
         let apply_results = self.runtime.apply_all_vec(
-            apply_state, vec![Transaction::SignedTransaction(transaction)]
+            apply_state, vec![], vec![transaction]
         );
         for apply_result in apply_results.iter() {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed, "{:?}", apply_result);

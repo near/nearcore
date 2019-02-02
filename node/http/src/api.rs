@@ -6,7 +6,7 @@ use chain::SignedBlock;
 use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
-use transaction::{SignedTransaction, Transaction, verify_transaction_signature};
+use transaction::{SignedTransaction, verify_transaction_signature};
 
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
@@ -18,11 +18,11 @@ use crate::types::{
 
 pub struct HttpApi {
     client: Arc<Client>,
-    submit_txn_sender: Sender<Transaction>,
+    submit_txn_sender: Sender<SignedTransaction>,
 }
 
 impl HttpApi {
-    pub fn new(client: Arc<Client>, submit_txn_sender: Sender<Transaction>) -> HttpApi {
+    pub fn new(client: Arc<Client>, submit_txn_sender: Sender<SignedTransaction>) -> HttpApi {
         HttpApi { client, submit_txn_sender }
     }
 }
@@ -90,7 +90,7 @@ impl HttpApi {
 
         self.submit_txn_sender
             .clone()
-            .try_send(Transaction::SignedTransaction(transaction.clone()))
+            .try_send(transaction.clone())
             .map_err(|_| RPCError::ServiceUnavailable("transaction channel is full".to_string()))?;
         Ok(SubmitTransactionResponse { hash: transaction.get_hash() })
     }

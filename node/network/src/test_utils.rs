@@ -26,8 +26,9 @@ use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signature::get_key_pair;
 use primitives::traits::GenericResult;
 use primitives::types;
-use transaction::{ChainPayload, SignedTransaction};
+use transaction::{SignedTransaction};
 use configs::chain_spec::ChainSpec;
+use chain::ChainPayload;
 
 use crate::error::Error;
 use crate::message::Message;
@@ -77,11 +78,6 @@ pub fn raw_key_to_peer_id(raw_key: Secret) -> PeerId {
 pub fn raw_key_to_peer_id_str(raw_key: Secret) -> String {
     let peer_id = raw_key_to_peer_id(raw_key);
     peer_id.to_base58()
-}
-
-pub fn fake_tx_message() -> Message {
-    let tx = SignedTransaction::empty();
-    Message::Transaction(Box::new(tx))
 }
 
 pub fn init_logger(debug: bool) {

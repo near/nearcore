@@ -20,20 +20,19 @@ use env_logger::Builder;
 use parking_lot::RwLock;
 
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use chain::SignedBlock;
+use chain::{SignedBlock, ChainPayload, SignedShardBlock};
 use configs::ClientConfig;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::{ShardBlockChain, SignedShardBlock};
+use shard::{ShardBlockChain};
 use storage::Storage;
-use transaction::ChainPayload;
 
 pub struct Client {
     pub account_id: AccountId,
     pub signer: InMemorySigner,
 
-    pub shard_chain: Arc<ShardBlockChain>,
+    pub shard_chain: ShardBlockChain,
     pub beacon_chain: BeaconBlockChain,
 
     // TODO: The following logic might need to be hidden somewhere.
@@ -90,7 +89,7 @@ impl Client {
         let storage = get_storage(&config.base_path);
 
         let chain_spec = &config.chain_spec;
-        let shard_chain = Arc::new(ShardBlockChain::new(chain_spec, storage.clone()));
+        let shard_chain = ShardBlockChain::new(chain_spec, storage.clone());
         let genesis = SignedBeaconBlock::genesis(shard_chain.chain.genesis_hash);
         let beacon_chain = BeaconBlockChain::new(genesis, &chain_spec, storage.clone());
         info!(target: "client", "Genesis root: {:?}", beacon_chain.chain.genesis_hash);
@@ -124,8 +123,12 @@ impl Client {
             return None;
         }
         // TODO: verify signature
-        let transactions: Vec<_> =
-            body.messages.into_iter().flat_map(|message| message.body.payload.body).collect();
+        let mut transactions = vec![];
+        let mut receipts = vec![];
+        for message in body.messages {
+            transactions.extend(message.body.payload.transactions);
+            receipts.extend(message.body.payload.receipts);
+        }
 
         let last_block = self.beacon_chain.chain.best_block();
         let authorities = self
@@ -134,9 +137,10 @@ impl Client {
             .read()
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
-        let (mut shard_block, transaction, authority_proposals, tx_results) = self
+        let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) =
+            self
             .shard_chain
-            .prepare_new_block(last_block.body.header.shard_block_hash, transactions);
+            .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
@@ -157,7 +161,7 @@ impl Client {
             io::stdout().flush().expect("Could not flush stdout");
             None
         } else {
-            self.shard_chain.insert_block(&shard_block.clone(), transaction, tx_results);
+            self.shard_chain.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
             self.beacon_chain.chain.insert_block(block.clone());
             info!(target: "client",
                   "Producing block index: {:?}, beacon = {:?}, shard = {:?}",

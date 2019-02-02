@@ -8,7 +8,7 @@ use primitives::types::{
     AccountId, AccountingInfo, Balance, CallbackId,
     Mana, PromiseId, ReceiptId,
 };
-use transaction::{AsyncCall, ReceiptTransaction, Callback, Transaction, CallbackInfo, ReceiptBody};
+use transaction::{AsyncCall, ReceiptTransaction, Callback, CallbackInfo, ReceiptBody};
 use storage::{StateDbUpdate, StateDbUpdateIterator};
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 
@@ -62,8 +62,8 @@ impl<'a> RuntimeExt<'a> {
         nonce
     }
 
-    pub fn get_receipts(&mut self) -> Vec<Transaction> {
-        self.receipts.drain().map(|(_, v)| Transaction::Receipt(v)).collect()
+    pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
+        self.receipts.drain().map(|(_, v)| v).collect()
     }
 
     /// write callbacks to stateUpdate

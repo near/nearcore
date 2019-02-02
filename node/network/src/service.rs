@@ -11,8 +11,7 @@ use substrate_network_libp2p::{
 use beacon::types::SignedBeaconBlock;
 use primitives::serialize::Encode;
 use primitives::types::Gossip;
-use shard::SignedShardBlock;
-use transaction::ChainPayload;
+use chain::{SignedShardBlock, ChainPayload};
 
 use crate::message::Message;
 use crate::protocol::{self, Protocol, ProtocolConfig};

@@ -10,6 +10,7 @@ beacon = { path = "../../node/beacon" }
 client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
 transaction = { path = "../../core/transaction" }
+chain = { path = "../../core/chain" }
 substrate-network-libp2p = { git = "https://github.com/nearprotocol/substrate", rev = "2db35a0c6e87fc4450a77da548ef6e2db8b0d057" }
 coroutines = { path = "../coroutines" }
 txflow = { path = "../../core/txflow" }

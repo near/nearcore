@@ -1,15 +1,16 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use transaction::{ChainPayload, Transaction};
+use chain::ChainPayload;
 
 // TODO(#265): Include transaction verification here.
-pub fn spawn_task(receiver: Receiver<Transaction>, sender: Sender<ChainPayload>) {
+pub fn spawn_task<T: Send + 'static>(
+    receiver: Receiver<T>,
+    f: fn(T) -> ChainPayload,
+    sender: Sender<ChainPayload>
+) {
     let task = receiver
-        .map(|t| {
-            debug!(target: "consensus", "Received transaction! {:?}", t);
-            ChainPayload { body: vec![t] }
-        })
+        .map(f)
         .forward(
             sender.sink_map_err(|err| error!("Error sending payload down the sink: {:?}", err)),
         )
@@ -24,14 +25,18 @@ mod tests {
     use futures::sync::mpsc::channel;
     use futures::{lazy, stream};
     use primitives::signature::DEFAULT_SIGNATURE;
-    use transaction::{SendMoneyTransaction, SignedTransaction, Transaction, TransactionBody};
+    use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody};
 
     #[test]
     fn pass_through() {
         tokio::run(lazy(|| {
             let (transaction_tx, transaction_rx) = channel(1024);
             let (payload_tx, payload_rx) = channel(1024);
-            spawn_task(transaction_rx, payload_tx);
+            spawn_task(
+                transaction_rx,
+                |t| ChainPayload { transactions: vec![t], receipts: vec![] },
+                payload_tx
+            );
             let mut transactions = vec![];
             for i in 0..10 {
                 let t = SendMoneyTransaction {
@@ -41,8 +46,7 @@ mod tests {
                     amount: i,
                 };
                 let t = TransactionBody::SendMoney(t);
-                let t = SignedTransaction::new(DEFAULT_SIGNATURE, t);
-                transactions.push(Transaction::SignedTransaction(t));
+                transactions.push(SignedTransaction::new(DEFAULT_SIGNATURE, t));
             }
 
             let expected: Vec<u64> = (0..10).collect();
@@ -54,14 +58,14 @@ mod tests {
                 )
                 .and_then(|_| {
                     payload_rx
-                        .map(|p| match p.body[0] {
-                            Transaction::SignedTransaction(SignedTransaction {
+                        .map(|p| match p.transactions[0] {
+                            SignedTransaction {
                                 body:
                                     TransactionBody::SendMoney(SendMoneyTransaction {
                                         amount: a, ..
                                     }),
                                 ..
-                            }) => a,
+                            } => a,
                             _ => panic!("Unexpected transaction"),
                         })
                         .collect()

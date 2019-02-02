@@ -8,11 +8,11 @@ use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
-use primitives::traits::Payload;
 use primitives::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana,
-    ManaAccounting, StructSignature,
+    ManaAccounting, StructSignature, ShardId,
 };
+use primitives::utils::account_to_shard_id;
 
 pub type LogEntry = String;
 
@@ -572,12 +572,10 @@ impl ReceiptTransaction {
             body,
         }
     }
-}
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
-pub enum Transaction {
-    SignedTransaction(SignedTransaction),
-    Receipt(ReceiptTransaction),
+    pub fn shard_id(&self) -> ShardId {
+        account_to_shard_id(&self.receiver)
+    }
 }
 
 #[derive(Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -626,31 +624,6 @@ pub struct FinalTransactionResult {
     pub status: FinalTransactionStatus,
     /// Logs per transaction / receipt ids ordered in DFS manner.
     pub logs: Vec<TransactionLogs>,
-}
-
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct ChainPayload {
-    pub body: Vec<Transaction>,
-}
-
-impl Payload for ChainPayload {
-    fn verify(&self) -> Result<(), &'static str> {
-        Ok(())
-    }
-
-    fn union_update(&mut self, mut other: Self) {
-        self.body.extend(other.body.drain(..));
-    }
-
-    fn is_empty(&self) -> bool {
-        self.body.is_empty()
-    }
-
-    fn new() -> Self {
-        Self {
-            body: vec![]
-        }
-    }
 }
 
 pub fn verify_transaction_signature(
