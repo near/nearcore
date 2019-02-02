@@ -13,7 +13,7 @@ use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{AccountId, Gossip, UID};
-use shard::{SignedShardBlock, ChainPayload, ReceiptBlock};
+use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 
 use crate::message::{self, Message, Status};
 

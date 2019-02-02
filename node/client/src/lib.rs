@@ -20,12 +20,12 @@ use env_logger::Builder;
 use parking_lot::RwLock;
 
 use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use chain::SignedBlock;
+use chain::{SignedBlock, ChainPayload, SignedShardBlock};
 use configs::ClientConfig;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::{ShardBlockChain, SignedShardBlock, ChainPayload};
+use shard::{ShardBlockChain};
 use storage::Storage;
 
 pub struct Client {
@@ -140,7 +140,6 @@ impl Client {
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) =
             self
             .shard_chain
-            // TODO: fix this
             .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
@@ -148,14 +147,14 @@ impl Client {
             authority_proposals,
             shard_block.block_hash(),
         );
-        // TODO(#377): We should have a proper mask computation once we have a correct consensus.
-        let authority_mask: Vec<bool> = authorities.iter().map(|_| true).collect();
-        let signature = shard_block.sign(&self.signer);
-        shard_block.add_signature(signature);
-        shard_block.authority_mask = authority_mask.clone();
-        let signature = block.sign(&self.signer);
-        block.add_signature(signature);
-        block.authority_mask = authority_mask;
+        let shard_block_signature = shard_block.sign(&self.signer);
+        let block_signature = block.sign(&self.signer);
+        for (i, authority) in authorities.iter().enumerate() {
+            if authority.account_id == self.signer.account_id {
+                shard_block.add_signature(&shard_block_signature, i);
+                block.add_signature(&block_signature, i);
+            }
+        }
 
         if self.beacon_chain.chain.is_known(&block.hash) {
             info!(target: "client", "The block was already imported, before we managed to produce it.");

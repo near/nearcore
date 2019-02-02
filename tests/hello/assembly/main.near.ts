@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
+      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -238,6 +238,59 @@ export function near_func_getAllKeys(): void {
       handler.decoder = new JSONDecoder<__near_ArgsParser_getAllKeys>(handler);
       handler.decoder.deserialize(json);
 let result = wrapped_getAllKeys(
+
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushArray("result");
+          __near_encode_Array_String(<Array<String>>result, encoder);
+          encoder.popArray();
+        } else {
+          encoder.setNull("result");
+        }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_benchmark extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_benchmark>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_benchmark(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_benchmark();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_benchmark>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_benchmark(
 
 );
 

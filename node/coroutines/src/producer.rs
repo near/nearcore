@@ -7,9 +7,8 @@ use futures::{future, Future, Sink, Stream};
 
 use crate::control_builder::get_control;
 use beacon::types::SignedBeaconBlock;
-use chain::{SignedBlock, SignedHeader};
+use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
 use client::{ChainConsensusBlockBody, Client};
-use shard::{SignedShardBlock, ReceiptBlock};
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 

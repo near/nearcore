@@ -28,7 +28,7 @@ use primitives::traits::GenericResult;
 use primitives::types;
 use transaction::{SignedTransaction};
 use configs::chain_spec::ChainSpec;
-use ::shard::ChainPayload;
+use chain::ChainPayload;
 
 use crate::error::Error;
 use crate::message::Message;

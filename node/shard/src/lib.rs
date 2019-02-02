@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use chain::{SignedBlock, SignedHeader};
+use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
 use configs::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::StateDbViewer;
@@ -25,12 +25,6 @@ use transaction::{
     ReceiptTransaction
 };
 
-pub use crate::types::{
-    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
-    ChainPayload
-};
-
-pub mod types;
 mod merkle;
 
 type H264 = [u8; 33];
@@ -153,7 +147,11 @@ impl ShardBlockChain {
         }
         let apply_result = self.runtime.write().apply(
             &apply_state,
+<<<<<<< HEAD
             &receipts,
+=======
+            &prev_receipts,
+>>>>>>> master
             &transactions,
         );
         let shard_block = SignedShardBlock::new(
@@ -163,6 +161,7 @@ impl ShardBlockChain {
             apply_result.root,
             transactions,
             prev_receipts,
+<<<<<<< HEAD
         );
         let shard_block_extra = (
             apply_result.db_changes,
@@ -170,6 +169,15 @@ impl ShardBlockChain {
             apply_result.tx_result,
             apply_result.new_receipts
         );
+=======
+        );
+        let shard_block_extra = (
+            apply_result.db_changes,
+            apply_result.authority_proposals,
+            apply_result.tx_result,
+            apply_result.new_receipts
+        );
+>>>>>>> master
         (shard_block, shard_block_extra)
     }
 
@@ -191,10 +199,17 @@ impl ShardBlockChain {
             &[],
             &block.body.transactions,
         );
+<<<<<<< HEAD
         if apply_result.root != block.header().body.merkle_root_state {
             info!(
                 "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
                 block.header().body.merkle_root_state,
+=======
+        if apply_result.root != block.body.header.merkle_root_state {
+            info!(
+                "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
+                block.body.header.merkle_root_state,
+>>>>>>> master
                 apply_result.root,
                 block
             );

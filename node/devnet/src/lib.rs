@@ -10,7 +10,7 @@ use client::Client;
 use consensus::adapters::transaction_to_payload;
 use consensus::passthrough::spawn_consensus;
 use transaction::SignedTransaction;
-use ::shard::ChainPayload;
+use chain::ChainPayload;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();

@@ -1,7 +1,7 @@
 use beacon::types::SignedBeaconBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AccountId, Gossip};
-use shard::{SignedShardBlock, ChainPayload, ReceiptBlock};
+use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 
 pub type RequestId = u64;
 

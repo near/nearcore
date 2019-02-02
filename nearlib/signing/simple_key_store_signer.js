@@ -2,7 +2,7 @@
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
 const bs58 = require('bs58');
-const nacl = require("tweetnacl");
+const nacl = require('tweetnacl');
 const { sha256 } = require('js-sha256');
 
 class SimpleKeyStoreSigner {
@@ -18,6 +18,9 @@ class SimpleKeyStoreSigner {
      */
     async signTransactionBody(body, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
+        if (!encodedKey) {
+            throw new Error(`Cannot find key for sender ${senderAccountId}`);
+        }
         const message = new Uint8Array(sha256.array(body));
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(message, key)];

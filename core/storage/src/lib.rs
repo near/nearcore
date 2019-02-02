@@ -63,7 +63,7 @@ impl StateDbUpdate {
     pub fn set(&mut self, key: &[u8], value: &DBValue) {
         self.prospective.insert(key.to_vec(), Some(value.to_vec()));
     }
-    pub fn delete(&mut self, key: &[u8]) {
+    pub fn remove(&mut self, key: &[u8]) {
         self.prospective.insert(key.to_vec(), None);
     }
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
@@ -107,8 +107,12 @@ impl StateDbUpdate {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())))
     }
-    pub fn iter<'a>(&'a self, prefix: &[u8]) -> Result<StateDbUpdateIterator<'a>, String> {
-        StateDbUpdateIterator::new(self, prefix)
+    pub fn iter(&self, prefix: &[u8]) -> Result<StateDbUpdateIterator, String> {
+        StateDbUpdateIterator::new(self, prefix, b"", None)
+    }
+
+    pub fn range(&self, prefix: &[u8], start: &[u8], end: &[u8]) -> Result<StateDbUpdateIterator, String> {
+        StateDbUpdateIterator::new(self, prefix, start, Some(end))
     }
 }
 
@@ -149,30 +153,56 @@ type MergeBTreeRange<'a> = MergeIter<'a, std::collections::btree_map::Range<'a, 
 
 pub struct StateDbUpdateIterator<'a> {
     prefix: Vec<u8>,
+    end_offset: Option<Vec<u8>>,
     trie_iter: Peekable<trie::TrieIterator<'a>>,
     overlay_iter: Peekable<MergeBTreeRange<'a>>,
 }
 
 impl<'a> StateDbUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
-    pub fn new(state_update: &'a StateDbUpdate, prefix: &[u8]) -> Result<Self, String> {
+    pub fn new(state_update: &'a StateDbUpdate, prefix: &[u8], start: &[u8], end: Option<&[u8]>) -> Result<Self, String> {
         let mut trie_iter = state_update.state_db.trie.iter(&state_update.root)?;
-        trie_iter.seek(prefix)?;
-        let committed_iter = state_update.committed.range(prefix.to_vec()..);
-        let prospective_iter = state_update.prospective.range(prefix.to_vec()..);
+        let mut start_offset = prefix.to_vec();
+        start_offset.extend_from_slice(start);
+        let end_offset = match end {
+            Some(end) => {
+                let mut p = prefix.to_vec();
+                p.extend_from_slice(end);
+                Some(p)
+            },
+            None => None
+        };
+        trie_iter.seek(&start_offset)?;
+        let committed_iter = state_update.committed.range(start_offset.clone()..);
+        let prospective_iter = state_update.prospective.range(start_offset..);
         let overlay_iter = MergeIter { left: committed_iter.peekable(), right: prospective_iter.peekable() }.peekable();
         Ok(StateDbUpdateIterator {
             prefix: prefix.to_vec(),
+            end_offset,
             trie_iter: trie_iter.peekable(),
             overlay_iter
         })
     }
+//
+//    #[inline]
+//    fn stop_cond(&self, key: &Vec<u8>) -> bool {
+//        !key.starts_with(&self.prefix) || match &self.end_offset {
+//            Some(end) => key > end,
+//            None => true
+//        }
+//    }
 }
 
 impl<'a> Iterator for StateDbUpdateIterator<'a> {
     type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let stop_cond = |key: &Vec<u8>, prefix: &Vec<u8>, end_offset: &Option<Vec<u8>>| {
+            !key.starts_with(prefix) || match end_offset {
+                Some(end) => key > end,
+                None => false
+            }
+        };
         enum Ordering {
             Trie,
             Overlay,
@@ -183,25 +213,25 @@ impl<'a> Iterator for StateDbUpdateIterator<'a> {
             let res = {
                 match (self.trie_iter.peek(), self.overlay_iter.peek()) {
                     (Some(&Ok((ref left_key, _))), Some(&(ref right_key, _))) => {
-                        match (left_key.starts_with(&self.prefix), right_key.starts_with(&self.prefix)) {
-                            (true, true) => if left_key < *right_key {
+                        match (stop_cond(left_key, &self.prefix, &self.end_offset), stop_cond(*right_key, &self.prefix, &self.end_offset)) {
+                            (false, false) => if left_key < *right_key {
                                 Ordering::Trie
                             } else {
                                 if &left_key == right_key { Ordering::Both } else { Ordering::Overlay }
                             },
-                            (true, false) => Ordering::Trie,
-                            (false, true) => Ordering::Overlay,
-                            (false, false) => { return None; }
+                            (false, true) => Ordering::Trie,
+                            (true, false) => Ordering::Overlay,
+                            (true, true) => { return None; }
                         }
                     },
                     (Some(&Ok((ref left_key, _))), None) => {
-                        if !left_key.starts_with(&self.prefix) {
+                        if stop_cond(left_key, &self.prefix, &self.end_offset) {
                             return None
                         }
                         Ordering::Trie
                     },
                     (None, Some(&(ref right_key, _))) => {
-                        if !right_key.starts_with(&self.prefix) {
+                        if stop_cond(right_key, &self.prefix, &self.end_offset) {
                             return None
                         }
                         Ordering::Overlay
@@ -360,7 +390,7 @@ mod tests {
         assert_eq!(values, vec![b"dog".to_vec()]);
 
         let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);
-        state_db_update.delete(b"dog");
+        state_db_update.remove(b"dog");
 
         let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
         assert_eq!(values.len(), 0);
@@ -368,7 +398,7 @@ mod tests {
         let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);
         state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
         state_db_update.commit();
-        state_db_update.delete(b"dog2");
+        state_db_update.remove(b"dog2");
 
         let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec()]);
@@ -379,6 +409,12 @@ mod tests {
         state_db_update.set(b"dog3", &DBValue::from_slice(b"puppy"));
 
         let values: Vec<Vec<u8>> = state_db_update.iter(b"dog").unwrap().collect();
+        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
+
+        let values: Vec<Vec<u8>> = state_db_update.range(b"do", b"g", b"g2").unwrap().collect();
+        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+
+        let values: Vec<Vec<u8>> = state_db_update.range(b"do", b"", b"xyz").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
     }
 }

@@ -12,7 +12,7 @@ use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
 use network::protocol::{Protocol, ProtocolConfig};
 use primitives::types::{AccountId, Gossip};
-use shard::{SignedShardBlock, ChainPayload, ReceiptBlock};
+use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 use transaction::SignedTransaction;
 use txflow::txflow_task;
 

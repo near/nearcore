@@ -35,6 +35,7 @@ use transaction::{
 };
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
+use chain::ReceiptBlock;
 
 use crate::ext::RuntimeExt;
 use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
@@ -772,10 +773,10 @@ impl Runtime {
             if receipts.is_err() {
                 // On error, we rollback previous changes and then commit the deletion
                 state_update.rollback();
-                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.remove(&callback_id_to_bytes(&callback_res.info.id));
                 state_update.commit();
             } else {
-                state_update.delete(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.remove(&callback_id_to_bytes(&callback_res.info.id));
                 set(
                     state_update,
                     &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
@@ -827,11 +828,7 @@ impl Runtime {
                                 Ok(vec![])
                             }
                         } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                            debug!(
-                                target: "runtime",
-                                "Account {} already exists",
-                                receipt.receiver,
-                            );
+                            logs.push(format!("Account {} already exists", receipt.receiver));
                             let receipt = ReceiptTransaction::new(
                                 system_account(),
                                 receipt.originator.clone(),
@@ -993,6 +990,13 @@ impl Runtime {
         res
     }
 
+    fn print_log(log: &[LogEntry]) {
+        let log_str = log.iter().fold(String::new(), |acc, s| {
+            acc + "\n" + s
+        });
+        debug!(target: "runtime", "{}", log_str);
+    }
+
     fn process_transaction(
         runtime: &mut Self,
         state_update: &mut StateDbUpdate,
@@ -1024,11 +1028,12 @@ impl Runtime {
                 result.status = TransactionStatus::Completed;
             }
             Err(s) => {
-                debug!(target: "runtime", "{}", s);
                 state_update.rollback();
+                result.logs.push(format!("Runtime error: {}", s));
                 result.status = TransactionStatus::Failed;
             }
         };
+        Self::print_log(&result.logs);
         result
     }
 
@@ -1067,25 +1072,25 @@ impl Runtime {
                     result.status = TransactionStatus::Completed;
                 }
                 Err(s) => {
-                    debug!(target: "runtime", "{}", s);
                     state_update.rollback();
+                    result.logs.push(format!("Runtime error: {}", s));
                     result.status = TransactionStatus::Failed;
                 }
             };
-            result
         } else {
             // wrong receipt
-            debug!(target: "runtime", "receipt sent to the wrong shard");
             result.status = TransactionStatus::Failed;
-            result
-        }
+            result.logs.push("receipt sent to the wrong shard".to_string());
+        };
+        Self::print_log(&result.logs);
+        result
     }
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
         &mut self,
         apply_state: &ApplyState,
-        prev_receipts: &[ReceiptTransaction],
+        prev_receipts: &[ReceiptBlock],
         transactions: &[SignedTransaction],
     ) -> ApplyResult {
         let mut new_receipts = HashMap::new();
@@ -1094,7 +1099,7 @@ impl Runtime {
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
-        for receipt in prev_receipts {
+        for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
             tx_result.push(Self::process_receipt(
                 self,
                 &mut state_update,
@@ -1169,8 +1174,7 @@ impl Runtime {
             );
             // TODO(#345): Add system TX stake
         });
-        for (_, pk, amount) in initial_authorities {
-            let account_id = pk_to_acc_id.get(pk).expect("Missing account for public key");
+        for (account_id, _pk, amount) in initial_authorities {
             let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
             let mut account: Account = get(
                 &mut state_db_update,
@@ -1798,7 +1802,7 @@ mod tests {
             block_index: 0
         };
         let apply_results = runtime.apply_all_vec(
-            apply_state, vec![receipt], vec![]
+            apply_state, vec![to_receipt_block(vec![receipt])], vec![]
         );
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1838,7 +1842,7 @@ mod tests {
             block_index: 0
         };
         let apply_results = runtime.apply_all_vec(
-            apply_state, vec![receipt], vec![]
+            apply_state, vec![to_receipt_block(vec![receipt])], vec![]
         );
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1952,7 +1956,7 @@ mod tests {
             block_index: 0
         };
         let apply_result = runtime.apply(
-            &apply_state, &[receipt], &[]
+            &apply_state, &[to_receipt_block(vec![receipt])], &[]
         );
         assert_ne!(new_root, apply_result.root);
         runtime.state_db.commit(apply_result.db_changes).unwrap();
@@ -2000,7 +2004,7 @@ mod tests {
             block_index: 0
         };
         let apply_result = runtime.apply(
-            &apply_state, &[receipt], &[]
+            &apply_state, &[to_receipt_block(vec![receipt])], &[]
         );
         // the callback should be removed
         assert_ne!(new_root, apply_result.root);

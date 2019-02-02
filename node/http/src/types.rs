@@ -5,9 +5,9 @@ use near_protos::serde::b64_format as protos_b64_format;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_pub_key_format, PublicKey};
 use primitives::types::{
-    AccountId, AuthorityMask, AuthorityStake, Balance, MerkleHash, ShardId
+    AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId
 };
-use shard::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
+use chain::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
 use transaction::{
     FinalTransactionResult, SignedTransaction, TransactionResult,
 };
@@ -29,7 +29,6 @@ pub struct ViewAccountResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct CallViewFunctionRequest {
-    pub originator: AccountId,
     pub contract_account_id: AccountId,
     pub method_name: String,
     pub args: Vec<u8>,
@@ -111,21 +110,15 @@ pub struct SignedBeaconBlockResponse {
     pub body: BeaconBlockResponse,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
-    // TODO(#298): should have a format for MultiSignature
-    pub signature: Vec<String>,
-    pub authority_mask: AuthorityMask,
+    pub signature: GroupSignature,
 }
 
 impl From<SignedBeaconBlock> for SignedBeaconBlockResponse {
     fn from(block: SignedBeaconBlock) -> Self {
-        let signature = block.signature.iter()
-            .map(String::from)
-            .collect();
         SignedBeaconBlockResponse {
             body: block.body.into(),
             hash: block.hash,
-            signature,
-            authority_mask: block.authority_mask,
+            signature: block.signature,
         }
     }
 }
@@ -193,21 +186,15 @@ pub struct SignedShardBlockResponse {
     pub body: ShardBlockResponse,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    // TODO(#298): should have a format for MultiSignature
-    pub signature: Vec<String>,
+    pub signature: GroupSignature,
 }
 
 impl From<SignedShardBlock> for SignedShardBlockResponse {
     fn from(block: SignedShardBlock) -> Self {
-        let signature = block.signature.iter()
-            .map(String::from)
-            .collect();
         SignedShardBlockResponse {
             body: block.body.into(),
             hash: block.hash,
-            authority_mask: block.authority_mask,
-            signature,
+            signature: block.signature,
         }
     }
 }

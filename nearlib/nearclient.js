@@ -25,15 +25,14 @@ class NearClient {
         const buffer = SignedTransaction.encode(signedTransaction).finish();
         const transaction = _arrayBufferToBase64(buffer);
         const data = { transaction };
-        var submitResponse;
         try {
-            submitResponse = await this.request('submit_transaction', data);
+            return await this.request('submit_transaction', data);
         } catch(e) {
-            if (e.response) { console.log(e.response.text) }
-            else { console.log(e) }
-            throw (e)
+            if (e.response) { 
+                throw new Error(e.response.text);
+            }
+            throw e;
         }
-        return submitResponse;
     }
 
     async getNonce (account_id) {

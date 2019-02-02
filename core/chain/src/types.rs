@@ -1,10 +1,12 @@
-use chain::{SignedBlock, SignedHeader};
+use crate::{SignedBlock, SignedHeader};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{
-    AuthorityMask, MerkleHash, MultiSignature, PartialSignature, ShardId,
+    GroupSignature, MerkleHash, PartialSignature, ShardId,
 };
 use primitives::traits::Payload;
 use transaction::{ReceiptTransaction, SignedTransaction};
+use std::hash::{Hash, Hasher};
+use serde_derive::{Serialize, Deserialize};
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -18,8 +20,7 @@ pub struct ShardBlockHeader {
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    pub signature: MultiSignature,
+    pub signature: GroupSignature,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,8 +34,28 @@ pub struct ShardBlock {
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
-    pub authority_mask: AuthorityMask,
-    pub signature: MultiSignature,
+    pub signature: GroupSignature,
+}
+
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+pub struct ReceiptBlock {
+    pub header: SignedShardBlockHeader,
+    pub path: Vec<CryptoHash>,
+    pub receipts: Vec<ReceiptTransaction>,
+}
+
+impl PartialEq for ReceiptBlock {
+    fn eq(&self, other: &ReceiptBlock) -> bool {
+        self.header.hash == other.header.hash
+        && self.path == other.path
+        && self.receipts == other.receipts
+    }
+}
+
+impl Hash for ReceiptBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) { 
+        state.write(hash_struct(&self).as_ref());
+    }
 }
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,8 +103,7 @@ impl SignedShardBlock {
                 receipts,
             },
             hash,
-            signature: vec![],
-            authority_mask: vec![],
+            signature: GroupSignature::default(),
         }
     }
 
@@ -112,7 +132,6 @@ impl SignedBlock for SignedShardBlock {
             body: self.body.header.clone(),
             hash: self.hash,
             signature: self.signature.clone(),
-            authority_mask: self.authority_mask.clone(),
         }
     }
 
@@ -126,8 +145,8 @@ impl SignedBlock for SignedShardBlock {
         self.hash
     }
 
-    fn add_signature(&mut self, signature: PartialSignature) {
-        self.signature.push(signature);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
+        self.signature.add_signature(signature, authority_id);
     }
 
     fn weight(&self) -> u128 {

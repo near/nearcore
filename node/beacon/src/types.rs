@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chain::{SignedBlock, SignedHeader};
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::types::{AuthorityMask, MultiSignature, PartialSignature, AuthorityStake};
+use primitives::types::{GroupSignature, PartialSignature, AuthorityStake};
 use storage::Storage;
 use configs::ChainSpec;
 use configs::authority::get_authority_config;
@@ -26,8 +26,7 @@ pub struct BeaconBlockHeader {
 pub struct SignedBeaconBlockHeader {
     pub body: BeaconBlockHeader,
     pub hash: CryptoHash,
-    pub signature: MultiSignature,
-    pub authority_mask: AuthorityMask,
+    pub signature: GroupSignature,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -39,8 +38,7 @@ pub struct BeaconBlock {
 pub struct SignedBeaconBlock {
     pub body: BeaconBlock,
     pub hash: CryptoHash,
-    pub signature: MultiSignature,
-    pub authority_mask: AuthorityMask,
+    pub signature: GroupSignature,
 }
 
 impl SignedHeader for SignedBeaconBlockHeader {
@@ -70,8 +68,7 @@ impl SignedBeaconBlock {
         SignedBeaconBlock {
             body: BeaconBlock { header },
             hash,
-            signature: vec![],
-            authority_mask: vec![],
+            signature: GroupSignature::default()
         }
     }
 
@@ -88,7 +85,6 @@ impl SignedBlock for SignedBeaconBlock {
             body: self.body.header.clone(),
             hash: self.hash,
             signature: self.signature.clone(),
-            authority_mask: self.authority_mask.clone(),
         }
     }
 
@@ -102,13 +98,13 @@ impl SignedBlock for SignedBeaconBlock {
         self.hash
     }
 
-    fn add_signature(&mut self, signature: PartialSignature) {
-        self.signature.push(signature);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
+        self.signature.add_signature(signature, authority_id);
     }
 
     fn weight(&self) -> u128 {
         // TODO(#279): sum stakes instead of counting them
-        self.signature.len() as u128
+        self.signature.authority_count() as u128
     }
 }
 
@@ -136,6 +132,7 @@ mod tests {
     use std::sync::Arc;
 
     use chain::BlockChain;
+    use primitives::aggregate_signature::BlsSignature;
     use primitives::hash::hash;
     use primitives::signer::InMemorySigner;
     use primitives::types::BlockId;
@@ -163,7 +160,7 @@ mod tests {
         let mut block1 = SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
         let signer = InMemorySigner::default();
         let sig = block1.sign(&signer);
-        block1.add_signature(sig);
+        block1.add_signature(&sig, 0);
         assert_eq!(bc.insert_block(block1.clone()), false);
         let best_block = bc.best_block();
         let best_block_header = best_block.header();
@@ -190,9 +187,8 @@ mod tests {
         assert_eq!(bc2.best_block().block_hash(), genesis2.block_hash());
     }
 
-    fn test_fork_choice_rule_helper(graph: Vec<(u32,u32,u32)>, expect: u32) {
+    fn test_fork_choice_rule_helper(graph: Vec<(u32,u32,usize)>, expect: u32) {
         let storage = Arc::new(create_memory_db());
-        let signers = (0..100).map(|_| InMemorySigner::default()).collect::<Vec<_>>();
 
         let genesis = SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage);
@@ -206,8 +202,9 @@ mod tests {
                 block = SignedBeaconBlock::new(parent.body.header.index + 1, parent.block_hash(), vec![], hash(&[*self_id as u8]));
             }
             for i in 0..*sign_count {
-                let sig = block.sign(&signers[i as usize]);
-                block.add_signature(sig);
+                // Having proper signing here is far too slow, and unnecessary for this test
+                let sig = BlsSignature::empty();
+                block.add_signature(&sig, i);
             }
             blocks.insert(*self_id, block.clone());
             assert_eq!(bc.insert_block(block.clone()), false);
