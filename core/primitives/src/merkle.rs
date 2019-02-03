@@ -1,9 +1,10 @@
-use primitives::hash::{CryptoHash, hash, hash_struct};
-use primitives::serialize::Encode;
+use crate::hash::{hash, hash_struct};
+use crate::types::MerkleHash;
+use crate::serialize::Encode;
 
-pub type MerklePath = Vec<(CryptoHash, Direction)>;
+pub type MerklePath = Vec<(MerkleHash, Direction)>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Direction {
     Left,
     Right,
@@ -21,13 +22,15 @@ fn round_up(x: u32) -> u32 {
     return res;
 }
 
-fn combine_hash(hash1: CryptoHash, hash2: CryptoHash) -> CryptoHash {
+fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
     let mut combined: Vec<u8> = hash1.into();
     combined.append(&mut hash2.into());
     hash(&combined)
 }
 
-pub fn merklize<T: Encode>(arr: &[T]) -> (CryptoHash, Vec<MerklePath>) {
+/// merklize an array of items. The array must not be empty.
+pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
+    assert!(arr.len() > 0);
     let mut len = round_up(arr.len() as u32);
     let mut hashes: Vec<_> = (0..len).map(|i| {
         if i < arr.len() as u32 {
@@ -78,7 +81,8 @@ pub fn merklize<T: Encode>(arr: &[T]) -> (CryptoHash, Vec<MerklePath>) {
     (hashes[0], paths)
 }
 
-pub fn verify_path<T: Encode>(root: CryptoHash, path: &MerklePath, item: &T) -> bool {
+/// verify merkle path for given item and corresponding path.
+pub fn verify_path<T: Encode>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
     let mut hash = hash_struct(item);
     for (h, d) in path {
         match d {
@@ -96,7 +100,7 @@ pub fn verify_path<T: Encode>(root: CryptoHash, path: &MerklePath, item: &T) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{random, Rng, StdRng, SeedableRng};
+    use rand::{StdRng, SeedableRng, Rng};
 
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];
@@ -112,11 +116,20 @@ mod tests {
 
     #[test]
     fn test_merkle_path() {
-        let seed: [u8; 32] = [0; 32];
+        let seed: &[_] = &[1, 2, 3, 4];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
         for _ in 0..10 {
             let len: u32 = rng.gen_range(1, 50);
             test_with_len(len, &mut rng);
+        }
+    }
+
+    #[test]
+    fn test_incorrect_path() {
+        let items = vec![111, 222, 333];
+        let (root, paths) = merklize(&items);
+        for i in 0..items.len() {
+            assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
         }
     }
 }

@@ -4,19 +4,22 @@ use primitives::types::{
     GroupSignature, MerkleHash, PartialSignature, ShardId,
 };
 use primitives::traits::Payload;
+use primitives::merkle::MerklePath;
 use transaction::{ReceiptTransaction, SignedTransaction};
 use std::hash::{Hash, Hasher};
 use serde_derive::{Serialize, Deserialize};
 
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
     pub shard_id: ShardId,
     pub index: u64,
     pub merkle_root_state: MerkleHash,
+    /// if there is no receipt generated in this block, the root is None
+    pub receipt_merkle_root: Option<MerkleHash>,
 }
 
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
@@ -40,7 +43,7 @@ pub struct SignedShardBlock {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ReceiptBlock {
     pub header: SignedShardBlockHeader,
-    pub path: Vec<CryptoHash>,
+    pub path: MerklePath,
     pub receipts: Vec<ReceiptTransaction>,
 }
 
@@ -56,13 +59,6 @@ impl Hash for ReceiptBlock {
     fn hash<H: Hasher>(&self, state: &mut H) { 
         state.write(hash_struct(&self).as_ref());
     }
-}
-
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReceiptBlock {
-    pub header: SignedShardBlockHeader,
-    pub path: Vec<CryptoHash>,
-    pub receipts: Vec<ReceiptTransaction>,
 }
 
 impl SignedHeader for SignedShardBlockHeader {
@@ -88,12 +84,14 @@ impl SignedShardBlock {
         merkle_root_state: MerkleHash,
         transactions: Vec<SignedTransaction>,
         receipts: Vec<ReceiptBlock>,
+        receipt_merkle_root: Option<MerkleHash>,
     ) -> Self {
         let header = ShardBlockHeader {
             shard_id,
             index,
             parent_hash,
             merkle_root_state,
+            receipt_merkle_root,
         };
         let hash = hash_struct(&header);
         SignedShardBlock {
@@ -109,7 +107,7 @@ impl SignedShardBlock {
 
     pub fn genesis(merkle_root_state: MerkleHash) -> SignedShardBlock {
         SignedShardBlock::new(
-            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![]
+            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![], None
         )
     }
 

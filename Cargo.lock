@@ -456,7 +456,6 @@ dependencies = [
  "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.84 (registry+https://github.com/rust-lang/crates.io-index)",
- "shard 0.0.1",
  "substrate-network-libp2p 0.1.0 (git+https://github.com/nearprotocol/substrate?rev=2db35a0c6e87fc4450a77da548ef6e2db8b0d057)",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "transaction 0.1.0",
@@ -665,7 +664,6 @@ dependencies = [
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "node-http 0.1.0",
  "primitives 0.1.0",
- "shard 0.0.1",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "transaction 0.1.0",
 ]

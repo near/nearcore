@@ -13,6 +13,7 @@ use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::traits::Decode;
 use primitives::types::{AccountId, Gossip, UID};
+use primitives::merkle::verify_path;
 use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 
 use crate::message::{self, Message, Status};
@@ -131,13 +132,22 @@ impl Protocol {
     }
 
     pub fn on_receipt(&self, receipt: ReceiptBlock) {
-        let copied_tx = self.receipt_sender.clone();
-        tokio::spawn(
-            copied_tx
-                .send(receipt)
-                .map(|_| ())
-                .map_err(|e| error!("Failure to send the transactions {:?}", e)),
-        );
+        if let Some(merkle_root) = receipt.header.body.receipt_merkle_root {
+            if verify_path(merkle_root, &receipt.path, &receipt.receipts) {
+                let copied_tx = self.receipt_sender.clone();
+                tokio::spawn(
+                    copied_tx
+                        .send(receipt)
+                        .map(|_| ())
+                        .map_err(|e| error!("Failure to send the transactions {:?}", e)),
+                );
+            } else {
+                // ban node when we integrate our network
+                error!(target: "network", "received invalid receipt block");
+            }
+        } else {
+            error!(target: "network", "received empty receipt from peer");
+        }
     }
 
     pub fn on_gossip_message(&self, gossip: Gossip<ChainPayload>) {
