@@ -19,7 +19,7 @@ fn round_up(x: u32) -> u32 {
     while res < x {
         res <<= 1;
     }
-    return res;
+    res
 }
 
 fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
@@ -30,7 +30,7 @@ fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
 
 /// merklize an array of items. The array must not be empty.
 pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
-    assert!(arr.len() > 0);
+    assert!(!arr.is_empty());
     let mut len = round_up(arr.len() as u32);
     let mut hashes: Vec<_> = (0..len).map(|i| {
         if i < arr.len() as u32 {
