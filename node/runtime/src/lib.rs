@@ -1372,7 +1372,7 @@ mod tests {
             block_index: 0
         };
         let apply_results = runtime.apply_all_vec(
-            apply_state, vec![transaction]
+            apply_state, vec![], vec![transaction]
         );
         // Only 1 results: signedTx
         assert_eq!(apply_results.len(), 1);
@@ -1400,7 +1400,7 @@ mod tests {
             block_index: 0
         };
         let apply_results = runtime.apply_all_vec(
-            apply_state, vec![transaction]
+            apply_state, vec![], vec![transaction]
         );
         // 3 results: signedTx, It's Receipt, Mana receipt
         assert_eq!(apply_results.len(), 3);
