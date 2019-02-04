@@ -179,7 +179,7 @@ impl Runtime {
         accounting_info: AccountingInfo,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         if transaction.amount == 0 {
-            return Err("Sending 0 amount of money".to_string());
+            return Err("Sending 0 tokens".to_string());
         }
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
@@ -344,6 +344,16 @@ impl Runtime {
         accounting_info: AccountingInfo,
         mana: Mana,
     ) -> Result<Vec<ReceiptTransaction>, String> {
+        match transaction.method_name.get(0) {
+            Some(b'_') => return Err(format!("Account {} tries to call a private method {}",
+                transaction.originator,
+                std::str::from_utf8(&transaction.method_name).unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
+            )),
+            None if transaction.amount == 0 => return Err(format!("Account {} tries to send 0 tokens",
+                transaction.originator,
+            )),
+            _ => (),
+        };
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
             set(state_update, &account_id_to_bytes(COL_ACCOUNT, &transaction.originator), sender);
@@ -817,6 +827,8 @@ impl Runtime {
                         amount = async_call.amount;
                         if async_call.method_name.is_empty() {
                             if amount > 0 {
+                                mana_accounting.mana_refund = async_call.mana;
+                                mana_accounting.accounting_info = async_call.accounting_info.clone();
                                 self.deposit(
                                     state_update,
                                     async_call.amount,
@@ -1308,13 +1320,13 @@ mod tests {
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[1].new_receipts.len(), 1);
         // Mana sucessfully executed
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
+        assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // Checking final root
         assert_ne!(root, apply_results[2].root);
     }
 
     #[test]
-    fn test_smart_contract_bad_method_name() {
+    fn test_smart_contract_private_method_name() {
         let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce: 1,
@@ -1334,13 +1346,69 @@ mod tests {
         let apply_results = runtime.apply_all_vec(
             apply_state, vec![], vec![transaction]
         );
+        // Only 1 results: signedTx
+        assert_eq!(apply_results.len(), 1);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
+        assert_eq!(root, apply_results[0].root);
+    }
+
+    #[test]
+    fn test_smart_contract_empty_method_name_with_no_tokens() {
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
+            nonce: 1,
+            originator: alice_account(),
+            contract_id: bob_account(),
+            method_name: b"".to_vec(),
+            args: vec![],
+            amount: 0,
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_results = runtime.apply_all_vec(
+            apply_state, vec![], vec![transaction]
+        );
+        // Only 1 results: signedTx
+        assert_eq!(apply_results.len(), 1);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
+        assert_eq!(root, apply_results[0].root);
+    }
+
+    #[test]
+    fn test_smart_contract_empty_method_name_with_tokens() {
+        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
+        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
+            nonce: 1,
+            originator: alice_account(),
+            contract_id: bob_account(),
+            method_name: b"".to_vec(),
+            args: vec![],
+            amount: 10,
+        });
+        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let apply_state = ApplyState {
+            root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0
+        };
+        let apply_results = runtime.apply_all_vec(
+            apply_state, vec![], vec![transaction]
+        );
         // 3 results: signedTx, It's Receipt, Mana receipt
         assert_eq!(apply_results.len(), 3);
         // Signed TX successfully generated
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[0].new_receipts.len(), 1);
-        // Receipt failed to execute.
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Failed);
+        // Receipt successfully executed
+        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[1].new_receipts.len(), 1);
         // Mana sucessfully executed
         assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
@@ -1378,7 +1446,7 @@ mod tests {
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[1].new_receipts.len(), 1);
         // Mana sucessfully executed
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
+        assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // Checking final root
         assert_ne!(root, apply_results[2].root);
     }
