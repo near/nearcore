@@ -10,15 +10,15 @@ pub enum Direction {
     Right,
 }
 
-// TODO: Do this efficiently
 fn round_up(x: u32) -> u32 {
-    if x == 0 {
-        return 0;
-    }
-    let mut res = 1;
-    while res < x {
-        res <<= 1;
-    }
+    let mut res = x;
+    res -= 1;
+    res |= res >> 1;
+    res |= res >> 2;
+    res |= res >> 4;
+    res |= res >> 8;
+    res |= res >> 16;
+    res += 1;
     res
 }
 
