@@ -191,57 +191,21 @@ impl ShardBlockChain {
         (shard_block, shard_block_extra)
     }
 
-    pub fn apply_block(&self, block: &SignedShardBlock) -> bool {
-        let parent_hash = block.body.header.parent_hash;
-        let prev_block = self
-            .chain
-            .get_block(&BlockId::Hash(parent_hash))
-            .expect("At this moment previous shard chain block should be present");
-        let prev_header = prev_block.header();
-        let apply_state = ApplyState {
-            root: prev_header.body.merkle_root_state,
-            block_index: prev_header.body.index + 1,
-            parent_block_hash: parent_hash,
-            shard_id: block.body.header.shard_id,
-        };
-        let apply_result = self.runtime.write().apply(
-            &apply_state,
-            &block.body.receipts,
-            &block.body.transactions,
+    pub fn apply_block(&self, block: SignedShardBlock) -> bool {
+        let state_merkle_root = block.body.header.merkle_root_state;
+        let receipt_merkle_root = block.body.header.receipt_merkle_root;
+        let (shard_block, (db_changes, _, tx_result, receipt_map)) = self.prepare_new_block(
+            block.body.header.parent_hash,
+            block.body.receipts,
+            block.body.transactions
         );
-        if apply_result.root != block.body.header.merkle_root_state {
-            error!(
-                "Merkle root {} is not equal to received {} after applying the transactions from {:?}",
-                apply_result.root,
-                block.body.header.merkle_root_state,
-                block
-            );
-            false
+        if shard_block.body.header.merkle_root_state == state_merkle_root
+        && shard_block.body.header.receipt_merkle_root == receipt_merkle_root {
+            self.insert_block(&shard_block, db_changes, tx_result, receipt_map);
+            true
         } else {
-            let (shard_ids, new_receipts): (Vec<_>, Vec<_>) = apply_result.new_receipts
-                .into_iter()
-                .unzip();
-            let (receipt_merkle_root, receipt_merkle_paths) = merklize(&new_receipts);
-            if receipt_merkle_root != block.body.header.receipt_merkle_root {
-                error!(
-                    "Receipt Merkle root {} is not equal to received {:?} after applying the transactions from {:?}",
-                    receipt_merkle_root,
-                    block.body.header.receipt_merkle_root,
-                    block
-                );
-                false
-            } else {
-                let receipt_map = Self::compute_receipt_blocks(
-                    shard_ids, new_receipts, receipt_merkle_paths, &block
-                );
-                self.insert_block(
-                    &block,
-                    apply_result.db_changes,
-                    apply_result.tx_result,
-                    receipt_map
-                );
-                true
-            }
+            error!("Received Invalid block. It's a scam");
+            false
         }
     }
 
