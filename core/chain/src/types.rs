@@ -16,7 +16,7 @@ pub struct ShardBlockHeader {
     pub index: u64,
     pub merkle_root_state: MerkleHash,
     /// if there is no receipt generated in this block, the root is None
-    pub receipt_merkle_root: Option<MerkleHash>,
+    pub receipt_merkle_root: MerkleHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ impl SignedShardBlock {
         merkle_root_state: MerkleHash,
         transactions: Vec<SignedTransaction>,
         receipts: Vec<ReceiptBlock>,
-        receipt_merkle_root: Option<MerkleHash>,
+        receipt_merkle_root: MerkleHash,
     ) -> Self {
         let header = ShardBlockHeader {
             shard_id,
@@ -107,7 +107,7 @@ impl SignedShardBlock {
 
     pub fn genesis(merkle_root_state: MerkleHash) -> SignedShardBlock {
         SignedShardBlock::new(
-            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![], None
+            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![], CryptoHash::default()
         )
     }
 

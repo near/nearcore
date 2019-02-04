@@ -163,52 +163,32 @@ impl ShardBlockChain {
             &prev_receipts,
             &transactions,
         );
-        if !apply_result.new_receipts.is_empty() {
-            let (shard_ids, new_receipts): (Vec<_>, Vec<_>) = apply_result.new_receipts
+        let (shard_ids, new_receipts): (Vec<_>, Vec<_>) = apply_result.new_receipts
                 .into_iter()
                 .unzip();
-            let (receipt_merkle_root, receipt_merkle_paths) = merklize(&new_receipts);
-            let shard_block = SignedShardBlock::new(
-                last_block.body.header.shard_id,
-                last_block.body.header.index + 1,
-                last_block.block_hash(),
-                apply_result.root,
-                transactions,
-                prev_receipts,
-                Some(receipt_merkle_root),
-            );
-            let receipt_map = Self::compute_receipt_blocks(
-                shard_ids,
-                new_receipts,
-                receipt_merkle_paths,
-                &shard_block
-            );
-            let shard_block_extra = (
-                apply_result.db_changes,
-                apply_result.authority_proposals,
-                apply_result.tx_result,
-                receipt_map,
-            );
-            (shard_block, shard_block_extra)
-        } else {
-            let shard_block = SignedShardBlock::new(
-                last_block.body.header.shard_id,
-                last_block.body.header.index + 1,
-                last_block.block_hash(),
-                apply_result.root,
-                transactions,
-                prev_receipts,
-                None,
-            );
-            let shard_block_extra = (
-                apply_result.db_changes,
-                apply_result.authority_proposals,
-                apply_result.tx_result,
-                HashMap::new(),
-            );
-            (shard_block, shard_block_extra)
-        }
-        
+        let (receipt_merkle_root, receipt_merkle_paths) = merklize(&new_receipts);
+        let shard_block = SignedShardBlock::new(
+            last_block.body.header.shard_id,
+            last_block.body.header.index + 1,
+            last_block.block_hash(),
+            apply_result.root,
+            transactions,
+            prev_receipts,
+            receipt_merkle_root,
+        );
+        let receipt_map = Self::compute_receipt_blocks(
+            shard_ids,
+            new_receipts,
+            receipt_merkle_paths,
+            &shard_block
+        );
+        let shard_block_extra = (
+            apply_result.db_changes,
+            apply_result.authority_proposals,
+            apply_result.tx_result,
+            receipt_map,
+        );
+        (shard_block, shard_block_extra)
     }
 
     pub fn apply_block(&self, block: &SignedShardBlock) -> bool {
@@ -237,29 +217,12 @@ impl ShardBlockChain {
                 block
             );
             false
-        } else if apply_result.new_receipts.is_empty() {
-            if let Some(merkle_root) = block.body.header.receipt_merkle_root {
-                error!(
-                    "Receipt Merkle root should not exist, but received {} after applying the transactions from {:?}",
-                    merkle_root,
-                    block
-                );
-                false
-            } else {
-                self.insert_block(
-                    &block,
-                    apply_result.db_changes,
-                    apply_result.tx_result,
-                    HashMap::new(),
-                );
-                true
-            }
         } else {
             let (shard_ids, new_receipts): (Vec<_>, Vec<_>) = apply_result.new_receipts
                 .into_iter()
                 .unzip();
             let (receipt_merkle_root, receipt_merkle_paths) = merklize(&new_receipts);
-            if Some(receipt_merkle_root) != block.body.header.receipt_merkle_root {
+            if receipt_merkle_root != block.body.header.receipt_merkle_root {
                 error!(
                     "Receipt Merkle root {} is not equal to received {:?} after applying the transactions from {:?}",
                     receipt_merkle_root,
@@ -497,7 +460,7 @@ mod tests {
             CryptoHash::default(),
             vec![transaction],
             vec![],
-            None,
+            CryptoHash::default(),
         );
         let db_changes = HashMap::default();
         chain.insert_block(&block, db_changes, vec![TransactionResult::default()], HashMap::new());

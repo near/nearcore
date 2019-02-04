@@ -10,6 +10,7 @@ pub enum Direction {
     Right,
 }
 
+/// compute power of 2 that is greater than or equal to x
 fn round_up(x: u32) -> u32 {
     let mut res = x;
     res -= 1;
@@ -28,9 +29,11 @@ fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
     hash(&combined)
 }
 
-/// merklize an array of items. The array must not be empty.
+/// Merklize an array of items. If the array is empty, returns hash of 0
 pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
-    assert!(!arr.is_empty());
+    if arr.is_empty() {
+        return (MerkleHash::default(), vec![]);
+    }
     let mut len = round_up(arr.len() as u32);
     let mut hashes: Vec<_> = (0..len).map(|i| {
         if i < arr.len() as u32 {
@@ -81,7 +84,7 @@ pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     (hashes[0], paths)
 }
 
-/// verify merkle path for given item and corresponding path.
+/// Verify merkle path for given item and corresponding path.
 pub fn verify_path<T: Encode>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
     let mut hash = hash_struct(item);
     for (h, d) in path {

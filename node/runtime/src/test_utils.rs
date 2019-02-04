@@ -88,7 +88,7 @@ pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
             shard_id: 0,
             index: 0,
             merkle_root_state: CryptoHash::default(),
-            receipt_merkle_root: None,
+            receipt_merkle_root: CryptoHash::default(),
         },
         hash: CryptoHash::default(),
         signature: GroupSignature::default(),

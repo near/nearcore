@@ -132,21 +132,19 @@ impl Protocol {
     }
 
     pub fn on_receipt(&self, receipt: ReceiptBlock) {
-        if let Some(merkle_root) = receipt.header.body.receipt_merkle_root {
-            if verify_path(merkle_root, &receipt.path, &receipt.receipts) {
-                let copied_tx = self.receipt_sender.clone();
-                tokio::spawn(
-                    copied_tx
-                        .send(receipt)
-                        .map(|_| ())
-                        .map_err(|e| error!("Failure to send the transactions {:?}", e)),
-                );
-            } else {
-                // ban node when we integrate our network
-                error!(target: "network", "received invalid receipt block");
-            }
+        // receipt block should not be empty
+        if !receipt.receipts.is_empty() 
+        && verify_path(receipt.header.body.receipt_merkle_root, &receipt.path, &receipt.receipts) {
+            let copied_tx = self.receipt_sender.clone();
+            tokio::spawn(
+                copied_tx
+                    .send(receipt)
+                    .map(|_| ())
+                    .map_err(|e| error!("Failure to send the transactions {:?}", e)),
+            );
         } else {
-            error!(target: "network", "received empty receipt from peer");
+            // ban node when we integrate our network
+            error!(target: "network", "received invalid receipt block");
         }
     }
 
