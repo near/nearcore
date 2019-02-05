@@ -164,36 +164,67 @@ impl PeerManager {
             })
             .collect()
     }
+
+    #[cfg(test)]
+    fn count_ready_channels(&self) -> usize {
+        self.all_peer_states
+            .read()
+            .expect(POISONED_LOCK_ERR)
+            .values()
+            .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
+                PeerState::Ready { .. } => Some(1 as usize),
+                _ => None,
+            })
+            .sum()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::peer_manager::PeerManager;
+    use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
     use futures::future;
     use futures::future::Future;
     use futures::sink::Sink;
     use futures::stream::{iter_ok, Stream};
     use futures::sync::mpsc::channel;
-    use parking_lot::RwLock;
     use primitives::hash::hash_struct;
     use primitives::network::PeerInfo;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLock};
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
     use tokio::timer::Delay;
     use tokio::util::StreamExt;
 
+    fn wait_all_peers_connected(
+        check_interval_ms: u64,
+        max_wait_ms: u64,
+        peer_managers: &Arc<RwLock<Vec<PeerManager>>>,
+        expected_num_managers: usize,
+    ) {
+        wait(
+            || {
+                let guard = peer_managers.read().expect(POISONED_LOCK_ERR);
+                guard.len() == expected_num_managers
+                    && guard.iter().all(|pm| pm.count_ready_channels() == expected_num_managers - 1)
+            },
+            check_interval_ms,
+            max_wait_ms,
+        );
+    }
+
     #[test]
     fn test_two_peers_boot() {
+        let all_pms = Arc::new(RwLock::new(vec![]));
         // Spawn the first manager.
         let (out_msg_tx1, out_msg_rx1) = channel(1024);
         let (inc_msg_tx1, _) = channel(1024);
+        let all_pms1 = all_pms.clone();
         let task = futures::lazy(move || {
-            PeerManager::new(
+            let pm = PeerManager::new(
                 Duration::from_millis(5000),
                 Duration::from_millis(5000),
                 1,
@@ -206,15 +237,17 @@ mod tests {
                 inc_msg_tx1,
                 out_msg_rx1,
             );
-            Ok(())
+            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
+            future::ok(())
         });
         thread::spawn(move || tokio::run(task));
 
         // Spawn the second manager and boot it from the first one.
         let (_, out_msg_rx2) = channel(1024);
         let (inc_msg_tx2, inc_msg_rx2) = channel(1024);
+        let all_pms2 = all_pms.clone();
         let task = futures::lazy(move || {
-            PeerManager::new(
+            let pm = PeerManager::new(
                 Duration::from_millis(5000),
                 Duration::from_millis(5000),
                 1,
@@ -231,28 +264,27 @@ mod tests {
                 inc_msg_tx2,
                 out_msg_rx2,
             );
-            Ok(())
+            all_pms2.write().expect(POISONED_LOCK_ERR).push(pm);
+            future::ok(())
         });
         thread::spawn(move || tokio::run(task));
 
+        wait_all_peers_connected(50, 10000, &all_pms, 2);
         // Create task that sends the message and then places it into `acc`.
         let acc = Arc::new(RwLock::new(None));
         let acc1 = acc.clone();
-        let task = Delay::new(Instant::now() + Duration::from_millis(1000))
-            .then(move |_| {
-                // Send message from `manager1` to `manager2`.
-                out_msg_tx1
-                    .send((hash_struct(&1), b"hello".to_vec()))
-                    .map(|_| ())
-                    .map_err(|e| panic!("Should not panic {}", e))
-            })
+        // Send message from `manager1` to `manager2`.
+        let task = out_msg_tx1
+            .send((hash_struct(&1), b"hello".to_vec()))
+            .map(|_| ())
+            .map_err(|e| panic!("Should not panic {}", e))
             .then(move |_| {
                 // Wait for 1 sec to receive it on `manager2`.
                 inc_msg_rx2
                     .timeout(Duration::from_millis(1000))
                     .into_future()
                     .map(move |(el, _)| {
-                        *acc.write() = Some(el);
+                        *acc.write().expect(POISONED_LOCK_ERR) = Some(el);
                     })
                     .map_err(|_| panic!("Message was not received."))
             })
@@ -260,23 +292,27 @@ mod tests {
             .map_err(|_| panic!("Error verifying messages."));
         thread::spawn(move || tokio::run(task));
 
-        wait(move || acc1.read().is_some(), 50, 1000);
+        wait(move || acc1.read().expect(POISONED_LOCK_ERR).is_some(), 50, 10000);
     }
 
     #[test]
-    fn test_five_five() {
+    /// Connect many nodes to a single boot node, i.e. star. Check that all nodes manage to discover
+    /// each other by sending a message from every node to every other node.
+    fn test_many_star() {
         // Spawn five managers send five messages from each manager to another manager.
         // Manager i sends to manager j message five*i + j.
 
         const NUM_TASKS: usize = 20;
 
         let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
+        let all_pms = Arc::new(RwLock::new(vec![]));
 
         for i in 0..NUM_TASKS {
             let (out_msg_tx, out_msg_rx) = channel(1024);
             let (inc_msg_tx, inc_msg_rx) = channel(1024);
             v_out_msg_tx.push(out_msg_tx);
             v_inc_msg_rx.push(inc_msg_rx);
+            let all_pms1 = all_pms.clone();
             let task = futures::lazy(move || {
                 let mut boot_nodes = vec![];
                 if i != 0 {
@@ -286,7 +322,7 @@ mod tests {
                         account_id: None,
                     });
                 }
-                PeerManager::new(
+                let pm = PeerManager::new(
                     Duration::from_millis(50),
                     Duration::from_millis(if i == 0 { 50 } else { 500000 }),
                     if i == 0 { NUM_TASKS - 1 } else { 1 },
@@ -299,6 +335,7 @@ mod tests {
                     inc_msg_tx,
                     out_msg_rx,
                 );
+                all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
                 Ok(())
             });
             thread::spawn(move || tokio::run(task));
@@ -308,47 +345,50 @@ mod tests {
         let acc1 = acc.clone();
 
         // Send 10 messages from each peer to each other peer and check the receival.
-        let task = Delay::new(Instant::now() + Duration::from_millis(1000))
-            .map(move |_| {
-                for i in 0..NUM_TASKS {
-                    let mut messages = vec![];
-                    for j in 0..NUM_TASKS {
-                        if j != i {
-                            messages.push((hash_struct(&j), vec![i as u8, j as u8]));
-                        }
+        wait_all_peers_connected(50, 10000, &all_pms, NUM_TASKS);
+        let task = futures::lazy(move || {
+            for i in 0..NUM_TASKS {
+                let mut messages = vec![];
+                for j in 0..NUM_TASKS {
+                    if j != i {
+                        messages.push((hash_struct(&j), vec![i as u8, j as u8]));
                     }
-                    let task = v_out_msg_tx[i]
-                        .clone()
-                        .send_all(iter_ok(messages.to_vec()))
-                        .map(move |_| ())
-                        .map_err(|_| panic!("Error sending messages"));
-                    tokio::spawn(task);
-
-                    // Create task that waits for 1 sec to receive message.
-                    let inc_msg_rx = v_inc_msg_rx.remove(0);
-                    let acc = acc.clone();
-                    let task = inc_msg_rx
-                        .for_each(move |msg| {
-                            let (id, data) = msg;
-                            let sender = data[0] as usize;
-                            let receiver = data[1] as usize;
-                            if hash_struct(&sender) == id && receiver == i {
-                                acc.write().insert(data);
-                            } else {
-                                panic!("Should not happen");
-                            }
-                            future::ok(())
-                        })
-                        .map(|_| ())
-                        .map_err(|_| ());
-                    tokio::spawn(task);
                 }
-            })
-            .map(|_| ())
-            .map_err(|_| ());
+                let task = v_out_msg_tx[i]
+                    .clone()
+                    .send_all(iter_ok(messages.to_vec()))
+                    .map(move |_| ())
+                    .map_err(|_| panic!("Error sending messages"));
+                tokio::spawn(task);
+
+                // Create task that waits for 1 sec to receive message.
+                let inc_msg_rx = v_inc_msg_rx.remove(0);
+                let acc = acc.clone();
+                let task = inc_msg_rx
+                    .for_each(move |msg| {
+                        let (id, data) = msg;
+                        let sender = data[0] as usize;
+                        let receiver = data[1] as usize;
+                        if hash_struct(&sender) == id && receiver == i {
+                            acc.write().expect(POISONED_LOCK_ERR).insert(data);
+                        } else {
+                            panic!("Should not happen");
+                        }
+                        future::ok(())
+                    })
+                    .map(|_| ())
+                    .map_err(|_| ());
+                tokio::spawn(task);
+            }
+            Ok(())
+        });
         thread::spawn(move || tokio::run(task));
 
-        wait(move || acc1.read().len() == NUM_TASKS * (NUM_TASKS - 1), 50, 10000);
+        wait(
+            move || acc1.read().expect(POISONED_LOCK_ERR).len() == NUM_TASKS * (NUM_TASKS - 1),
+            50,
+            10000,
+        );
     }
 
     fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
