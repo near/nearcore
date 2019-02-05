@@ -164,23 +164,11 @@ impl PeerManager {
             })
             .collect()
     }
-
-    #[cfg(test)]
-    fn count_ready_channels(&self) -> usize {
-        self.all_peer_states
-            .read()
-            .expect(POISONED_LOCK_ERR)
-            .values()
-            .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
-                PeerState::Ready { .. } => Some(1 as usize),
-                _ => None,
-            })
-            .sum()
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::peer::PeerState;
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
     use futures::future;
     use futures::future::Future;
@@ -198,6 +186,21 @@ mod tests {
     use std::time::Instant;
     use tokio::timer::Delay;
     use tokio::util::StreamExt;
+    use std::ops::Deref;
+
+    impl PeerManager {
+        fn count_ready_channels(&self) -> usize {
+            self.all_peer_states
+                .read()
+                .expect(POISONED_LOCK_ERR)
+                .values()
+                .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
+                    PeerState::Ready { .. } => Some(1 as usize),
+                    _ => None,
+                })
+                .sum()
+        }
+    }
 
     fn wait_all_peers_connected(
         check_interval_ms: u64,
