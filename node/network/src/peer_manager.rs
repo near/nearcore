@@ -56,7 +56,7 @@ impl PeerManager {
             boot_nodes.to_vec(),
             all_peer_states.clone(),
             inc_msg_tx.clone(),
-            reconnect_delay.clone(),
+            reconnect_delay,
             // Connect to the boot nodes immediately.
             Instant::now(),
         );
@@ -126,7 +126,7 @@ impl PeerManager {
                     socket,
                     all_peer_states3.clone(),
                     inc_msg_tx.clone(),
-                    reconnect_delay.clone(),
+                    reconnect_delay,
                 );
                 future::ok(())
             })

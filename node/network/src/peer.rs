@@ -156,7 +156,7 @@ impl Peer {
                         state,
                         all_peer_states: all_peer_states1.clone(),
                         inc_msg_tx: inc_msg_tx.clone(),
-                        reconnect_delay: reconnect_delay.clone(),
+                        reconnect_delay,
                     };
                     peer.spawn_peer();
                 }
@@ -271,7 +271,7 @@ impl Stream for Peer {
                                             return Ok(Async::Ready(None));
                                         }
                                         // Anything else requires a tie breaker.
-                                        old_state @ _ => {
+                                        old_state => {
                                             if info.id < self.node_info.id {
                                                 // Keep this connection, take the place of the other
                                                 // connection, and become ready, see below.
@@ -414,7 +414,7 @@ impl Stream for Peer {
                     },
                     // Actual message transmitted over the network.
                     Ok(Async::Ready(Some(Message(data)))) => {
-                        return Ok(Async::Ready(Some((info.id.clone(), data))));
+                        return Ok(Async::Ready(Some((info.id, data))));
                     }
                     Ok(Async::Ready(Some(InfoGossip(peers_info)))) => {
                         Self::spawn_from_known(
@@ -422,8 +422,8 @@ impl Stream for Peer {
                             peers_info,
                             self.all_peer_states.clone(),
                             self.inc_msg_tx.clone(),
-                            self.reconnect_delay.clone(),
-                            Instant::now() + self.reconnect_delay.clone(),
+                            self.reconnect_delay,
+                            Instant::now() + self.reconnect_delay,
                         );
                         continue;
                     }

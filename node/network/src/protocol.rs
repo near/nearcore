@@ -48,8 +48,8 @@ pub fn spawn_network(
         network_cfg.gossip_interval,
         network_cfg.gossip_sample_size,
         PeerInfo {
-            id: network_cfg.peer_id.clone(),
-            addr: network_cfg.listen_addr.clone(),
+            id: network_cfg.peer_id,
+            addr: network_cfg.listen_addr,
             account_id,
         },
         &network_cfg.boot_nodes,
