@@ -193,8 +193,8 @@ const {
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction
 } = require('./protos');
 
-const MAX_STATUS_POLL_ATTEMPTS = 3;
-const STATUS_POLL_PERIOD_MS = 750;
+const MAX_STATUS_POLL_ATTEMPTS = 5;
+const STATUS_POLL_PERIOD_MS = 1000;
 
 /**
  * Javascript library for interacting with near.
