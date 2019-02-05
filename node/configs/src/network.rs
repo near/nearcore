@@ -85,7 +85,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
     let mut boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
             let addr_id: Vec<_> = addr_id.split('/').collect();
-            let (addr, id) = (addr_id[0].clone(), addr_id[1].clone());
+            let (addr, id) = (addr_id[0], addr_id[1]);
             PeerInfo {
                 addr: addr.parse::<SocketAddr>().expect("Cannot parse address"),
                 id: String::into(id.to_string()),
