@@ -17,6 +17,7 @@ use tokio::net::TcpStream;
 use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 use tokio_serde_cbor::Codec;
+use std::sync::RwLockWriteGuard;
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -128,19 +129,19 @@ impl Peer {
         node_info: PeerInfo,
         peers_info: PeersInfo,
         all_peer_states: AllPeerStates,
+        all_peer_states_guard: &mut RwLockWriteGuard<HashMap<PeerInfo, LockedPeerState>>,
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
         reconnect_delay: Duration,
         // When this node should start connecting itself.
         connect_at: Instant,
     ) {
         let all_peer_states1 = all_peer_states.clone();
-        let mut guard = all_peer_states.write().expect(POISONED_LOCK_ERR);
         for info in &peers_info {
             if info == &node_info {
                 // We do not want to connect to ourselves.
                 continue;
             }
-            match guard.entry(info.clone()) {
+            match all_peer_states_guard.entry(info.clone()) {
                 // This peer is already present.
                 Entry::Occupied(_) => continue,
                 Entry::Vacant(v) => {
@@ -227,6 +228,7 @@ impl Stream for Peer {
         use self::PeerMessage::*;
         use self::PeerState::*;
         loop {
+            let mut all_peer_states = self.all_peer_states.write().expect(POISONED_LOCK_ERR);
             let mut state_guard = self.state.write().expect(POISONED_LOCK_ERR);
             // First, check the eviction condition.
             if *get_evicted_flag(state_guard.deref_mut()) {
@@ -241,9 +243,6 @@ impl Stream for Peer {
                             return Ok(Async::Ready(None));
                         }
                         Ok(Async::Ready(Some(Handshake { info, .. }))) => {
-                            // Here's where the deadlock is happening for num peers >= 7.
-                            let mut all_peer_states =
-                                self.all_peer_states.write().expect(POISONED_LOCK_ERR);
                             if info == self.node_info {
                                 panic!("Received info about itself. Contr-adversarial behavior is not implemented yet.");
                             }
@@ -317,10 +316,7 @@ impl Stream for Peer {
                         let framed_stream = Framed::new(socket, Codec::new());
                         let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
                             &self.node_info,
-                            self.all_peer_states
-                                .read()
-                                .expect(POISONED_LOCK_ERR)
-                                .keys()
+                            all_peer_states.keys()
                                 .cloned()
                                 .collect(),
                             framed_stream,
@@ -421,6 +417,7 @@ impl Stream for Peer {
                             self.node_info.clone(),
                             peers_info,
                             self.all_peer_states.clone(),
+                            &mut all_peer_states,
                             self.inc_msg_tx.clone(),
                             self.reconnect_delay,
                             Instant::now() + self.reconnect_delay,
