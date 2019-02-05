@@ -1,9 +1,9 @@
-use ::serde_derive::{Serialize, Deserialize};
 use beacon::types::SignedBeaconBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AccountId, BlockId, Gossip};
-use transaction::{SignedTransaction, ReceiptTransaction, ChainPayload};
+use serde_derive::{Deserialize, Serialize};
 use shard::SignedShardBlock;
+use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
 
 pub type RequestId = u64;
 

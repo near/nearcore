@@ -31,7 +31,6 @@ members = [
     "node/network",
     "node/runtime",
     "node/testnet",
-    "test-utils/chain-spec-builder",
     "test-utils/keygen"
 ]
 exclude = [

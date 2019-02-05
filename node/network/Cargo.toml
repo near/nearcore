@@ -7,27 +7,27 @@ edition = "2018"
 [dependencies]
 bincode = { "version" = "1.0", features = ["i128"] }
 byteorder = "1.2.7"
-futures = "0.1"
-tokio = "0.1"
-tokio-codec = "0.1"
-serde = "1.0"
-serde_json = "1.0"
-serde_derive = "1.0"
 bytes = "0.2"
 env_logger = "0.5"
-rand = "0.6"
-tokio-serde-cbor = "0.3"
+futures = "0.1"
 log = "0.4"
 parking_lot = "0.7.1"
+rand = "0.6"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+tokio = "0.1"
+tokio-codec = "0.1"
+tokio-serde-cbor = "0.3"
 
-primitives = { path = "../../core/primitives" }
-transaction = { path = "../../core/transaction" }
-storage = { path = "../../core/storage" }
-chain = { path = "../../core/chain" }
 beacon = { path = "../../node/beacon" }
-configs = { path = "../configs" }
+chain = { path = "../../core/chain" }
 client = { path = "../../node/client" }
+configs = { path = "../configs" }
+primitives = { path = "../../core/primitives" }
 shard = { path = "../../core/shard" }
+storage = { path = "../../core/storage" }
+transaction = { path = "../../core/transaction" }
 
 [features]
 test-utils = []

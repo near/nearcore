@@ -3,18 +3,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use futures::future;
-use futures::sync::mpsc::{channel, Receiver, Sender};
-use parking_lot::Mutex;
+use futures::sync::mpsc::{channel, Sender};
 
-use beacon::types::SignedBeaconBlock;
 use client::Client;
-use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
+use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
-use network::protocol::Protocol;
-use network::service::Service;
-use primitives::types::{AccountId, AuthorityStake, Gossip, UID};
-use shard::SignedShardBlock;
-use transaction::{ChainPayload, Transaction};
+use transaction::Transaction;
 use txflow::txflow_task;
 
 pub fn start() {
@@ -54,12 +48,12 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
         // to send transactions and receipts for processing.
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
-        spawn_network_tasks(
-            client_cfg.account_id,
+        network::spawn_network(
+            Some(client_cfg.account_id),
             network_cfg,
             client.clone(),
-            transactions_tx.clone(),
-            inc_gossip_tx.clone(),
+            transactions_tx,
+            inc_gossip_tx,
             out_gossip_rx,
             incoming_block_tx,
             outgoing_block_rx,
@@ -87,40 +81,4 @@ fn spawn_rpc_server_task(
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
     let http_api = node_http::api::HttpApi::new(client, transactions_tx);
     node_http::server::spawn_server(http_api, http_addr);
-}
-
-fn spawn_network_tasks(
-    account_id: AccountId,
-    network_cfg: NetworkConfig,
-    client: Arc<Client>,
-    transactions_tx: Sender<Transaction>,
-    inc_gossip_tx: Sender<Gossip<ChainPayload>>,
-    out_gossip_rx: Receiver<Gossip<ChainPayload>>,
-    incoming_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
-    outgoing_block_rx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
-) {
-    let (net_messages_tx, net_messages_rx) = channel(1024);
-    let (event_tx, event_rx) = channel(1024);
-    let protocol = Protocol::new(
-        Some(account_id.clone()),
-        client,
-        incoming_block_tx,
-        transactions_tx,
-        net_messages_tx.clone(),
-        inc_gossip_tx,
-    );
-
-    tokio::spawn(
-        futures::lazy(move || {
-            Service::init(network_cfg, event_tx, net_messages_rx, Some(account_id));
-            Ok(())
-        })
-    );
-    network::spawn_network_tasks(
-        protocol,
-        // net_messages_rx,
-        outgoing_block_rx,
-        out_gossip_rx,
-        event_rx,
-    );
 }

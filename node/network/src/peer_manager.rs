@@ -1,7 +1,6 @@
 //! Structure that encapsulates communication, gossip, and discovery with the peers.
 
 use crate::peer::Peer;
-use crate::peer::PeerInfo;
 use crate::peer::PeerState;
 use crate::peer::{AllPeerStates, PeerMessage};
 use futures::future;
@@ -11,6 +10,8 @@ use futures::stream::Stream;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use log::warn;
+use primitives::network::PeerInfo;
+use primitives::types::AccountId;
 use primitives::types::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -31,17 +32,17 @@ pub struct PeerManager {
 
 impl PeerManager {
     /// Args:
-    /// * `reconnect_delay_ms`: How long should we wait before connecting a newly discovered peer or
-    ///                         reconnecting the old one;
-    /// * `gossip_interval_ms`: Frequency of gossiping the peers info;
+    /// * `reconnect_delay`: How long should we wait before connecting a newly discovered peer or
+    ///   reconnecting the old one;
+    /// * `gossip_interval`: Frequency of gossiping the peers info;
     /// * `gossip_sample_size`: How many peers should we gossip info to;
     /// * `node_info`: Information about the current node;
     /// * `boot_nodes`: list of verified info about boot nodes from which we can join the network;
     /// * `inc_msg_tx`: where `PeerManager` should be sending incoming messages;
     /// * `out_msg_rx`: where from `PeerManager` should be getting outgoing messages.
     pub fn new(
-        reconnect_delay_ms: u64,
-        gossip_interval_ms: u64,
+        reconnect_delay: Duration,
+        gossip_interval: Duration,
         gossip_sample_size: usize,
         node_info: PeerInfo,
         boot_nodes: &Vec<PeerInfo>,
@@ -55,7 +56,7 @@ impl PeerManager {
             boot_nodes.to_vec(),
             all_peer_states.clone(),
             inc_msg_tx.clone(),
-            Duration::from_millis(reconnect_delay_ms),
+            reconnect_delay.clone(),
             // Connect to the boot nodes immediately.
             Instant::now(),
         );
@@ -84,7 +85,7 @@ impl PeerManager {
 
         // Spawn the task that gossips.
         let all_peer_states2 = all_peer_states.clone();
-        let task = Interval::new_interval(Duration::from_millis(gossip_interval_ms))
+        let task = Interval::new_interval(gossip_interval)
             .for_each(move |_| {
                 let guard = all_peer_states2.read().expect(POISONED_LOCK_ERR);
                 let peers_info: Vec<_> = guard.keys().cloned().collect();
@@ -116,7 +117,6 @@ impl PeerManager {
 
         // Spawn the task that listens to incoming connections.
         let all_peer_states3 = all_peer_states.clone();
-        let reconnect_delay = Duration::from_millis(reconnect_delay_ms);
         let task = TcpListener::bind(&node_info.addr)
             .expect("Cannot listen to the address")
             .incoming()
@@ -136,11 +136,37 @@ impl PeerManager {
 
         Self { all_peer_states }
     }
+
+    /// Get channel for the given `account_id`, if the corrresponding peer is `Ready`.
+    pub fn get_account_channel(&self, account_id: AccountId) -> Option<Sender<PeerMessage>> {
+        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
+            if info.account_id.as_ref() == Some(&account_id) {
+                match state.read().expect(POISONED_LOCK_ERR).deref() {
+                    PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get channels of all peers that are `Ready`.
+    pub fn get_ready_channels(&self) -> Vec<Sender<PeerMessage>> {
+        self.all_peer_states
+            .read()
+            .expect(POISONED_LOCK_ERR)
+            .values()
+            .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
+                PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::peer::PeerInfo;
     use crate::peer_manager::PeerManager;
     use futures::future;
     use futures::future::Future;
@@ -149,6 +175,7 @@ mod tests {
     use futures::sync::mpsc::channel;
     use parking_lot::RwLock;
     use primitives::hash::hash_struct;
+    use primitives::network::PeerInfo;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -158,18 +185,16 @@ mod tests {
     use std::time::Instant;
     use tokio::timer::Delay;
     use tokio::util::StreamExt;
-    use crate::peer::AllPeerStates;
 
     #[test]
     fn test_two_peers_boot() {
-
         // Spawn the first manager.
         let (out_msg_tx1, out_msg_rx1) = channel(1024);
         let (inc_msg_tx1, _) = channel(1024);
         let task = futures::lazy(move || {
             PeerManager::new(
-                5000,
-                5000,
+                Duration::from_millis(5000),
+                Duration::from_millis(5000),
                 1,
                 PeerInfo {
                     id: hash_struct(&0),
@@ -189,8 +214,8 @@ mod tests {
         let (inc_msg_tx2, inc_msg_rx2) = channel(1024);
         let task = futures::lazy(move || {
             PeerManager::new(
-                5000,
-                5000,
+                Duration::from_millis(5000),
+                Duration::from_millis(5000),
                 1,
                 PeerInfo {
                     id: hash_struct(&1),
@@ -208,7 +233,6 @@ mod tests {
             Ok(())
         });
         thread::spawn(move || tokio::run(task));
-
 
         // Create task that sends the message and then places it into `acc`.
         let acc = Arc::new(RwLock::new(None));
@@ -262,8 +286,8 @@ mod tests {
                     });
                 }
                 PeerManager::new(
-                    50,
-                    if i == 0 { 50 } else { 500000 },
+                    Duration::from_millis(50),
+                    Duration::from_millis(if i == 0 { 50 } else { 500000 }),
                     if i == 0 { NUM_TASKS - 1 } else { 1 },
                     PeerInfo {
                         id: hash_struct(&i),

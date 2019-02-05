@@ -188,19 +188,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chain-spec-builder"
-version = "0.1.0"
-dependencies = [
- "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "client 0.1.0",
- "configs 0.1.0",
- "network 0.0.1",
- "node-runtime 0.0.1",
- "primitives 0.1.0",
- "serde_json 1.0.36 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

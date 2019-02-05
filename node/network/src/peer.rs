@@ -2,20 +2,14 @@ use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Sender};
 use futures::{try_ready, Async, Future, Poll, Sink};
 use log::{info, warn};
-use primitives::types::AccountId;
+use primitives::network::PeerInfo;
 use primitives::types::PeerId;
 use serde_derive::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::io::{Error, ErrorKind};
-use std::net::SocketAddr;
 use std::ops::DerefMut;
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::codec::Framed;
 use tokio::net::tcp::ConnectFuture;
@@ -43,45 +37,6 @@ pub enum PeerMessage {
 }
 
 pub type PeersInfo = Vec<PeerInfo>;
-
-/// Info about the peer. If peer is an authority then we also know its account id.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerInfo {
-    pub id: PeerId,
-    pub addr: SocketAddr,
-    pub account_id: Option<AccountId>,
-}
-
-impl PartialEq for PeerInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Hash for PeerInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
-    }
-}
-
-impl Eq for PeerInfo {}
-
-impl fmt::Display for PeerInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.addr.port())
-        //        if let Some(acc) = self.account_id.as_ref() {
-        //            write!(f, "({}, {}, {})", self.id, self.addr, acc)
-        //        } else {
-        //            write!(f, "({}, {})", self.id, self.addr)
-        //        }
-    }
-}
-
-impl Borrow<PeerId> for PeerInfo {
-    fn borrow(&self) -> &PeerId {
-        &self.id
-    }
-}
 
 /// Note, the peer that establishes the connection is the one that sends the handshake.
 pub enum PeerState {
@@ -220,10 +175,11 @@ fn framed_stream_to_channel_with_handshake(
     let (out_msg_tx, out_msg_rx) = channel(1024);
     // Create the task that places the handshake down the channel.
     let handshake = PeerMessage::Handshake { info: node_info.clone(), peers_info };
-    let tmp1 = node_info.clone();
-    let hand_task = out_msg_tx.clone().send(handshake).map(|_| ()).map_err(|e| {
-        warn!(target: "network", "Error sending handshake {}", e)
-    });
+    let hand_task = out_msg_tx
+        .clone()
+        .send(handshake)
+        .map(|_| ())
+        .map_err(|e| warn!(target: "network", "Error sending handshake {}", e));
     let fwd_task = out_msg_rx
         .forward(sink.sink_map_err(|e| {
             warn!(
@@ -283,7 +239,7 @@ impl Stream for Peer {
                         Ok(Async::Ready(None)) => {
                             return Ok(Async::Ready(None));
                         }
-                        Ok(Async::Ready(Some(Handshake { info, peers_info }))) => {
+                        Ok(Async::Ready(Some(Handshake { info, peers_info: _ }))) => {
                             // Here's where the deadlock is happening for num peers >= 7.
                             let mut all_peer_states =
                                 self.all_peer_states.write().expect(POISONED_LOCK_ERR);
@@ -389,26 +345,25 @@ impl Stream for Peer {
                     }
                     // Connection returned error. Should try again later.
                     Err(e) => {
+                        warn!(target: "network", "Failed to connect to a known peer {}", e);
                         Unconnected {
                             info: info.clone(),
                             connect_timer: get_delay(self.reconnect_delay),
                             evicted: false,
                         }
-                    }
+                    },
                 },
                 Connected { info, stream, out_msg_tx, hand_timeout, .. } =>
                 // Wait for the handshake reply.
                 {
                     match stream.as_mut().expect(STATE_ERR).poll().map_err(cbor_err) {
                         // The connection was closed. Try again later.
-                        Ok(Async::Ready(None)) => {
-                            Unconnected {
-                                info: info.clone(),
-                                connect_timer: get_delay(self.reconnect_delay),
-                                evicted: false,
-                            }
-                        }
-                        Ok(Async::Ready(Some(Handshake { info: hand_info, peers_info }))) => {
+                        Ok(Async::Ready(None)) => Unconnected {
+                            info: info.clone(),
+                            connect_timer: get_delay(self.reconnect_delay),
+                            evicted: false,
+                        },
+                        Ok(Async::Ready(Some(Handshake { info: hand_info, peers_info: _ }))) => {
                             if info.id != hand_info.id
                                 || info.account_id != hand_info.account_id
                                 || info.addr != hand_info.addr
@@ -449,15 +404,13 @@ impl Stream for Peer {
                         }
                     }
                 }
-                Ready { info, stream, out_msg_tx, .. } => match stream.poll().map_err(cbor_err) {
+                Ready { info, stream, .. } => match stream.poll().map_err(cbor_err) {
                     // Connection was closed. Reconnect later.
-                    Ok(Async::Ready(None)) => {
-                        Unconnected {
-                            info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay),
-                            evicted: false,
-                        }
-                    }
+                    Ok(Async::Ready(None)) => Unconnected {
+                        info: info.clone(),
+                        connect_timer: get_delay(self.reconnect_delay),
+                        evicted: false,
+                    },
                     // Actual message transmitted over the network.
                     Ok(Async::Ready(Some(Message(data)))) => {
                         return Ok(Async::Ready(Some((info.id.clone(), data))));
