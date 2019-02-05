@@ -49,6 +49,7 @@ pub enum PeerState {
         // the same lock as the state.
         evicted: bool,
     },
+    /// We know some info about this account, but we have not connected to it.
     Unconnected {
         info: PeerInfo,
         /// When to connect.
@@ -239,7 +240,7 @@ impl Stream for Peer {
                         Ok(Async::Ready(None)) => {
                             return Ok(Async::Ready(None));
                         }
-                        Ok(Async::Ready(Some(Handshake { info, peers_info: _ }))) => {
+                        Ok(Async::Ready(Some(Handshake { info, .. }))) => {
                             // Here's where the deadlock is happening for num peers >= 7.
                             let mut all_peer_states =
                                 self.all_peer_states.write().expect(POISONED_LOCK_ERR);
@@ -363,7 +364,7 @@ impl Stream for Peer {
                             connect_timer: get_delay(self.reconnect_delay),
                             evicted: false,
                         },
-                        Ok(Async::Ready(Some(Handshake { info: hand_info, peers_info: _ }))) => {
+                        Ok(Async::Ready(Some(Handshake { info: hand_info, .. }))) => {
                             if info.id != hand_info.id
                                 || info.account_id != hand_info.account_id
                                 || info.addr != hand_info.addr
