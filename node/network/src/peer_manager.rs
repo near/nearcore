@@ -237,7 +237,7 @@ mod tests {
         // Create task that sends the message and then places it into `acc`.
         let acc = Arc::new(RwLock::new(None));
         let acc1 = acc.clone();
-        let task = Delay::new(Instant::now() + Duration::from_millis(100))
+        let task = Delay::new(Instant::now() + Duration::from_millis(1000))
             .then(move |_| {
                 // Send message from `manager1` to `manager2`.
                 out_msg_tx1
