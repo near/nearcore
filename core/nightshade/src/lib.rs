@@ -3,33 +3,47 @@ use primitives::hash::{CryptoHash, hash_struct};
 use std::cmp::max;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate log;
+
+#[cfg(test)]
+mod fake_network;
 
 pub type AuthorityId = usize;
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum NSResult {
     Success,
+    Finalize(CryptoHash),
     Retrieve(Vec<CryptoHash>),
     Known,
-    Error(String)
+    Error(String),
 }
 
 impl NSResult {
-    fn expect(&self, message: &'static str) {
+    fn is_success(&self) -> bool {
         match &self {
-            NSResult::Success => {},
-            _ => { panic!(message); }
+            NSResult::Success => true,
+            _ => false
+        }
+    }
+
+    fn is_finalize(&self) -> bool {
+        match &self {
+            NSResult::Finalize(_) => true,
+            _ => false
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Message {
     pub author: AuthorityId,
     pub parents: Vec<CryptoHash>,
     pub data: Vec<u8>,
 }
 
+#[derive(Debug)]
 struct Node {
     message: Message,
     endorses: AuthorityId,
@@ -66,6 +80,26 @@ impl Nightshade {
             } else if scores[candidate] > scores[result[0]] {
                 result = vec![candidate];
             }
+        }
+        result
+    }
+
+    pub fn process_messages(&mut self, messages: Vec<Message>) -> NSResult {
+        let mut missing_messages: HashSet<CryptoHash> = HashSet::default();
+        for message in messages.iter() {
+            for parent in message.parents.iter() {
+                if !self.nodes.contains_key(parent) {
+                    missing_messages.insert(*parent);
+                }
+            }
+        }
+        if !missing_messages.is_empty() {
+            self.pending_messages.extend(messages);
+            return NSResult::Retrieve(missing_messages.drain().collect());
+        }
+        let mut result = NSResult::Success;
+        for message in messages {
+            result = self.process_message(message);
         }
         result
     }
@@ -125,22 +159,35 @@ impl Nightshade {
         }
         self.tips.insert(h);
         self.last_message_per_authority.insert(message.author, h);
+        let mut finalize = true;
+        for i in 0..self.num_authorities {
+            if i != endorses && max_confidence[endorses] - max_confidence[i] < 3 {
+                finalize = false;
+            }
+        }
         let node = Node {
             message, endorses, max_score, max_confidence
         };
+        if self.owner_id == 0 {
+            println!("Node: {:?}", node);
+        }
         self.nodes.insert(h, node);
         // Check if pending messages are unblocked.
-        NSResult::Success
+        if finalize {
+            NSResult::Finalize(h)
+        } else {
+            NSResult::Success
+        }
     }
 
-    pub fn create_message(&mut self) -> Message {
+    pub fn create_message(&mut self) -> (Message, NSResult) {
         let m = Message {
             author: self.owner_id,
             parents: self.tips.iter().cloned().collect(),
             data: vec![],
         };
-        self.process_message(m.clone()).expect("Creating own message");
-        m
+        let r = self.process_message(m.clone());
+        (m, r)
     }
 }
 
@@ -155,8 +202,55 @@ mod tests {
         (m, h)
     }
 
+    fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
+        let mut ns = vec![];
+        for i in 0..num_authorities {
+            ns.push(Nightshade::new(i, num_authorities));
+        }
+        for _ in 0..num_rounds {
+            let mut messages = vec![];
+            for n in ns.iter_mut() {
+                let (m, r) = n.create_message();
+                assert!(r.is_success());
+                messages.push(m);
+            }
+            for (i, n) in ns.iter_mut().enumerate() {
+                for (j, m) in messages.iter().enumerate() {
+                    if i != j {
+                        assert!(n.process_message(m.clone()).is_success());
+                    }
+
+                }
+            }
+        }
+        for n in ns.iter_mut() {
+            let (_, r) = n.create_message();
+            assert!(r.is_finalize());
+        }
+    }
+
     #[test]
-    fn test_nightshade_basic() {
+    fn test_nightshade_one_authority() {
+        nightshade_all_sync(1, 0);
+    }
+
+    #[test]
+    fn test_nightshade_two_authorities() {
+        nightshade_all_sync(2, 5);
+    }
+
+    #[test]
+    fn test_nightshade_three_authorities() {
+        nightshade_all_sync(3, 5);
+    }
+
+    #[test]
+    fn test_nightshade_ten_authorities() {
+        nightshade_all_sync(10, 5);
+    }
+
+    #[test]
+    fn test_nightshade_basics() {
         let mut ns = Nightshade::new(0, 3);
         let (m1, mh1) = message(0, vec![]);
         let (m2, mh2) = message(1, vec![]);
@@ -169,7 +263,8 @@ mod tests {
         let (m5, mh5) = message(0, vec![mh4]);
         assert_eq!(ns.process_message(m5), NSResult::Retrieve(vec![mh4]));
         assert_eq!(ns.process_message(m4), NSResult::Success);
-        let m6 = ns.create_message();
+        let (m6, r6) = ns.create_message();
+        assert_eq!(r6, NSResult::Success);
         assert_eq!(ns.process_message(m6), NSResult::Known);
     }
 }
