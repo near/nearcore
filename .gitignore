@@ -23,6 +23,7 @@ core/wasm/**/Cargo.lock
 
 # Python env
 .env
+*.pyc
 
 # Integration tests
 tmp/

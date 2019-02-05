@@ -40,7 +40,15 @@ impl External for MyExt {
         }
     }
 
+    fn storage_remove(&mut self, key: &[u8]) {
+        self.storage.remove(key);
+    }
+
     fn storage_iter(&mut self, _prefix: &[u8]) -> ExtResult<u32> {
+        Err(ExtError::NotImplemented)
+    }
+
+    fn storage_range(&mut self, _start: &[u8], _end: &[u8]) -> ExtResult<u32> {
         Err(ExtError::NotImplemented)
     }
 
@@ -51,6 +59,8 @@ impl External for MyExt {
     fn storage_iter_peek(&mut self, _iter: u32) -> ExtResult<Option<Vec<u8>>> {
         Err(ExtError::NotImplemented)
     }
+
+    fn storage_iter_remove(&mut self, _iter: u32) {}
 
     fn promise_create(
         &mut self,

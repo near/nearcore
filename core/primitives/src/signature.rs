@@ -38,6 +38,16 @@ const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
 pub const DEFAULT_SIGNATURE: Signature = Signature(sodiumoxide::crypto::sign::ed25519::Signature(SIG));
 
 impl PublicKey {
+    pub fn new(bytes: &[u8]) -> Result<PublicKey, String> {
+        if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
+            return Err("bytes not the size of a public key".to_string())
+        }
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+        array.copy_from_slice(bytes);
+        let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
+        Ok(PublicKey(public_key))
+    }
+
     pub fn from(s: &str) -> PublicKey {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         let bytes = bs58::decode(s).into_vec().expect("Failed to convert public key from base58");
@@ -62,6 +72,14 @@ impl SecretKey {
 }
 
 impl Signature {
+    pub fn new(bytes: &[u8]) -> Signature {
+        assert!(bytes.len() == sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES);
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        array.copy_from_slice(bytes);
+        let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
+        Signature(signature)
+    }
+
     pub fn from(s: &str) -> Signature {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
         let bytes = bs58::decode(s).into_vec().expect("Failed to convert signature from base58");
@@ -196,6 +214,29 @@ pub mod bs58_signature_format {
     {
         let s = String::deserialize(deserializer)?;
         Ok(Signature::from(&s))
+    }
+}
+
+pub mod bs58_serializer {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<T, S>(t: T, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            Vec<u8>: From<T>,
+            S: Serializer,
+    {
+        let bytes = Vec::<u8>::from(t);
+        serializer.serialize_str(&bs58::encode(bytes).into_string())
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+        where
+            T: From<Vec<u8>>,
+            D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let bytes = bs58::decode(s).into_vec().expect("Failed to convert from base58");
+        Ok(T::from(bytes))
     }
 }
 

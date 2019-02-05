@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+message CreateAccountTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string new_account_id = 3;
+    uint64 amount = 4;
+    bytes public_key = 5;
+}
+
+message DeployContractTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string contract_id = 3;
+    bytes wasm_byte_array = 4;
+    bytes public_key = 5;
+}
+
+message FunctionCallTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string contract_id = 3;
+    bytes method_name = 4;
+    bytes args = 5;
+    uint64 amount = 6;
+}
+
+message SendMoneyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string receiver = 3;
+    uint64 amount = 4;
+}
+
+message StakeTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    uint64 amount = 3;
+}
+
+message SwapKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes cur_key = 3;
+    bytes new_key = 4;
+}
+
+
+message SignedTransaction {
+    bytes signature = 1;
+    oneof body {
+        CreateAccountTransaction create_account = 2;
+        DeployContractTransaction deploy_contract = 3;
+        FunctionCallTransaction function_call = 4;
+        SendMoneyTransaction send_money = 5;
+        StakeTransaction stake = 6;
+        SwapKeyTransaction swap_key = 7;
+    }
+}

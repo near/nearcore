@@ -1,13 +1,18 @@
-use pairing::{CurveAffine, CurveProjective, Engine};
+use std::fmt;
+use std::io::Cursor;
+use bs58;
+use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField, PrimeFieldRepr};
 use rand::{OsRng, Rand, Rng};
 
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
 
+#[derive(Clone, Debug)]
 pub struct SecretKey<E: Engine> {
     scalar: E::Fr,
 }
 
+#[derive(Clone, Debug)]
 pub struct PublicKey<E: Engine> {
     // G1 is the small-and-fast group.  G2 is the big-and-slow group.  Either one can be used for
     // public keys, and the other for signatures.  Since signature aggregation only needs to be
@@ -16,9 +21,18 @@ pub struct PublicKey<E: Engine> {
     point: E::G1Affine,
 }
 
+#[derive(Clone, Debug)]
 pub struct Signature<E: Engine> {
     point: E::G2Affine,
 }
+
+// TODO: it will usually be desirable to store pubkeys and signatures in compressed form, even in
+// memory.  The compressed representations are half the size.
+#[derive(Clone)]
+pub struct CompressedPublicKey<E: Engine>(<E::G1Affine as CurveAffine>::Compressed);
+
+#[derive(Clone)]
+pub struct CompressedSignature<E: Engine>(<E::G2Affine as CurveAffine>::Compressed);
 
 impl<E: Engine> SecretKey<E> {
     /// Generate a new secret key from the OS rng.  Panics if OS is unable to provide randomness
@@ -33,6 +47,12 @@ impl<E: Engine> SecretKey<E> {
         }
     }
 
+    pub fn empty() -> Self {
+        SecretKey {
+            scalar: E::Fr::zero(),
+        }
+    }
+
     pub fn get_public_key(&self) -> PublicKey<E> {
         PublicKey {
             point: E::G1Affine::one().mul(self.scalar).into_affine(),
@@ -44,7 +64,7 @@ impl<E: Engine> SecretKey<E> {
     }
 
     pub fn get_proof_of_possession(&self) -> Signature<E> {
-        let message = self.get_public_key().encode();
+        let message = self.get_public_key().compress();
         self.sign_domain(message.as_ref(), DOMAIN_PROOF_OF_POSSESSION)
     }
 
@@ -64,8 +84,8 @@ impl<E: Engine> SecretKey<E> {
 }
 
 impl<E: Engine> PublicKey<E> {
-    pub fn encode(&self) -> <E::G1Affine as CurveAffine>::Compressed {
-        self.point.into_compressed()
+    pub fn compress(&self) -> CompressedPublicKey<E> {
+        CompressedPublicKey( self.point.into_compressed() )
     }
 
     pub fn verify(&self, message: &[u8], signature: &Signature<E>) -> bool {
@@ -73,7 +93,7 @@ impl<E: Engine> PublicKey<E> {
     }
 
     pub fn verify_proof_of_possession(&self, signature: &Signature<E>) -> bool {
-        let message = self.encode();
+        let message = self.compress();
         self.verify_domain(message.as_ref(), DOMAIN_PROOF_OF_POSSESSION, signature)
     }
 
@@ -90,17 +110,150 @@ impl<E: Engine> PublicKey<E> {
     }
 }
 
+impl<E: Engine> fmt::Display for PublicKey<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", bs58::encode(self.compress().as_ref()).into_string()) }
+}
+
 impl<E: Engine> Signature<E> {
-    pub fn encode(&self) -> <E::G2Affine as CurveAffine>::Compressed {
-        self.point.into_compressed()
+    pub fn compress(&self) -> CompressedSignature<E> {
+        CompressedSignature( self.point.into_compressed() )
+    }
+
+    pub fn empty() -> Self {
+        Signature { point: E::G2Affine::zero() }
     }
 }
 
+// Note: deriving PartialEq and Eq doesn't work
+impl<E: Engine> PartialEq for Signature<E> {
+    fn eq(&self, other: &Signature<E>) -> bool {
+        self.point == other.point
+    }
+}
+
+impl<E: Engine> Eq for Signature<E> {}
+
+impl<E: Engine> std::hash::Hash for Signature<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.compress().as_ref().hash(state);
+    }
+}
+
+impl<E: Engine> Default for Signature<E> {
+    fn default() -> Self { Self::empty() }
+}
+
+impl<E: Engine> From<&SecretKey<E>> for Vec<u8> {
+    fn from(key: &SecretKey<E>) -> Self {
+        let repr = key.scalar.into_repr();
+        let mut res = Vec::new();
+        res.resize(repr.num_bits() as usize / 8, 0);
+        let buf = Cursor::new(&mut res);
+        repr.write_be(buf).unwrap();
+        res
+    }
+}
+
+// TODO(#502): TryFrom instead of From since conversion can fail
+impl<E: Engine> From<Vec<u8>> for SecretKey<E> {
+    fn from(v: Vec<u8>) -> Self {
+        let mut repr : <E::Fr as PrimeField>::Repr = Default::default();
+        let buf = Cursor::new(v);
+        repr.read_be(buf).unwrap();
+        let scalar = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+        Self{ scalar }
+    }
+}
+
+impl<E: Engine> From<&PublicKey<E>> for Vec<u8> {
+    fn from(key: &PublicKey<E>) -> Self {
+        Self::from(key.compress().as_ref())
+    }
+}
+
+// TODO(#502): TryFrom instead of From since conversion can fail
+impl<E: Engine> From<Vec<u8>> for PublicKey<E> {
+    fn from(v: Vec<u8>) -> Self {
+        let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
+        if v.len() != expected {
+            panic!("invalid signature");
+        }
+        let mut compressed = CompressedPublicKey::empty();
+        compressed.as_mut().copy_from_slice(v.as_ref());
+        compressed.decompress().unwrap()
+    }
+}
+
+impl<E: Engine> From<&Signature<E>> for Vec<u8> {
+    fn from(sig: &Signature<E>) -> Self {
+        Self::from(sig.compress().as_ref())
+    }
+}
+
+// TODO(#502): TryFrom instead of From since conversion can fail
+impl<E: Engine> From<Vec<u8>> for Signature<E> {
+    fn from(v: Vec<u8>) -> Self {
+        let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
+        if v.len() != expected {
+            panic!("invalid signature");
+        }
+        let mut compressed = CompressedSignature::empty();
+        compressed.as_mut().copy_from_slice(v.as_ref());
+        compressed.decompress().unwrap()
+    }
+}
+
+impl<E: Engine> CompressedPublicKey<E> {
+    fn empty() -> Self {
+        CompressedPublicKey( <E::G1Affine as CurveAffine>::Compressed::empty() )
+    }
+
+    fn decompress(&self) -> Result<PublicKey<E>, GroupDecodingError> {
+        Ok(PublicKey{ point: self.0.into_affine()? })
+    }
+}
+
+impl<E: Engine> AsRef<[u8]> for CompressedPublicKey<E> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl<E: Engine> AsMut<[u8]> for CompressedPublicKey<E> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+impl<E: Engine> CompressedSignature<E> {
+    fn empty() -> Self {
+        CompressedSignature( <E::G2Affine as CurveAffine>::Compressed::empty() )
+    }
+
+    fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
+        Ok(Signature{ point: self.0.into_affine()? })
+    }
+}
+
+impl<E: Engine> AsRef<[u8]> for CompressedSignature<E> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl<E: Engine> AsMut<[u8]> for CompressedSignature<E> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+#[derive(Debug)]
 pub struct AggregatePublicKey<E: Engine> {
     // This is the same as a public key, but stored in projective coordinates instead of affine.
     point: E::G1,
 }
 
+#[derive(Debug)]
 pub struct AggregateSignature<E: Engine> {
     // This is the same as a signature, but stored in projective coordinates instead of affine.
     point: E::G2,
@@ -198,7 +351,7 @@ mod tests {
         }
 
         // make sure domain-separation is working
-        let fake_proof = secret[0].sign(pubkey[0].encode().as_ref());
+        let fake_proof = secret[0].sign(pubkey[0].compress().as_ref());
         assert!(!pubkey[0].verify_proof_of_possession(&fake_proof));
     }
 

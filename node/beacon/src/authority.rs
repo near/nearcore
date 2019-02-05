@@ -9,7 +9,7 @@ use chain::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityMask, BlockId, AuthorityStake};
 use configs::AuthorityConfig;
-use crate::types::{BeaconBlockChain, SignedBeaconBlockHeader};
+use crate::types::{BeaconBlockChainStorage, SignedBeaconBlockHeader};
 
 type Epoch = u64;
 type Slot = u64;
@@ -81,7 +81,7 @@ impl Authority {
     /// Initializes authorities from the config and the past blocks in the beaconchain.
     pub fn new(
         authority_config: AuthorityConfig,
-        blockchain: &BeaconBlockChain,
+        blockchain: &BeaconBlockChainStorage,
     ) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
@@ -257,7 +257,7 @@ impl Authority {
         let slot = header.body.index;
         if slot > 0 && !self.proposals.contains_key(&slot) {
             self.proposals.insert(slot, header.body.authority_proposal.to_vec());
-            self.participation.insert(slot, header.authority_mask.to_vec());
+            self.participation.insert(slot, header.signature.authority_mask.to_vec());
 
             // Update the tracker of processed slots.
             let epoch = self.slot_to_epoch(slot);
@@ -322,11 +322,11 @@ mod test {
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BeaconBlockChain {
+    fn test_blockchain(num_blocks: u64) -> BeaconBlockChainStorage {
         let storage = Arc::new(MemoryStorage::default());
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BeaconBlockChain::new(last_block.clone(), storage);
+        let bc = BeaconBlockChainStorage::new(last_block.clone(), storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
@@ -347,7 +347,7 @@ mod test {
         for i in 1..11 {
             let block = SignedBeaconBlock::new(i, prev_hash, vec![], CryptoHash::default());
             let mut header = block.header();
-            header.authority_mask = (0..num_seats).map(|_| true).collect();
+            header.signature.authority_mask = (0..num_seats).map(|_| true).collect();
             authority.process_block_header(&header);
             prev_hash = header.block_hash();
         }
@@ -380,10 +380,10 @@ mod test {
         let block1 = SignedBeaconBlock::new(1, bc.genesis_hash, vec![], CryptoHash::default());
         let mut header1 = block1.header();
         // Authority #1 didn't show up.
-        header1.authority_mask = vec![true, false];
+        header1.signature.authority_mask = vec![true, false];
         let block2 = SignedBeaconBlock::new(2, header1.block_hash(), vec![], CryptoHash::default());
         let mut header2 = block2.header();
-        header2.authority_mask = vec![true, true];
+        header2.signature.authority_mask = vec![true, true];
         authority.process_block_header(&header1);
         authority.process_block_header(&header2);
         assert_eq!(

@@ -25,8 +25,9 @@ chain = { path = "../../core/chain" }
 client = { path = "../../node/client" }
 configs = { path = "../configs" }
 primitives = { path = "../../core/primitives" }
-shard = { path = "../../core/shard" }
-storage = { path = "../../core/storage" }
+near-protos = { path = "../../core/protos" }
+shard = { path = "../shard" }
+storage = { path = "../../core/storage", features=["test-utils"] }
 transaction = { path = "../../core/transaction" }
 
 [features]

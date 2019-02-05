@@ -20,4 +20,5 @@ pub mod signer;
 pub mod test_utils;
 pub mod traits;
 pub mod types;
+pub mod merkle;
 pub mod utils;

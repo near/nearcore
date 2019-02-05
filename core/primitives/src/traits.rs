@@ -2,18 +2,16 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use serde::{de::DeserializeOwned, Serialize};
-
 use crate::hash::CryptoHash;
 
-use super::signature;
+use super::aggregate_signature;
 use super::types;
 pub use super::serialize::{Encode, Decode};
 
 /// Trait to abstract the way signing happens.
 /// Can be used to not keep private key in the given binary via cross-process communication.
 pub trait Signer: Sync + Send {
-    fn public_key(&self) -> signature::PublicKey;
+    fn public_key(&self) -> aggregate_signature::BlsPublicKey;
     fn sign(&self, hash: &CryptoHash) -> types::PartialSignature;
     fn account_id(&self) -> types::AccountId;
 }
@@ -29,7 +27,7 @@ pub type GenericResult = Result<(), &'static str>;
 
 /// General payload that can be stored on TxFlow. Should either not have references,
 /// or the references should live for static lifetime.
-pub trait Payload: Clone + Send + Hash + Debug + Serialize + DeserializeOwned + 'static {
+pub trait Payload: Clone + Send + Hash + Debug + Encode + Decode + 'static {
     fn verify(&self) -> GenericResult;
     // Merge content from another payload into this one.
     fn union_update(&mut self, other: Self);

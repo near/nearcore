@@ -8,7 +8,8 @@ use futures::sync::mpsc::{channel, Sender};
 use client::Client;
 use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
-use transaction::Transaction;
+use chain::ChainPayload;
+use transaction::SignedTransaction;
 use txflow::txflow_task;
 
 pub fn start() {
@@ -21,7 +22,8 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (transactions_tx, transactions_rx) = channel(1024);
-        spawn_rpc_server_task(transactions_tx.clone(), &rpc_cfg, client.clone());
+        let (receipts_tx, receipts_rx) = channel(1024);
+        spawn_rpc_server_task(transactions_tx, &rpc_cfg, client.clone());
 
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
 
@@ -35,13 +37,13 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
             client.clone(),
             beacon_block_consensus_body_rx,
             outgoing_block_tx,
-            transactions_tx.clone(),
+            receipts_tx.clone(),
             consensus_control_tx,
         );
 
         // Create task that can import beacon chain blocks from other peers.
-        let (incoming_block_tx, incominb_block_rx) = channel(1024);
-        coroutines::importer::spawn_block_importer(client.clone(), incominb_block_rx);
+        let (incoming_block_tx, incoming_block_rx) = channel(1024);
+        coroutines::importer::spawn_block_importer(client.clone(), incoming_block_rx);
 
         // Spawn the network tasks.
         // Note, that network and RPC are using the same channels
@@ -52,7 +54,6 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
             Some(client_cfg.account_id),
             network_cfg,
             client.clone(),
-            transactions_tx,
             inc_gossip_tx,
             out_gossip_rx,
             incoming_block_tx,
@@ -61,7 +62,16 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
 
         // Spawn consensus tasks.
         let (payload_tx, payload_rx) = channel(1024);
-        transaction_to_payload::spawn_task(transactions_rx, payload_tx.clone());
+        transaction_to_payload::spawn_task(
+            transactions_rx,
+            |t| ChainPayload { transactions: vec![t], receipts: vec![] },
+            payload_tx.clone()
+        );
+        transaction_to_payload::spawn_task(
+            receipts_rx,
+            |r| ChainPayload { transactions: vec![], receipts: vec![r] },
+            payload_tx.clone()
+        );
         txflow_task::spawn_task(
             inc_gossip_rx,
             payload_rx,
@@ -74,7 +84,7 @@ fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_
 }
 
 fn spawn_rpc_server_task(
-    transactions_tx: Sender<Transaction>,
+    transactions_tx: Sender<SignedTransaction>,
     rpc_config: &RPCConfig,
     client: Arc<Client>,
 ) {

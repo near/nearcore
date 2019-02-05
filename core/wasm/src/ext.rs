@@ -87,11 +87,17 @@ pub trait External {
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
 
+    fn storage_remove(&mut self, key: &[u8]);
+
     fn storage_iter(&mut self, prefix: &[u8]) -> Result<u32>;
+
+    fn storage_range(&mut self, start: &[u8], end: &[u8]) -> Result<u32>;
 
     fn storage_iter_next(&mut self, id: u32) -> Result<Option<Vec<u8>>>;
 
     fn storage_iter_peek(&mut self, id: u32) -> Result<Option<Vec<u8>>>;
+
+    fn storage_iter_remove(&mut self, id: u32);
 
     fn promise_create(
         &mut self,

@@ -2,35 +2,27 @@ use std::sync::Arc;
 
 use futures::sync::mpsc::Sender;
 
-use primitives::hash::hash_struct;
-use primitives::traits::Encode;
+use chain::SignedBlock;
+use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
-use transaction::{
-    CreateAccountTransaction, DeployContractTransaction, FunctionCallTransaction,
-    SendMoneyTransaction, SignedTransaction, StakeTransaction, SwapKeyTransaction,
-    Transaction, TransactionBody, verify_transaction_signature,
-};
+use transaction::{SignedTransaction, verify_transaction_signature};
 
-use client::Client;
 use crate::types::{
-    CallViewFunctionRequest, CallViewFunctionResponse,
-    CreateAccountRequest, DeployContractRequest, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, GetTransactionRequest,
-    PreparedTransactionBodyResponse, ScheduleFunctionCallRequest,
-    SendMoneyRequest, SignedBeaconBlockResponse, SignedShardBlockResponse,
-    SignedShardBlocksResponse, StakeRequest, SubmitTransactionResponse,
-    SwapKeyRequest, TransactionInfoResponse, TransactionStatusResponse,
+    CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
+    GetBlocksByIndexRequest, GetTransactionRequest, SignedBeaconBlockResponse,
+    SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionRequest,
+    SubmitTransactionResponse, TransactionInfoResponse, TransactionResultResponse,
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 
 pub struct HttpApi {
     client: Arc<Client>,
-    submit_txn_sender: Sender<Transaction>,
+    submit_txn_sender: Sender<SignedTransaction>,
 }
 
 impl HttpApi {
-    pub fn new(client: Arc<Client>, submit_txn_sender: Sender<Transaction>) -> HttpApi {
+    pub fn new(client: Arc<Client>, submit_txn_sender: Sender<SignedTransaction>) -> HttpApi {
         HttpApi { client, submit_txn_sender }
     }
 }
@@ -42,90 +34,11 @@ pub enum RPCError {
 }
 
 impl HttpApi {
-    pub fn create_account(
-        &self,
-        r: &CreateAccountRequest,
-    ) -> Result<PreparedTransactionBodyResponse, ()> {
-        let body = TransactionBody::CreateAccount(CreateAccountTransaction {
-            nonce: r.nonce,
-            originator: r.originator.clone(),
-            new_account_id: r.new_account_id.clone(),
-            amount: r.amount,
-            public_key: r.public_key.encode().unwrap(),
-        });
-        debug!(target: "near-rpc", "Create account transaction {:?}", r.new_account_id);
-        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
-    }
-
-    pub fn deploy_contract(
-        &self,
-        r: DeployContractRequest,
-    ) -> Result<PreparedTransactionBodyResponse, ()> {
-        let body = TransactionBody::DeployContract(DeployContractTransaction {
-            nonce: r.nonce,
-            originator: r.originator.clone(),
-            contract_id: r.contract_account_id.clone(),
-            wasm_byte_array: r.wasm_byte_array,
-            public_key: r.public_key.encode().unwrap(),
-        });
-        debug!(target: "near-rpc", "Deploy contract transaction {:?}", r.contract_account_id);
-        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
-    }
-
-    pub fn swap_key(&self, r: &SwapKeyRequest) -> Result<PreparedTransactionBodyResponse, ()> {
-        let body = TransactionBody::SwapKey(SwapKeyTransaction {
-            nonce: r.nonce,
-            originator: r.account.clone(),
-            cur_key: r.current_key.encode().unwrap(),
-            new_key: r.new_key.encode().unwrap(),
-        });
-        debug!(target: "near-rpc", "Swap key transaction {:?}", r.account);
-        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
-    }
-
-    pub fn send_money(&self, r: &SendMoneyRequest) -> Result<PreparedTransactionBodyResponse, ()> {
-        let body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: r.nonce,
-            originator: r.originator.clone(),
-            receiver: r.receiver_account_id.clone(),
-            amount: r.amount,
-        });
-        debug!(target: "near-rpc", "Send money transaction {:?}->{:?}, amount: {:?}",
-               r.originator, r.receiver_account_id, r.amount);
-        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
-    }
-
-    pub fn stake(&self, r: &StakeRequest) -> Result<PreparedTransactionBodyResponse, ()> {
-        let body = TransactionBody::Stake(StakeTransaction {
-            nonce: r.nonce,
-            originator: r.originator.clone(),
-            amount: r.amount,
-        });
-        debug!(target: "near-rpc", "Stake money transaction {:?}, amount: {:?}",
-               r.originator, r.amount);
-        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
-    }
-
-    pub fn schedule_function_call(
-        &self,
-        r: ScheduleFunctionCallRequest,
-    ) -> Result<PreparedTransactionBodyResponse, ()> {
-        debug!(target: "near-rpc", "Schedule function call transaction {:?}.{:?}",
-               r.contract_account_id, r.method_name);
-        let body = TransactionBody::FunctionCall(FunctionCallTransaction {
-            nonce: r.nonce,
-            originator: r.originator.clone(),
-            contract_id: r.contract_account_id.clone(),
-            method_name: r.method_name.into_bytes(),
-            args: r.args,
-            amount: r.amount,
-        });
-        Ok(PreparedTransactionBodyResponse { body: body.clone(), hash: hash_struct(&body) })
-    }
-
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
-        match self.client.statedb_viewer.view_account(&r.account_id)
+        match self.client.shard_chain.statedb_viewer.view_account(
+            self.client.shard_chain.chain.best_block().merkle_root_state(),
+            &r.account_id)
         {
             Ok(r) => Ok(ViewAccountResponse {
                 account_id: r.account,
@@ -148,7 +61,10 @@ impl HttpApi {
             r.contract_account_id,
             r.method_name,
         );
-        match self.client.statedb_viewer.call_function(&r.originator, &r.contract_account_id, &r.method_name, &r.args)
+        let best_block = self.client.shard_chain.chain.best_block();
+        match self.client.shard_chain.statedb_viewer.call_function(
+            best_block.merkle_root_state(), best_block.index(),
+            &r.contract_account_id, &r.method_name, &r.args)
         {
             Ok(result) => Ok(CallViewFunctionResponse { result }),
             Err(e) => Err(e.to_string()),
@@ -157,14 +73,16 @@ impl HttpApi {
 
     pub fn submit_transaction(
         &self,
-        r: &SignedTransaction,
+        r: &SubmitTransactionRequest,
     ) -> Result<SubmitTransactionResponse, RPCError> {
-        debug!(target: "near-rpc", "Received transaction {:?}", r);
-        let originator = r.body.get_originator();
-        let public_keys = self.client.statedb_viewer
-                .get_public_keys_for_account(&originator)
-                .map_err(RPCError::BadRequest)?;
-        if !verify_transaction_signature(&r.clone(), &public_keys) {
+        let transaction: SignedTransaction = r.transaction.clone().into();
+        debug!(target: "near-rpc", "Received transaction {:?}", transaction);
+        let originator = transaction.body.get_originator();
+        let root_state = self.client.shard_chain.chain.best_block().merkle_root_state();
+        let public_keys = self.client.shard_chain.statedb_viewer
+            .get_public_keys_for_account(root_state, &originator)
+            .map_err(RPCError::BadRequest)?;
+        if !verify_transaction_signature(&transaction.clone(), &public_keys) {
             let msg =
                 format!("transaction not signed with a public key of originator {:?}", originator,);
             return Err(RPCError::BadRequest(msg));
@@ -172,16 +90,15 @@ impl HttpApi {
 
         self.submit_txn_sender
             .clone()
-            .try_send(Transaction::SignedTransaction(r.clone()))
+            .try_send(transaction.clone())
             .map_err(|_| RPCError::ServiceUnavailable("transaction channel is full".to_string()))?;
-        Ok(SubmitTransactionResponse { hash: r.transaction_hash() })
+        Ok(SubmitTransactionResponse { hash: transaction.get_hash() })
     }
 
-    pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, ()> {
+    pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
-        let result =
-        self.client.statedb_viewer
-                .view_state(&r.contract_account_id);
+        let result = self.client.shard_chain.statedb_viewer
+            .view_state(self.client.shard_chain.chain.best_block().merkle_root_state(), &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect(),
@@ -190,14 +107,14 @@ impl HttpApi {
     }
 
     pub fn view_latest_beacon_block(&self) -> Result<SignedBeaconBlockResponse, ()> {
-        Ok(self.client.beacon_chain.best_block().into())
+        Ok(self.client.beacon_chain.chain.best_block().into())
     }
 
     pub fn get_beacon_block_by_hash(
         &self,
         r: &GetBlockByHashRequest,
     ) -> Result<SignedBeaconBlockResponse, &str> {
-        match self.client.beacon_chain.get_block(&BlockId::Hash(r.hash)) {
+        match self.client.beacon_chain.chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
@@ -236,18 +153,19 @@ impl HttpApi {
             Some(info) => Ok(TransactionInfoResponse {
                 transaction: info.transaction.into(),
                 block_index: info.block_index,
-                status: info.status
+                result: info.result
             }),
             None => Err(RPCError::NotFound),
         }
 
     }
 
-    pub fn get_transaction_status(
+    pub fn get_transaction_result(
         &self,
         r: &GetTransactionRequest,
-    ) -> Result<TransactionStatusResponse, ()> {
-        let status = self.client.shard_chain.get_transaction_status(&r.hash);
-        Ok(TransactionStatusResponse { status })
+    ) -> Result<TransactionResultResponse, ()> {
+        let result = self.client.shard_chain.get_transaction_final_result(&r.hash);
+        Ok(TransactionResultResponse { result })
     }
 }
+

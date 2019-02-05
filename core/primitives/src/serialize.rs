@@ -1,24 +1,24 @@
+use std::io;
+
 use serde::{de::DeserializeOwned, Serialize};
 
-pub type EncodeType = Result<Vec<u8>, String>;
-pub type DecodeType<T> = Result<T, String>;
+pub type EncodeResult = Result<Vec<u8>, io::Error>;
+pub type DecodeResult<T> = Result<T, io::Error>;
 
 // encode a type to byte array
 pub trait Encode {
-    fn encode(&self) -> EncodeType;
+    fn encode(&self) -> EncodeResult;
 }
 
 // decode from byte array
 pub trait Decode: Sized {
-    fn decode(data: &[u8]) -> DecodeType<Self>;
+    fn decode(data: &[u8]) -> DecodeResult<Self>;
 }
 
-impl<T> Encode for T
-    where
-        T: Serialize,
-{
-    fn encode(&self) -> EncodeType {
-        bincode::serialize(&self).map_err(|_| "Failed to serialize".to_string())
+impl<T: Serialize> Encode for T {
+    fn encode(&self) -> EncodeResult {
+        bincode::serialize(&self)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
     }
 }
 
@@ -26,7 +26,8 @@ impl<T> Decode for T
     where
         T: DeserializeOwned,
 {
-    fn decode(data: &[u8]) -> DecodeType<Self> {
-        bincode::deserialize(data).map_err(|_| "Failed to deserialize".to_string())
+    fn decode(data: &[u8]) -> DecodeResult<Self> {
+        bincode::deserialize(data)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
     }
 }

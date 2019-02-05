@@ -31,7 +31,7 @@ const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
 const WASM_PATH: &str = "./tests/hello";
 const WAIT_FOR_RETRY: u64 = 500;
-const MAX_WAIT_FOR_RETRY: u32 = 5;
+const MAX_WAIT_FOR_RETRY: u32 = 20;
 
 fn test_service_ready() -> bool {
     let mut base_path = Path::new(TMP_DIR).to_owned();
@@ -40,11 +40,13 @@ fn test_service_ready() -> bool {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
 
-    Command::new("sh")
+    let output = Command::new("sh")
         .arg("-c")
         .arg(&format!("cd {} && npm install && npm run build", WASM_PATH))
         .output()
         .expect("build hello.wasm failed");
+
+    check_result(output).unwrap();
 
     let mut client_cfg = configs::ClientConfig::default();
     client_cfg.base_path = base_path;
@@ -83,15 +85,18 @@ fn wait_for<R>(f: &Fn() -> Result<R, String>) -> Result<R, String> {
 }
 
 fn check_result(output: Output) -> Result<String, String> {
-    let result = String::from_utf8_lossy(output.stdout.as_slice());
+    let mut result = String::from_utf8_lossy(output.stdout.as_slice());
     if !output.status.success() {
+        if result.is_empty() {
+            result = String::from_utf8_lossy(output.stderr.as_slice());
+        }
         return Err(result.to_owned().to_string())
     }
     Ok(result.to_owned().to_string())
 }
 
 fn create_account(account_name: &str) -> Output {
-    Command::new("./scripts/rpc.py")
+    let output = Command::new("./scripts/rpc.py")
         .arg("create_account")
         .arg(account_name)
         .arg("10")
@@ -100,7 +105,11 @@ fn create_account(account_name: &str) -> Output {
         .arg("-k")
         .arg(&*PUBLIC_KEY)
         .output()
-        .expect("create_account command failed to process")
+        .expect("create_account command failed to process");
+
+    wait_for(&|| check_result(view_account(Some(&account_name)))).unwrap();
+
+    output
 }
 
 fn view_account(account_name: Option<&str>) -> Output {
@@ -119,7 +128,7 @@ fn deploy_contract() -> Result<(String, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
 
-    Command::new("./scripts/rpc.py")
+    let output = Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg(contract_name.as_str())
         .arg("tests/hello.wasm")
@@ -129,6 +138,8 @@ fn deploy_contract() -> Result<(String, String), String> {
         .arg(&*PUBLIC_KEY)
         .output()
         .expect("deploy command failed to process");
+
+    check_result(output).unwrap();
 
     wait_for(&|| {
         let result = check_result(view_account(Some(&contract_name)));

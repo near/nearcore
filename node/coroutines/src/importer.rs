@@ -7,7 +7,7 @@ use futures::{future, Stream};
 
 use beacon::types::SignedBeaconBlock;
 use client::Client;
-use shard::SignedShardBlock;
+use chain::SignedShardBlock;
 
 pub fn spawn_block_importer(
     client: Arc<Client>,

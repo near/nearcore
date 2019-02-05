@@ -1,22 +1,18 @@
 use beacon::types::SignedBeaconBlock;
 use primitives::hash::CryptoHash;
+use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 use primitives::types::{AccountId, BlockId, Gossip};
 use serde_derive::{Deserialize, Serialize};
-use shard::SignedShardBlock;
-use transaction::{ChainPayload, ReceiptTransaction, SignedTransaction};
 
 pub type RequestId = u64;
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub enum Message {
     // Box is used here because SignedTransaction
     // is significantly larger than other enum members
-    Transaction(Box<SignedTransaction>),
-    Receipt(Box<ReceiptTransaction>),
+    Receipt(Box<ReceiptBlock>),
     Status(Status),
-    BlockRequest(Box<BlockRequest>),
-    BlockResponse(Box<BlockResponse>),
-    BlockAnnounce(Box<BlockAnnounce>),
+    BlockAnnounce(Box<(SignedBeaconBlock, SignedShardBlock)>),
     Gossip(Box<Gossip<ChainPayload>>),
 }
 

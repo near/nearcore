@@ -1,8 +1,9 @@
-use crate::message;
 use crate::message::Message;
 use crate::peer::PeerMessage;
 use crate::peer_manager::PeerManager;
 use beacon::types::SignedBeaconBlock;
+use chain::ChainPayload;
+use chain::SignedShardBlock;
 use client::Client;
 use configs::NetworkConfig;
 use futures::future;
@@ -17,10 +18,7 @@ use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::AccountId;
 use primitives::types::Gossip;
-use shard::SignedShardBlock;
 use std::sync::Arc;
-use transaction::ChainPayload;
-use transaction::Transaction;
 
 /// Spawn network tasks that process incoming and outgoing messages of various kind.
 /// Args:
@@ -28,8 +26,6 @@ use transaction::Transaction;
 /// * `network_cfg`: `NetworkConfig` object;
 /// * `client`: Shared Client object which we use to get the list of authorities, and use for
 ///   exporting, importing blocks;
-/// * `inc_transactions_tx`: Channel where protocol places transactions that are incoming from other
-///   peers;
 /// * `inc_gossip_tx`: Channel where protocol places incoming TxFlow gossip;
 /// * `out_gossip_rx`: Channel where from protocol reads gossip that should be sent to other peers;
 /// * `inc_block_tx`: Channel where protocol places incoming blocks;
@@ -39,7 +35,6 @@ pub fn spawn_network(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     client: Arc<Client>,
-    inc_transactions_tx: Sender<Transaction>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     inc_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
@@ -66,12 +61,6 @@ pub fn spawn_network(
     let task = inc_msg_rx.for_each(move |(_, data)| {
         match Decode::decode(&data) {
             Ok(m) => match m {
-                Message::Transaction(t) => {
-                    forward_msg(inc_transactions_tx.clone(), Transaction::SignedTransaction(*t))
-                }
-                Message::Receipt(r) => {
-                    forward_msg(inc_transactions_tx.clone(), Transaction::Receipt(*r))
-                }
                 Message::Gossip(gossip) => forward_msg(inc_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
                     let unboxed = *block;
@@ -104,7 +93,7 @@ pub fn spawn_network(
 
     // Spawn a task that encodes and sends outgoing block announcements.
     let task = out_block_rx.for_each(move |b| {
-        let data = Encode::encode(&Message::BlockAnnounce(Box::new(message::BlockAnnounce(
+        let data = Encode::encode(&Message::BlockAnnounce(Box::new((
             b.0.clone(),
             b.1.clone(),
         ))))

@@ -1,12 +1,3 @@
-extern crate parking_lot;
-extern crate primitives;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate storage;
-#[macro_use]
-extern crate log;
-
 use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -19,12 +10,22 @@ use primitives::hash::CryptoHash;
 use primitives::traits::Signer;
 use primitives::types::{BlockId, PartialSignature};
 use primitives::utils::index_to_bytes;
+use primitives::serialize::{Encode, Decode};
 use storage::{read_with_cache, write_with_cache, Storage};
+use serde_derive::{Serialize, Deserialize};
+use log::info;
+
+pub use crate::types::{
+    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
+    ChainPayload, SignedShardBlockHeader
+};
+
+pub mod types;
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
 /// Trait that abstracts ``Header"
-pub trait SignedHeader: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static
+pub trait SignedHeader: Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
 {
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -38,11 +39,14 @@ pub trait SignedHeader: Debug + Clone + Send + Sync + Serialize + DeserializeOwn
 
 /// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
 /// and shard-chain blocks.
-pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwned + Eq + 'static {
+pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static {
     type SignedHeader: SignedHeader;
 
     /// Returns signed header for given block.
     fn header(&self) -> Self::SignedHeader;
+
+    /// Returns index of given block.
+    fn index(&self) -> u64;
 
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -53,8 +57,9 @@ pub trait SignedBlock: Debug + Clone + Send + Sync + Serialize + DeserializeOwne
     }
 
     /// Add signature to multi sign.
-    fn add_signature(&mut self, signature: PartialSignature);
+    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize);
 
+    /// Returns stake weight of given block signers.
     fn weight(&self) -> u128;
 }
 
