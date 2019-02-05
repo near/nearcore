@@ -39,23 +39,19 @@ use chain::ReceiptBlock;
 
 use crate::ext::RuntimeExt;
 use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
+use crate::system::{SYSTEM_METHOD_CREATE_ACCOUNT, SYSTEM_METHOD_DEPLOY, system_account};
 
 pub mod test_utils;
 pub mod state_viewer;
 mod tx_stakes;
 mod ext;
+mod system;
 
 const COL_ACCOUNT: &[u8] = &[0];
 const COL_CALLBACK: &[u8] = &[1];
 const COL_CODE: &[u8] = &[2];
 const COL_TX_STAKE: &[u8] = &[3];
 const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
-
-/// const does not allow function call, so have to resort to this
-fn system_account() -> AccountId { "system".to_string() }
-
-const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
-const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -501,67 +497,6 @@ impl Runtime {
         Ok(vec![])
     }
 
-    fn system_create_account(
-        &self,
-        state_update: &mut StateDbUpdate,
-        call: &AsyncCall,
-        account_id: &AccountId,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
-        if !is_valid_account_id(account_id) {
-            return Err(format!("Account {} does not match requirements", account_id));
-        }
-        let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
-       
-        let public_key = PublicKey::new(&call.args)?;
-        let new_account = Account::new(
-            vec![public_key],
-            call.amount,
-            hash(&[])
-        );
-        set(
-            state_update,
-            &account_id_bytes,
-            &new_account
-        );
-        // TODO(#347): Remove default TX staking once tx staking is properly implemented
-        let mut tx_total_stake = TxTotalStake::new(0);
-        tx_total_stake.add_active_stake(100);
-        set(
-            state_update,
-            &get_tx_stake_key(&account_id, &None),
-            &tx_total_stake,
-        );
-
-        Ok(vec![])
-    }
-
-    fn system_deploy(
-        &self,
-        state_update: &mut StateDbUpdate,
-        call: &AsyncCall,
-        account_id: &AccountId,
-    ) -> Result<Vec<ReceiptTransaction>, String> {
-        let (public_key, code): (Vec<u8>, Vec<u8>) =
-            Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
-        let public_key = PublicKey::new(&public_key)?;
-        let new_account = Account::new(
-            vec![public_key],
-            call.amount,
-            hash(&code),
-        );
-        set(
-            state_update,
-            &account_id_to_bytes(COL_ACCOUNT, account_id),
-            &new_account
-        );
-        set(
-            state_update,
-            &account_id_to_bytes(COL_CODE, account_id),
-            &code
-        );
-        Ok(vec![])
-    }
-
     fn return_data_to_receipts(
         runtime_ext: &mut RuntimeExt,
         return_data: ReturnData,
@@ -934,14 +869,14 @@ impl Runtime {
                 if let ReceiptBody::NewCall(call) = &receipt.body {
                     amount = call.amount;
                     if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                        self.system_create_account(
+                        system::create_account(
                             state_update,
                             &call,
                             &receipt.receiver,
                         )
                     } else if call.method_name == SYSTEM_METHOD_DEPLOY {
                         // TODO(#413): Fix security of contract deploy.
-                        self.system_deploy(
+                        system::deploy(
                             state_update,
                             &call,
                             &receipt.receiver,
