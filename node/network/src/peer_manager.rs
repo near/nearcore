@@ -183,8 +183,6 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use std::thread;
     use std::time::Duration;
-    use std::time::Instant;
-    use tokio::timer::Delay;
     use tokio::util::StreamExt;
     use std::ops::Deref;
 
