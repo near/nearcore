@@ -1300,7 +1300,7 @@ mod tests {
         let (runtime, _viewer, root) = get_runtime_and_state_db_viewer();
         let mut alice = User::new(runtime, &alice_account());
         let (new_root, apply_results) = alice.call_function(
-            root, &bob_account(), "run_test", vec![]
+            root, &bob_account(), "run_test", vec![], 0
         );
         // 3 results: signedTx, It's Receipt, Mana receipt
         assert_eq!(apply_results.len(), 3);
@@ -1310,7 +1310,7 @@ mod tests {
         // Receipt successfully executed
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[1].new_receipts.len(), 1);
-        // Mana sucessfully executed
+        // Mana successfully executed
         assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // Checking final root
         assert_ne!(root, new_root);
@@ -1320,8 +1320,8 @@ mod tests {
     fn test_smart_contract_bad_method_name() {
         let (runtime, _, root) = get_runtime_and_state_db_viewer();
         let mut alice = User::new(runtime, &alice_account());
-        let (new_root, apply_results) = alice.call_function(
-            root, &bob_account(), "_run_test", vec![]
+        let (_, apply_results) = alice.call_function(
+            root, &bob_account(), "_run_test", vec![], 0
         );
         // Only 1 results: signedTx
         assert_eq!(apply_results.len(), 1);
@@ -1332,24 +1332,10 @@ mod tests {
 
     #[test]
     fn test_smart_contract_empty_method_name_with_no_tokens() {
-        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
-        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
-            nonce: 1,
-            originator: alice_account(),
-            contract_id: bob_account(),
-            method_name: b"".to_vec(),
-            args: vec![],
-            amount: 0,
-        });
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState {
-            root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0
-        };
-        let apply_results = runtime.apply_all_vec(
-            apply_state, vec![], vec![transaction]
+        let (runtime, _, root) = get_runtime_and_state_db_viewer();
+        let mut alice = User::new(runtime, &alice_account());
+        let (_, apply_results) = alice.call_function(
+            root, &bob_account(), "", vec![], 0
         );
         // Only 1 results: signedTx
         assert_eq!(apply_results.len(), 1);
@@ -1360,24 +1346,10 @@ mod tests {
 
     #[test]
     fn test_smart_contract_empty_method_name_with_tokens() {
-        let (mut runtime, _viewer, root) = get_runtime_and_state_db_viewer();
-        let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
-            nonce: 1,
-            originator: alice_account(),
-            contract_id: bob_account(),
-            method_name: b"".to_vec(),
-            args: vec![],
-            amount: 10,
-        });
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
-        let apply_state = ApplyState {
-            root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0
-        };
-        let apply_results = runtime.apply_all_vec(
-            apply_state, vec![], vec![transaction]
+        let (runtime, _, root) = get_runtime_and_state_db_viewer();
+        let mut alice = User::new(runtime, &alice_account());
+        let (new_root, apply_results) = alice.call_function(
+            root, &bob_account(), "", vec![], 10
         );
         // 3 results: signedTx, It's Receipt, Mana receipt
         assert_eq!(apply_results.len(), 3);
@@ -1387,7 +1359,7 @@ mod tests {
         // Receipt successfully executed
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[1].new_receipts.len(), 1);
-        // Mana sucessfully executed
+        // Mana successfully executed
         assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // Checking final root
         assert_ne!(root, new_root);
@@ -1401,7 +1373,8 @@ mod tests {
             root,
             &bob_account(),
             "run_test",
-            (2..4).flat_map(|x| encode_int(x).to_vec()).collect()
+            (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
+            0
         );
         // 3 results: signedTx, It's Receipt, Mana receipt
         assert_eq!(apply_results.len(), 3);
@@ -1411,7 +1384,7 @@ mod tests {
         // Receipt successfully executed
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_results[1].new_receipts.len(), 1);
-        // Mana sucessfully executed
+        // Mana successfully executed
         assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // Checking final root
         assert_ne!(root, new_root);

@@ -240,7 +240,8 @@ impl User {
         root: MerkleHash,
         contract_id: &str,
         method_name: &str,
-        args: Vec<u8>
+        args: Vec<u8>,
+        amount: u64
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
                 nonce: self.nonce,
@@ -248,7 +249,7 @@ impl User {
                 contract_id: contract_id.to_string(),
                 method_name: method_name.as_bytes().to_vec(),
                 args,
-                amount: 0
+                amount,
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
