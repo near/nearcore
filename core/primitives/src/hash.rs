@@ -5,7 +5,7 @@ use heapsize;
 use std::fmt;
 use crate::traits::Encode;
 
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Copy, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
 impl CryptoHash {
@@ -13,6 +13,18 @@ impl CryptoHash {
         let mut d = [0; 32];
         d.copy_from_slice(data);
         CryptoHash(Digest(d))
+    }
+}
+
+impl std::hash::Hash for CryptoHash {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
+    }
+}
+
+impl PartialEq for CryptoHash {
+    fn eq(&self, other: &CryptoHash) -> bool {
+        self.0 == other.0
     }
 }
 

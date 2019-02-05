@@ -6,6 +6,7 @@ use crate::hash::CryptoHash;
 
 use super::aggregate_signature;
 use super::types;
+
 pub use super::serialize::{Encode, Decode};
 
 /// Trait to abstract the way signing happens.
