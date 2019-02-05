@@ -884,7 +884,6 @@ impl Runtime {
                         }
                     },
                     ReceiptBody::Callback(callback_res) => {
-                        //callback_info = Some(callback_res.info.clone());
                         self.apply_callback(
                             state_update,
                             &callback_res,
