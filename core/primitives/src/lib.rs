@@ -13,11 +13,12 @@ extern crate serde_json;
 
 pub mod aggregate_signature;
 pub mod hash;
+pub mod network;
 pub mod serialize;
 pub mod signature;
 pub mod signer;
+pub mod test_utils;
 pub mod traits;
 pub mod types;
 pub mod merkle;
 pub mod utils;
-pub mod test_utils;

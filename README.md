@@ -166,16 +166,16 @@ Navigate to the root of the project. To start the network from a new state remov
 
 Launch the boot node:
 
-    cargo run -- --p2p_port 30333 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1 --chain-spec-file ./node/configs/res/testnet_chain.json
-    
-Then launch the secondary node:
+    cargo run -- --addr 127.0.0.1:3000 --rpc_port 3030 --base-path=test1 --test-network-key-seed 1 --chain-spec-file ./node/configs/res/testnet_chain.json
 
-    cargo run -- --p2p_port 30334 --rpc_port 3031 --base-path=test2 --boot-node /ip4/127.0.0.1/tcp/30333/p2p/QmXiB3jqqn2rpiKU7k1h7NJYeBg8WNSx9DiTRKz9ti2KSK --chain-spec-file ./node/configs/res/testnet_chain.json --account-id bob.near
+The boot node will print the string that we can use to boot from it. For example:
 
-Wait until both nodes print the following (otherwise retry the previous steps):
+    To boot from this node: 127.0.0.1:3000/D5kxnrPGZFtGXEniPV76CURQod4t3YMy1Q6qpWQm9mCe
     
-    New external node address ...
-    
+Launch the second node using the first one as the boot:
+
+    cargo run -- --addr 127.0.0.1:3001 --rpc_port 3031 --base-path=test2 --test-network-key-seed 2 --chain-spec-file ./node/configs/res/testnet_chain.json --boot-nodes 127.0.0.1:3000/D5kxnrPGZFtGXEniPV76CURQod4t3YMy1Q6qpWQm9mCe
+
 Submit account creation transaction on one node:
 
     ./scripts/rpc.py create_account jason 1 --public-key 22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV

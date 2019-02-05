@@ -252,3 +252,8 @@ impl PartialEq for AuthorityStake {
 }
 
 impl Eq for AuthorityStake {}
+
+// network types (put here to avoid cyclic dependency)
+/// unique identifier for nodes on the network
+// Use hash for now
+pub type PeerId = CryptoHash;

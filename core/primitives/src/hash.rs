@@ -22,6 +22,12 @@ impl<'a> From<&'a CryptoHash> for String {
     }
 }
 
+impl Into<CryptoHash> for String {
+    fn into(self) -> CryptoHash {
+       CryptoHash::from(bs58::decode(self).into_vec().unwrap())
+    }
+}
+
 impl Default for CryptoHash {
     fn default() -> Self {
         CryptoHash(Digest(Default::default()))

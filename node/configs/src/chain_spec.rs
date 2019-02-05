@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use serde_json;
 
 use primitives::types::{AccountId, Balance, ReadablePublicKey};
+use primitives::network::PeerInfo;
 
 /// Specification of the blockchain in general.
 pub struct ChainSpec {
@@ -20,7 +21,7 @@ pub struct ChainSpec {
     pub beacon_chain_epoch_length: u64,
     pub beacon_chain_num_seats_per_slot: u64,
 
-    pub boot_nodes: Vec<String>,
+    pub boot_nodes: Vec<PeerInfo>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,7 +32,7 @@ struct ChainSpecRef {
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
-    boot_nodes: Vec<String>,
+    boot_nodes: Vec<PeerInfo>,
 }
 
 #[derive(Deserialize, Serialize)]
