@@ -11,9 +11,10 @@ use transaction::{SignedTransaction, verify_transaction_signature};
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
     GetBlocksByIndexRequest, GetTransactionRequest, SignedBeaconBlockResponse,
-    SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionRequest,
-    SubmitTransactionResponse, TransactionInfoResponse, TransactionResultResponse,
-    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
+    SignedBeaconBlocksResponse, SignedShardBlockResponse, SignedShardBlocksResponse,
+    SubmitTransactionRequest, SubmitTransactionResponse, TransactionInfoResponse,
+    TransactionResultResponse, ViewAccountRequest, ViewAccountResponse, ViewStateRequest,
+    ViewStateResponse,
 };
 
 pub struct HttpApi {
@@ -141,7 +142,22 @@ impl HttpApi {
         let start = r.start.unwrap_or_else(|| self.client.shard_chain.chain.best_index());
         let limit = r.limit.unwrap_or(25);
         self.client.shard_chain.chain.get_blocks_by_index(start, limit).map(|blocks| {
-            SignedShardBlocksResponse { blocks: blocks.into_iter().map(|x| x.into()).collect() }
+            SignedShardBlocksResponse {
+                blocks: blocks.into_iter().map(|x| x.into()).collect(),
+            }
+        })
+    }
+
+    pub fn get_beacon_blocks_by_index(
+        &self,
+        r: &GetBlocksByIndexRequest,
+    ) -> Result<SignedBeaconBlocksResponse, String> {
+        let start = r.start.unwrap_or_else(|| self.client.beacon_chain.chain.best_index());
+        let limit = r.limit.unwrap_or(25);
+        self.client.beacon_chain.chain.get_blocks_by_index(start, limit).map(|blocks| {
+            SignedBeaconBlocksResponse {
+                blocks: blocks.into_iter().map(|x| x.into()).collect(),
+            }
         })
     }
 
