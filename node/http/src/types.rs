@@ -186,7 +186,6 @@ pub struct SignedShardBlockResponse {
     pub body: ShardBlockResponse,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
-    pub signature: GroupSignature,
 }
 
 impl From<SignedShardBlock> for SignedShardBlockResponse {
@@ -194,7 +193,6 @@ impl From<SignedShardBlock> for SignedShardBlockResponse {
         SignedShardBlockResponse {
             body: block.body.into(),
             hash: block.hash,
-            signature: block.signature,
         }
     }
 }
@@ -214,6 +212,11 @@ pub struct GetBlocksByIndexRequest {
 #[derive(Serialize, Deserialize)]
 pub struct SignedShardBlocksResponse {
     pub blocks: Vec<SignedShardBlockResponse>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedBeaconBlocksResponse {
+    pub blocks: Vec<SignedBeaconBlockResponse>
 }
 
 #[derive(Serialize, Deserialize)]

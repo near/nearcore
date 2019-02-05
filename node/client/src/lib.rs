@@ -243,7 +243,7 @@ impl Client {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
-            if self.shard_chain.apply_block(&next_shard_block) {
+            if self.shard_chain.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
             }
             // Update the authority.

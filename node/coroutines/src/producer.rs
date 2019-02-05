@@ -54,16 +54,18 @@ pub fn spawn_block_producer(
                     let receipt_block = client.shard_chain.get_receipt_block(
                         new_shard_block.index(),
                         new_shard_block.shard_id()
-                    ).expect("No receipts for shard block");
-                    if !receipt_block.receipts.is_empty() {
-                        let receipts_task = new_receipts_tx
-                        .clone()
-                        .send(receipt_block)
-                        .map(|_| ())
-                        .map_err(|e| error!("Error sending receipts: {}", e));
-                        // First tells TxFlow to reset.
-                        // Then, redirect the receipts from the previous block for processing in the next one.
-                        tokio::spawn(txflow_task.and_then(|_| receipts_task));
+                    );
+                    if let Some(receipt_block) = receipt_block {
+                        if !receipt_block.receipts.is_empty() {
+                            let receipts_task = new_receipts_tx
+                            .clone()
+                            .send(receipt_block)
+                            .map(|_| ())
+                            .map_err(|e| error!("Error sending receipts: {}", e));
+                            // First tells TxFlow to reset.
+                            // Then, redirect the receipts from the previous block for processing in the next one.
+                            tokio::spawn(txflow_task.and_then(|_| receipts_task));
+                        }
                     }
                 } else {
                     // Tells TxFlow to stop.

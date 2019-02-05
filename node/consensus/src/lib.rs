@@ -13,7 +13,6 @@ extern crate primitives;
 extern crate network;
 extern crate beacon;
 extern crate coroutines;
-extern crate substrate_network_libp2p;
 extern crate txflow;
 pub mod adapters;
 pub mod passthrough;
