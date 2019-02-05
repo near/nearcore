@@ -299,9 +299,6 @@ mod tests {
     /// Connect many nodes to a single boot node, i.e. star. Check that all nodes manage to discover
     /// each other by sending a message from every node to every other node.
     fn test_many_star() {
-        // Spawn five managers send five messages from each manager to another manager.
-        // Manager i sends to manager j message five*i + j.
-
         const NUM_TASKS: usize = 20;
 
         let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
@@ -344,7 +341,7 @@ mod tests {
         let acc = Arc::new(RwLock::new(HashSet::new()));
         let acc1 = acc.clone();
 
-        // Send 10 messages from each peer to each other peer and check the receival.
+        // Send messages from each peer to each other peer and check the receival.
         wait_all_peers_connected(50, 10000, &all_pms, NUM_TASKS);
         let task = futures::lazy(move || {
             for i in 0..NUM_TASKS {
@@ -361,7 +358,6 @@ mod tests {
                     .map_err(|_| panic!("Error sending messages"));
                 tokio::spawn(task);
 
-                // Create task that waits for 1 sec to receive message.
                 let inc_msg_rx = v_inc_msg_rx.remove(0);
                 let acc = acc.clone();
                 let task = inc_msg_rx
