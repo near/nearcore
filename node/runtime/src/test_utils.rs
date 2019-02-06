@@ -3,7 +3,7 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::types::{MerkleHash, GroupSignature, AccountingInfo};
+use primitives::types::{MerkleHash, GroupSignature, AccountingInfo, AccountId};
 use primitives::signature::{get_key_pair, DEFAULT_SIGNATURE, PublicKey};
 use primitives::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
@@ -22,6 +22,21 @@ use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
 
 use super::{ApplyResult, ApplyState, Runtime, set, callback_id_to_bytes};
+
+pub fn alice_account() -> AccountId {
+    "alice.near".to_string()
+}
+pub fn bob_account() -> AccountId {
+    "bob.near".to_string()
+}
+pub fn eve_account() -> AccountId {
+    "eve.near".to_string()
+}
+
+pub fn default_code_hash() -> CryptoHash {
+    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+    hash(genesis_wasm)
+}
 
 pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
     use rand::{SeedableRng, XorShiftRng};
