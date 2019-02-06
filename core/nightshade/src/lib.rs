@@ -3,8 +3,6 @@ use primitives::hash::{CryptoHash, hash_struct};
 use std::cmp::max;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate log;
 
 #[cfg(test)]
 mod fake_network;
@@ -21,6 +19,7 @@ pub enum NSResult {
 }
 
 impl NSResult {
+    #[allow(dead_code)]
     fn is_success(&self) -> bool {
         match &self {
             NSResult::Success => true,
@@ -28,6 +27,7 @@ impl NSResult {
         }
     }
 
+    #[allow(dead_code)]
     fn is_finalize(&self) -> bool {
         match &self {
             NSResult::Finalize(_) => true,
@@ -180,11 +180,11 @@ impl Nightshade {
         }
     }
 
-    pub fn create_message(&mut self) -> (Message, NSResult) {
+    pub fn create_message(&mut self, data: Vec<u8>) -> (Message, NSResult) {
         let m = Message {
             author: self.owner_id,
             parents: self.tips.iter().cloned().collect(),
-            data: vec![],
+            data,
         };
         let r = self.process_message(m.clone());
         (m, r)
@@ -210,7 +210,7 @@ mod tests {
         for _ in 0..num_rounds {
             let mut messages = vec![];
             for n in ns.iter_mut() {
-                let (m, r) = n.create_message();
+                let (m, r) = n.create_message(vec![]);
                 assert!(r.is_success());
                 messages.push(m);
             }
@@ -224,7 +224,7 @@ mod tests {
             }
         }
         for n in ns.iter_mut() {
-            let (_, r) = n.create_message();
+            let (_, r) = n.create_message(vec![]);
             assert!(r.is_finalize());
         }
     }
@@ -263,7 +263,7 @@ mod tests {
         let (m5, mh5) = message(0, vec![mh4]);
         assert_eq!(ns.process_message(m5), NSResult::Retrieve(vec![mh4]));
         assert_eq!(ns.process_message(m4), NSResult::Success);
-        let (m6, r6) = ns.create_message();
+        let (m6, r6) = ns.create_message(vec![]);
         assert_eq!(r6, NSResult::Success);
         assert_eq!(ns.process_message(m6), NSResult::Known);
     }
