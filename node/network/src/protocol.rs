@@ -61,7 +61,10 @@ pub fn spawn_network(
     let task = inc_msg_rx.for_each(move |(_, data)| {
         match Decode::decode(&data) {
             Ok(m) => match m {
-                Message::Gossip(gossip) => forward_msg(inc_gossip_tx.clone(), *gossip),
+                Message::Gossip(gossip) => {
+                    println!("Received gossip from {:?}", gossip.sender_uid);
+                    forward_msg(inc_gossip_tx.clone(), *gossip)
+                },
                 Message::BlockAnnounce(block) => {
                     let unboxed = *block;
                     forward_msg(inc_block_tx.clone(), (unboxed.0, unboxed.1));
@@ -78,12 +81,14 @@ pub fn spawn_network(
     let client1 = client.clone();
     let peer_manager1 = peer_manager.clone();
     let task = out_gossip_rx.for_each(move |g| {
+        println!("About to send gossip to: {}", &g.receiver_uid);
         let auth_map = client1.get_recent_uid_to_authority_map();
         let out_channel = auth_map
             .get(&g.receiver_uid)
             .map(|auth| auth.account_id.clone())
             .and_then(|account_id| peer_manager1.get_account_channel(account_id));
         if let Some(ch) = out_channel {
+            println!("Sending gossip to {:?}", g.receiver_uid);
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         }

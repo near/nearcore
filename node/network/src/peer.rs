@@ -284,11 +284,15 @@ impl Stream for Peer {
                                     };
                                 }
                             };
+                            // Re-insert new entry with updated info.
+                            let val = all_peer_states.remove(&info).unwrap();
+                            all_peer_states.insert(info.clone(), val);
                             let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
                                 &self.node_info,
                                 all_peer_states.keys().cloned().collect(),
                                 stream.take().expect(STATE_ERR),
                             );
+                            println!("{} Connected peer {}", self.node_info, info);
                             Ready { info, stream, out_msg_tx, evicted: false }
                         }
                         // If error was received then log it and continue.
@@ -361,9 +365,7 @@ impl Stream for Peer {
                             evicted: false,
                         },
                         Ok(Async::Ready(Some(Handshake { info: hand_info, .. }))) => {
-                            if info.id != hand_info.id
-                                || info.account_id != hand_info.account_id
-                                || info.addr != hand_info.addr
+                            if info.id != hand_info.id || info.addr != hand_info.addr
                             {
                                 // Known info does not match the handshake. Try again later with
                                 // the new info.
@@ -373,6 +375,13 @@ impl Stream for Peer {
                                     evicted: false,
                                 }
                             } else {
+                                if info.account_id != hand_info.account_id {
+                                    *info = hand_info.clone();
+                                    // Re-insert the entry into the map.
+                                    let val = all_peer_states.remove(info).unwrap();
+                                    all_peer_states.insert(info.clone(), val);
+                                }
+                                println!("{} Connected peer {}", self.node_info, info);
                                 Ready {
                                     info: info.clone(),
                                     stream: stream.take().expect(STATE_ERR),
@@ -403,10 +412,13 @@ impl Stream for Peer {
                 }
                 Ready { info, stream, .. } => match stream.poll().map_err(cbor_err) {
                     // Connection was closed. Reconnect later.
-                    Ok(Async::Ready(None)) => Unconnected {
-                        info: info.clone(),
-                        connect_timer: get_delay(self.reconnect_delay),
-                        evicted: false,
+                    Ok(Async::Ready(None)) => {
+                        println!("{} Unconnected peer {}", self.node_info, info);
+                        Unconnected {
+                            info: info.clone(),
+                            connect_timer: get_delay(self.reconnect_delay),
+                            evicted: false,
+                        }
                     },
                     // Actual message transmitted over the network.
                     Ok(Async::Ready(Some(Message(data)))) => {

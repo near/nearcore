@@ -49,6 +49,7 @@ impl PeerManager {
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
         out_msg_rx: Receiver<(PeerId, Vec<u8>)>,
     ) -> Self {
+        println!("Node info {:?}", node_info);
         let all_peer_states = Arc::new(RwLock::new(HashMap::new()));
         // Spawn peers that represent boot nodes.
         Peer::spawn_from_known(
@@ -144,9 +145,13 @@ impl PeerManager {
             if info.account_id.as_ref() == Some(&account_id) {
                 match state.read().expect(POISONED_LOCK_ERR).deref() {
                     PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                    _ => None,
+                    _ => {
+                        println!("{:?} not ready", info);
+                        None
+                    },
                 }
             } else {
+                println!("{:?}!={:?} (info: {:?})", info.account_id.as_ref(), &account_id, &info);
                 None
             }
         })

@@ -330,7 +330,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 // Independently on whether we were stopped or not, if we receive a reset signal we
                 // reset the state and the dag.
                 Ok(Async::Ready(Some(Control::Reset(state)))) => {
-                    println!("Received Reset control for beacon block index {}", state.beacon_block_index);
+                    println!("Received Reset control for beacon block index {}; owner_uid: {}", state.beacon_block_index, state.owner_uid);
                     self.state = Some(state);
                     self.init_dag();
                     break;
@@ -388,6 +388,7 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
         loop {
             match self.payload_receiver.poll() {
                 Ok(Async::Ready(Some(payload))) => {
+                    println!("Received payload {:?}", payload);
                     self.pending_payload.union_update(payload)
                 },
                 Ok(Async::NotReady) => break,
