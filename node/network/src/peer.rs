@@ -9,6 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::DerefMut;
+use std::sync::RwLockWriteGuard;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::codec::Framed;
@@ -17,7 +18,6 @@ use tokio::net::TcpStream;
 use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 use tokio_serde_cbor::Codec;
-use std::sync::RwLockWriteGuard;
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -292,7 +292,6 @@ impl Stream for Peer {
                                 all_peer_states.keys().cloned().collect(),
                                 stream.take().expect(STATE_ERR),
                             );
-                            println!("{} Connected peer {}", self.node_info, info);
                             Ready { info, stream, out_msg_tx, evicted: false }
                         }
                         // If error was received then log it and continue.
@@ -320,9 +319,7 @@ impl Stream for Peer {
                         let framed_stream = Framed::new(socket, Codec::new());
                         let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
                             &self.node_info,
-                            all_peer_states.keys()
-                                .cloned()
-                                .collect(),
+                            all_peer_states.keys().cloned().collect(),
                             framed_stream,
                         );
                         let hand_timeout = get_delay(RESPONSE_HANDSHAKE_TIMEOUT);
@@ -352,7 +349,7 @@ impl Stream for Peer {
                             connect_timer: get_delay(self.reconnect_delay),
                             evicted: false,
                         }
-                    },
+                    }
                 },
                 Connected { info, stream, out_msg_tx, hand_timeout, .. } =>
                 // Wait for the handshake reply.
@@ -365,8 +362,7 @@ impl Stream for Peer {
                             evicted: false,
                         },
                         Ok(Async::Ready(Some(Handshake { info: hand_info, .. }))) => {
-                            if info.id != hand_info.id || info.addr != hand_info.addr
-                            {
+                            if info.id != hand_info.id || info.addr != hand_info.addr {
                                 // Known info does not match the handshake. Try again later with
                                 // the new info.
                                 Unconnected {
@@ -381,7 +377,6 @@ impl Stream for Peer {
                                     let val = all_peer_states.remove(info).unwrap();
                                     all_peer_states.insert(info.clone(), val);
                                 }
-                                println!("{} Connected peer {}", self.node_info, info);
                                 Ready {
                                     info: info.clone(),
                                     stream: stream.take().expect(STATE_ERR),
@@ -412,13 +407,10 @@ impl Stream for Peer {
                 }
                 Ready { info, stream, .. } => match stream.poll().map_err(cbor_err) {
                     // Connection was closed. Reconnect later.
-                    Ok(Async::Ready(None)) => {
-                        println!("{} Unconnected peer {}", self.node_info, info);
-                        Unconnected {
-                            info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay),
-                            evicted: false,
-                        }
+                    Ok(Async::Ready(None)) => Unconnected {
+                        info: info.clone(),
+                        connect_timer: get_delay(self.reconnect_delay),
+                        evicted: false,
                     },
                     // Actual message transmitted over the network.
                     Ok(Async::Ready(Some(Message(data)))) => {
