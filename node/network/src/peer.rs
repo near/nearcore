@@ -9,6 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::DerefMut;
+use std::sync::RwLockWriteGuard;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::codec::Framed;
@@ -17,7 +18,6 @@ use tokio::net::TcpStream;
 use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 use tokio_serde_cbor::Codec;
-use std::sync::RwLockWriteGuard;
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -284,6 +284,9 @@ impl Stream for Peer {
                                     };
                                 }
                             };
+                            // Re-insert new entry with updated info.
+                            let val = all_peer_states.remove(&info).unwrap();
+                            all_peer_states.insert(info.clone(), val);
                             let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
                                 &self.node_info,
                                 all_peer_states.keys().cloned().collect(),
@@ -316,9 +319,7 @@ impl Stream for Peer {
                         let framed_stream = Framed::new(socket, Codec::new());
                         let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
                             &self.node_info,
-                            all_peer_states.keys()
-                                .cloned()
-                                .collect(),
+                            all_peer_states.keys().cloned().collect(),
                             framed_stream,
                         );
                         let hand_timeout = get_delay(RESPONSE_HANDSHAKE_TIMEOUT);
@@ -348,7 +349,7 @@ impl Stream for Peer {
                             connect_timer: get_delay(self.reconnect_delay),
                             evicted: false,
                         }
-                    },
+                    }
                 },
                 Connected { info, stream, out_msg_tx, hand_timeout, .. } =>
                 // Wait for the handshake reply.
@@ -361,10 +362,7 @@ impl Stream for Peer {
                             evicted: false,
                         },
                         Ok(Async::Ready(Some(Handshake { info: hand_info, .. }))) => {
-                            if info.id != hand_info.id
-                                || info.account_id != hand_info.account_id
-                                || info.addr != hand_info.addr
-                            {
+                            if info.id != hand_info.id || info.addr != hand_info.addr {
                                 // Known info does not match the handshake. Try again later with
                                 // the new info.
                                 Unconnected {
@@ -373,6 +371,12 @@ impl Stream for Peer {
                                     evicted: false,
                                 }
                             } else {
+                                if info.account_id != hand_info.account_id {
+                                    *info = hand_info.clone();
+                                    // Re-insert the entry into the map.
+                                    let val = all_peer_states.remove(info).unwrap();
+                                    all_peer_states.insert(info.clone(), val);
+                                }
                                 Ready {
                                     info: info.clone(),
                                     stream: stream.take().expect(STATE_ERR),

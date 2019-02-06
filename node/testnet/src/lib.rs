@@ -17,7 +17,7 @@ pub fn start() {
     start_from_configs(client_cfg, network_cfg, rpc_cfg);
 }
 
-fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_cfg: RPCConfig) {
+pub fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_cfg: RPCConfig) {
     let client = Arc::new(Client::new(&client_cfg));
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.

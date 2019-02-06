@@ -144,7 +144,9 @@ impl PeerManager {
             if info.account_id.as_ref() == Some(&account_id) {
                 match state.read().expect(POISONED_LOCK_ERR).deref() {
                     PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                    _ => None,
+                    _ => {
+                        None
+                    },
                 }
             } else {
                 None
