@@ -94,14 +94,14 @@ pub fn spawn_all(num_witnesses: u64) {
         for owner_uid in 0..num_witnesses {
             let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
             let (inc_payload_tx, inc_payload_rx) = mpsc::channel(1024);
-            let (out_gossip_tx, _out_gossip_rx) = mpsc::channel(1024);
+            let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1024);
             let (control_tx, control_rx) = mpsc::channel(1024);
             let (consensus_tx, _consensus_rx) = mpsc::channel(1024);
             let witness_selector = Box::new(FakeWitnessSelector::new(owner_uid, num_witnesses));
 
             inc_gossip_tx_vec.push(inc_gossip_tx);
             inc_payload_tx_vec.push(inc_payload_tx);
-            out_gossip_rx_vec.push(_out_gossip_rx);
+            out_gossip_rx_vec.push(out_gossip_rx);
 
             let task = TxFlowTask::<FakePayload, FakeWitnessSelector>::new(
                 inc_gossip_rx,
