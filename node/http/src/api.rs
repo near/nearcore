@@ -83,9 +83,9 @@ impl HttpApi {
         let transaction: SignedTransaction = r.transaction.clone().into();
         debug!(target: "near-rpc", "Received transaction {:?}", transaction);
         let originator = transaction.body.get_originator();
-        let state_update = self.client.shard_chain.get_state_update();
+        let mut state_update = self.client.shard_chain.get_state_update();
         let public_keys = self.client.shard_chain.statedb_viewer
-            .get_public_keys_for_account(state_update, &originator)
+            .get_public_keys_for_account(&mut state_update, &originator)
             .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&transaction.clone(), &public_keys) {
             let msg =
@@ -104,7 +104,7 @@ impl HttpApi {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
         let state_update = self.client.shard_chain.get_state_update();
         let result = self.client.shard_chain.statedb_viewer
-            .view_state(state_update, &r.contract_account_id)?;
+            .view_state(&state_update, &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect(),

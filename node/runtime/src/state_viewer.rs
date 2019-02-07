@@ -56,13 +56,13 @@ impl StateDbViewer {
 
     pub fn get_public_keys_for_account(
         &self,
-        mut state_update: StateDbUpdate,
+        state_update: &mut StateDbUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
-        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
+        match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => Ok(account.public_keys),
             _ => Err(format!("account {} does not exist while viewing", account_id)),
         }
@@ -70,7 +70,7 @@ impl StateDbViewer {
 
     pub fn view_state(
         &self,
-        state_update: StateDbUpdate,
+        state_update: &StateDbUpdate,
         account_id: &AccountId
     ) -> Result<ViewStateResult, String> {
         if !is_valid_account_id(account_id) {
