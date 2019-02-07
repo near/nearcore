@@ -29,6 +29,6 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
 }
 
 pub fn get_client() -> Client {
-    let (chain_spec, signer) = generate_test_chain_spec();
+    let (chain_spec, signer, _) = generate_test_chain_spec();
     get_client_from_cfg(&chain_spec, signer)
 }

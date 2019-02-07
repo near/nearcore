@@ -288,21 +288,9 @@ impl TransactionBody {
             TransactionBody::SwapKey(_) => 1,
         }
     }
-}
 
-#[derive(Eq, Debug, Clone, Serialize, Deserialize)]
-pub struct SignedTransaction {
-    pub body: TransactionBody,
-    pub signature: StructSignature,
-    hash: CryptoHash,
-}
-
-impl SignedTransaction {
-    pub fn new(
-        signature: StructSignature,
-        body: TransactionBody,
-    ) -> Self {
-        let bytes = match body.clone() {
+    pub fn get_hash(&self) -> CryptoHash {
+        let bytes = match self.clone() {
             TransactionBody::CreateAccount(t) => {
                 let proto: transaction_proto::CreateAccountTransaction = t.into();
                 proto.write_to_bytes()
@@ -329,7 +317,23 @@ impl SignedTransaction {
             },
         };
         let bytes = bytes.unwrap();
-        let hash = hash(&bytes);
+        hash(&bytes)
+    }
+}
+
+#[derive(Eq, Debug, Clone, Serialize, Deserialize)]
+pub struct SignedTransaction {
+    pub body: TransactionBody,
+    pub signature: StructSignature,
+    hash: CryptoHash,
+}
+
+impl SignedTransaction {
+    pub fn new(
+        signature: StructSignature,
+        body: TransactionBody,
+    ) -> Self {
+        let hash = body.get_hash();
         Self {
             signature,
             body,
