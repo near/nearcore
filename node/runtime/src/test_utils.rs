@@ -66,29 +66,29 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
     }, signer)
 }
 
-pub fn get_runtime_and_state_db_viewer_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, StateDbViewer, MerkleHash) {
+pub fn get_runtime_and_state_db_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<StateDb>, MerkleHash) {
     let storage = Arc::new(create_memory_db());
     let state_db = Arc::new(StateDb::new(storage.clone()));
-    let runtime = Runtime::new(state_db.clone());
-    let genesis_root = runtime.apply_genesis_state(
+    let runtime = Runtime {};
+    let state_db_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
+    let (genesis_root, db_changes) = runtime.apply_genesis_state(
+        state_db_update,
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
         &chain_spec.initial_authorities
     );
-
-    let state_db_viewer = StateDbViewer::new(
-        state_db.clone(),
-    );
-    (runtime, state_db_viewer, genesis_root)
+    state_db.commit(db_changes).unwrap();
+    (runtime, state_db, genesis_root)
 }
 
-pub fn get_runtime_and_state_db_viewer() -> (Runtime, StateDbViewer, MerkleHash) {
+pub fn get_runtime_and_state_db() -> (Runtime, Arc<StateDb>, MerkleHash) {
     let (chain_spec, _) = generate_test_chain_spec();
-    get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec)
+    get_runtime_and_state_db_from_chain_spec(&chain_spec)
 }
 
 pub fn get_test_state_db_viewer() -> (StateDbViewer, MerkleHash) {
-    let (_, state_db_viewer, root) = get_runtime_and_state_db_viewer();
+    let (_, state_db, root) = get_runtime_and_state_db();
+    let state_db_viewer = StateDbViewer::new(state_db);
     (state_db_viewer, root)
 }
 
@@ -120,6 +120,7 @@ pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
 impl Runtime {
     pub fn apply_all_vec(
         &mut self,
+        state_db: Arc<StateDb>,
         apply_state: ApplyState,
         prev_receipts: Vec<ReceiptBlock>,
         transactions: Vec<SignedTransaction>,
@@ -129,12 +130,13 @@ impl Runtime {
         let mut txs = transactions;
         let mut results = vec![];
         loop {
-            let mut apply_result = self.apply(&cur_apply_state, &receipts, &txs);
+            let state_update = StateDbUpdate::new(state_db.clone(), cur_apply_state.root);
+            let mut apply_result = self.apply(state_update, &cur_apply_state, &receipts, &txs);
             results.push(apply_result.clone());
             if apply_result.new_receipts.is_empty() {
                 return results;
             }
-            self.state_db.commit(apply_result.db_changes).unwrap();
+            state_db.commit(apply_result.db_changes).unwrap();
             cur_apply_state = ApplyState {
                 root: apply_result.root,
                 shard_id: cur_apply_state.shard_id,
@@ -148,10 +150,11 @@ impl Runtime {
 
     pub fn apply_all(
         &mut self,
+        state_db: Arc<StateDb>,
         apply_state: ApplyState,
         transactions: Vec<SignedTransaction>,
     ) -> ApplyResult {
-        self.apply_all_vec(apply_state, vec![], transactions).pop().unwrap()
+        self.apply_all_vec(state_db, apply_state, vec![], transactions).pop().unwrap()
     }
 }
 
@@ -159,12 +162,13 @@ pub struct User {
     runtime: Runtime,
     account_id: String,
     nonce: u64,
+    state_db: Arc<StateDb>,
 }
 
 impl User {
-    pub fn new(runtime: Runtime, account_id: &str) -> Self {
+    pub fn new(runtime: Runtime, account_id: &str, state_db: Arc<StateDb>) -> Self {
         User {
-            runtime, account_id: account_id.to_string(), nonce: 1
+            runtime, account_id: account_id.to_string(), nonce: 1, state_db
         }
     }
 
@@ -181,10 +185,10 @@ impl User {
             block_index: 0
         };
         let apply_results = self.runtime.apply_all_vec(
-            apply_state, vec![], vec![transaction]
+            self.state_db.clone(), apply_state, vec![], vec![transaction]
         );
         let last_apply_result = apply_results[apply_results.len() - 1].clone();
-        self.runtime.state_db.commit(last_apply_result.db_changes).unwrap();
+        self.state_db.commit(last_apply_result.db_changes).unwrap();
         (last_apply_result.root, apply_results)
     }
 
@@ -282,11 +286,10 @@ impl User {
             block_index: 0
         };
         let apply_results = self.runtime.apply_all_vec(
-            apply_state, vec![to_receipt_block(vec![receipt])], vec![]
+            self.state_db.clone(), apply_state, vec![to_receipt_block(vec![receipt])], vec![]
         );
-        println!("applied");
         let last_apply_result = apply_results[apply_results.len() - 1].clone();
-        self.runtime.state_db.commit(last_apply_result.db_changes).unwrap();
+        self.state_db.commit(last_apply_result.db_changes).unwrap();
         (last_apply_result.root, apply_results)
     }
 
@@ -334,14 +337,14 @@ impl User {
             },
         );
         callback.results.resize(1, None);
-        let mut state_update = StateDbUpdate::new(self.runtime.state_db.clone(), root);
+        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
         set(
             &mut state_update,
             &callback_id_to_bytes(&id.clone()),
             &callback
         );
-        let (transaction, new_root) = state_update.finalize();
-        self.runtime.state_db.commit(transaction).unwrap();
+        let (new_root, transaction) = state_update.finalize();
+        self.state_db.commit(transaction).unwrap();
         let receipt = ReceiptTransaction::new(
             self.account_id.clone(),
             dst.to_string(),
@@ -356,8 +359,8 @@ impl User {
 }
 
 pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
-    let (runtime, _, genesis_root) = get_runtime_and_state_db_viewer();
-    let mut user = User::new(runtime, "alice.near");
+    let (runtime, state_db, genesis_root) = get_runtime_and_state_db();
+    let mut user = User::new(runtime, "alice.near", state_db.clone());
     let (public_key, _) = get_key_pair();
     let (root, _) = user.deploy_contract(
         genesis_root, "test_contract", public_key, wasm_binary

@@ -11,7 +11,6 @@ extern crate storage;
 extern crate wasm;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -26,7 +25,7 @@ use primitives::types::{
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
 };
-use storage::{StateDb, StateDbUpdate};
+use storage::StateDbUpdate;
 use transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody,
@@ -120,17 +119,13 @@ fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
         .unwrap_or_else(|| { debug!("set value failed"); })
 }
 
-pub struct Runtime {
-    pub state_db: Arc<StateDb>,
-}
+#[derive(Clone, Copy, Default)]
+pub struct Runtime {}
 
 impl Runtime {
-    pub fn new(state_db: Arc<StateDb>) -> Self {
-        Runtime { state_db }
-    }
 
     fn try_charge_mana(
-        &self,
+        self,
         state_update: &mut StateDbUpdate,
         block_index: BlockIndex,
         originator: &AccountId,
@@ -170,7 +165,7 @@ impl Runtime {
     }
 
     fn call_function(
-        &self,
+        self,
         state_update: &mut StateDbUpdate,
         transaction: &FunctionCallTransaction,
         hash: CryptoHash,
@@ -220,7 +215,7 @@ impl Runtime {
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
-        &mut self,
+        self,
         state_update: &mut StateDbUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -388,7 +383,7 @@ impl Runtime {
     }
 
     fn apply_async_call(
-        &mut self,
+        self,
         state_update: &mut StateDbUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
@@ -454,7 +449,7 @@ impl Runtime {
     }
 
     fn apply_callback(
-        &mut self,
+        self,
         state_update: &mut StateDbUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
@@ -564,7 +559,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        &mut self,
+        self,
         state_update: &mut StateDbUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
@@ -766,7 +761,7 @@ impl Runtime {
     }
 
     fn process_transaction(
-        runtime: &mut Self,
+        runtime: Self,
         state_update: &mut StateDbUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -806,7 +801,7 @@ impl Runtime {
     }
 
     fn process_receipt(
-        runtime: &mut Self,
+        runtime: Self,
         state_update: &mut StateDbUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -856,13 +851,13 @@ impl Runtime {
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
-        &mut self,
+        self,
+        mut state_update: StateDbUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[ReceiptBlock],
         transactions: &[SignedTransaction],
     ) -> ApplyResult {
         let mut new_receipts = HashMap::new();
-        let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
@@ -887,7 +882,7 @@ impl Runtime {
                 &mut authority_proposals
             ));
         }
-        let (db_changes, root) = state_update.finalize();
+        let (root, db_changes) = state_update.finalize();
         ApplyResult { 
             root,
             db_changes,
@@ -900,19 +895,18 @@ impl Runtime {
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
-        &self,
+        self,
+        mut state_update: StateDbUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],
         initial_authorities: &[(AccountId, ReadablePublicKey, u64)]
-    ) -> MerkleHash {
-        let mut state_db_update =
-            StateDbUpdate::new(self.state_db.clone(), MerkleHash::default());
+    ) -> (MerkleHash, storage::DBChanges) {
         let mut pk_to_acc_id = HashMap::new();
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
             // Make sure this public key is not present yet in the hash map.
             pk_to_acc_id.insert(public_key.clone(), account_id.clone());
             set(
-                &mut state_db_update,
+                &mut state_update,
                 &account_id_to_bytes(COL_ACCOUNT, &account_id),
                 &Account {
                     public_keys: vec![PublicKey::from(public_key)],
@@ -924,7 +918,7 @@ impl Runtime {
             );
             // Default code
             set(
-                &mut state_db_update,
+                &mut state_update,
                 &account_id_to_bytes(COL_CODE, &account_id),
                 &wasm_binary.to_vec(),
             );
@@ -936,7 +930,7 @@ impl Runtime {
             let mut tx_total_stake = TxTotalStake::new(0);
             tx_total_stake.add_active_stake(*initial_tx_stake);
             set(
-                &mut state_db_update,
+                &mut state_update,
                 &key,
                 &tx_total_stake,
             );
@@ -945,20 +939,17 @@ impl Runtime {
         for (account_id, _pk, amount) in initial_authorities {
             let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
             let mut account: Account = get(
-                &mut state_db_update,
+                &mut state_update,
                 &account_id_bytes,
             ).expect("account must exist");
             account.staked = *amount;
             set(
-                &mut state_db_update,
+                &mut state_update,
                 &account_id_bytes,
                 &account
             );
         }
-        let (transaction, genesis_root) = state_db_update.finalize();
-        // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
-        self.state_db.commit(transaction).expect("Failed to commit genesis state");
-        genesis_root
+        state_update.finalize()
     }
 }
 
@@ -970,26 +961,10 @@ mod tests {
     use primitives::signature::{get_key_pair};
     use storage::test_utils::create_state_db;
 
-    use crate::state_viewer::AccountViewCallResult;
+    use crate::state_viewer::{AccountViewCallResult, StateDbViewer};
     use crate::test_utils::*;
 
     use super::*;
-
-    impl Default for Runtime {
-        fn default() -> Runtime {
-            Runtime {
-                state_db: Arc::new(create_state_db()),
-            }
-        }
-    }
-
-    impl Clone for Runtime {
-        fn clone(&self) -> Self {
-            Runtime {
-                state_db: self.state_db.clone()
-            }
-        }
-    }
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration
 
@@ -1028,7 +1003,7 @@ mod tests {
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id), &test_account);
-        let (transaction, new_root) = state_update.finalize();
+        let (new_root, transaction) = state_update.finalize();
         state_db.commit(transaction).unwrap();
         let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
         let get_res = get(&mut new_state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id)).unwrap();
@@ -1037,8 +1012,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_simple() {
-        let (runtime, _viewer, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (new_root, apply_results) = alice.call_function(
             root, &bob_account(), "run_test", vec![], 0
         );
@@ -1058,8 +1033,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_bad_method_name() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (_, apply_results) = alice.call_function(
             root, &bob_account(), "_run_test", vec![], 0
         );
@@ -1072,8 +1047,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_empty_method_name_with_no_tokens() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (_, apply_results) = alice.call_function(
             root, &bob_account(), "", vec![], 0
         );
@@ -1086,8 +1061,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_empty_method_name_with_tokens() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (new_root, apply_results) = alice.call_function(
             root, &bob_account(), "", vec![], 10
         );
@@ -1107,8 +1082,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_with_args() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (new_root, apply_results) = alice.call_function(
             root,
             &bob_account(),
@@ -1132,8 +1107,8 @@ mod tests {
 
     #[test]
     fn test_async_call_with_no_callback() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (_, apply_results) = alice.async_call(root, &bob_account(), "run_test", vec![]);
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1149,8 +1124,8 @@ mod tests {
 
     #[test]
     fn test_async_call_with_logs() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime, &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime, &alice_account(), state_db);
         let (_, apply_results) = alice.async_call(root, &bob_account(), "log_something", vec![]);
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1166,7 +1141,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_callback() {
-        let (mut runtime, _, root) = get_runtime_and_state_db_viewer();
+        let (runtime, state_db, root) = get_runtime_and_state_db();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let accounting_info = AccountingInfo {
             originator: alice_account(),
@@ -1196,7 +1171,7 @@ mod tests {
             ReceiptBody::NewCall(async_call),
         );
         let block_index = 1;
-        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), root);
+        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
         let mut new_receipts = vec![];
         let mut logs = vec![];
         runtime.apply_receipt(
@@ -1228,8 +1203,8 @@ mod tests {
 
     #[test]
     fn test_callback() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime.clone(), &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
         let callback_id = [0; 32].to_vec();
         let (new_root, _) = alice.callback(
             root,
@@ -1239,7 +1214,7 @@ mod tests {
             callback_id.clone()
         );
         assert_ne!(root, new_root);
-        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), new_root);
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
         assert!(callback.is_none());
     }
@@ -1247,8 +1222,8 @@ mod tests {
     #[test]
     // if the callback failed, it should still be removed
     fn test_callback_failure() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime.clone(), &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
         let callback_id = [0; 32].to_vec();
         let (new_root, _) = alice.callback(
             root,
@@ -1259,19 +1234,19 @@ mod tests {
         );
         // the callback should be removed
         assert_eq!(root, new_root);
-        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), new_root);
+        let mut state_update = StateDbUpdate::new(state_db, new_root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
         assert!(callback.is_none());
     }
 
     #[test]
     fn test_nonce_update_when_deploying_contract() {
-        let (runtime, _, root) = get_runtime_and_state_db_viewer();
-        let mut alice = User::new(runtime.clone(), &alice_account());
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
         let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let (new_root, _) = alice.deploy_contract(root, &eve_account(), pub_key, wasm_binary);
-        let mut state_update = StateDbUpdate::new(runtime.state_db.clone(), new_root);
+        let mut state_update = StateDbUpdate::new(state_db, new_root);
         let account: Account = get(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account())
@@ -1286,7 +1261,8 @@ mod tests {
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }
-        let (_, viewer, root) = get_runtime_and_state_db_viewer_from_chain_spec(&chain_spec);
+        let (_, state_db, root) = get_runtime_and_state_db_from_chain_spec(&chain_spec);
+        let viewer = StateDbViewer::new(state_db);
         for i in 0..100 {
             assert_eq!(viewer.view_account(root, &format!("account{}", i)).unwrap().amount, 10000)
         }

@@ -3,11 +3,11 @@ extern crate bencher;
 
 use bencher::Bencher;
 
-use node_runtime::test_utils::{get_runtime_and_state_db_viewer, User, setup_test_contract};
+use node_runtime::test_utils::{get_runtime_and_state_db, User, setup_test_contract};
 
 fn runtime_send_money(bench: &mut Bencher) {
-    let (runtime, _, mut root) = get_runtime_and_state_db_viewer();
-    let mut user = User::new(runtime, "alice.near");
+    let (runtime, state_db, mut root) = get_runtime_and_state_db();
+    let mut user = User::new(runtime, "alice.near", state_db);
     bench.iter(|| {
         let (new_root, _) = user.send_money(root, "bob.near", 1);
         root = new_root;
