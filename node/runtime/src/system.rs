@@ -321,8 +321,9 @@ mod tests {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
         }
         assert_ne!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -333,7 +334,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &bob_account());
+        let result2 = viewer.view_account(&mut state_update, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -355,8 +356,9 @@ mod tests {
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Failed);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -367,7 +369,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(apply_result.root, &bob_account());
+        let result2 = viewer.view_account(&mut state_update, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -392,8 +394,9 @@ mod tests {
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Failed);
         assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // assert_eq!(apply_result.new_receipts.len(), 0);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -404,7 +407,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &eve_account());
+        let result2 = viewer.view_account(&mut state_update, &eve_account());
         assert!(result2.is_err());
     }
 
@@ -414,8 +417,9 @@ mod tests {
         let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (new_root, _) = alice.create_account(root, &eve_account(), 10);
         assert_ne!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -426,7 +430,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &eve_account());
+        let result2 = viewer.view_account(&mut state_update, &eve_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -452,8 +456,9 @@ mod tests {
         ] { 
             let (new_root, _) = alice.create_account(root, invalid_account_name, 10);
             assert_eq!(root, new_root);
-            let viewer = StateDbViewer::new(state_db.clone());
-            let result1 = viewer.view_account(new_root, &alice_account());
+            let viewer = StateDbViewer {};
+            let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+            let result1 = viewer.view_account(&mut state_update, &alice_account());
             assert_eq!(
                 result1.unwrap(),
                 AccountViewCallResult {
@@ -473,8 +478,9 @@ mod tests {
         let mut alice = User::new(runtime, &alice_account(), state_db.clone());
         let (new_root, _) = alice.create_account(root, &bob_account(), 10);
         assert_ne!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -485,7 +491,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &bob_account());
+        let result2 = viewer.view_account(&mut state_update, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {

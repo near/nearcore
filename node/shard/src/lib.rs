@@ -93,7 +93,7 @@ impl ShardBlockChain {
         let genesis = SignedShardBlock::genesis(genesis_root);
 
         let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
-        let statedb_viewer = StateDbViewer::new(state_db.clone());
+        let statedb_viewer = StateDbViewer {};
         Self {
             chain,
             storage,
@@ -104,6 +104,11 @@ impl ShardBlockChain {
             runtime,
             statedb_viewer
         }
+    }
+
+    pub fn get_state_update(&self) -> StateDbUpdate {
+        let root = self.chain.best_block().merkle_root_state();
+        StateDbUpdate::new(self.state_db.clone(), root)
     }
 
     #[inline]

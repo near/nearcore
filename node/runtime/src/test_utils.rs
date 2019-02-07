@@ -86,10 +86,11 @@ pub fn get_runtime_and_state_db() -> (Runtime, Arc<StateDb>, MerkleHash) {
     get_runtime_and_state_db_from_chain_spec(&chain_spec)
 }
 
-pub fn get_test_state_db_viewer() -> (StateDbViewer, MerkleHash) {
+pub fn get_test_state_db_viewer() -> (StateDbViewer, StateDbUpdate) {
     let (_, state_db, root) = get_runtime_and_state_db();
-    let state_db_viewer = StateDbViewer::new(state_db);
-    (state_db_viewer, root)
+    let state_db_viewer = StateDbViewer {};
+    let state_update = StateDbUpdate::new(state_db, root);
+    (state_db_viewer, state_update)
 }
 
 pub fn encode_int(val: i32) -> [u8; 4] {

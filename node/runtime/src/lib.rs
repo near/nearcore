@@ -970,8 +970,8 @@ mod tests {
 
     #[test]
     fn test_genesis_state() {
-        let (viewer, root) = get_test_state_db_viewer();
-        let result = viewer.view_account(root, &alice_account());
+        let (viewer, mut state_update) = get_test_state_db_viewer();
+        let result = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result.unwrap(),
             AccountViewCallResult {
@@ -1262,9 +1262,13 @@ mod tests {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }
         let (_, state_db, root) = get_runtime_and_state_db_from_chain_spec(&chain_spec);
-        let viewer = StateDbViewer::new(state_db);
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db, root);
         for i in 0..100 {
-            assert_eq!(viewer.view_account(root, &format!("account{}", i)).unwrap().amount, 10000)
+            assert_eq!(
+                viewer.view_account(&mut state_update, &format!("account{}", i)).unwrap().amount, 
+                10000
+            )
         }
     }
 }
