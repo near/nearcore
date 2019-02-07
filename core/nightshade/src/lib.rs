@@ -46,7 +46,9 @@ pub struct Message {
 #[derive(Debug)]
 struct Node {
     message: Message,
+    depth: i64,
     endorses: AuthorityId,
+    last_depth: Vec<i64>,
     max_score: Vec<u64>,
     max_confidence: Vec<u64>,
 }
@@ -55,7 +57,8 @@ pub struct Nightshade {
     owner_id: usize,
     num_authorities: usize,
     nodes: HashMap<CryptoHash, Node>,
-    last_message_per_authority: HashMap<AuthorityId, CryptoHash>,
+    nodes_per_author: Vec<HashMap<i64, CryptoHash>>,
+    global_last_depth: Vec<i64>,
     tips: HashSet<CryptoHash>,
     pending_messages: Vec<Message>,
 }
@@ -66,7 +69,8 @@ impl Nightshade {
             owner_id,
             num_authorities,
             nodes: Default::default(),
-            last_message_per_authority: Default::default(),
+            nodes_per_author: vec![Default::default(); num_authorities],
+            global_last_depth: vec![-1; num_authorities],
             pending_messages: Default::default(),
             tips: Default::default(),
         }
@@ -116,24 +120,34 @@ impl Nightshade {
             return NSResult::Retrieve(missing_messages);
         }
         let endorses;
+        let mut last_depth = vec![-1; self.num_authorities];
         let mut max_score = vec![0; self.num_authorities];
         let mut max_confidence = vec![0; self.num_authorities];
         if message.parents.is_empty() {
             endorses = message.author;
             max_score[message.author] = 1;
         } else {
-            let mut local_score = vec![0; self.num_authorities];
-            let mut parents_per_author = vec![CryptoHash::default(); self.num_authorities];
+            let mut local_score: Vec<u64> = vec![0; self.num_authorities];
             for parent in message.parents.iter() {
                 if self.tips.contains(parent) {
                     self.tips.remove(parent);
                 }
                 let parent_node = self.nodes.get(parent).expect("Checked that parents are present");
-                local_score[parent_node.endorses] += 1;
-                parents_per_author[parent_node.message.author] = *parent;
                 for i in 0..self.num_authorities {
+                    last_depth[i] = max(last_depth[i], parent_node.last_depth[i]);
                     max_score[i] = max(max_score[i], parent_node.max_score[i]);
                     max_confidence[i] = max(max_confidence[i], parent_node.max_confidence[i]);
+                }
+            }
+            for i in 0..self.num_authorities {
+                if last_depth[i] > self.global_last_depth[i] {
+                    self.global_last_depth[i] = last_depth[i];
+                }
+                if last_depth[i] != -1 {
+                    let node = self.nodes.get(self.nodes_per_author[i].get(&(last_depth[i] as i64)).expect("Depth should be present")).expect("Node should be present");
+                    if local_score[node.endorses] <= (self.num_authorities * 2 / 3) as u64 {
+                        local_score[node.endorses] += 1;
+                    }
                 }
             }
             for i in 0..self.num_authorities {
@@ -145,10 +159,10 @@ impl Nightshade {
             endorses = candidates[0];
 
             let mut confidence = 0;
-            for p in parents_per_author {
-                if p != CryptoHash::default() {
-                    let parent_node = self.nodes.get(&p).expect("Checked that parents are present");
-                    if parent_node.endorses == endorses && parent_node.max_confidence[endorses] == max_confidence[endorses] && parent_node.max_score[endorses] == max_score[endorses] {
+            for i in 0..self.num_authorities {
+                if last_depth[i] != -1 {
+                    let node = self.nodes.get(self.nodes_per_author[i].get(&(last_depth[i] as i64)).expect("Depth should be present")).expect("Node should be present");
+                    if node.endorses == endorses && node.max_confidence[endorses] == max_confidence[endorses] && node.max_score[endorses] == max_score[endorses] {
                         confidence += 1;
                     }
                 }
@@ -158,15 +172,22 @@ impl Nightshade {
             }
         }
         self.tips.insert(h);
-        self.last_message_per_authority.insert(message.author, h);
         let mut finalize = true;
         for i in 0..self.num_authorities {
             if i != endorses && max_confidence[endorses] - max_confidence[i] < 3 {
                 finalize = false;
             }
         }
+        let depth = last_depth[message.author] + 1;
+        last_depth[message.author] = depth;
+        self.nodes_per_author[message.author].insert(depth, h);
         let node = Node {
-            message, endorses, max_score, max_confidence
+            message,
+            depth,
+            endorses,
+            last_depth,
+            max_score,
+            max_confidence
         };
         if self.owner_id == 0 {
             println!("Node: {:?}", node);
@@ -188,6 +209,10 @@ impl Nightshade {
         };
         let r = self.process_message(m.clone());
         (m, r)
+    }
+
+    pub fn copy_message_data_by_hash(&self, hash: &CryptoHash) -> Option<Message> {
+        self.nodes.get(hash).map(|n| n.message.clone())
     }
 }
 
