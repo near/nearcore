@@ -97,15 +97,17 @@ impl StateDbUpdate {
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
-    pub fn finalize(mut self) -> (DBChanges, MerkleHash) {
+    pub fn finalize(mut self) -> (MerkleHash, DBChanges) {
         if !self.prospective.is_empty() {
             self.commit();
         }
-        self.state_db.trie.update(
+        let (db_changes, root) = self.state_db.trie.update(
             &self.root,
-          self.committed
+            self.committed
                 .iter()
-                .map(|(key, value)| (key.clone(), value.clone())))
+                .map(|(key, value)| (key.clone(), value.clone()))
+        );
+        (root, db_changes)
     }
     pub fn iter(&self, prefix: &[u8]) -> Result<StateDbUpdateIterator, String> {
         StateDbUpdateIterator::new(self, prefix, b"", None)
@@ -359,7 +361,7 @@ mod tests {
         state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
-        let (transaction, new_root) = state_db_update.finalize();
+        let (new_root, transaction) = state_db_update.finalize();
         state_db.commit(transaction).ok();
         let state_db_update2 = StateDbUpdate::new(state_db.clone(), new_root);
         assert_eq!(state_db_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
@@ -374,7 +376,7 @@ mod tests {
         let mut state_db_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
         state_db_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         state_db_update.set(b"aaa", &DBValue::from_slice(b"puppy"));
-        let (transaction, new_root) = state_db_update.finalize();
+        let (new_root, transaction) = state_db_update.finalize();
         state_db.commit(transaction).ok();
 
         let mut state_db_update = StateDbUpdate::new(state_db.clone(), new_root);

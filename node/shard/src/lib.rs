@@ -17,9 +17,9 @@ use configs::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex};
+use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex, MerkleHash};
 use primitives::merkle::{merklize, MerklePath};
-use storage::{extend_with_cache, read_with_cache, StateDb};
+use storage::{extend_with_cache, read_with_cache, StateDb, StateDbUpdate};
 use transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
@@ -74,19 +74,22 @@ pub struct ShardBlockChain {
     transaction_results: RwLock<HashMap<Vec<u8>, TransactionResult>>,
     pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
     pub state_db: Arc<StateDb>,
-    pub runtime: RwLock<Runtime>,
+    pub runtime: Runtime,
     pub statedb_viewer: StateDbViewer,
 }
 
 impl ShardBlockChain {
     pub fn new(chain_spec: &ChainSpec, storage: Arc<storage::Storage>) -> Self {
         let state_db = Arc::new(StateDb::new(storage.clone()));
-        let runtime = RwLock::new(Runtime::new(state_db.clone()));
-        let genesis_root = runtime.write().apply_genesis_state(
+        let runtime = Runtime {};
+        let state_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
+        let (genesis_root, db_changes) = runtime.apply_genesis_state(
+            state_update,
             &chain_spec.accounts,
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
+        state_db.commit(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
 
         let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
@@ -158,7 +161,9 @@ impl ShardBlockChain {
             block_index: last_block.body.header.index + 1,
             shard_id: last_block.body.header.shard_id,
         };
-        let apply_result = self.runtime.write().apply(
+        let state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
+        let apply_result = self.runtime.apply(
+            state_update,
             &apply_state,
             &prev_receipts,
             &transactions,

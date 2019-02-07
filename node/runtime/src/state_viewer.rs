@@ -151,7 +151,7 @@ impl StateDbViewer {
                 debug!(target: "runtime", "result of execution: {:?}", res);
                 match res.return_data {
                     Ok(return_data) => {
-                        let (_, root_after) = state_update.finalize();
+                        let (root_after, _) = state_update.finalize();
                         if root_after != root {
                             return Err("function call for viewing tried to change storage".to_string());
                         }
