@@ -160,7 +160,7 @@ impl From<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             receiver: t.receiver,
-            amount: 0
+            amount: t.amount,
         }
     }
 }
