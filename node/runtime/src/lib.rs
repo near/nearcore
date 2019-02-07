@@ -858,7 +858,6 @@ impl Runtime {
         transactions: &[SignedTransaction],
     ) -> ApplyResult {
         let mut new_receipts = HashMap::new();
-        // let mut state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
         let mut authority_proposals = vec![];
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
@@ -951,9 +950,6 @@ impl Runtime {
             );
         }
         state_update.finalize()
-        // TODO: check that genesis_root is not yet in the state_db? Also may be can check before doing this?
-        //self.state_db.commit(transaction).expect("Failed to commit genesis state");
-        //genesis_root
     }
 }
 
