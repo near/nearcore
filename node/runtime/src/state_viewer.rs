@@ -235,8 +235,8 @@ mod tests {
 
     #[test]
     fn test_view_state() {
-        let (viewer, root) = get_test_state_db_viewer();
-        let result = viewer.view_state(root, &alice_account()).unwrap();
+        let (viewer, state_update) = get_test_state_db_viewer();
+        let result = viewer.view_state(&state_update, &alice_account()).unwrap();
         assert_eq!(result.values, HashMap::default());
         // TODO: make this test actually do stuff.
     }
