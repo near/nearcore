@@ -1,6 +1,8 @@
 use std::collections::{HashSet, HashMap};
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::{CryptoHash, hash};
+use primitives::serialize::Encode;
 use std::cmp::max;
+use primitives::traits::Payload;
 
 pub type AuthorityId = usize;
 
@@ -32,15 +34,15 @@ impl NSResult {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Message {
+pub struct Message<P> {
     pub author: AuthorityId,
     pub parents: Vec<CryptoHash>,
-    pub data: Vec<u8>,
+    pub data: P,
 }
 
 #[derive(Debug)]
-struct Node {
-    message: Message,
+struct Node<P: Payload> {
+    message: Message<P>,
     depth: i64,
     endorses: AuthorityId,
     last_depth: Vec<i64>,
@@ -48,17 +50,17 @@ struct Node {
     max_confidence: Vec<u64>,
 }
 
-pub struct Nightshade {
+pub struct Nightshade<P: Payload> {
     owner_id: usize,
     num_authorities: usize,
-    nodes: HashMap<CryptoHash, Node>,
+    nodes: HashMap<CryptoHash, Node<P>>,
     nodes_per_author: Vec<HashMap<i64, CryptoHash>>,
     global_last_depth: Vec<i64>,
     tips: HashSet<CryptoHash>,
-    pending_messages: Vec<Message>,
+    pending_messages: Vec<Message<P>>,
 }
 
-impl Nightshade {
+impl<P: Payload> Nightshade<P> {
     pub fn new(owner_id: usize, num_authorities: usize) -> Self {
         Nightshade {
             owner_id,
@@ -83,7 +85,7 @@ impl Nightshade {
         result
     }
 
-    pub fn process_messages(&mut self, messages: Vec<Message>) -> NSResult {
+    pub fn process_messages(&mut self, messages: Vec<Message<P>>) -> NSResult {
         let mut missing_messages: HashSet<CryptoHash> = HashSet::default();
         for message in messages.iter() {
             for parent in message.parents.iter() {
@@ -103,8 +105,11 @@ impl Nightshade {
         result
     }
 
-    pub fn process_message(&mut self, message: Message) -> NSResult {
-        let h = hash_struct(&message);
+    pub fn process_message(&mut self, message: Message<P>) -> NSResult {
+        let bytes: Vec<u8> = message.encode().unwrap();
+        let h = hash(&bytes);
+        //let h = hash(&message.encode().expect("Serialiaze failed"));
+        // let h = hash(&Encode::encode(&message).expect("Serialization failed"));
         if self.nodes.contains_key(&h) {
             return NSResult::Known;
         }
@@ -196,7 +201,7 @@ impl Nightshade {
         }
     }
 
-    pub fn create_message(&mut self, data: Vec<u8>) -> (Message, NSResult) {
+    pub fn create_message(&mut self, data: P) -> (Message<P>, NSResult) {
         let m = Message {
             author: self.owner_id,
             parents: self.tips.iter().cloned().collect(),
@@ -206,7 +211,7 @@ impl Nightshade {
         (m, r)
     }
 
-    pub fn copy_message_data_by_hash(&self, hash: &CryptoHash) -> Option<Message> {
+    pub fn copy_message_data_by_hash(&self, hash: &CryptoHash) -> Option<Message<P>> {
         self.nodes.get(hash).map(|n| n.message.clone())
     }
 }
@@ -216,21 +221,23 @@ mod tests {
 
     use super::*;
 
-    fn message(author: AuthorityId, parents: Vec<CryptoHash>) -> (Message, CryptoHash) {
-        let m = Message { author, parents, data: vec![] };
-        let h = hash_struct(&m);
+    use crate::fake_network::FakePayload;
+
+    fn message(author: AuthorityId, parents: Vec<CryptoHash>) -> (Message<FakePayload>, CryptoHash) {
+        let m = Message { author, parents, data: FakePayload { content: 0 } };
+        let h = hash(&m.encode().unwrap());
         (m, h)
     }
 
     fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
         let mut ns = vec![];
         for i in 0..num_authorities {
-            ns.push(Nightshade::new(i, num_authorities));
+            ns.push(Nightshade::<FakePayload>::new(i, num_authorities));
         }
         for _ in 0..num_rounds {
             let mut messages = vec![];
             for n in ns.iter_mut() {
-                let (m, r) = n.create_message(vec![]);
+                let (m, r) = n.create_message(FakePayload { content: 1 });
                 assert!(r.is_success());
                 messages.push(m);
             }
@@ -244,7 +251,7 @@ mod tests {
             }
         }
         for n in ns.iter_mut() {
-            let (_, r) = n.create_message(vec![]);
+            let (_, r) = n.create_message(FakePayload { content: 0 });
             assert!(r.is_finalize());
         }
     }
@@ -283,7 +290,7 @@ mod tests {
         let (m5, mh5) = message(0, vec![mh4]);
         assert_eq!(ns.process_message(m5), NSResult::Retrieve(vec![mh4]));
         assert_eq!(ns.process_message(m4), NSResult::Success);
-        let (m6, r6) = ns.create_message(vec![]);
+        let (m6, r6) = ns.create_message(FakePayload { content: 0 });
         assert_eq!(r6, NSResult::Success);
         assert_eq!(ns.process_message(m6), NSResult::Known);
     }

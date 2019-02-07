@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use futures::try_ready;
 use log::{info, error};
 use std::cmp::min;
+use std::mem;
+use primitives::traits::Payload;
 use super::nightshade::{Nightshade, Message, NSResult, AuthorityId};
 
 pub enum Control {
@@ -18,46 +20,51 @@ const COOLDOWN_MS: u64 = 50;
 const GOSSIP_SAMPLE_SIZE: usize = 3;
 
 #[derive(Debug)]
-pub enum GossipBody {
-    Unsolicited(Message),
+pub enum GossipBody<P: Payload> {
+    Unsolicited(Message<P>),
     Fetch(Vec<CryptoHash>),
-    FetchReply(Vec<Message>),
+    FetchReply(Vec<Message<P>>),
 }
 
 #[derive(Debug)]
-pub struct Gossip {
+pub struct Gossip<P: Payload> {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
-    pub body: GossipBody,
+    pub body: GossipBody<P>,
 }
 
-pub struct ConsensusBlock {
+pub struct ConsensusBlock<P: Payload> {
     pub parent_hash: CryptoHash,
-    pub messages: Vec<Message>,
+    pub messages: Vec<Message<P>>,
 }
 
-pub struct NightshadeTask {
+pub struct NightshadeTask<P: Payload> {
     owner_id: usize,
     num_authorities: usize,
-    nightshade: Option<Nightshade>,
+    nightshade: Option<Nightshade<P>>,
     control_receiver: mpsc::Receiver<Control>,
-    gossip_receiver: mpsc::Receiver<Gossip>,
-    gossip_sender: mpsc::Sender<Gossip>,
-    consensus_sender: mpsc::Sender<ConsensusBlock>,
+    gossip_receiver: mpsc::Receiver<Gossip<P>>,
+    gossip_sender: mpsc::Sender<Gossip<P>>,
+    payload_receiver: mpsc::Receiver<P>,
+    consensus_sender: mpsc::Sender<ConsensusBlock<P>>,
+
+    /// The payload that we have accumulated so far. We should put this payload into a gossip ASAP.
+    pending_payload: P,
 
     /// Timer that determines the minimum time that we should not gossip after the given message
     /// for the sake of not spamming the network with small packages.
     cooldown_delay: Option<Delay>,
 }
 
-impl NightshadeTask {
+impl<P: Payload> NightshadeTask<P> {
     pub fn new(
         owner_id: usize,
         num_authorities: usize,
         control_receiver: mpsc::Receiver<Control>,
-        gossip_receiver: mpsc::Receiver<Gossip>,
-        gossip_sender: mpsc::Sender<Gossip>,
-        consensus_sender: mpsc::Sender<ConsensusBlock>,
+        gossip_receiver: mpsc::Receiver<Gossip<P>>,
+        gossip_sender: mpsc::Sender<Gossip<P>>,
+        payload_receiver: mpsc::Receiver<P>,
+        consensus_sender: mpsc::Sender<ConsensusBlock<P>>,
     ) -> Self {
         NightshadeTask {
             owner_id,
@@ -66,16 +73,18 @@ impl NightshadeTask {
             control_receiver,
             gossip_receiver,
             gossip_sender,
+            payload_receiver,
             consensus_sender,
+            pending_payload: P::new(),
             cooldown_delay: None,
         }
     }
 
-    fn nightshade_as_ref(&self) -> &Nightshade {
+    fn nightshade_as_ref(&self) -> &Nightshade<P> {
         self.nightshade.as_ref().expect("Nightshade should be initialized")
     }
 
-    fn nightshade_as_mut_ref(&mut self) -> &mut Nightshade {
+    fn nightshade_as_mut_ref(&mut self) -> &mut Nightshade<P> {
         self.nightshade.as_mut().expect("Nightshade should be initialized")
     }
 
@@ -83,9 +92,11 @@ impl NightshadeTask {
         self.nightshade = Some(
             Nightshade::new(
                 self.owner_id as usize, self.num_authorities as usize));
+        self.pending_payload = P::new();
+        self.cooldown_delay = None;
     }
 
-    fn process_gossip(&mut self, gossip: Gossip) {
+    fn process_gossip(&mut self, gossip: Gossip<P>) {
         if self.owner_id == 0 {
             println!("Receive gossip: {:?}", gossip);
         }
@@ -96,7 +107,7 @@ impl NightshadeTask {
         }
     }
 
-    fn process_messages(&mut self, sender_id: AuthorityId, messages: Vec<Message>) {
+    fn process_messages(&mut self, sender_id: AuthorityId, messages: Vec<Message<P>>) {
         match self.nightshade_as_mut_ref().process_messages(messages) {
             NSResult::Finalize(hash) => self.send_consensus(hash),
             NSResult::Retrieve(hashes) => self.retrieve_messages(sender_id, hashes),
@@ -110,7 +121,6 @@ impl NightshadeTask {
             .filter_map(|h| self.nightshade_as_ref().copy_message_data_by_hash(h))
             .collect();
         if sender_id == 0 {
-            // println!("All nodes: {:?}", self.nightshade_as_ref().nodes);
             println!("Reply messages: {:?} {:?}", hashes, reply_messages);
         }
         let reply = Gossip {
@@ -146,14 +156,15 @@ impl NightshadeTask {
     }
 
     /// Sends a gossip by spawning a separate task.
-    fn send_gossip(&self, gossip: Gossip) {
+    fn send_gossip(&self, gossip: Gossip<P>) {
         let copied_tx = self.gossip_sender.clone();
         tokio::spawn(copied_tx.send(gossip).map(|_| ()).map_err(|e| {
             error!("Failure in the sub-task {:?}", e);
         }));
     }
 
-    fn gossip_message(&self, message: Message) {
+    /// Sends gossip to random authority peers.
+    fn gossip_message(&self, message: Message<P>) {
         let mut random_authorities = HashSet::new();
         while random_authorities.len() < min(GOSSIP_SAMPLE_SIZE, self.num_authorities - 1) {
             let next = rand::random::<usize>() % self.num_authorities;
@@ -172,7 +183,7 @@ impl NightshadeTask {
     }
 }
 
-impl Stream for NightshadeTask {
+impl<P: Payload> Stream for NightshadeTask<P> {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -203,17 +214,35 @@ impl Stream for NightshadeTask {
                 Err(err) => error!("Failed to read from the control channel {:?}", err),
             }
         }
-        let mut end_of_messages = false;
+
+        // Process new gossips.
+        let mut end_of_gossips = false;
         loop {
             match self.gossip_receiver.poll() {
                 Ok(Async::Ready(Some(gossip))) => self.process_gossip(gossip),
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the messages.
-                    end_of_messages = true;
+                    end_of_gossips = true;
                     break;
                 }
                 Err(err) => error!("Failed to receive a message {:?}", err),
+            }
+        }
+
+        // Process new payloads.
+        let mut end_of_payloads = false;
+        loop {
+            match self.payload_receiver.poll() {
+                Ok(Async::Ready(Some(payload))) => {
+                    self.pending_payload.union_update(payload)
+                },
+                Ok(Async::NotReady) => break,
+                Ok(Async::Ready(None)) => {
+                    end_of_payloads = true;
+                    break;
+                },
+                Err(err) => error!("Failed to receive a payload {:?}", err),
             }
         }
 
@@ -222,8 +251,10 @@ impl Stream for NightshadeTask {
             try_ready!(d.poll().map_err(|e| error!("Cooldown timer error {}", e)));
         }
 
-        // TODO: add payload here.
-        let (message, nightshade_result) = self.nightshade.as_mut().expect("Nightshade should be init").create_message(vec![]);
+        let payload = mem::replace(&mut self.pending_payload, P::new());
+        let (message, nightshade_result) = self.nightshade.as_mut()
+            .expect("Nightshade should be init")
+            .create_message(payload);
         if let NSResult::Finalize(hash) = nightshade_result {
             self.send_consensus(hash)
         }
@@ -235,7 +266,7 @@ impl Stream for NightshadeTask {
         if self.owner_id == 0 {
             println!("Cooldown");
         }
-        if end_of_messages {
+        if end_of_gossips && end_of_payloads {
             Ok(Async::Ready(None))
         } else {
             Ok(Async::NotReady)
