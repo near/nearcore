@@ -1,4 +1,4 @@
-<img src="docs/logo.svg" width="200px" />
+<img src="docs/logo.svg" width="200px" align="right" />
 
 ## NEAR Protocol - scalable and usable blockchain
 
