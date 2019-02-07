@@ -167,16 +167,39 @@ macro_rules! test {
 
 fn test_send_money_inner() {
     if !*DEVNET_STARTED { panic!() }
+    let buster = rand::thread_rng().gen_range(0, 10000);
+    let receiver_name = format!("send_money_test_{}.near", buster);
+    create_account(&receiver_name);
     let output = Command::new("./scripts/rpc.py")
         .arg("send_money")
         .arg("-d")
         .arg(KEY_STORE_PATH)
         .arg("-k")
         .arg(&*PUBLIC_KEY)
+        .arg("--receiver")
+        .arg(&receiver_name)
+        .arg("--amount")
+        .arg("1")
         .output()
         .expect("send_money command failed to process");
     let result = check_result(output).unwrap();
     let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
+
+    wait_for(&|| {
+        let result = check_result(view_account(Some(&receiver_name)));
+        result.and_then(|res| {
+            match serde_json::from_str::<ViewAccountResponse>(&res) {
+                Ok(r) => {
+                    if r.amount == 11 {
+                        Ok(())
+                    } else {
+                        Err(format!("Balance should be 11, is {}", r.amount))
+                    }
+                },
+                Err(_) => Err("Account not created".to_string()),
+            }
+        })
+    }).unwrap();
 }
 
 test! { fn test_send_money() { test_send_money_inner() } }
