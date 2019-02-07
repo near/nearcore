@@ -135,14 +135,14 @@ impl<P: Payload> NightshadeTask<P> {
         if self.owner_id == 0 {
             println!("Consensus: {:?}", hash);
         }
-        info!("Consensus: {:?}", hash);
+        info!(target: "nightshade", "Consensus: {:?}", hash);
         let copied_tx = self.consensus_sender.clone();
         let consensus = ConsensusBlock {
             parent_hash: hash,
             messages: vec![],
         };
         tokio::spawn(copied_tx.send(consensus).map(|_| ()).map_err(|e| {
-            error!("Failure in the sub-task {:?}", e);
+            error!(target: "nightshade", "Failure in the sub-task {:?}", e);
         }));
     }
 
@@ -190,28 +190,36 @@ impl<P: Payload> Stream for NightshadeTask<P> {
         loop {
             match self.control_receiver.poll() {
                 Ok(Async::Ready(Some(Control::Reset))) => {
-                    info!("Control channel received Reset");
+                    info!(target: "nightshade", "Control channel received Reset");
                     self.init_nightshade();
                     break;
                 },
                 Ok(Async::Ready(Some(Control::Stop))) => {
-                    info!("Control channel received Stop");
+                    info!(target: "nightshade", "Control channel received Stop");
                     if self.nightshade.is_some() {
                         self.nightshade = None;
+                        // On the next call of poll if we still don't have the state this task will be
+                        // parked because we will return NotReady.
+                        return Ok(Async::Ready(Some(())));
                     }
-                    return Ok(Async::Ready(Some(())));
+                    // Otherwise loop until we encounter Reset command in the stream. If the stream
+                    // is NotReady this will automatically park the task.
                 },
                 Ok(Async::Ready(None)) => {
-                    info!("Control channel was dropped");
+                    info!(target: "nightshade", "Control channel was dropped");
                     return Ok(Async::Ready(None));
                 }
                 Ok(Async::NotReady) => {
                     if self.nightshade.is_none() {
+                        // If there is no state then we cannot proceed, we return NotReady which
+                        // will park the task and wait until we get the state over the control
+                        // channel.
                         return Ok(Async::NotReady);
                     }
+                    // If there is a state then we do not care about the control.
                     break;
                 },
-                Err(err) => error!("Failed to read from the control channel {:?}", err),
+                Err(err) => error!(target: "nightshade", "Failed to read from the control channel {:?}", err),
             }
         }
 
@@ -226,7 +234,7 @@ impl<P: Payload> Stream for NightshadeTask<P> {
                     end_of_gossips = true;
                     break;
                 }
-                Err(err) => error!("Failed to receive a message {:?}", err),
+                Err(err) => error!(target: "nightshade", "Failed to receive a gossip {:?}", err),
             }
         }
 
@@ -239,10 +247,11 @@ impl<P: Payload> Stream for NightshadeTask<P> {
                 },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
+                    // End of the stream that feeds the payloads.
                     end_of_payloads = true;
                     break;
                 },
-                Err(err) => error!("Failed to receive a payload {:?}", err),
+                Err(err) => error!(target: "nightshade", "Failed to receive a payload {:?}", err),
             }
         }
 
@@ -263,13 +272,10 @@ impl<P: Payload> Stream for NightshadeTask<P> {
         let now = Instant::now();
         self.cooldown_delay = Some(Delay::new(now + Duration::from_millis(COOLDOWN_MS)));
 
-        if self.owner_id == 0 {
-            println!("Cooldown");
-        }
         if end_of_gossips && end_of_payloads {
             Ok(Async::Ready(None))
         } else {
-            Ok(Async::NotReady)
+            Ok(Async::Ready(Some(())))
         }
     }
 }

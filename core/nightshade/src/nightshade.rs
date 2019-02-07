@@ -280,14 +280,14 @@ mod tests {
     fn test_nightshade_basics() {
         let mut ns = Nightshade::new(0, 3);
         let (m1, mh1) = message(0, vec![]);
-        let (m2, mh2) = message(1, vec![]);
-        let (m3, mh3) = message(2, vec![]);
+        let (m2, _mh2) = message(1, vec![]);
+        let (m3, _mh3) = message(2, vec![]);
         assert_eq!(ns.process_message(m1.clone()), NSResult::Success);
         assert_eq!(ns.process_message(m1), NSResult::Known);
         assert_eq!(ns.process_message(m2), NSResult::Success);
         assert_eq!(ns.process_message(m3), NSResult::Success);
         let (m4, mh4) = message(0, vec![mh1]);
-        let (m5, mh5) = message(0, vec![mh4]);
+        let (m5, _mh5) = message(0, vec![mh4]);
         assert_eq!(ns.process_message(m5), NSResult::Retrieve(vec![mh4]));
         assert_eq!(ns.process_message(m4), NSResult::Success);
         let (m6, r6) = ns.create_message(FakePayload { content: 0 });

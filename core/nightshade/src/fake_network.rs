@@ -1,6 +1,6 @@
 use tokio::timer::Delay;
 use futures::sync::mpsc;
-use futures::{stream, Async, Future, Poll, Sink, Stream};
+use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
 use std::time::{Duration, Instant};
 use log::error;
@@ -85,7 +85,6 @@ fn spawn_all(num_authorities: usize) {
             // Spawn the network itself.
             let inc_message_tx_vec_1 = inc_gossip_tx_vec.clone();
             let f = out_message_rx.map(move |gossip: Gossip<FakePayload>| {
-                // println!("Sending gossip: {:?}", gossip);
                 let gossip_input = inc_message_tx_vec_1[gossip.receiver_id as usize].clone();
                 tokio::spawn(gossip_input
                     .send(gossip)
