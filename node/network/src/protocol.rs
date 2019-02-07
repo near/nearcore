@@ -61,7 +61,9 @@ pub fn spawn_network(
     let task = inc_msg_rx.for_each(move |(_, data)| {
         match Decode::decode(&data) {
             Ok(m) => match m {
-                Message::Gossip(gossip) => forward_msg(inc_gossip_tx.clone(), *gossip),
+                Message::Gossip(gossip) => {
+                    forward_msg(inc_gossip_tx.clone(), *gossip)
+                },
                 Message::BlockAnnounce(block) => {
                     let unboxed = *block;
                     forward_msg(inc_block_tx.clone(), (unboxed.0, unboxed.1));
