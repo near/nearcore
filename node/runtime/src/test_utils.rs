@@ -185,7 +185,7 @@ impl User {
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string())
         ).unwrap();
-        account.public_keys.push(pub_key.clone());
+        account.public_keys.push(pub_key);
         set(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string()),

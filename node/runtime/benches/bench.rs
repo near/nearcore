@@ -6,7 +6,7 @@ use bencher::Bencher;
 use node_runtime::test_utils::{get_runtime_and_state_db, User, setup_test_contract};
 
 fn runtime_send_money(bench: &mut Bencher) {
-    let (runtime, state_db, mut root) = get_runtime_and_state_db();
+    let (runtime, state_db, root) = get_runtime_and_state_db();
     let (mut user, mut root) = User::new(runtime, "alice.near", state_db, root);
     bench.iter(|| {
         let (new_root, _) = user.send_money(root, "bob.near", 1);
