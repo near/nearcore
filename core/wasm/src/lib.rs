@@ -16,7 +16,6 @@ extern crate log;
 
 pub mod executor;
 pub mod ext;
-mod memory;
 mod prepare;
 mod resolver;
 mod runtime;

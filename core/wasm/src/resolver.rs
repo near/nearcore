@@ -1,25 +1,15 @@
-use crate::ext::ids;
-use crate::memory::Memory;
-use wasmi::{self, Error as WasmiError, FuncInstance, MemoryRef, Signature, ValueType};
+use crate::runtime::Runtime;
 
-pub(crate) struct EnvModuleResolver {
-    memory: Memory,
-}
-
-impl EnvModuleResolver {
-    /// New import resolver with specifed maximum amount of inital memory (in wasm pages = 64kb)
-    pub fn with_memory(memory: Memory) -> EnvModuleResolver {
-        EnvModuleResolver { memory }
-    }
-}
-
-impl wasmi::ModuleImportResolver for EnvModuleResolver {
-    fn resolve_func(
-        &self,
-        field_name: &str,
-        _signature: &Signature,
-    ) -> Result<wasmi::FuncRef, WasmiError> {
-        let func_ref = match field_name {
+pub(crate) fn build_imports() -> ImportObject {
+    imports! {
+        // Define the "env" namespace that was implicitly used
+        // by our sample application.
+        "env" => {
+            // name         // func    // signature
+            "storage_read_len" => !func(storage_read_len<[u32, u32, i32] -> []>,
+            "gas" => gas<[u32] -> []>,
+        },
+    };
             "storage_read_len" => FuncInstance::alloc_host(
                 Signature::new(&[ValueType::I32][..], Some(ValueType::I32)),
                 ids::STORAGE_READ_LEN_FUNC,

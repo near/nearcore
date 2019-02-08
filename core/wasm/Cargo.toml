@@ -8,6 +8,7 @@ edition = "2018"
 wasmi = { version = "0.4.1" }
 pwasm-utils = "0.6.2"
 parity-wasm = "0.31"
+wasmer-runtime = "0.1.4"
 log = "0.4"
 
 primitives = { path = "../primitives" }

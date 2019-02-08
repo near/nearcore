@@ -1,5 +1,5 @@
 use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
-use wasmi::{Error as WasmiError, Trap, TrapKind};
+use wasmer_runtime::error as WasmerError;
 
 #[derive(Debug, PartialEq, Eq)]
 /// Error that can occur while preparing or executing wasm smart-contract.
@@ -110,35 +110,6 @@ pub enum RuntimeError {
     Panic(String),
 }
 
-impl wasmi::HostError for RuntimeError {}
-
-impl From<Trap> for RuntimeError {
-    fn from(trap: Trap) -> Self {
-        match *trap.kind() {
-            TrapKind::Unreachable => RuntimeError::Unreachable,
-            TrapKind::MemoryAccessOutOfBounds => RuntimeError::MemoryAccessViolation,
-            TrapKind::TableAccessOutOfBounds | TrapKind::ElemUninitialized => {
-                RuntimeError::InvalidVirtualCall
-            }
-            TrapKind::DivisionByZero => RuntimeError::DivisionByZero,
-            TrapKind::InvalidConversionToInt => RuntimeError::InvalidConversionToInt,
-            TrapKind::UnexpectedSignature => RuntimeError::InvalidVirtualCall,
-            TrapKind::StackOverflow => RuntimeError::StackOverflow,
-            TrapKind::Host(_) => RuntimeError::Other,
-        }
-    }
-}
-
-impl From<WasmiError> for RuntimeError {
-    fn from(err: WasmiError) -> Self {
-        match err {
-            WasmiError::Value(_) => RuntimeError::InvalidSyscall,
-            WasmiError::Memory(_) => RuntimeError::MemoryAccessViolation,
-            _ => RuntimeError::Other,
-        }
-    }
-}
-
 impl ::std::fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::result::Result<(), ::std::fmt::Error> {
         match *self {
@@ -189,24 +160,16 @@ pub enum Error {
     /// Method is private, because it starts with '_'.
     PrivateMethod,
 
+    Wasmer(WasmerError::Error),
+
     Runtime(RuntimeError),
 
     Prepare(PrepareError),
-
-    Interpreter(WasmiError),
-
-    Trap(Trap),
 }
 
-impl From<WasmiError> for Error {
-    fn from(e: WasmiError) -> Self {
-        Error::Interpreter(e)
-    }
-}
-
-impl From<Trap> for Error {
-    fn from(e: Trap) -> Self {
-        Error::Trap(e)
+impl From<WasmerError::Error> for Error {
+    fn from(e: WasmerError::Error) -> Self {
+        Error::Wasmer(e)
     }
 }
 

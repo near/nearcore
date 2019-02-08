@@ -1,7 +1,6 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use crate::memory::Memory;
 use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
 use parity_wasm::builder;
 use pwasm_utils::{self, rules};
@@ -175,11 +174,6 @@ impl<'a> ContractModule<'a> {
     }
 }
 
-pub(super) struct PreparedContract {
-    pub instrumented_code: Vec<u8>,
-    pub memory: Memory,
-}
-
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
 ///
@@ -193,14 +187,14 @@ pub(super) struct PreparedContract {
 pub(super) fn prepare_contract(
     original_code: &[u8],
     config: &Config,
-) -> Result<PreparedContract, Error> {
+) -> Result<Vec<u8>, Error> {
     let mut contract_module = ContractModule::init(original_code, config)?;
     contract_module.externalize_mem()?;
     contract_module.ensure_no_internal_memory()?;
     contract_module.inject_gas_metering()?;
     contract_module.inject_stack_height_metering()?;
 
-    let memory = if let Some(memory_type) = contract_module.scan_imports()? {
+    if let Some(memory_type) = contract_module.scan_imports()? {
         // Inspect the module to extract the initial and maximum page count.
         let limits = memory_type.limits();
         match (limits.initial(), limits.maximum()) {
@@ -218,19 +212,12 @@ pub(super) fn prepare_contract(
                 // to configured maximum.
                 return Err(Error::Memory);
             }
-            (initial, maximum) => Memory::init(initial, maximum),
+            // (initial, maximum) => Memory::init(initial, maximum),
+            _ => (),
         }
-    } else {
-        // If none memory imported then just crate an empty placeholder.
-        // Any access to it will lead to out of bounds trap.
-        Memory::init(0, Some(0))
-    };
-    let memory = memory.map_err(|_| Error::Memory)?;
+    }
 
-    Ok(PreparedContract {
-        instrumented_code: contract_module.into_wasm_code()?,
-        memory,
-    })
+    contract_module.into_wasm_code()
 }
 
 #[cfg(test)]
@@ -245,7 +232,7 @@ mod tests {
         }
     }
 
-    fn parse_and_prepare_wat(wat: &str) -> Result<PreparedContract, Error> {
+    fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, Error> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
         let config = Config::default();
         prepare_contract(wasm.as_ref(), &config)
