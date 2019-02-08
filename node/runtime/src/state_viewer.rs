@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::str;
 
 use primitives::hash::CryptoHash;
 use primitives::utils::is_valid_account_id;
-use primitives::types::{AccountId, Balance, MerkleHash, AccountingInfo};
-use storage::{StateDb, StateDbUpdate};
+use primitives::types::{AccountId, Balance, AccountingInfo};
+use storage::{StateDbUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
@@ -19,9 +18,7 @@ pub struct ViewStateResult {
     pub values: HashMap<Vec<u8>, Vec<u8>>
 }
 
-pub struct StateDbViewer {
-    state_db: Arc<StateDb>,
-}
+pub struct StateDbViewer {}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
@@ -33,23 +30,17 @@ pub struct AccountViewCallResult {
 }
 
 impl StateDbViewer {
-    pub fn new(state_db: Arc<StateDb>) -> Self {
-        StateDbViewer {
-            state_db,
-        }
-    }
 
     pub fn view_account(
         &self,
-        root: MerkleHash,
+        state_update: &mut StateDbUpdate,
         account_id: &AccountId,
     ) -> Result<AccountViewCallResult, String> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
-        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
 
-        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
+        match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => {
                 Ok(AccountViewCallResult {
                     account: account_id.clone(),
@@ -65,14 +56,13 @@ impl StateDbViewer {
 
     pub fn get_public_keys_for_account(
         &self,
-        root: MerkleHash,
+        state_update: &mut StateDbUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
-        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
-        match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
+        match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => Ok(account.public_keys),
             _ => Err(format!("account {} does not exist while viewing", account_id)),
         }
@@ -80,14 +70,13 @@ impl StateDbViewer {
 
     pub fn view_state(
         &self,
-        root: MerkleHash,
+        state_update: &StateDbUpdate,
         account_id: &AccountId
     ) -> Result<ViewStateResult, String> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
         let mut values = HashMap::default();
-        let state_update = StateDbUpdate::new(self.state_db.clone(), root);
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
         state_update.for_keys_with_prefix(&prefix, |key| {
@@ -102,7 +91,7 @@ impl StateDbViewer {
 
     pub fn call_function(
         &self,
-        root: MerkleHash,
+        mut state_update: StateDbUpdate,
         block_index: u64,
         contract_id: &AccountId,
         method_name: &str,
@@ -111,7 +100,7 @@ impl StateDbViewer {
         if !is_valid_account_id(contract_id) {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
-        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let root = state_update.get_root();
         let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
             .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
         let wasm_res = match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
@@ -246,8 +235,8 @@ mod tests {
 
     #[test]
     fn test_view_state() {
-        let (viewer, root) = get_test_state_db_viewer();
-        let result = viewer.view_state(root, &alice_account()).unwrap();
+        let (viewer, state_update) = get_test_state_db_viewer();
+        let result = viewer.view_state(&state_update, &alice_account()).unwrap();
         assert_eq!(result.values, HashMap::default());
         // TODO: make this test actually do stuff.
     }

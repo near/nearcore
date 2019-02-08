@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use futures::sync::mpsc::Sender;
 
-use chain::SignedBlock;
 use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
@@ -37,10 +36,11 @@ pub enum RPCError {
 impl HttpApi {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
+        let mut state_update = self.client.shard_chain.get_state_update();
         match self.client.shard_chain.statedb_viewer.view_account(
-            self.client.shard_chain.chain.best_block().merkle_root_state(),
-            &r.account_id)
-        {
+            &mut state_update,
+            &r.account_id
+        ) {
             Ok(r) => Ok(ViewAccountResponse {
                 account_id: r.account,
                 amount: r.amount,
@@ -62,11 +62,15 @@ impl HttpApi {
             r.contract_account_id,
             r.method_name,
         );
-        let best_block = self.client.shard_chain.chain.best_block();
+        let state_update = self.client.shard_chain.get_state_update();
+        let best_index = self.client.shard_chain.chain.best_index();
         match self.client.shard_chain.statedb_viewer.call_function(
-            best_block.merkle_root_state(), best_block.index(),
-            &r.contract_account_id, &r.method_name, &r.args)
-        {
+            state_update,
+            best_index, 
+            &r.contract_account_id,
+            &r.method_name,
+            &r.args
+        ) {
             Ok(result) => Ok(CallViewFunctionResponse { result }),
             Err(e) => Err(e.to_string()),
         }
@@ -79,9 +83,9 @@ impl HttpApi {
         let transaction: SignedTransaction = r.transaction.clone().into();
         debug!(target: "near-rpc", "Received transaction {:?}", transaction);
         let originator = transaction.body.get_originator();
-        let root_state = self.client.shard_chain.chain.best_block().merkle_root_state();
+        let mut state_update = self.client.shard_chain.get_state_update();
         let public_keys = self.client.shard_chain.statedb_viewer
-            .get_public_keys_for_account(root_state, &originator)
+            .get_public_keys_for_account(&mut state_update, &originator)
             .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&transaction.clone(), &public_keys) {
             let msg =
@@ -98,8 +102,9 @@ impl HttpApi {
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
+        let state_update = self.client.shard_chain.get_state_update();
         let result = self.client.shard_chain.statedb_viewer
-            .view_state(self.client.shard_chain.chain.best_block().merkle_root_state(), &r.contract_account_id)?;
+            .view_state(&state_update, &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
             values: result.values.iter().map(|(k, v)| (bs58_vec2str(k), v.clone())).collect(),
