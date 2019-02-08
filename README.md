@@ -107,7 +107,7 @@ Then build and run DevNet:
 cargo run --release --package=devnet
 ```
 
-Use `-- --log-level debug` to see more information about RPC and transaction processing.
+Use `-- --log-level Debug` to see more information about RPC and transaction processing.
 
 Try submitting transactions or views via JSON RPC:
 
@@ -174,7 +174,7 @@ The boot node will print the string that we can use to boot from it. For example
     
 Launch the second node using the first one as the boot:
 
-    cargo run -- --addr 127.0.0.1:3001 --rpc_port 3031 --base-path=test2 --test-network-key-seed 2 --chain-spec-file ./node/configs/res/testnet_chain.json --boot-nodes 127.0.0.1:3000/D5kxnrPGZFtGXEniPV76CURQod4t3YMy1Q6qpWQm9mCe
+    cargo run -- -a bob.near --addr 127.0.0.1:3001 --rpc_port 3031 --base-path=test2 --test-network-key-seed 2 --chain-spec-file ./node/configs/res/testnet_chain.json --boot-nodes 127.0.0.1:3000/D5kxnrPGZFtGXEniPV76CURQod4t3YMy1Q6qpWQm9mCe
 
 Submit account creation transaction on one node:
 
@@ -182,4 +182,5 @@ Submit account creation transaction on one node:
 
 Verify that the account was created by checking it on the other node:
 
-    ./scripts/rpc.py view_account -a jason -u http://127.0.0.1:3031/        
+    ./scripts/rpc.py view_account -a jason -u http://127.0.0.1:3031/
+
