@@ -237,7 +237,7 @@ impl Runtime {
                         sender.nonce,
                     ));
                 }
-                if !verify_transaction_signature(&transaction.clone(), &sender.public_keys) {
+                if !verify_transaction_signature(&transaction, &sender.public_keys) {
                     return Err(format!(
                         "transaction not signed with a public key of originator {:?}",
                         transaction.body.get_originator()
