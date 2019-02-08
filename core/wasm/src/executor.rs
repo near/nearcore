@@ -1,18 +1,13 @@
 use crate::ext::External;
 
 use crate::prepare;
+use std::ffi::c_void;
 
-use crate::runtime::{
-    Runtime,
-    ImportsBuilder as RuntimeImportsBuilder,
-};
+use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
 
-use wasmer_runtime::{
-    instantiate,
-    error,
-};
+use wasmer_runtime;
 
 const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";
 
@@ -42,9 +37,9 @@ pub fn execute<'a>(
 
     let instrumented_code = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
 
-    let import_object = RuntimeImportsBuilder::build();
+    let import_object = runtime::imports::build();
 
-    let mut instance = instantiate(&instrumented_code, import_object).map_err(Error::Wasmer)?;
+    let mut instance = wasmer_runtime::instantiate(&instrumented_code, import_object)?;
 
     let mut runtime = Runtime::new(
         ext,
@@ -62,7 +57,8 @@ pub fn execute<'a>(
         std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?);
 
     // Resolving function by method_name
-    let func = instance.func(method_name).map_err(|e| Error::Wasmer(e.into()))?;
+    let mut func = instance.func(&method_name)
+        .map_err(Into::<Box<wasmer_runtime::error::Error>>::into)?;
 
     match func.call(&[]) {
         Ok(_) => Ok(ExecutionOutcome {
@@ -78,7 +74,7 @@ pub fn execute<'a>(
             gas_used: runtime.gas_counter,
             mana_used: 0,
             mana_left: context.mana,
-            return_data: Err(Error::Wasmer(e.into())),
+            return_data: Err(Into::<Box<wasmer_runtime::error::Error>>::into(e).into()),
             balance: context.initial_balance,
             random_seed: runtime.random_seed,
             logs: runtime.logs,
