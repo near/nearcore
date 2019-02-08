@@ -4,7 +4,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use primitives::aggregate_signature::BlsSecretKey;
 use primitives::types::{MerkleHash, GroupSignature, AccountingInfo, AccountId};
-use primitives::signature::{get_key_pair, DEFAULT_SIGNATURE, PublicKey};
+use primitives::signature::{get_key_pair, PublicKey, SecretKey, sign};
 use primitives::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::test_utils::get_key_pair_from_seed;
@@ -21,7 +21,10 @@ use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 use configs::ChainSpec;
 use crate::state_viewer::StateDbViewer;
 
-use super::{ApplyResult, ApplyState, Runtime, set, callback_id_to_bytes};
+use super::{
+    ApplyResult, ApplyState, Runtime, set, callback_id_to_bytes, get, account_id_to_bytes,
+    COL_ACCOUNT, Account
+};
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -38,7 +41,7 @@ pub fn default_code_hash() -> CryptoHash {
     hash(genesis_wasm)
 }
 
-pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
+pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner, SecretKey) {
     use rand::{SeedableRng, XorShiftRng};
 
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
@@ -52,9 +55,10 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
         public_key,
         secret_key,
     };
+    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
     (ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), get_key_pair_from_seed("alice.near").0.to_string(), 100, 10),
+            ("alice.near".to_string(), public_key.to_string(), 100, 10),
             ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_string(), 0, 10),
             ("system".to_string(), get_key_pair_from_seed("system").0.to_string(), 0, 0),
         ],
@@ -63,7 +67,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
         boot_nodes: vec![],
-    }, signer)
+    }, signer, secret_key)
 }
 
 pub fn get_runtime_and_state_db_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<StateDb>, MerkleHash) {
@@ -82,7 +86,7 @@ pub fn get_runtime_and_state_db_from_chain_spec(chain_spec: &ChainSpec) -> (Runt
 }
 
 pub fn get_runtime_and_state_db() -> (Runtime, Arc<StateDb>, MerkleHash) {
-    let (chain_spec, _) = generate_test_chain_spec();
+    let (chain_spec, _, _) = generate_test_chain_spec();
     get_runtime_and_state_db_from_chain_spec(&chain_spec)
 }
 
@@ -164,21 +168,50 @@ pub struct User {
     account_id: String,
     nonce: u64,
     state_db: Arc<StateDb>,
+    pub pub_key: PublicKey,
+    secret_key: SecretKey
 }
 
 impl User {
-    pub fn new(runtime: Runtime, account_id: &str, state_db: Arc<StateDb>) -> Self {
-        User {
-            runtime, account_id: account_id.to_string(), nonce: 1, state_db
-        }
+    pub fn new(
+        runtime: Runtime,
+        account_id: &str,
+        state_db: Arc<StateDb>,
+        root: MerkleHash
+    ) -> (Self, MerkleHash) {
+        let (pub_key, secret_key) = get_key_pair();
+        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
+        let mut account: Account = get(
+            &mut state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string())
+        ).unwrap();
+        account.public_keys.push(pub_key);
+        set(
+            &mut state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string()),
+            &account
+        );
+        let (new_root, transaction) = state_update.finalize();
+        state_db.commit(transaction).unwrap();
+
+        (User {
+            runtime,
+            account_id: account_id.to_string(),
+            nonce: 1,
+            state_db,
+            pub_key,
+            secret_key
+        }, new_root)
     }
 
-    fn send_tx(
+    pub fn send_tx(
         &mut self,
         root: CryptoHash,
         tx_body: TransactionBody
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let transaction = SignedTransaction::new(DEFAULT_SIGNATURE, tx_body);
+        let hash = tx_body.get_hash();
+        let signature = sign(hash.as_ref(), &self.secret_key);
+        let transaction = SignedTransaction::new(signature, tx_body);
         let apply_state = ApplyState {
             root,
             shard_id: 0,
@@ -361,11 +394,11 @@ impl User {
 
 pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
     let (runtime, state_db, genesis_root) = get_runtime_and_state_db();
-    let mut user = User::new(runtime, "alice.near", state_db.clone());
+    let (mut user, root) = User::new(runtime, "alice.near", state_db.clone(), genesis_root);
     let (public_key, _) = get_key_pair();
-    let (root, _) = user.deploy_contract(
-        genesis_root, "test_contract", public_key, wasm_binary
+    let (new_root, _) = user.deploy_contract(
+        root, "test_contract", public_key, wasm_binary
     );
-    assert_ne!(root, genesis_root);
+    assert_ne!(new_root, root);
     (user, root)
 }

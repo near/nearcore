@@ -87,7 +87,7 @@ impl HttpApi {
         let public_keys = self.client.shard_chain.statedb_viewer
             .get_public_keys_for_account(&mut state_update, &originator)
             .map_err(RPCError::BadRequest)?;
-        if !verify_transaction_signature(&transaction.clone(), &public_keys) {
+        if !verify_transaction_signature(&transaction, &public_keys) {
             let msg =
                 format!("transaction not signed with a public key of originator {:?}", originator,);
             return Err(RPCError::BadRequest(msg));

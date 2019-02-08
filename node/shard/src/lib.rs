@@ -342,37 +342,47 @@ impl ShardBlockChain {
 #[cfg(test)]
 mod tests {
     use node_runtime::test_utils::generate_test_chain_spec;
-    use primitives::signature::DEFAULT_SIGNATURE;
+    use primitives::signature::{sign, SecretKey};
     use primitives::types::Balance;
     use storage::test_utils::create_memory_db;
     use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
 
     use super::*;
 
-    fn get_test_chain() -> ShardBlockChain {
-        let (chain_spec, _signer) = generate_test_chain_spec();
-        ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()))
+    fn get_test_chain() -> (ShardBlockChain, SecretKey) {
+        let (chain_spec, _, secret_key) = generate_test_chain_spec();
+        let chain = ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()));
+        (chain, secret_key)
     }
 
-    fn send_money_tx(originator: &str, receiver: &str, amount: Balance) -> SignedTransaction {
-        SignedTransaction::new(
-            DEFAULT_SIGNATURE,
-            TransactionBody::SendMoney(SendMoneyTransaction {
-                nonce: 1, originator: originator.to_string(), receiver: receiver.to_string(), amount
-            }), )
+    fn send_money_tx(
+        originator: &str,
+        receiver: &str,
+        amount: Balance,
+        secret_key: SecretKey
+    ) -> SignedTransaction {
+        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+            nonce: 1, 
+            originator: originator.to_string(),
+            receiver: receiver.to_string(),
+            amount
+        });
+        let hash = tx_body.get_hash();
+        let signature = sign(hash.as_ref(), &secret_key);
+        SignedTransaction::new(signature, tx_body)
     }
 
     #[test]
     fn test_get_transaction_status_unknown() {
-        let chain = get_test_chain();
+        let (chain, _) = get_test_chain();
         let result = chain.get_transaction_result(&CryptoHash::default());
         assert_eq!(result.status, TransactionStatus::Unknown);
     }
 
     #[test]
     fn test_transaction_failed() {
-        let chain = get_test_chain();
-        let tx = send_money_tx("xyz.near", "bob.near", 100);
+        let (chain, secret_key) = get_test_chain();
+        let tx = send_money_tx("xyz.near", "bob.near", 100, secret_key);
         let (block, (db_changes, _, tx_status, receipts)) = chain.prepare_new_block(
             chain.genesis_hash(), 
             vec![],
@@ -386,8 +396,8 @@ mod tests {
 
     #[test]
     fn test_get_transaction_status_complete() {
-        let chain = get_test_chain();
-        let tx = send_money_tx("alice.near", "bob.near", 10);
+        let (chain, secret_key) = get_test_chain();
+        let tx = send_money_tx("alice.near", "bob.near", 10, secret_key);
         let (block, (db_changes, _, tx_status, new_receipts)) = chain.prepare_new_block(
             chain.genesis_hash(),
             vec![],
@@ -424,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_get_transaction_address() {
-        let chain = get_test_chain();
+        let (chain, _) = get_test_chain();
         let t = SignedTransaction::empty();
         let transaction = SignedTransaction::empty();
         let block = SignedShardBlock::new(
