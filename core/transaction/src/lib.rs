@@ -618,7 +618,7 @@ pub struct TransactionResult {
 pub struct TransactionLogs {
     pub hash: CryptoHash,
     pub lines: Vec<LogEntry>,
-    pub receipts: Vec<CryptoHash>
+    pub receipts: Vec<CryptoHash>,
 }
 
 /// Result of transaction and all of subsequent the receipts.

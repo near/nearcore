@@ -189,4 +189,3 @@ impl HttpApi {
         Ok(TransactionResultResponse { result })
     }
 }
-
