@@ -6,6 +6,11 @@ use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
 use primitives::hash::hash;
 use primitives::utils::is_valid_account_id;
 use std::collections::HashSet;
+use wasmer_runtime::{
+    memory::Memory,
+    units::Bytes,
+};
+use byteorder::{ByteOrder, LittleEndian};
 
 type Result<T> = ::std::result::Result<T, Error>;
 
@@ -28,6 +33,7 @@ pub struct Runtime<'a> {
     pub random_seed: Vec<u8>,
     random_buffer_offset: usize,
     pub logs: Vec<String>,
+    memory: Memory,
 }
 
 impl<'a> Runtime<'a> {
@@ -37,6 +43,7 @@ impl<'a> Runtime<'a> {
         result_data: &'a [Option<Vec<u8>>],
         context: &'a RuntimeContext,
         gas_limit: Gas,
+        memory: Memory,
     ) -> Runtime<'a> {
         Runtime {
             ext,
@@ -52,30 +59,52 @@ impl<'a> Runtime<'a> {
             random_seed: hash(&context.random_seed).into(),
             random_buffer_offset: 0,
             logs: Vec::new(),
+            memory,
         }
     }
 
-    fn memory_can_fit(&self, _offset: u32, _len: usize) -> Result<bool> {
-        // TODO
-        Ok(true)
+    fn memory_can_fit(&self, offset: usize, len: usize) -> bool {
+        match offset.checked_add(len) {
+            None => false,
+            Some(end) => self.memory.size().bytes() >= Bytes(end),
+        }
     }
 
-    fn memory_get(&self, _offset: u32, _len: usize) -> Result<Vec<u8>> {
-        // TODO
-        Ok(b"".to_vec())
+    fn memory_get(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
+        if !self.memory_can_fit(offset, len) {
+            Err(Error::MemoryAccessViolation)
+        } else if len == 0 {
+            Ok(Vec::new())
+        } else {
+            Ok(self.memory
+                .view()[offset..(offset + len)]
+                .iter()
+                .map(|cell| cell.get())
+                .collect())
+        }
     }
 
-    fn memory_set(&mut self, _offset: u32, _buf: &[u8]) -> Result<()> {
-        // TODO
-        Ok(())
+    fn memory_set(&mut self, offset: usize, buf: &[u8]) -> Result<()> {
+        if !self.memory_can_fit(offset, buf.len()) {
+            Err(Error::MemoryAccessViolation)
+        } else if buf.is_empty() {
+            Ok(())
+        } else {
+            self.memory
+                .view()[offset..(offset + buf.len())]
+                .iter()
+                .zip(buf.iter())
+                .for_each(|(cell, v)| cell.set(*v));
+            Ok(())
+        }
     }
 
-    fn memory_get_u32(&self, _offset: u32) -> Result<u32> {
-        // TODO
-        Ok(0)
+    fn memory_get_u32(&self, offset: usize) -> Result<u32> {
+        let buf = self.memory_get(offset, 4)?;
+        Ok(LittleEndian::read_u32(&buf))
     }
 
-    fn read_buffer(&self, offset: u32) -> Result<Vec<u8>> {
+    fn read_buffer(&self, offset: usize) -> Result<Vec<u8>> {
         let len: u32 = self.memory_get_u32(offset)?;
         self.memory_get(offset + 4, len as usize)
     }
@@ -89,7 +118,7 @@ impl<'a> Runtime<'a> {
         self.random_seed[self.random_buffer_offset - 1]
     }
 
-    fn read_string(&self, offset: u32) -> Result<String> {
+    fn read_string(&self, offset: usize) -> Result<String> {
         let len: u32 = self.memory_get_u32(offset)?;
         let buffer = self.memory_get(offset + 4, (len * 2) as usize)?;
         let mut u16_buffer = Vec::new();
@@ -105,7 +134,7 @@ impl<'a> Runtime<'a> {
     }
 
     fn read_and_parse_account_id(&self, offset: u32) -> Result<AccountId> {
-        let buf = self.read_buffer(offset)?;
+        let buf = self.read_buffer(offset as usize)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| Error::BadUtf8)?;
         if !is_valid_account_id(&account_id) {
             return Err(Error::InvalidAccountId);
@@ -149,7 +178,7 @@ impl<'a> Runtime<'a> {
 
     /// Returns length of the value from the storage
     fn storage_read_len(&mut self, key_ptr: u32) -> Result<u32> {
-        let key = self.read_buffer(key_ptr)?;
+        let key = self.read_buffer(key_ptr as usize)?;
         let val = self
             .ext
             .storage_get(&key)
@@ -164,13 +193,13 @@ impl<'a> Runtime<'a> {
 
     /// Reads from the storage to wasm memory
     fn storage_read_into(&mut self, key_ptr: u32, val_ptr: u32) -> Result<()> {
-        let key = self.read_buffer(key_ptr)?;
+        let key = self.read_buffer(key_ptr as usize)?;
         let val = self
             .ext
             .storage_get(&key)
             .map_err(|_| Error::StorageUpdateError)?;
         if let Some(buf) = val {
-            self.memory_set(val_ptr, &buf)?;
+            self.memory_set(val_ptr as usize, &buf)?;
             debug!(target: "wasm", "storage_read_into('{}') => '{}'", format_buf(&key), format_buf(&buf));
         }
         Ok(())
@@ -178,8 +207,8 @@ impl<'a> Runtime<'a> {
 
     /// Writes to storage from wasm memory
     fn storage_write(&mut self, key_ptr: u32, val_ptr: u32) -> Result<()> {
-        let key = self.read_buffer(key_ptr)?;
-        let val = self.read_buffer(val_ptr)?;
+        let key = self.read_buffer(key_ptr as usize)?;
+        let val = self.read_buffer(val_ptr as usize)?;
         // TODO: Charge gas for storage
 
         self.ext
@@ -191,7 +220,7 @@ impl<'a> Runtime<'a> {
 
     /// Gets iterator for keys with given prefix
     fn storage_iter(&mut self, prefix_ptr: u32) -> Result<u32> {
-        let prefix = self.read_buffer(prefix_ptr)?;
+        let prefix = self.read_buffer(prefix_ptr as usize)?;
         let storage_id = self
             .ext
             .storage_iter(&prefix)
@@ -229,7 +258,7 @@ impl<'a> Runtime<'a> {
             .storage_iter_peek(storage_id)
             .map_err(|_| Error::StorageUpdateError)?;
         if let Some(buf) = key {
-            self.memory_set(val_ptr, &buf)?;
+            self.memory_set(val_ptr as usize, &buf)?;
         }
         Ok(())
     }
@@ -244,7 +273,7 @@ impl<'a> Runtime<'a> {
 
     fn promise_create(&mut self, account_id_ptr: u32, method_name_ptr: u32, arguments_ptr: u32, mana: u32, amount: u64) -> Result<u32> {
         let account_id = self.read_and_parse_account_id(account_id_ptr)?;
-        let method_name = self.read_buffer(method_name_ptr)?;
+        let method_name = self.read_buffer(method_name_ptr as usize)?;
 
         match method_name.get(0) {
             Some(b'_') => return Err(Error::PrivateMethod),
@@ -252,7 +281,7 @@ impl<'a> Runtime<'a> {
             _ => (),
         };
 
-        let arguments = self.read_buffer(arguments_ptr)?;
+        let arguments = self.read_buffer(arguments_ptr as usize)?;
 
         // Charging separately reserved mana + 1 to call this promise.
         self.charge_mana_or_fail(mana)?;
@@ -275,11 +304,11 @@ impl<'a> Runtime<'a> {
 
     fn promise_then(&mut self, promise_index: u32, method_name_ptr: u32, arguments_ptr: u32, mana: u32) -> Result<u32> {
         let promise_id = self.promise_index_to_id(promise_index)?;
-        let method_name = self.read_buffer(method_name_ptr)?;
+        let method_name = self.read_buffer(method_name_ptr as usize)?;
         if method_name.is_empty() {
             return Err(Error::EmptyMethodName);
         }
-        let arguments = self.read_buffer(arguments_ptr)?;
+        let arguments = self.read_buffer(arguments_ptr as usize)?;
 
         // Charging separately reserved mana + N to add callback for the promise.
         // N is the number of callbacks in case of promise joiner.
@@ -345,7 +374,7 @@ impl<'a> Runtime<'a> {
 
     /// Reads from the input (arguments) to wasm memory
     fn input_read_into(&mut self, val_ptr: u32) -> Result<()> {
-        self.memory_set(val_ptr, &self.input_data)
+        self.memory_set(val_ptr as usize, &self.input_data)
     }
 
     /// Returns the number of results.
@@ -375,13 +404,13 @@ impl<'a> Runtime<'a> {
         let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
 
         match result {
-            Some(buf) => self.memory_set(val_ptr, &buf),
+            Some(buf) => self.memory_set(val_ptr as usize, &buf),
             None => Err(Error::ResultIsNotOk),
         }
     }
 
     fn return_value(&mut self, return_val_ptr: u32) -> Result<()> {
-        let return_val = self.read_buffer(return_val_ptr)?;
+        let return_val = self.read_buffer(return_val_ptr as usize)?;
 
         self.return_data = ReturnData::Value(return_val);
 
@@ -425,8 +454,8 @@ impl<'a> Runtime<'a> {
     }
 
     fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
-        let msg = self.read_string(msg_ptr)?;
-        let filename = self.read_string(filename_ptr)?;
+        let msg = self.read_string(msg_ptr as usize)?;
+        let filename = self.read_string(filename_ptr as usize)?;
 
         let message = format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
         debug!(target: "wasm", "{}", &message);
@@ -436,7 +465,7 @@ impl<'a> Runtime<'a> {
     }
 
     fn debug(&mut self, msg_ptr: u32) -> Result<()> {
-        let message = format!("LOG: {}", self.read_string(msg_ptr).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+        let message = format!("LOG: {}", self.read_string(msg_ptr as usize).unwrap_or_else(|_| "log(): read_string failed".to_string()));
         debug!(target: "wasm", "{}", &message);
         self.logs.push(message);
 
@@ -464,18 +493,18 @@ impl<'a> Runtime<'a> {
             BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
             _ => return Err(Error::UnknownBufferTypeIndex)
         };
-        self.memory_set(val_ptr, buf)
+        self.memory_set(val_ptr as usize, buf)
     }
 
     fn hash(&mut self, buf_ptr: u32, out_ptr: u32) -> Result<()> {
-        let buf = self.read_buffer(buf_ptr)?;
+        let buf = self.read_buffer(buf_ptr as usize)?;
         let buf_hash = hash(&buf);
 
-        self.memory_set(out_ptr, buf_hash.as_ref())
+        self.memory_set(out_ptr as usize, buf_hash.as_ref())
     }
 
     fn hash32(&self, buf_ptr: u32) -> Result<u32> {
-        let buf = self.read_buffer(buf_ptr)?;
+        let buf = self.read_buffer(buf_ptr as usize)?;
         let buf_hash = hash(&buf);
         let buf_hash_ref = buf_hash.as_ref();
 
@@ -489,7 +518,7 @@ impl<'a> Runtime<'a> {
     }
 
     fn random_buf(&mut self, len: u32, out_ptr: u32) -> Result<()> {
-        if !(self.memory_can_fit(out_ptr, len as usize)?) {
+        if !self.memory_can_fit(out_ptr as usize, len as usize) {
             return Err(Error::MemoryAccessViolation);
         }
 
@@ -498,7 +527,7 @@ impl<'a> Runtime<'a> {
             buf.push(self.random_u8());
         }
 
-        self.memory_set(out_ptr, &buf)
+        self.memory_set(out_ptr as usize, &buf)
     }
 
     fn random32(&mut self) -> Result<u32> {
@@ -521,10 +550,11 @@ fn format_buf(buf: &[u8]) -> String {
 }
 
 pub mod imports {
-    use super::Runtime;
+    use super::{Runtime, Memory, Result};
 
     use wasmer_runtime::{
         imports,
+        func,
         ImportObject,
         Ctx,
     };
@@ -532,17 +562,18 @@ pub mod imports {
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
-                extern fn $func( $( $arg_name: $arg_type, )* ctx: &mut Ctx) -> ($( $returns )*) {
+                fn $func( $( $arg_name: $arg_type, )* ctx: &mut Ctx) -> Result<($( $returns )*)> {
                     let runtime: &mut Runtime = unsafe { &mut *(ctx.data as *mut Runtime) };
-                    runtime.$func( $( $arg_name, )* ).unwrap()
+                    runtime.$func( $( $arg_name, )* )
                 }
             )*
 
-            pub(crate) fn build() -> ImportObject {
+            pub(crate) fn build(memory: Memory) -> ImportObject {
                 imports! {
                     "env" => {
+                        "memory" => memory,
                         $(
-                            $import_name => $func<[ $( $arg_type ),* ] -> [$( $returns )*]>,
+                            $import_name => func!($func),
                         )*
                     },
                 }

@@ -8,7 +8,8 @@ edition = "2018"
 wasmi = { version = "0.4.1" }
 pwasm-utils = "0.6.2"
 parity-wasm = "0.31"
-wasmer-runtime = "0.1.4"
+wasmer-runtime = {git = "https://github.com/wasmerio/wasmer.git", rev="1886b3d3c1c78a47ffd6a83bc5b639c637e862bc"}
+byteorder = "1.2"
 log = "0.4"
 
 primitives = { path = "../primitives" }

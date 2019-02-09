@@ -173,12 +173,6 @@ impl From<WasmerError::Error> for Error {
     }
 }
 
-impl From<Box<WasmerError::Error>> for Error {
-    fn from(e: Box<WasmerError::Error>) -> Self {
-        Error::Wasmer(*e)
-    }
-}
-
 impl From<RuntimeError> for Error {
     fn from(e: RuntimeError) -> Self {
         Error::Runtime(e)

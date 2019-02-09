@@ -7,7 +7,12 @@ use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
 
-use wasmer_runtime;
+use wasmer_runtime::{
+    self,
+    Memory,
+    wasm::MemoryDescriptor,
+    units::Pages,
+};
 
 const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";
 
@@ -37,9 +42,11 @@ pub fn execute<'a>(
 
     let instrumented_code = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
 
-    let import_object = runtime::imports::build();
-
-    let mut instance = wasmer_runtime::instantiate(&instrumented_code, import_object)?;
+    let memory = Memory::new(MemoryDescriptor {
+        minimum: Pages(17),
+        maximum: Some(Pages(32)),
+        shared: false,
+    }).map_err(Into::<wasmer_runtime::error::Error>::into)?;
 
     let mut runtime = Runtime::new(
         ext,
@@ -47,7 +54,12 @@ pub fn execute<'a>(
         result_data,
         context,
         config.gas_limit,
+        memory.clone(),
     );
+
+    let import_object = runtime::imports::build(memory);
+
+    let mut instance = wasmer_runtime::instantiate(&instrumented_code, &import_object)?;
 
     instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
 
@@ -57,10 +69,10 @@ pub fn execute<'a>(
         std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?);
 
     // Resolving function by method_name
-    let mut func = instance.func(&method_name)
-        .map_err(Into::<Box<wasmer_runtime::error::Error>>::into)?;
+    // let mut func = instance.func(&method_name)
+    //    .map_err(Into::<wasmer_runtime::error::Error>::into)?;
 
-    match func.call(&[]) {
+    match instance.call(&method_name, &[]) {
         Ok(_) => Ok(ExecutionOutcome {
             gas_used: runtime.gas_counter,
             mana_used: runtime.mana_counter,
@@ -74,7 +86,7 @@ pub fn execute<'a>(
             gas_used: runtime.gas_counter,
             mana_used: 0,
             mana_left: context.mana,
-            return_data: Err(Into::<Box<wasmer_runtime::error::Error>>::into(e).into()),
+            return_data: Err(Into::<wasmer_runtime::error::Error>::into(e).into()),
             balance: context.initial_balance,
             random_seed: runtime.random_seed,
             logs: runtime.logs,
