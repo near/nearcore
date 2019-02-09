@@ -223,14 +223,7 @@ pub(super) fn prepare_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt;
     use wabt;
-
-    impl fmt::Debug for PreparedContract {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "PreparedContract {{ .. }}")
-        }
-    }
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, Error> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
