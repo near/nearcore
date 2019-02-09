@@ -117,11 +117,29 @@ describe('with deployed contract', () => {
             setArgs);
         expect(scheduleResult.hash).not.toBeFalsy();
         await nearjs.waitForTransactionResult(scheduleResult);
-        const secondViewFunctionResult = await nearjs.callViewFunction(
+        const getValueResult = await nearjs.callViewFunction(
             contractName,
             'getValue', // this is the function defined in hello.wasm file that we are calling
             {});
-        expect(secondViewFunctionResult).toEqual(setCallValue);
+        expect(getValueResult).toEqual(setCallValue);
+
+        // test that load contract works and we can make calls afterwards
+        const options = {
+            viewMethods: ['hello', 'getValue'],
+            changeMethods: ['setValue'],
+            sender: aliceAccountName
+        };
+        const contract = await nearjs.loadContract(contractName, options);
+        const helloResult = await contract.hello(args);
+        expect(helloResult).toEqual('hello trex');
+        var setCallValue2 = await generateUniqueString('setCallPrefix');
+        const setArgs2 = {
+            'value': setCallValue2
+        };
+        const setValueResult = await contract.setValue(setArgs2);
+        expect(setValueResult.status).toBe('Completed');
+        const getValueResult2 = await contract.getValue();
+        expect(getValueResult2).toEqual(setCallValue2);
     });
 
     test('can get logs from method result', async () => {
