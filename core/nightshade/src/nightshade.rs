@@ -146,66 +146,6 @@ impl<P: Payload> Nightshade<P> {
         result
     }
 
-//    pub fn process_messages(&mut self, messages: Vec<Message<P>>) -> NSResult {
-//        let mut result = NSResult::Success;
-//        for message in messages {
-//            let new_result = self.process_message(message);
-//            result = self.update_result(result, new_result);
-//        }
-//        let mut missing_messages: HashSet<CryptoHash> = HashSet::default();
-//        for message in messages.iter() {
-//            for parent in message.parents.iter() {
-//                if !self.nodes.contains_key(parent) {
-//                    missing_messages.insert(*parent);
-//                }
-//            }
-//        }
-//        if !missing_messages.is_empty() {
-//            for message in missing_messages {
-//
-//            }
-//            self.pending_messages.extend(messages);
-//            return NSResult::Retrieve(missing_messages.drain().collect());
-//        }
-//        let mut result = NSResult::Success;
-//        for message in messages {
-//            let new_result = self.insert_message(message);
-//            result = self.update_result(result, new_result);
-//        }
-//        // Iterate over each of the pending messages and check if they are unblocked.
-//        let mut current_pending_messages: Vec<_> = self.pending_messages.drain(..).collect();
-//        current_pending_messages.retain(|pending_message| {
-//            let is_unblocked = pending_message.parents.iter().filter(|&h| self.nodes.contains_key(h)).count() == 0;
-//            if is_unblocked {
-//                let new_result = self.insert_message(pending_message.clone());
-//                result = self.update_result(result, new_result);
-//            }
-//            !is_unblocked
-//        });
-//        self.pending_messages = current_pending_messages;
-////        for mut pending_message in current_pending_messages {
-////            let is_unblocked = pending_message.parents.iter_mut().filter(|h| self.nodes.contains_key(h)).count() == 0;
-////            //
-////        }
-////        let mut new_pending_messages = vec![];
-////        let current_pending_messages = self.pending_messages.drain(..);
-////        for pending_message in current_pending_messages {
-////            let is_unblocked = {
-////                let unknown_parents: Vec<_> = pending_message.parents.iter()
-////                    .filter(|&h| self.nodes.contains_key(h)).collect();
-//////                unknown_parents.is_empty()
-////            };
-////            if is_unblocked {
-////                let new_result = self.insert_message(pending_message);
-////                result = self.update_result(result, new_result);
-////            } else {
-////                new_pending_messages.push(pending_message);
-////            }
-////        }
-////        self.pending_messages = new_pending_messages;
-//        result
-//    }
-
     fn insert_message(&mut self, hash: CryptoHash, message: Message<P>) -> NSResult {
         let endorses;
         let mut last_depth = vec![-1; self.num_authorities];
