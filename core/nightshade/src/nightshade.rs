@@ -1,7 +1,8 @@
-use std::collections::{HashSet, HashMap};
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+
 use primitives::hash::{CryptoHash, hash};
 use primitives::serialize::Encode;
-use std::cmp::max;
 use primitives::traits::Payload;
 
 pub type AuthorityId = usize;
@@ -9,9 +10,8 @@ pub type AuthorityId = usize;
 #[derive(PartialEq, Eq, Debug)]
 pub enum NSResult {
     Success,
-    Finalize(CryptoHash),
+    Finalize(Vec<CryptoHash>),
     Retrieve(Vec<CryptoHash>),
-    Known,
     Error(String),
 }
 
@@ -40,6 +40,12 @@ pub struct Message<P> {
     pub data: P,
 }
 
+impl<P: Payload> Message<P> {
+    pub fn calculate_hash(&self) -> CryptoHash {
+        hash(&self.encode().expect("Serialization failed"))
+    }
+}
+
 #[derive(Debug)]
 struct Node<P: Payload> {
     message: Message<P>,
@@ -57,7 +63,8 @@ pub struct Nightshade<P: Payload> {
     nodes_per_author: Vec<HashMap<i64, CryptoHash>>,
     global_last_depth: Vec<i64>,
     tips: HashSet<CryptoHash>,
-    pending_messages: Vec<Message<P>>,
+    pending_messages: HashMap<CryptoHash, (Message<P>, HashSet<CryptoHash>)>,
+    missing_hashes: HashMap<CryptoHash, HashSet<CryptoHash>>,
 }
 
 impl<P: Payload> Nightshade<P> {
@@ -69,6 +76,7 @@ impl<P: Payload> Nightshade<P> {
             nodes_per_author: vec![Default::default(); num_authorities],
             global_last_depth: vec![-1; num_authorities],
             pending_messages: Default::default(),
+            missing_hashes: Default::default(),
             tips: Default::default(),
         }
     }
@@ -85,40 +93,120 @@ impl<P: Payload> Nightshade<P> {
         result
     }
 
-    pub fn process_messages(&mut self, messages: Vec<Message<P>>) -> NSResult {
-        let mut missing_messages: HashSet<CryptoHash> = HashSet::default();
-        for message in messages.iter() {
-            for parent in message.parents.iter() {
-                if !self.nodes.contains_key(parent) {
-                    missing_messages.insert(*parent);
-                }
+    fn update_result(&self, current_result: NSResult, new_result: NSResult) -> NSResult {
+        match new_result {
+            NSResult::Finalize(r) => match current_result {
+                NSResult::Finalize(mut v) => { v.extend(r); NSResult::Finalize(v) },
+                _ => { NSResult::Finalize(r) }
+            },
+            other => other
+        }
+    }
+
+    pub fn process_message(&mut self, message: Message<P>) -> NSResult {
+        let hash = message.calculate_hash();
+        if self.nodes.contains_key(&hash) || self.pending_messages.contains_key(&hash) {
+            return NSResult::Success;
+        }
+        let unknown_hashes: HashSet<CryptoHash> = (&message.parents)
+            .iter()
+            .filter_map(|h| if self.nodes.contains_key(h) { None } else { Some(*h) })
+            .collect();
+
+        if unknown_hashes.is_empty() {
+            return self.add_message(hash, message);
+        }
+        for h in unknown_hashes.iter() {
+            self.missing_hashes.entry(*h).or_insert_with(HashSet::new).insert(hash);
+        }
+        let retieve_hashes = unknown_hashes.clone().drain().collect();
+        self.pending_messages.insert(hash, (message, unknown_hashes));
+        NSResult::Retrieve(retieve_hashes)
+    }
+
+    fn add_message(&mut self, hash: CryptoHash, message: Message<P>) -> NSResult {
+        let mut result = self.insert_message(hash, message);
+        // Get messages that were blocked by this one.
+        let blocked_messages = match self.missing_hashes.remove(&hash) {
+            None => return result,
+            Some(blocked_messages) => blocked_messages,
+        };
+        for blocked_message_hash in blocked_messages {
+            let is_unblocked = {
+                let (_, unknown_parents) = self.pending_messages.get_mut(&blocked_message_hash).expect("Candidates out of sync");
+                unknown_parents.remove(&hash);
+                unknown_parents.is_empty()
+            };
+            if is_unblocked {
+                let (_, (blocked_message, _)) = self.pending_messages.remove_entry(&blocked_message_hash).expect("Candidates out of sync");
+                let new_result = self.insert_message(blocked_message_hash, blocked_message);
+                result = self.update_result(result, new_result);
             }
-        }
-        if !missing_messages.is_empty() {
-            self.pending_messages.extend(messages);
-            return NSResult::Retrieve(missing_messages.drain().collect());
-        }
-        let mut result = NSResult::Success;
-        for message in messages {
-            result = self.process_message(message);
         }
         result
     }
 
-    pub fn process_message(&mut self, message: Message<P>) -> NSResult {
-        let bytes: Vec<u8> = message.encode().unwrap();
-        let h = hash(&bytes);
-        //let h = hash(&message.encode().expect("Serialiaze failed"));
-        // let h = hash(&Encode::encode(&message).expect("Serialization failed"));
-        if self.nodes.contains_key(&h) {
-            return NSResult::Known;
-        }
-        let missing_messages: Vec<CryptoHash> = message.parents.iter()
-            .filter(|&h| !self.nodes.contains_key(h)).cloned().collect();
-        if !missing_messages.is_empty() {
-            self.pending_messages.push(message);
-            return NSResult::Retrieve(missing_messages);
-        }
+//    pub fn process_messages(&mut self, messages: Vec<Message<P>>) -> NSResult {
+//        let mut result = NSResult::Success;
+//        for message in messages {
+//            let new_result = self.process_message(message);
+//            result = self.update_result(result, new_result);
+//        }
+//        let mut missing_messages: HashSet<CryptoHash> = HashSet::default();
+//        for message in messages.iter() {
+//            for parent in message.parents.iter() {
+//                if !self.nodes.contains_key(parent) {
+//                    missing_messages.insert(*parent);
+//                }
+//            }
+//        }
+//        if !missing_messages.is_empty() {
+//            for message in missing_messages {
+//
+//            }
+//            self.pending_messages.extend(messages);
+//            return NSResult::Retrieve(missing_messages.drain().collect());
+//        }
+//        let mut result = NSResult::Success;
+//        for message in messages {
+//            let new_result = self.insert_message(message);
+//            result = self.update_result(result, new_result);
+//        }
+//        // Iterate over each of the pending messages and check if they are unblocked.
+//        let mut current_pending_messages: Vec<_> = self.pending_messages.drain(..).collect();
+//        current_pending_messages.retain(|pending_message| {
+//            let is_unblocked = pending_message.parents.iter().filter(|&h| self.nodes.contains_key(h)).count() == 0;
+//            if is_unblocked {
+//                let new_result = self.insert_message(pending_message.clone());
+//                result = self.update_result(result, new_result);
+//            }
+//            !is_unblocked
+//        });
+//        self.pending_messages = current_pending_messages;
+////        for mut pending_message in current_pending_messages {
+////            let is_unblocked = pending_message.parents.iter_mut().filter(|h| self.nodes.contains_key(h)).count() == 0;
+////            //
+////        }
+////        let mut new_pending_messages = vec![];
+////        let current_pending_messages = self.pending_messages.drain(..);
+////        for pending_message in current_pending_messages {
+////            let is_unblocked = {
+////                let unknown_parents: Vec<_> = pending_message.parents.iter()
+////                    .filter(|&h| self.nodes.contains_key(h)).collect();
+//////                unknown_parents.is_empty()
+////            };
+////            if is_unblocked {
+////                let new_result = self.insert_message(pending_message);
+////                result = self.update_result(result, new_result);
+////            } else {
+////                new_pending_messages.push(pending_message);
+////            }
+////        }
+////        self.pending_messages = new_pending_messages;
+//        result
+//    }
+
+    fn insert_message(&mut self, hash: CryptoHash, message: Message<P>) -> NSResult {
         let endorses;
         let mut last_depth = vec![-1; self.num_authorities];
         let mut max_score = vec![0; self.num_authorities];
@@ -171,7 +259,7 @@ impl<P: Payload> Nightshade<P> {
                 max_confidence[endorses] += 1;
             }
         }
-        self.tips.insert(h);
+        self.tips.insert(hash);
         let mut finalize = true;
         for i in 0..self.num_authorities {
             if i != endorses && max_confidence[endorses] - max_confidence[i] < 3 {
@@ -180,7 +268,7 @@ impl<P: Payload> Nightshade<P> {
         }
         let depth = last_depth[message.author] + 1;
         last_depth[message.author] = depth;
-        self.nodes_per_author[message.author].insert(depth, h);
+        self.nodes_per_author[message.author].insert(depth, hash);
         let node = Node {
             message,
             depth,
@@ -189,25 +277,24 @@ impl<P: Payload> Nightshade<P> {
             max_score,
             max_confidence
         };
-        if self.owner_id == 0 {
-            println!("Node: {:?}", node);
-        }
-        self.nodes.insert(h, node);
-        // Check if pending messages are unblocked.
+        self.nodes.insert(hash, node);
         if finalize {
-            NSResult::Finalize(h)
+            NSResult::Finalize(vec![hash])
         } else {
             NSResult::Success
         }
     }
 
     pub fn create_message(&mut self, data: P) -> (Message<P>, NSResult) {
+        let mut parents: Vec<CryptoHash> = self.tips.iter().cloned().collect();
+        parents.sort();
         let m = Message {
             author: self.owner_id,
-            parents: self.tips.iter().cloned().collect(),
+            parents,
             data,
         };
-        let r = self.process_message(m.clone());
+        let hash = m.calculate_hash();
+        let r = self.insert_message(hash, m.clone());
         (m, r)
     }
 
@@ -218,10 +305,9 @@ impl<P: Payload> Nightshade<P> {
 
 #[cfg(test)]
 mod tests {
+    use crate::fake_network::FakePayload;
 
     use super::*;
-
-    use crate::fake_network::FakePayload;
 
     fn message(author: AuthorityId, parents: Vec<CryptoHash>) -> (Message<FakePayload>, CryptoHash) {
         let m = Message { author, parents, data: FakePayload { content: 0 } };
@@ -280,18 +366,18 @@ mod tests {
     fn test_nightshade_basics() {
         let mut ns = Nightshade::new(0, 3);
         let (m1, mh1) = message(0, vec![]);
-        let (m2, _mh2) = message(1, vec![]);
-        let (m3, _mh3) = message(2, vec![]);
+        let (m2, mh2) = message(1, vec![]);
+        let (m3, mh3) = message(2, vec![]);
         assert_eq!(ns.process_message(m1.clone()), NSResult::Success);
-        assert_eq!(ns.process_message(m1), NSResult::Known);
+        assert_eq!(ns.process_message(m1), NSResult::Success);
         assert_eq!(ns.process_message(m2), NSResult::Success);
         assert_eq!(ns.process_message(m3), NSResult::Success);
         let (m4, mh4) = message(0, vec![mh1]);
-        let (m5, _mh5) = message(0, vec![mh4]);
+        let (m5, mh5) = message(0, vec![mh4]);
         assert_eq!(ns.process_message(m5), NSResult::Retrieve(vec![mh4]));
         assert_eq!(ns.process_message(m4), NSResult::Success);
         let (m6, r6) = ns.create_message(FakePayload { content: 0 });
         assert_eq!(r6, NSResult::Success);
-        assert_eq!(ns.process_message(m6), NSResult::Known);
+        assert_eq!(m6.parents, vec![mh3, mh2, mh5]);
     }
 }

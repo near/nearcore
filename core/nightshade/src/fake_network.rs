@@ -1,11 +1,14 @@
-use tokio::timer::Delay;
-use futures::sync::mpsc;
+use std::time::{Duration, Instant};
+
 use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
-use std::time::{Duration, Instant};
+use futures::sync::mpsc;
 use log::error;
+use tokio::timer::Delay;
+
 use primitives::traits::Payload;
-use super::nightshade_task::{NightshadeTask, Control, Gossip};
+
+use super::nightshade_task::{Control, Gossip, NightshadeTask};
 
 /// Fake payload that only stores one number.
 #[derive(Debug, Serialize, Deserialize, Hash, Clone)]
@@ -93,18 +96,6 @@ fn spawn_all(num_authorities: usize) {
             });
             tokio::spawn(f.for_each(|_| Ok(())));
         }
-
-//        for (i, consensus_rx) in consensus_rx_vec.drain(..).enumerate() {
-//            let control_tx_vec_1 = control_tx_vec.clone();
-//            let f = consensus_rx.map(move |consensus| {
-//                let control_input = control_tx_vec_1[i].clone();
-//                tokio::spawn(control_input
-//                    .send(Control::Stop)
-//                    .map(|_| ())
-//                    .map_err(|e| error!("Error stopping Nightshade {:?}", e)));
-//            });
-//            tokio::spawn(f.for_each(|_| Ok(())));
-//        }
 
         // Send kick-off payloads.
         let mut fs = vec![];

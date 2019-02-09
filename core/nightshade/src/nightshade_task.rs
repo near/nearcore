@@ -1,15 +1,18 @@
-use std::collections::HashSet;
-use primitives::hash::CryptoHash;
-use tokio::timer::Delay;
-use futures::sync::mpsc;
-use futures::{Async, Future, Poll, Sink, Stream};
-use std::time::{Duration, Instant};
-use futures::try_ready;
-use log::{info, error};
 use std::cmp::min;
+use std::collections::HashSet;
 use std::mem;
+use std::time::{Duration, Instant};
+
+use futures::{Async, Future, Poll, Sink, Stream};
+use futures::sync::mpsc;
+use futures::try_ready;
+use log::{debug, error, info};
+use tokio::timer::Delay;
+
+use primitives::hash::CryptoHash;
 use primitives::traits::Payload;
-use super::nightshade::{Nightshade, Message, NSResult, AuthorityId};
+
+use super::nightshade::{AuthorityId, Message, Nightshade, NSResult};
 
 pub enum Control {
     Reset,
@@ -34,7 +37,6 @@ pub struct Gossip<P: Payload> {
 }
 
 pub struct ConsensusBlock<P: Payload> {
-    pub parent_hash: CryptoHash,
     pub messages: Vec<Message<P>>,
 }
 
@@ -97,9 +99,7 @@ impl<P: Payload> NightshadeTask<P> {
     }
 
     fn process_gossip(&mut self, gossip: Gossip<P>) {
-        if self.owner_id == 0 {
-            println!("Receive gossip: {:?}", gossip);
-        }
+        debug!("Processing gossip from {:?}", gossip.sender_id);
         match gossip.body {
             GossipBody::Unsolicited(message) => self.process_messages(gossip.sender_id, vec![message]),
             GossipBody::Fetch(hashes) => self.respond_fetch(gossip.sender_id, &hashes),
@@ -108,21 +108,21 @@ impl<P: Payload> NightshadeTask<P> {
     }
 
     fn process_messages(&mut self, sender_id: AuthorityId, messages: Vec<Message<P>>) {
-        match self.nightshade_as_mut_ref().process_messages(messages) {
-            NSResult::Finalize(hash) => self.send_consensus(hash),
-            NSResult::Retrieve(hashes) => self.retrieve_messages(sender_id, hashes),
-            _ => {}
+        for message in messages {
+            match self.nightshade_as_mut_ref().process_message(message) {
+                NSResult::Finalize(hashes) => self.send_consensus(hashes),
+                NSResult::Retrieve(hashes) => self.retrieve_messages(sender_id, hashes),
+                _ => {}
+            }
         }
     }
 
     fn respond_fetch(&self, sender_id: AuthorityId, hashes: &Vec<CryptoHash>) {
+        debug!(target: "nightshade", "Responding fetch from {:?} for {:?} messages", sender_id, hashes.len());
         let reply_messages: Vec<_> = hashes
             .iter()
             .filter_map(|h| self.nightshade_as_ref().copy_message_data_by_hash(h))
             .collect();
-        if sender_id == 0 {
-            println!("Reply messages: {:?} {:?}", hashes, reply_messages);
-        }
         let reply = Gossip {
             sender_id: self.owner_id,
             receiver_id: sender_id,
@@ -131,19 +131,17 @@ impl<P: Payload> NightshadeTask<P> {
         self.send_gossip(reply);
     }
 
-    fn send_consensus(&self, hash: CryptoHash) {
-        if self.owner_id == 0 {
-            println!("Consensus: {:?}", hash);
+    fn send_consensus(&self, hashes: Vec<CryptoHash>) {
+        for hash in hashes {
+            info!(target: "nightshade", "Consensus: {:?}", hash);
+            let copied_tx = self.consensus_sender.clone();
+            let consensus = ConsensusBlock {
+                messages: vec![],
+            };
+            tokio::spawn(copied_tx.send(consensus).map(|_| ()).map_err(|e| {
+                error!(target: "nightshade", "Failure in the sub-task {:?}", e);
+            }));
         }
-        info!(target: "nightshade", "Consensus: {:?}", hash);
-        let copied_tx = self.consensus_sender.clone();
-        let consensus = ConsensusBlock {
-            parent_hash: hash,
-            messages: vec![],
-        };
-        tokio::spawn(copied_tx.send(consensus).map(|_| ()).map_err(|e| {
-            error!(target: "nightshade", "Failure in the sub-task {:?}", e);
-        }));
     }
 
     fn retrieve_messages(&self, sender_id: AuthorityId, hashes: Vec<CryptoHash>) {
@@ -172,6 +170,7 @@ impl<P: Payload> NightshadeTask<P> {
                 random_authorities.insert(next);
             }
         }
+        debug!(target: "nightshade", "Gossip message to {:?}", random_authorities);
         for w in &random_authorities {
             let gossip = Gossip {
                 sender_id: self.owner_id,
