@@ -33,7 +33,7 @@ pub struct Runtime<'a> {
     pub random_seed: Vec<u8>,
     random_buffer_offset: usize,
     pub logs: Vec<String>,
-    memory: Memory,
+    memory: Option<Memory>,
 }
 
 impl<'a> Runtime<'a> {
@@ -43,7 +43,7 @@ impl<'a> Runtime<'a> {
         result_data: &'a [Option<Vec<u8>>],
         context: &'a RuntimeContext,
         gas_limit: Gas,
-        memory: Memory,
+        memory: Option<Memory>,
     ) -> Runtime<'a> {
         Runtime {
             ext,
@@ -64,9 +64,13 @@ impl<'a> Runtime<'a> {
     }
 
     fn memory_can_fit(&self, offset: usize, len: usize) -> bool {
-        match offset.checked_add(len) {
-            None => false,
-            Some(end) => self.memory.size().bytes() >= Bytes(end),
+        if let Some(ref memory) = self.memory {
+            match offset.checked_add(len) {
+                None => false,
+                Some(end) => memory.size().bytes() >= Bytes(end),
+            }
+        } else {
+            false
         }
     }
 
@@ -75,12 +79,14 @@ impl<'a> Runtime<'a> {
             Err(Error::MemoryAccessViolation)
         } else if len == 0 {
             Ok(Vec::new())
-        } else {
-            Ok(self.memory
+        } else if let Some(ref memory) = self.memory {
+            Ok(memory
                 .view()[offset..(offset + len)]
                 .iter()
                 .map(|cell| cell.get())
                 .collect())
+        } else {
+            Err(Error::MemoryAccessViolation)
         }
     }
 
@@ -89,13 +95,15 @@ impl<'a> Runtime<'a> {
             Err(Error::MemoryAccessViolation)
         } else if buf.is_empty() {
             Ok(())
-        } else {
-            self.memory
+        } else if let Some(ref memory) = self.memory {
+            memory
                 .view()[offset..(offset + buf.len())]
                 .iter()
                 .zip(buf.iter())
                 .for_each(|(cell, v)| cell.set(*v));
             Ok(())
+        } else {
+            Err(Error::MemoryAccessViolation)
         }
     }
 
@@ -575,14 +583,24 @@ pub mod imports {
                 }
             )*
 
-            pub(crate) fn build(memory: Memory) -> ImportObject {
-                imports! {
-                    "env" => {
-                        "memory" => memory,
-                        $(
-                            $import_name => func!($func),
-                        )*
-                    },
+            pub(crate) fn build(memory: Option<Memory>) -> ImportObject {
+                if let Some(memory) = memory {
+                    imports! {
+                        "env" => {
+                            "memory" => memory,
+                            $(
+                                $import_name => func!($func),
+                            )*
+                        },
+                    }
+                } else {
+                    imports! {
+                        "env" => {
+                            $(
+                                $import_name => func!($func),
+                            )*
+                        },
+                    }
                 }
             }
         }

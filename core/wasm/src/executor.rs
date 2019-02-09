@@ -7,12 +7,7 @@ use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
 
-use wasmer_runtime::{
-    self,
-    Memory,
-    wasm::MemoryDescriptor,
-    units::Pages,
-};
+use wasmer_runtime;
 
 const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";
 
@@ -40,13 +35,10 @@ pub fn execute<'a>(
         return Err(Error::EmptyMethodName);
     }
 
-    let instrumented_code = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
-
-    let memory = Memory::new(MemoryDescriptor {
-        minimum: Pages(17),
-        maximum: Some(Pages(32)),
-        shared: false,
-    }).map_err(Into::<wasmer_runtime::error::Error>::into)?;
+    let prepare::PreparedContract {
+        instrumented_code,
+        memory
+    } = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
 
     let mut runtime = Runtime::new(
         ext,
@@ -67,10 +59,6 @@ pub fn execute<'a>(
     let method_name = format!("{}{}",
         PUBLIC_FUNCTION_PREFIX,
         std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?);
-
-    // Resolving function by method_name
-    // let mut func = instance.func(&method_name)
-    //    .map_err(Into::<wasmer_runtime::error::Error>::into)?;
 
     match instance.call(&method_name, &[]) {
         Ok(_) => Ok(ExecutionOutcome {

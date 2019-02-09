@@ -1,7 +1,7 @@
 use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
 use wasmer_runtime::error as WasmerError;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 /// Error that can occur while preparing or executing wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -36,9 +36,23 @@ pub enum PrepareError {
 
     /// Memory creation error.
     ///
-    /// This might happen when the memory import has invalid descriptor or
-    /// requested too much resources.
-    Memory,
+    /// The initial memory is higher than the maximum.
+    MemoryInitialExceedMaximum,
+
+    /// Memory creation error.
+    ///
+    /// The maximum memory is higher than allowed by configuration.
+    MemoryMaximumExceedConfig,
+
+    /// Memory creation error.
+    ///
+    /// The maximum memory is not specified.
+    MemoryNoMaximum,
+
+    /// Memory creation error.
+    ///
+    /// The creation of memory failed by wasmer.
+    MemoryWasmer(WasmerError::CreationError),
 }
 
 /// User trap in native code

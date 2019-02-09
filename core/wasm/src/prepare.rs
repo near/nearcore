@@ -5,6 +5,11 @@ use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
 use parity_wasm::builder;
 use pwasm_utils::{self, rules};
 use crate::types::{Config, PrepareError as Error};
+use wasmer_runtime::{
+    memory::Memory,
+    wasm::MemoryDescriptor,
+    units::Pages,
+};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
@@ -24,7 +29,7 @@ impl<'a> ContractModule<'a> {
         })
     }
 
-    fn externalize_mem(&mut self) -> Result<(), Error> {
+    fn externalize_mem(&mut self) {
         let mut module = self
             .module
             .take()
@@ -56,8 +61,6 @@ impl<'a> ContractModule<'a> {
             }
             None => self.module = Some(module)
         };
-
-        Ok(())
     }
 
     /// Ensures that module doesn't declare internal memories.
@@ -161,7 +164,8 @@ impl<'a> ContractModule<'a> {
 			if !ext_func.func_type_matches(func_ty) {
 				return Err(Error::Instantiate);
 			}
-			*/        }
+			*/
+        }
         Ok(imported_mem_type)
     }
 
@@ -172,6 +176,11 @@ impl<'a> ContractModule<'a> {
                 .expect("On entry to the function `module` can't be `None`; qed"),
         ).map_err(|_| Error::Serialization)
     }
+}
+
+pub(super) struct PreparedContract {
+    pub instrumented_code: Vec<u8>,
+    pub memory: Option<Memory>,
 }
 
 /// Loads the given module given in `original_code`, performs some checks on it and
@@ -187,45 +196,60 @@ impl<'a> ContractModule<'a> {
 pub(super) fn prepare_contract(
     original_code: &[u8],
     config: &Config,
-) -> Result<Vec<u8>, Error> {
+) -> Result<PreparedContract, Error> {
     let mut contract_module = ContractModule::init(original_code, config)?;
-    contract_module.externalize_mem()?;
+    contract_module.externalize_mem();
     contract_module.ensure_no_internal_memory()?;
     contract_module.inject_gas_metering()?;
     contract_module.inject_stack_height_metering()?;
 
-    if let Some(memory_type) = contract_module.scan_imports()? {
+    let memory = if let Some(memory_type) = contract_module.scan_imports()? {
         // Inspect the module to extract the initial and maximum page count.
         let limits = memory_type.limits();
         match (limits.initial(), limits.maximum()) {
             (initial, Some(maximum)) if initial > maximum => {
                 // Requested initial number of pages should not exceed the requested maximum.
-                return Err(Error::Memory);
+                return Err(Error::MemoryInitialExceedMaximum);
             }
             (_, Some(maximum)) if maximum > config.max_memory_pages => {
                 // Maximum number of pages should not exceed the configured maximum.
-                return Err(Error::Memory);
+                return Err(Error::MemoryMaximumExceedConfig);
             }
             (_, None) => {
                 // Maximum number of pages should be always declared.
                 // This isn't a hard requirement and can be treated as a maxiumum set
                 // to configured maximum.
-                return Err(Error::Memory);
+                return Err(Error::MemoryNoMaximum);
             }
-            // (initial, maximum) => Memory::init(initial, maximum),
-            _ => (),
+            (initial, Some(maximum)) => Some(Memory::new(MemoryDescriptor {
+                minimum: Pages(initial),
+                maximum: Some(Pages(maximum)),
+                shared: false,
+            }).map_err(Error::MemoryWasmer)?)
         }
-    }
+    } else {
+        None
+    };
 
-    contract_module.into_wasm_code()
+    Ok(PreparedContract {
+        instrumented_code: contract_module.into_wasm_code()?,
+        memory,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt;
     use wabt;
 
-    fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, Error> {
+    impl fmt::Debug for PreparedContract {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "PreparedContract {{ .. }}")
+        }
+    }
+
+    fn parse_and_prepare_wat(wat: &str) -> Result<PreparedContract, Error> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
         let config = Config::default();
         prepare_contract(wasm.as_ref(), &config)
@@ -251,15 +275,15 @@ mod tests {
 
         // initial exceed maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
-        assert_matches!(r, Err(Error::Memory));
+        assert_matches!(r, Err(Error::MemoryInitialExceedMaximum));
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-        assert_matches!(r, Err(Error::Memory));
+        assert_matches!(r, Err(Error::MemoryNoMaximum));
 
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
-        assert_matches!(r, Err(Error::Memory));
+        assert_matches!(r, Err(Error::MemoryMaximumExceedConfig));
     }
 
     #[test]
