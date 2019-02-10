@@ -1,11 +1,15 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use crate::memory::Memory;
 use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
 use parity_wasm::builder;
 use pwasm_utils::{self, rules};
 use crate::types::{Config, PrepareError as Error};
+use wasmer_runtime::{
+    memory::Memory,
+    wasm::MemoryDescriptor,
+    units::Pages,
+};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
@@ -25,7 +29,7 @@ impl<'a> ContractModule<'a> {
         })
     }
 
-    fn externalize_mem(&mut self) -> Result<(), Error> {
+    fn externalize_mem(&mut self) {
         let mut module = self
             .module
             .take()
@@ -57,8 +61,6 @@ impl<'a> ContractModule<'a> {
             }
             None => self.module = Some(module)
         };
-
-        Ok(())
     }
 
     /// Ensures that module doesn't declare internal memories.
@@ -162,7 +164,8 @@ impl<'a> ContractModule<'a> {
 			if !ext_func.func_type_matches(func_ty) {
 				return Err(Error::Instantiate);
 			}
-			*/        }
+			*/
+        }
         Ok(imported_mem_type)
     }
 
@@ -177,7 +180,7 @@ impl<'a> ContractModule<'a> {
 
 pub(super) struct PreparedContract {
     pub instrumented_code: Vec<u8>,
-    pub memory: Memory,
+    pub memory: Option<Memory>,
 }
 
 /// Loads the given module given in `original_code`, performs some checks on it and
@@ -195,7 +198,7 @@ pub(super) fn prepare_contract(
     config: &Config,
 ) -> Result<PreparedContract, Error> {
     let mut contract_module = ContractModule::init(original_code, config)?;
-    contract_module.externalize_mem()?;
+    contract_module.externalize_mem();
     contract_module.ensure_no_internal_memory()?;
     contract_module.inject_gas_metering()?;
     contract_module.inject_stack_height_metering()?;
@@ -206,26 +209,27 @@ pub(super) fn prepare_contract(
         match (limits.initial(), limits.maximum()) {
             (initial, Some(maximum)) if initial > maximum => {
                 // Requested initial number of pages should not exceed the requested maximum.
-                return Err(Error::Memory);
+                return Err(Error::MemoryInitialExceedMaximum);
             }
             (_, Some(maximum)) if maximum > config.max_memory_pages => {
                 // Maximum number of pages should not exceed the configured maximum.
-                return Err(Error::Memory);
+                return Err(Error::MemoryMaximumExceedConfig);
             }
             (_, None) => {
                 // Maximum number of pages should be always declared.
                 // This isn't a hard requirement and can be treated as a maxiumum set
                 // to configured maximum.
-                return Err(Error::Memory);
+                return Err(Error::MemoryNoMaximum);
             }
-            (initial, maximum) => Memory::init(initial, maximum),
+            (initial, Some(maximum)) => Some(Memory::new(MemoryDescriptor {
+                minimum: Pages(initial),
+                maximum: Some(Pages(maximum)),
+                shared: false,
+            }).map_err(Error::MemoryWasmer)?)
         }
     } else {
-        // If none memory imported then just crate an empty placeholder.
-        // Any access to it will lead to out of bounds trap.
-        Memory::init(0, Some(0))
+        None
     };
-    let memory = memory.map_err(|_| Error::Memory)?;
 
     Ok(PreparedContract {
         instrumented_code: contract_module.into_wasm_code()?,
@@ -271,15 +275,15 @@ mod tests {
 
         // initial exceed maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
-        assert_matches!(r, Err(Error::Memory));
+        assert_matches!(r, Err(Error::MemoryInitialExceedMaximum));
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-        assert_matches!(r, Err(Error::Memory));
+        assert_matches!(r, Err(Error::MemoryNoMaximum));
 
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
-        assert_matches!(r, Err(Error::Memory));
+        assert_matches!(r, Err(Error::MemoryMaximumExceedConfig));
     }
 
     #[test]
