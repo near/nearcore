@@ -330,14 +330,12 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 // Independently on whether we were stopped or not, if we receive a reset signal we
                 // reset the state and the dag.
                 Ok(Async::Ready(Some(Control::Reset(state)))) => {
-                    println!("Received Reset control for beacon block index {}", state.beacon_block_index);
                     self.state = Some(state);
                     self.init_dag();
                     break;
                 }
                 // Stop command received.
                 Ok(Async::Ready(Some(Control::Stop))) => {
-                    println!("Received Stop control");
                     if self.state.is_some() {
                         self.state = None;
                         self.dag = None;
@@ -350,7 +348,6 @@ impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
                 }
                 // The input to control channel was dropped. We terminate TxFlow entirely.
                 Ok(Async::Ready(None)) => {
-                    println!("Control channel was dropped");
                     return Ok(Async::Ready(None));
                 }
                 Ok(Async::NotReady) => {

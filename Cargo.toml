@@ -23,7 +23,6 @@ members = [
     "core/wasm",
     "core/wasm/runtest",
     "core/wasm/runtest/generate-wasm/import-memory",
-    "core/near-network",
     "core/nightshade",
     "node/beacon",
     "node/client",
@@ -37,7 +36,6 @@ members = [
     "node/runtime",
     "node/shard",
     "node/testnet",
-    "test-utils/chain-spec-builder",
     "test-utils/keygen"
 ]
 exclude = [

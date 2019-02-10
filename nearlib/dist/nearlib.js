@@ -193,8 +193,8 @@ const {
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction
 } = require('./protos');
 
-const MAX_STATUS_POLL_ATTEMPTS = 3;
-const STATUS_POLL_PERIOD_MS = 750;
+const MAX_STATUS_POLL_ATTEMPTS = 5;
+const STATUS_POLL_PERIOD_MS = 1000;
 
 /**
  * Javascript library for interacting with near.
@@ -392,7 +392,7 @@ class Near {
         options.viewMethods.forEach((methodName) => {
             contract[methodName] = async function (args) {
                 args = args || {};
-                return near.callViewFunction(options.sender, contractAccountId, methodName, args);
+                return near.callViewFunction(contractAccountId, methodName, args);
             };
         });
         options.changeMethods.forEach((methodName) => {

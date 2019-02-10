@@ -84,7 +84,7 @@ impl From<BeaconBlockHeader> for BeaconBlockHeaderResponse {
             .map(|x| x.into())
             .collect();
         BeaconBlockHeaderResponse {
-            parent_hash: header.shard_block_hash,
+            parent_hash: header.parent_hash,
             index: header.index,
             authority_proposal,
             shard_block_hash: header.shard_block_hash,

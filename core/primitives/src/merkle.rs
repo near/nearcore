@@ -10,19 +10,6 @@ pub enum Direction {
     Right,
 }
 
-/// compute power of 2 that is greater than or equal to x
-fn round_up(x: u32) -> u32 {
-    let mut res = x;
-    res -= 1;
-    res |= res >> 1;
-    res |= res >> 2;
-    res |= res >> 4;
-    res |= res >> 8;
-    res |= res >> 16;
-    res += 1;
-    res
-}
-
 fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
     let mut combined: Vec<u8> = hash1.into();
     combined.append(&mut hash2.into());
@@ -34,7 +21,7 @@ pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     if arr.is_empty() {
         return (MerkleHash::default(), vec![]);
     }
-    let mut len = round_up(arr.len() as u32);
+    let mut len = (arr.len() as u32).next_power_of_two();
     let mut hashes: Vec<_> = (0..len).map(|i| {
         if i < arr.len() as u32 {
             hash_struct(&arr[i as usize])

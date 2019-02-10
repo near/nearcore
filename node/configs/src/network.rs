@@ -1,31 +1,45 @@
 use clap::{Arg, ArgMatches};
-use std::iter;
-use std::mem;
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 
 use crate::ClientConfig;
-use libp2p::Multiaddr;
-use substrate_network_libp2p::{NetworkConfiguration, Protocol, Secret};
+use primitives::network::PeerInfo;
+use primitives::{hash::hash_struct, types::PeerId};
+use std::time::Duration;
 
-const DEFAULT_P2P_PORT: &str = "30333";
-const NETWORK_CONFIG_PATH: &str = "storage";
+const DEFAULT_ADDR: &str = "127.0.0.1:3000";
+const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
+const DEFAULT_GOSSIP_INTERVAL_MS: &str = "50";
+const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
+// const NETWORK_CONFIG_PATH: &str = "storage";
 
-pub type NetworkConfig = NetworkConfiguration;
+#[derive(Clone)]
+pub struct NetworkConfig {
+    pub listen_addr: SocketAddr,
+    pub peer_id: PeerId,
+    pub boot_nodes: Vec<PeerInfo>,
+    pub reconnect_delay: Duration,
+    pub gossip_interval: Duration,
+    pub gossip_sample_size: usize,
+}
 
 pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     vec![
-        Arg::with_name("p2p_port")
-            .short("p")
-            .long("p2p_port")
-            .value_name("PORT")
-            .help("Specify the p2p protocol TCP port.")
-            .default_value(DEFAULT_P2P_PORT)
+        Arg::with_name("addr")
+            .long("addr")
+            .value_name("ADDR")
+            .help("Address that network service listens on")
+            .default_value(DEFAULT_ADDR)
             .takes_value(true),
-        Arg::with_name("boot_node")
+        Arg::with_name("boot_nodes")
             .short("b")
-            .long("boot-node")
-            .value_name("URL")
-            .help("Specify a list of boot nodes.")
+            .long("boot-nodes")
+            .value_name("BOOT_NODES")
+            .help(
+                "Specify a list of boot node. In the form:\
+                    --boot_nodes <ip1>:<port1>/<node-id1>
+                    --boot_nodes <ip2>:<port2>/<node-id2>
+            ",
+            )
             .multiple(true)
             .takes_value(true),
         Arg::with_name("test_network_key_seed")
@@ -37,47 +51,71 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
                  creating node ID's during tests.",
             )
             .takes_value(true),
+        Arg::with_name("reconnect_delay_ms")
+            .long("reconnect-delay-ms")
+            .value_name("RECONNECT_DELAY_MS")
+            .help("Delay in ms before we (re)connect to a known peer.")
+            .default_value(DEFAULT_RECONNECT_DELAY_MS)
+            .takes_value(true),
+        Arg::with_name("gossip_interval_ms")
+            .long("gossip-interval-ms")
+            .value_name("GOSSIP_INTERVAL_MS")
+            .help("Delay in ms between gossiping peers info with known peers.")
+            .default_value(DEFAULT_GOSSIP_INTERVAL_MS)
+            .takes_value(true),
+        Arg::with_name("gossip_sample_size")
+            .long("gossip-sample-size")
+            .value_name("GOSSIP_SAMPLE_SIZE")
+            .help("Delay in ms between gossiping peers info with known peers.")
+            .default_value(DEFAULT_GOSSIP_SAMPLE_SIZE)
+            .takes_value(true),
     ]
 }
 
-fn get_multiaddr(ip_addr: Ipv4Addr, port: u16) -> Multiaddr {
-    iter::once(Protocol::Ip4(ip_addr)).chain(iter::once(Protocol::Tcp(port))).collect()
-}
-
-pub fn get_test_secret_from_network_key_seed(test_network_key_seed: u32) -> Secret {
-    // 0 is an invalid secret so we increment all values by 1
-    let bytes: [u8; 4] = unsafe { mem::transmute(test_network_key_seed + 1) };
-
-    let mut array = [0; 32];
-    for (count, b) in bytes.iter().enumerate() {
-        array[array.len() - count - 1] = *b;
-    }
-    array
-}
-
 pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
-    let p2p_port = matches.value_of("p2p_port").map(|x| x.parse::<u16>().unwrap()).unwrap();
+    let listen_addr =
+        matches.value_of("addr").unwrap().parse::<SocketAddr>().expect("Cannot parse address");
     let test_network_key_seed =
         matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap());
 
-    let mut boot_nodes: Vec<_> = matches
-        .values_of("boot_node")
+    let parsed_boot_nodes = matches
+        .values_of("boot_nodes")
         .unwrap_or_else(clap::Values::default)
-        .map(String::from)
+        .map(String::from);
+    let mut boot_nodes: Vec<_> = parsed_boot_nodes
+        .map(|addr_id| {
+            let addr_id: Vec<_> = addr_id.split('/').collect();
+            let (addr, id) = (addr_id[0], addr_id[1]);
+            PeerInfo {
+                addr: addr.parse::<SocketAddr>().expect("Cannot parse address"),
+                id: String::into(id.to_string()),
+                account_id: None,
+            }
+        })
+        .clone()
         .collect();
+
+    let reconnect_delay_ms =
+        matches.value_of("reconnect_delay_ms").map(|x| x.parse::<u64>().unwrap()).unwrap();
+    let gossip_interval_ms =
+        matches.value_of("gossip_interval_ms").map(|x| x.parse::<u64>().unwrap()).unwrap();
+    let gossip_sample_size =
+        matches.value_of("gossip_sample_size").map(|x| x.parse::<usize>().unwrap()).unwrap();
+
     if boot_nodes.is_empty() {
         boot_nodes = client_config.chain_spec.boot_nodes.to_vec();
     } else if !client_config.chain_spec.boot_nodes.is_empty() {
         // TODO(#222): Maybe return an error here instead of panicking.
         panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
     }
-    let mut network_config = NetworkConfiguration::new();
-    let mut network_config_path = client_config.base_path.to_owned();
-    network_config_path.push(NETWORK_CONFIG_PATH);
-    network_config.net_config_path = Some(network_config_path.to_string_lossy().to_string());
-    network_config.boot_nodes = boot_nodes;
-    network_config.listen_addresses = vec![get_multiaddr(Ipv4Addr::UNSPECIFIED, p2p_port)];
-
-    network_config.use_secret = test_network_key_seed.map(get_test_secret_from_network_key_seed);
-    network_config
+    let peer_id = hash_struct(&test_network_key_seed);
+    println!("To boot from this node: {}/{}", listen_addr, String::from(&peer_id));
+    NetworkConfig {
+        listen_addr,
+        peer_id,
+        boot_nodes,
+        reconnect_delay: Duration::from_millis(reconnect_delay_ms),
+        gossip_interval: Duration::from_millis(gossip_interval_ms),
+        gossip_sample_size,
+    }
 }

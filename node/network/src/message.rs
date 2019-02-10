@@ -1,7 +1,8 @@
 use beacon::types::SignedBeaconBlock;
 use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, Gossip};
 use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
+use primitives::types::{AccountId, BlockId, Gossip};
+use serde_derive::{Deserialize, Serialize};
 
 pub type RequestId = u64;
 
@@ -29,3 +30,26 @@ pub struct Status {
     /// Account id.
     pub account_id: Option<AccountId>,
 }
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct BlockRequest {
+    /// request id
+    pub id: RequestId,
+    /// starting from this id
+    pub from: BlockId,
+    /// ending at this id,
+    pub to: Option<BlockId>,
+    /// max number of blocks requested
+    pub max: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockResponse {
+    // request id that the response is responding to
+    pub id: RequestId,
+    // block data
+    pub blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockAnnounce(pub SignedBeaconBlock, pub SignedShardBlock);

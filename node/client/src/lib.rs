@@ -57,13 +57,18 @@ fn configure_logging(log_level: log::LevelFilter) {
         builder.filter(Some(internal_targets), log_level);
     });
 
+    // Cranelift has too much log spam under INFO
+    builder.filter(Some("cranelift_wasm"), log::LevelFilter::Warn);
+
     let other_log_level = cmp::min(log_level, log::LevelFilter::Info);
     builder.filter(None, other_log_level);
 
     if let Ok(lvl) = env::var("RUST_LOG") {
         builder.parse(&lvl);
     }
-    builder.init();
+    if let Err(e) = builder.try_init() {
+        warn!(target: "client", "Failed to reinitialize the log level {}", e);
+    }
 }
 
 pub const DEFAULT_BASE_PATH: &str = ".";

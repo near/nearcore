@@ -17,9 +17,9 @@ use configs::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::StateDbViewer;
 use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex};
+use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex, MerkleHash};
 use primitives::merkle::{merklize, MerklePath};
-use storage::{extend_with_cache, read_with_cache, StateDb};
+use storage::{extend_with_cache, read_with_cache, StateDb, StateDbUpdate};
 use transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
@@ -74,23 +74,26 @@ pub struct ShardBlockChain {
     transaction_results: RwLock<HashMap<Vec<u8>, TransactionResult>>,
     pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
     pub state_db: Arc<StateDb>,
-    pub runtime: RwLock<Runtime>,
+    pub runtime: Runtime,
     pub statedb_viewer: StateDbViewer,
 }
 
 impl ShardBlockChain {
     pub fn new(chain_spec: &ChainSpec, storage: Arc<storage::Storage>) -> Self {
         let state_db = Arc::new(StateDb::new(storage.clone()));
-        let runtime = RwLock::new(Runtime::new(state_db.clone()));
-        let genesis_root = runtime.write().apply_genesis_state(
+        let runtime = Runtime {};
+        let state_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
+        let (genesis_root, db_changes) = runtime.apply_genesis_state(
+            state_update,
             &chain_spec.accounts,
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
+        state_db.commit(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
 
         let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
-        let statedb_viewer = StateDbViewer::new(state_db.clone());
+        let statedb_viewer = StateDbViewer {};
         Self {
             chain,
             storage,
@@ -101,6 +104,11 @@ impl ShardBlockChain {
             runtime,
             statedb_viewer
         }
+    }
+
+    pub fn get_state_update(&self) -> StateDbUpdate {
+        let root = self.chain.best_block().merkle_root_state();
+        StateDbUpdate::new(self.state_db.clone(), root)
     }
 
     #[inline]
@@ -158,7 +166,9 @@ impl ShardBlockChain {
             block_index: last_block.body.header.index + 1,
             shard_id: last_block.body.header.shard_id,
         };
-        let apply_result = self.runtime.write().apply(
+        let state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
+        let apply_result = self.runtime.apply(
+            state_update,
             &apply_state,
             &prev_receipts,
             &transactions,
@@ -332,37 +342,47 @@ impl ShardBlockChain {
 #[cfg(test)]
 mod tests {
     use node_runtime::test_utils::generate_test_chain_spec;
-    use primitives::signature::DEFAULT_SIGNATURE;
+    use primitives::signature::{sign, SecretKey};
     use primitives::types::Balance;
     use storage::test_utils::create_memory_db;
     use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
 
     use super::*;
 
-    fn get_test_chain() -> ShardBlockChain {
-        let (chain_spec, _signer) = generate_test_chain_spec();
-        ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()))
+    fn get_test_chain() -> (ShardBlockChain, SecretKey) {
+        let (chain_spec, _, secret_key) = generate_test_chain_spec();
+        let chain = ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()));
+        (chain, secret_key)
     }
 
-    fn send_money_tx(originator: &str, receiver: &str, amount: Balance) -> SignedTransaction {
-        SignedTransaction::new(
-            DEFAULT_SIGNATURE,
-            TransactionBody::SendMoney(SendMoneyTransaction {
-                nonce: 1, originator: originator.to_string(), receiver: receiver.to_string(), amount
-            }), )
+    fn send_money_tx(
+        originator: &str,
+        receiver: &str,
+        amount: Balance,
+        secret_key: SecretKey
+    ) -> SignedTransaction {
+        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+            nonce: 1, 
+            originator: originator.to_string(),
+            receiver: receiver.to_string(),
+            amount
+        });
+        let hash = tx_body.get_hash();
+        let signature = sign(hash.as_ref(), &secret_key);
+        SignedTransaction::new(signature, tx_body)
     }
 
     #[test]
     fn test_get_transaction_status_unknown() {
-        let chain = get_test_chain();
+        let (chain, _) = get_test_chain();
         let result = chain.get_transaction_result(&CryptoHash::default());
         assert_eq!(result.status, TransactionStatus::Unknown);
     }
 
     #[test]
     fn test_transaction_failed() {
-        let chain = get_test_chain();
-        let tx = send_money_tx("xyz.near", "bob.near", 100);
+        let (chain, secret_key) = get_test_chain();
+        let tx = send_money_tx("xyz.near", "bob.near", 100, secret_key);
         let (block, (db_changes, _, tx_status, receipts)) = chain.prepare_new_block(
             chain.genesis_hash(), 
             vec![],
@@ -376,8 +396,8 @@ mod tests {
 
     #[test]
     fn test_get_transaction_status_complete() {
-        let chain = get_test_chain();
-        let tx = send_money_tx("alice.near", "bob.near", 10);
+        let (chain, secret_key) = get_test_chain();
+        let tx = send_money_tx("alice.near", "bob.near", 10, secret_key);
         let (block, (db_changes, _, tx_status, new_receipts)) = chain.prepare_new_block(
             chain.genesis_hash(),
             vec![],
@@ -414,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_get_transaction_address() {
-        let chain = get_test_chain();
+        let (chain, _) = get_test_chain();
         let t = SignedTransaction::empty();
         let transaction = SignedTransaction::empty();
         let block = SignedShardBlock::new(
