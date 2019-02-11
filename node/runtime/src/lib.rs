@@ -39,8 +39,8 @@ use chain::ReceiptBlock;
 use crate::ext::RuntimeExt;
 use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
 use crate::system::{
-    SYSTEM_METHOD_CREATE_ACCOUNT, SYSTEM_METHOD_DEPLOY, system_account,
-    system_create_account, system_deploy
+    SYSTEM_METHOD_CREATE_ACCOUNT, system_account,
+    system_create_account
 };
 
 pub mod test_utils;
@@ -287,9 +287,10 @@ impl Runtime {
                     },
                     TransactionBody::DeployContract(ref t) => {
                         system::deploy(
-                            t,
-                            transaction.get_hash(),
-                            accounting_info,
+                            state_update,
+                            &t.originator,
+                            &t.wasm_byte_array,
+                            &mut sender,
                         )
                     },
                     TransactionBody::CreateAccount(ref t) => {
@@ -600,26 +601,6 @@ impl Runtime {
                                 ReceiptBody::Refund(async_call.amount)
                             );
                             Ok(vec![receipt])
-                        } else if async_call.method_name == SYSTEM_METHOD_DEPLOY {
-                            let (pub_key, code): (Vec<u8>, Vec<u8>) = Decode::decode(&async_call.args).map_err(|_| "cannot decode args".to_string())?;
-                            let pub_key = PublicKey::new(&pub_key)?;
-                            // TODO(#413): Fix security of contract deploy.
-                            if receiver.public_keys.contains(&pub_key) {
-                                receiver.code_hash = hash(&code);
-                                set(
-                                    state_update,
-                                    &account_id_to_bytes(COL_CODE, &receipt.receiver),
-                                    &code,
-                                );
-                                set(
-                                    state_update,
-                                    &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver),
-                                    &receiver,
-                                );
-                                Ok(vec![])
-                            } else {
-                                Err(format!("Account {} does not contain key {}", receipt.receiver, pub_key))
-                            }
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
@@ -687,13 +668,6 @@ impl Runtime {
                     amount = call.amount;
                     if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                         system_create_account(
-                            state_update,
-                            &call,
-                            &receipt.receiver,
-                        )
-                    } else if call.method_name == SYSTEM_METHOD_DEPLOY {
-                        // TODO(#413): Fix security of contract deploy.
-                        system_deploy(
                             state_update,
                             &call,
                             &receipt.receiver,
