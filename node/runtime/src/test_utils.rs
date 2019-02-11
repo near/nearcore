@@ -400,5 +400,5 @@ pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
         root, "test_contract", public_key, wasm_binary
     );
     assert_ne!(new_root, root);
-    (user, root)
+    (user, new_root)
 }
