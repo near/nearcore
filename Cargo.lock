@@ -821,13 +821,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "import-memory"
-version = "0.0.1"
-dependencies = [
- "parity-wasm 0.31.3 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "indexmap"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
