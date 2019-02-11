@@ -30,7 +30,8 @@ use transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody,
     ReceiptTransaction, SignedTransaction,
-    TransactionBody, TransactionResult, TransactionStatus
+    TransactionBody, TransactionResult, TransactionStatus,
+    verify_transaction_signature
 };
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
@@ -234,6 +235,12 @@ impl Runtime {
                         "Transaction nonce {} must be larger than sender nonce {}",
                         transaction.body.get_nonce(),
                         sender.nonce,
+                    ));
+                }
+                if !verify_transaction_signature(&transaction, &sender.public_keys) {
+                    return Err(format!(
+                        "transaction not signed with a public key of originator {:?}",
+                        transaction.body.get_originator()
                     ));
                 }
                 sender.nonce = transaction.body.get_nonce();
@@ -944,8 +951,8 @@ mod tests {
 
     #[test]
     fn test_genesis_state() {
-        let (viewer, root) = get_test_state_db_viewer();
-        let result = viewer.view_account(root, &alice_account());
+        let (viewer, mut state_update) = get_test_state_db_viewer();
+        let result = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result.unwrap(),
             AccountViewCallResult {
@@ -987,7 +994,7 @@ mod tests {
     #[test]
     fn test_smart_contract_simple() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, apply_results) = alice.call_function(
             root, &bob_account(), "run_test", vec![], 0
         );
@@ -1008,7 +1015,7 @@ mod tests {
     #[test]
     fn test_smart_contract_bad_method_name() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (_, apply_results) = alice.call_function(
             root, &bob_account(), "_run_test", vec![], 0
         );
@@ -1022,7 +1029,7 @@ mod tests {
     #[test]
     fn test_smart_contract_empty_method_name_with_no_tokens() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (_, apply_results) = alice.call_function(
             root, &bob_account(), "", vec![], 0
         );
@@ -1036,7 +1043,7 @@ mod tests {
     #[test]
     fn test_smart_contract_empty_method_name_with_tokens() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, apply_results) = alice.call_function(
             root, &bob_account(), "", vec![], 10
         );
@@ -1057,7 +1064,7 @@ mod tests {
     #[test]
     fn test_smart_contract_with_args() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, apply_results) = alice.call_function(
             root,
             &bob_account(),
@@ -1082,7 +1089,7 @@ mod tests {
     #[test]
     fn test_async_call_with_no_callback() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (_, apply_results) = alice.async_call(root, &bob_account(), "run_test", vec![]);
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1099,7 +1106,7 @@ mod tests {
     #[test]
     fn test_async_call_with_logs() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db);
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db, root);
         let (_, apply_results) = alice.async_call(root, &bob_account(), "log_something", vec![]);
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1178,7 +1185,7 @@ mod tests {
     #[test]
     fn test_callback() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
         let callback_id = [0; 32].to_vec();
         let (new_root, _) = alice.callback(
             root,
@@ -1197,7 +1204,7 @@ mod tests {
     // if the callback failed, it should still be removed
     fn test_callback_failure() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
         let callback_id = [0; 32].to_vec();
         let (new_root, _) = alice.callback(
             root,
@@ -1216,7 +1223,7 @@ mod tests {
     #[test]
     fn test_nonce_update_when_deploying_contract() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
         let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let (new_root, _) = alice.deploy_contract(root, &eve_account(), pub_key, wasm_binary);
@@ -1230,15 +1237,19 @@ mod tests {
 
     #[test]
     fn test_100_accounts() {
-        let (mut chain_spec, _) = generate_test_chain_spec();
+        let (mut chain_spec, _, _) = generate_test_chain_spec();
         let public_key = get_key_pair().0;
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }
         let (_, state_db, root) = get_runtime_and_state_db_from_chain_spec(&chain_spec);
-        let viewer = StateDbViewer::new(state_db);
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db, root);
         for i in 0..100 {
-            assert_eq!(viewer.view_account(root, &format!("account{}", i)).unwrap().amount, 10000)
+            assert_eq!(
+                viewer.view_account(&mut state_update, &format!("account{}", i)).unwrap().amount, 
+                10000
+            )
         }
     }
 }

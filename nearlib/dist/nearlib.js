@@ -392,7 +392,7 @@ class Near {
         options.viewMethods.forEach((methodName) => {
             contract[methodName] = async function (args) {
                 args = args || {};
-                return near.callViewFunction(options.sender, contractAccountId, methodName, args);
+                return near.callViewFunction(contractAccountId, methodName, args);
             };
         });
         options.changeMethods.forEach((methodName) => {

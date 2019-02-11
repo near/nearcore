@@ -116,6 +116,10 @@ impl StateDbUpdate {
     pub fn range(&self, prefix: &[u8], start: &[u8], end: &[u8]) -> Result<StateDbUpdateIterator, String> {
         StateDbUpdateIterator::new(self, prefix, start, Some(end))
     }
+
+    pub fn get_root(&self) -> MerkleHash {
+        self.root
+    }
 }
 
 struct MergeIter<'a, I: Iterator<Item=(&'a Vec<u8>, &'a Option<Vec<u8>>)>> {

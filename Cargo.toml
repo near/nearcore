@@ -22,7 +22,6 @@ members = [
     "core/txflow",
     "core/wasm",
     "core/wasm/runtest",
-    "core/wasm/runtest/generate-wasm/import-memory",
     "node/beacon",
     "node/client",
     "node/configs",

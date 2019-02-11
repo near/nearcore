@@ -57,6 +57,9 @@ fn configure_logging(log_level: log::LevelFilter) {
         builder.filter(Some(internal_targets), log_level);
     });
 
+    // Cranelift has too much log spam under INFO
+    builder.filter(Some("cranelift_wasm"), log::LevelFilter::Warn);
+
     let other_log_level = cmp::min(log_level, log::LevelFilter::Info);
     builder.filter(None, other_log_level);
 

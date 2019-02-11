@@ -238,7 +238,7 @@ mod tests {
     fn test_upload_contract() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let mut alice = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, _) = alice.create_account(root, &eve_account(), 10);
         assert_ne!(root, new_root);
         let mut eve = User::new(runtime, &eve_account(), state_db.clone());
@@ -267,7 +267,7 @@ mod tests {
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &bob_account())
         ).unwrap();
-        let mut bob = User::new(runtime, &bob_account(), state_db.clone());
+        let (mut bob, root) = User::new(runtime, &bob_account(), state_db.clone(), root);
         let (new_root, mut apply_results) = bob.deploy_contract(
             root, &bob_account(), account.public_keys[0], test_binary
         );
@@ -286,14 +286,15 @@ mod tests {
     #[test]
     fn test_send_money() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, apply_results) = alice.send_money(root, &bob_account(), 10);
         for apply_result in apply_results {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
         }
         assert_ne!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -304,7 +305,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &bob_account());
+        let result2 = viewer.view_account(&mut state_update, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -320,14 +321,15 @@ mod tests {
     #[test]
     fn test_send_money_over_balance() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, mut apply_results) = alice.send_money(root, &bob_account(), 1000);
         let apply_result = apply_results.pop().unwrap();
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Failed);
         assert_eq!(apply_result.new_receipts.len(), 0);
         assert_eq!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -338,7 +340,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(apply_result.root, &bob_account());
+        let result2 = viewer.view_account(&mut state_update, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -354,7 +356,7 @@ mod tests {
     #[test]
     fn test_refund_on_send_money_to_non_existent_account() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, apply_results) = alice.send_money(root, &eve_account(), 10);
         // 3 results: signed tx, deposit receipt, refund
         assert_eq!(apply_results.len(), 3);
@@ -363,8 +365,9 @@ mod tests {
         assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Failed);
         assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
         // assert_eq!(apply_result.new_receipts.len(), 0);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -375,18 +378,19 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &eve_account());
+        let result2 = viewer.view_account(&mut state_update, &eve_account());
         assert!(result2.is_err());
     }
 
     #[test]
     fn test_create_account() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, _) = alice.create_account(root, &eve_account(), 10);
         assert_ne!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -397,7 +401,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &eve_account());
+        let result2 = viewer.view_account(&mut state_update, &eve_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -413,7 +417,7 @@ mod tests {
     #[test]
     fn test_create_account_failure_invalid_name() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         for invalid_account_name in vec![
                 "eve", // too short
                 "Alice.near", // capital letter
@@ -423,8 +427,9 @@ mod tests {
         ] { 
             let (new_root, _) = alice.create_account(root, invalid_account_name, 10);
             assert_eq!(root, new_root);
-            let viewer = StateDbViewer::new(state_db.clone());
-            let result1 = viewer.view_account(new_root, &alice_account());
+            let viewer = StateDbViewer {};
+            let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+            let result1 = viewer.view_account(&mut state_update, &alice_account());
             assert_eq!(
                 result1.unwrap(),
                 AccountViewCallResult {
@@ -441,11 +446,12 @@ mod tests {
     #[test]
     fn test_create_account_failure_already_exists() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, _) = alice.create_account(root, &bob_account(), 10);
         assert_ne!(root, new_root);
-        let viewer = StateDbViewer::new(state_db.clone());
-        let result1 = viewer.view_account(new_root, &alice_account());
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result1.unwrap(),
             AccountViewCallResult {
@@ -456,7 +462,7 @@ mod tests {
                 code_hash: default_code_hash(),
             }
         );
-        let result2 = viewer.view_account(new_root, &bob_account());
+        let result2 = viewer.view_account(&mut state_update, &bob_account());
         assert_eq!(
             result2.unwrap(),
             AccountViewCallResult {
@@ -472,11 +478,11 @@ mod tests {
     #[test]
     fn test_swap_key() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (pub_key1, secret_key1) = get_key_pair();
+        // let (pub_key1, secret_key1) = get_key_pair();
         let (pub_key2, _) = get_key_pair();
-        let mut alice = User::new(runtime.clone(), &alice_account(), state_db.clone());
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
         let (new_root, apply_results) = alice.create_account_with_key(
-            root, &eve_account(), 10, pub_key1
+            root, &eve_account(), 10, alice.pub_key.clone()
         );
         for apply_result in apply_results {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
@@ -485,24 +491,11 @@ mod tests {
         let tx_body = TransactionBody::SwapKey(SwapKeyTransaction {
             nonce: 2,
             originator: eve_account(),
-            cur_key: pub_key1.encode().unwrap(),
+            cur_key: alice.pub_key.encode().unwrap(),
             new_key: pub_key2.encode().unwrap(),
         });
-        let data = tx_body.encode().unwrap();
-        let signature = sign(&data, &secret_key1);
-        let transaction1 = SignedTransaction::new(signature, tx_body);
-        let apply_state = ApplyState {
-            shard_id: 0,
-            root: new_root,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        let state_update = StateDbUpdate::new(state_db.clone(), new_root);
-        let apply_result = runtime.apply(
-            state_update, &apply_state, &[], &[transaction1],
-        );
-        state_db.commit(apply_result.db_changes).unwrap();
-        let mut new_state_update = StateDbUpdate::new(state_db.clone(), apply_result.root);
+        let (new_root, _) = alice.send_tx(new_root, tx_body);
+        let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
         let account = get::<Account>(
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &eve_account()),
