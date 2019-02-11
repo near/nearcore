@@ -128,6 +128,9 @@ fn deploy_contract() -> Result<(String, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
 
+    let output = create_account(&contract_name);
+    check_result(output).unwrap();
+
     let output = Command::new("./scripts/rpc.py")
         .arg("deploy")
         .arg(contract_name.as_str())

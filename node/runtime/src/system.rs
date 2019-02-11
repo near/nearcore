@@ -238,10 +238,10 @@ mod tests {
     fn test_upload_contract() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
-        let mut alice = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
         let (new_root, _) = alice.create_account(root, &eve_account(), 10);
         assert_ne!(root, new_root);
-        let mut eve = User::new(runtime, &eve_account(), state_db.clone());
+        let (mut eve, new_root) = User::new(runtime, &eve_account(), state_db.clone(), new_root);
         let (public_key, _) = get_key_pair();
         let (new_root1, mut apply_results) = eve.deploy_contract(
             new_root, &eve_account(), public_key, wasm_binary
