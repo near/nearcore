@@ -11,6 +11,8 @@ parity-wasm = "0.31"
 wasmer-runtime = {git = "https://github.com/wasmerio/wasmer.git", rev="1886b3d3c1c78a47ffd6a83bc5b639c637e862bc"}
 byteorder = "1.2"
 log = "0.4"
+tempfile = "3.0.6"
+lazy_static = "1.2.0"
 
 primitives = { path = "../primitives" }
 

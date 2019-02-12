@@ -6,9 +6,12 @@ use std::ffi::c_void;
 use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
+use crate::cache::get_cached_path;
+use primitives::hash::hash;
 
 use wasmer_runtime::{
     self,
+    Cache as WasmCache,
     memory::Memory,
     wasm::MemoryDescriptor,
     units::Pages,
@@ -40,7 +43,27 @@ pub fn execute<'a>(
         return Err(Error::EmptyMethodName);
     }
 
-    let instrumented_code = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
+    let code_hash = hash(code);
+    let file_path = get_cached_path(&code_hash.to_string());
+
+    let wasm_cache = match WasmCache::load(&file_path) {
+        Ok(wasm_cache) => wasm_cache,
+        Err(_) => {
+            // Preparing contract code
+            let prepared_code = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
+            // Compiling to cache
+            let wasm_cache = wasmer_runtime::compile_cache(&prepared_code)
+                .map_err(Into::<wasmer_runtime::error::Error>::into)?;
+            // Saving cache to disk
+            wasm_cache.store(&file_path).map_err(Error::Cache)?;
+            wasm_cache
+        }
+    };
+
+    // into_module method is unsafe because the runtime cannot confirm
+    // that this cache was not tampered with or corrupted.
+    let module = unsafe { wasm_cache.into_module() }
+        .map_err(Error::Cache)?;
 
     let memory = Memory::new(MemoryDescriptor {
         minimum: Pages(config.initial_memory_pages),
@@ -59,7 +82,7 @@ pub fn execute<'a>(
 
     let import_object = runtime::imports::build(memory);
 
-    let mut instance = wasmer_runtime::instantiate(&instrumented_code, &import_object)?;
+    let mut instance = module.instantiate(&import_object)?;
 
     instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
 

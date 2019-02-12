@@ -162,6 +162,8 @@ pub enum Error {
     Runtime(RuntimeError),
 
     Prepare(PrepareError),
+
+    Cache(WasmerError::CacheError),
 }
 
 impl From<WasmerError::Error> for Error {
