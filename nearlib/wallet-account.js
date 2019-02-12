@@ -2,6 +2,7 @@
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
  */
 
+const { sha256 } = require('js-sha256');
 const { FunctionCallTransaction } = require('./protos');
 
 const EMBED_WALLET_URL_SUFFIX = '/embed/';

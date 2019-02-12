@@ -11447,6 +11447,7 @@ module.exports = SimpleKeyStoreSigner;
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
  */
 
+const { sha256 } = require('js-sha256');
 const { FunctionCallTransaction } = require('./protos');
 
 const EMBED_WALLET_URL_SUFFIX = '/embed/';
@@ -11600,4 +11601,4 @@ class WalletAccount {
 module.exports = WalletAccount;
 
 }).call(this,require("buffer").Buffer)
-},{"./protos":45,"buffer":21}]},{},[2]);
+},{"./protos":45,"buffer":21,"js-sha256":26}]},{},[2]);
