@@ -14,13 +14,14 @@ use std::collections::HashMap;
 
 use serde::{de::DeserializeOwned, Serialize};
 
+use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::PublicKey;
+use primitives::signature::{bs58_serializer, PublicKey};
 use primitives::traits::{Decode, Encode};
 use primitives::types::{
     AccountId, AccountingInfo, AuthorityStake,
     Balance, BlockIndex, Mana,
-    ManaAccounting, MerkleHash, PromiseId, ReadablePublicKey, ShardId,
+    ManaAccounting, MerkleHash, PromiseId, ReadablePublicKey, ReadableBlsPublicKey, ShardId,
 };
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
@@ -60,6 +61,9 @@ const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
+    // TODO: Multiple bls keys associated with the same account
+    #[serde(with = "bs58_serializer")]
+    pub bls_public_key: BlsPublicKey,
     pub nonce: u64,
     // amount + staked is the total value of the account
     pub amount: u64,
@@ -69,7 +73,7 @@ pub struct Account {
 
 impl Account {
     pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { public_keys, nonce: 0, amount, staked: 0, code_hash }
+        Account { public_keys, bls_public_key: BlsPublicKey::empty(), nonce: 0, amount, staked: 0, code_hash }
     }
 }
 
@@ -887,17 +891,15 @@ impl Runtime {
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],
-        initial_authorities: &[(AccountId, ReadablePublicKey, u64)]
+        initial_authorities: &[(AccountId, ReadableBlsPublicKey, u64)]
     ) -> (MerkleHash, storage::DBChanges) {
-        let mut pk_to_acc_id = HashMap::new();
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
-            // Make sure this public key is not present yet in the hash map.
-            pk_to_acc_id.insert(public_key.clone(), account_id.clone());
             set(
                 &mut state_update,
                 &account_id_to_bytes(COL_ACCOUNT, &account_id),
                 &Account {
-                    public_keys: vec![PublicKey::from(public_key)],
+                    public_keys: vec![PublicKey::from(&public_key.0)],
+                    bls_public_key: BlsPublicKey::empty(),
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
@@ -1246,7 +1248,7 @@ mod tests {
         let (mut chain_spec, _, _) = generate_test_chain_spec();
         let public_key = get_key_pair().0;
         for i in 0..100 {
-            chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
+            chain_spec.accounts.push((format!("account{}", i), public_key.to_readable(), 10000, 0));
         }
         let (_, trie, root) = get_runtime_and_trie_from_chain_spec(&chain_spec);
         let viewer = TrieViewer {};

@@ -49,7 +49,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner, SecretKey) {
     let mut rng = XorShiftRng::from_seed([11111, 22222, 33333, 44444]);
     let secret_key = BlsSecretKey::generate_from_rng(&mut rng);
     let public_key = secret_key.get_public_key();
-    let authority = public_key.to_string();
+    let authority = public_key.to_readable();
     let signer = InMemorySigner {
         account_id: account_id.to_string(),
         public_key,
@@ -58,9 +58,9 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner, SecretKey) {
     let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
     (ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), public_key.to_string(), 100, 10),
-            ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_string(), 0, 10),
-            ("system".to_string(), get_key_pair_from_seed("system").0.to_string(), 0, 0),
+            ("alice.near".to_string(), public_key.to_readable(), 100, 10),
+            ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_readable(), 0, 10),
+            ("system".to_string(), get_key_pair_from_seed("system").0.to_readable(), 0, 0),
         ],
         initial_authorities: vec![(account_id.to_string(), authority, 50)],
         genesis_wasm,
