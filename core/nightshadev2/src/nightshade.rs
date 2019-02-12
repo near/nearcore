@@ -321,7 +321,7 @@ impl Nightshade {
 mod tests {
     use super::*;
 
-// TODO: Test best_state_counter
+    // TODO: Test best_state_counter
 
     // TODO: Create special scenarios and test update_state on them
 
@@ -393,15 +393,12 @@ mod tests {
 
         for i in 2..4 {
             let state1 = ns[1].state();
-            println!("{:?} -> {:?}", i, state1);
             ns[i].update_state(1, state1);
             let state_i = ns[i].state();
             assert_eq!(state_i.endorses(), 1);
-            println!("{:?}", state_i);
 
             ns[1].update_state(i, state_i);
             let state1 = ns[1].state();
-            println!("{:?} -> {:?}", i, state1);
 
             // After update from authority 2 expected confidence is 0 since only authorities 1 and 2
             // endorse outcome 1. After update from authority 3, there are 3 authorities endorsing 1
