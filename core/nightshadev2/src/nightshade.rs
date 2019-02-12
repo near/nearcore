@@ -1,3 +1,4 @@
+/// Nightshade v2
 use std::cmp::max;
 use std::cmp::min;
 use std::cmp::Ordering;
@@ -13,6 +14,13 @@ pub enum NSResult {
     Error(String),
 }
 
+/// Triplet that describe the state of each authority in the consensus
+/// `confidence0`: How much confidence we have on `endorses`.
+/// `endorses`: It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
+/// `confidence1`: Confidence of outcome with second higher confidence.
+///
+/// Note: We are running consensus on authorities rather than on outcomes, `endorses` refers to an authority.
+/// In comments "outcome" will be used instead of "authority" to avoid confusion.
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct BareState {
     confidence0: i64,
@@ -38,6 +46,7 @@ impl BareState {
     }
 }
 
+/// `SignedState` contains the proof that we can have confidence `C` on some outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SignedState {
     signature: BLSSignature,
@@ -58,6 +67,13 @@ impl SignedState {
     }
 }
 
+/// `State` contains the current state (`BareState` instance) and proofs of `confidence0` and `confidence1`.
+///
+/// Proof for `confidence0` is a set of states of size greater than 2 / 3 * num_authorities signed
+/// by different authorities such that our current confidence (`confidence0`) on outcome `endorses`
+/// is consistent whit this set according to Nightshade rules.
+///
+/// Proof for `confidence1` is the proof for the state used to justify `confidence1`
 #[derive(Debug, Clone, Eq)]
 pub struct State {
     bare_state: BareState,
@@ -129,7 +145,6 @@ impl Ord for State {
         self.bare_state.cmp(&other.bare_state)
     }
 }
-
 
 fn merge(state0: &State, state1: &State) -> State {
     let mut max_state = max(state0, state1).clone();
