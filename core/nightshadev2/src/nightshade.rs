@@ -92,7 +92,7 @@ impl SignedState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct State {
     bare_state: BareState,
 
@@ -145,6 +145,12 @@ impl State {
 
     fn endorses(&self) -> usize {
         self.bare_state.endorses
+    }
+}
+
+impl PartialEq for State {
+    fn eq(&self, other: &State) -> bool {
+        self.bare_state.eq(&other.bare_state)
     }
 }
 
