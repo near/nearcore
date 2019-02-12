@@ -64,15 +64,13 @@ impl Into<transaction_proto::CreateAccountTransaction> for CreateAccountTransact
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
-    pub originator: AccountId,
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
-    pub public_key: Vec<u8>,
 }
 
 impl fmt::Debug for DeployContractTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DeployContractTransaction {{ nonce: {}, originator: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.originator, self.contract_id)
+        write!(f, "DeployContractTransaction {{ nonce: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.contract_id)
     }
 }
 
@@ -80,10 +78,8 @@ impl From<transaction_proto::DeployContractTransaction> for DeployContractTransa
     fn from(t: transaction_proto::DeployContractTransaction) -> Self {
         DeployContractTransaction {
             nonce: t.nonce,
-            originator: t.originator,
             contract_id: t.contract_id,
             wasm_byte_array: t.wasm_byte_array,
-            public_key: t.public_key,
         }
     }
 }
@@ -92,9 +88,7 @@ impl Into<transaction_proto::DeployContractTransaction> for DeployContractTransa
     fn into(self) -> transaction_proto::DeployContractTransaction {
         transaction_proto::DeployContractTransaction {
             nonce: self.nonce,
-            originator: self.originator,
             contract_id: self.contract_id,
-            public_key: self.public_key,
             wasm_byte_array: self.wasm_byte_array,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
@@ -257,7 +251,7 @@ impl TransactionBody {
         match self {
             TransactionBody::Stake(t) => t.originator.clone(),
             TransactionBody::SendMoney(t) => t.originator.clone(),
-            TransactionBody::DeployContract(t) => t.originator.clone(),
+            TransactionBody::DeployContract(t) => t.contract_id.clone(),
             TransactionBody::FunctionCall(t) => t.originator.clone(),
             TransactionBody::CreateAccount(t) => t.originator.clone(),
             TransactionBody::SwapKey(t) => t.originator.clone(),

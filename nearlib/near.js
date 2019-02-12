@@ -102,21 +102,15 @@ class Near {
 
     /**
      * Deploys a smart contract to the block chain
-     * @param {string} sender account id of the sender
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
      */
-    async deployContract(originator, contractId, wasmByteArray) {
-        const nonce = await this.nearClient.getNonce(originator);
+    async deployContract(contractId, wasmByteArray) {
+        const nonce = await this.nearClient.getNonce(contractId);
 
-        // This parameter is not working properly yet. Use some fake value
-        var publicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
-        publicKey = bs58.decode(publicKey);
         const deployContract = DeployContractTransaction.create({
-            originator,
             contractId,
             wasmByteArray,
-            publicKey,
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
@@ -127,7 +121,7 @@ class Near {
         const buffer = DeployContractTransaction.encode(deployContract).finish();
         const signature = await this.nearClient.signer.signTransactionBody(
             buffer,
-            originator,
+            contractId,
         );
 
         const signedTransaction = SignedTransaction.create({

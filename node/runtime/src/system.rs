@@ -1,13 +1,13 @@
 use storage::{StateDbUpdate};
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::traits::{Encode, Decode};
+use primitives::traits::Decode;
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::utils::is_valid_account_id;
 use transaction::{
     AsyncCall, ReceiptTransaction, SendMoneyTransaction,
     ReceiptBody, StakeTransaction, CreateAccountTransaction,
-    DeployContractTransaction, SwapKeyTransaction
+    SwapKeyTransaction
 };
 
 use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
@@ -17,7 +17,6 @@ use crate::{TxTotalStake, get_tx_stake_key};
 pub fn system_account() -> AccountId { "system".to_string() }
 
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
-pub const SYSTEM_METHOD_DEPLOY: &[u8] = b"_sys:deploy";
 
 pub fn send_money(
     state_update: &mut StateDbUpdate,
@@ -149,28 +148,24 @@ pub fn create_account(
 }
 
 pub fn deploy(
-    body: &DeployContractTransaction,
-    hash: CryptoHash,
-    accounting_info: AccountingInfo,
+    state_update: &mut StateDbUpdate,
+    sender_id: &AccountId,
+    code: &[u8],
+    sender: &mut Account,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    // TODO: check signature
-    
-    let new_nonce = create_nonce_with_nonce(&hash, 0);
-    let args = Encode::encode(&(&body.public_key, &body.wasm_byte_array))
-        .map_err(|_| "cannot encode args")?;
-    let receipt = ReceiptTransaction::new(
-        body.originator.clone(),
-        body.contract_id.clone(),
-        new_nonce,
-        ReceiptBody::NewCall(AsyncCall::new(
-            SYSTEM_METHOD_DEPLOY.to_vec(),
-            args,
-            0,
-            0,
-            accounting_info,
-        ))
+    // Signature should be already checked at this point
+    sender.code_hash = hash(code);
+    set(
+        state_update,
+        &account_id_to_bytes(COL_CODE, &sender_id),
+        &code,
     );
-    Ok(vec![receipt])
+    set(
+        state_update,
+        &account_id_to_bytes(COL_ACCOUNT, &sender_id),
+        &sender,
+    );
+    Ok(vec![])
 }
 
 pub fn swap_key(
@@ -228,58 +223,33 @@ pub fn system_create_account(
     Ok(vec![])
 }
 
-
-pub fn system_deploy(
-    state_update: &mut StateDbUpdate,
-    call: &AsyncCall,
-    account_id: &AccountId,
-) -> Result<Vec<ReceiptTransaction>, String> {
-    let (public_key, code): (Vec<u8>, Vec<u8>) =
-        Decode::decode(&call.args).map_err(|_| "cannot decode public key")?;
-    let public_key = PublicKey::new(&public_key)?;
-    let new_account = Account::new(
-        vec![public_key],
-        call.amount,
-        hash(&code),
-    );
-    set(
-        state_update,
-        &account_id_to_bytes(COL_ACCOUNT, account_id),
-        &new_account
-    );
-    set(
-        state_update,
-        &account_id_to_bytes(COL_CODE, account_id),
-        &code
-    );
-    Ok(vec![])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::*;
     use primitives::hash::hash;
     use primitives::signature::get_key_pair;
-    use transaction::TransactionBody;
+    use primitives::traits::Encode;
+    use transaction::{TransactionBody, TransactionStatus};
     use crate::state_viewer::{AccountViewCallResult, StateDbViewer};
     use crate::get;
-    use transaction::TransactionStatus;
 
     #[test]
     fn test_upload_contract() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
-        let (public_key, _) = get_key_pair();
-        let (new_root, mut apply_results) = alice.deploy_contract(
-            root, &eve_account(), public_key, wasm_binary
+        let (new_root, _) = alice.create_account(root, &eve_account(), 10);
+        assert_ne!(root, new_root);
+        let (mut eve, new_root) = User::new(runtime, &eve_account(), state_db.clone(), new_root);
+        let (new_root1, mut apply_results) = eve.deploy_contract(
+            new_root, &eve_account(), wasm_binary
         );
         let apply_result = apply_results.pop().unwrap();
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
         assert_eq!(apply_result.new_receipts.len(), 0);
-        assert_ne!(root, new_root);
-        let mut new_state_update = StateDbUpdate::new(state_db, new_root);
+        assert_ne!(new_root, new_root1);
+        let mut new_state_update = StateDbUpdate::new(state_db, new_root1);
         let code: Vec<u8> = get(
             &mut new_state_update,
             &account_id_to_bytes(COL_CODE, &eve_account())
@@ -291,14 +261,9 @@ mod tests {
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
-        let account: Account = get(
-            &mut state_update,
-            &account_id_to_bytes(COL_ACCOUNT, &bob_account())
-        ).unwrap();
         let (mut bob, root) = User::new(runtime, &bob_account(), state_db.clone(), root);
         let (new_root, mut apply_results) = bob.deploy_contract(
-            root, &bob_account(), account.public_keys[0], test_binary
+            root, &bob_account(), test_binary
         );
         let apply_result = apply_results.pop().unwrap();
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);

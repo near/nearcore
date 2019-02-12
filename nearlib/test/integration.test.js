@@ -31,7 +31,7 @@ test('create account and then view account returns the created account', async (
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
-    const expctedAccount = {
+    const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
         amount: 1,
@@ -39,7 +39,7 @@ test('create account and then view account returns the created account', async (
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
-    expect(result).toEqual(expctedAccount);
+    expect(result).toEqual(expectedAccount);
 });
 
 test('create account with a new key and then view account returns the created account', async () => {
@@ -52,7 +52,7 @@ test('create account with a new key and then view account returns the created ac
         aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
     expect(createAccountResponse['key']).not.toBeFalsy();
-    const expctedAccount = {
+    const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
         amount: amount,
@@ -60,7 +60,7 @@ test('create account with a new key and then view account returns the created ac
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
-    expect(result).toEqual(expctedAccount);
+    expect(result).toEqual(expectedAccount);
     const aliceAccountAfterCreation = await account.viewAccount(aliceAccountName);
     expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
 });
@@ -73,9 +73,17 @@ describe('with deployed contract', () => {
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
+        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const createAccountResponse = await account.createAccount(
+            contractName,
+            keyWithRandomSeed.getPublicKey(),
+            10,
+            aliceAccountName);
+        await nearjs.waitForTransactionResult(createAccountResponse);
+        test_key_store.setKey(contractName, keyWithRandomSeed);
         const data = [...fs.readFileSync('../tests/hello.wasm')];
         await nearjs.waitForTransactionResult(
-            await nearjs.deployContract(aliceAccountName, contractName, data));
+            await nearjs.deployContract(contractName, data));
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
             viewMethods: ['getAllKeys'],
