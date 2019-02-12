@@ -486,4 +486,24 @@ mod tests {
             bare_state(1, 2, 0),
         ])), true);
     }
+
+    #[test]
+    fn correct_confidence1() {
+        // If we are at the state (4, B, 4)
+        // and get update (5, A, 3)
+        // the next state must be (5, A, 4)
+        let mut ns = create_hardcoded_nightshade(2, vec![
+            bare_state(0, 0, 0),
+            bare_state(0, 0, 0),
+            bare_state(4, 1, 4),
+        ]);
+
+        ns.update_state(0, state(5, 0, 3));
+
+        assert_eq!(nightshade_equal(&ns, &create_hardcoded_nightshade(0, vec![
+            bare_state(5, 0, 3),
+            bare_state(0, 0, 0),
+            bare_state(5, 0, 4),
+        ])), true);
+    }
 }
