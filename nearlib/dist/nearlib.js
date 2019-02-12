@@ -11434,7 +11434,7 @@ class SimpleKeyStoreSigner {
             throw new Error(`Cannot find key for sender ${senderAccountId}`);
         }
         const key = bs58.decode(encodedKey.getSecretKey());
-        const signature = [...nacl.sign.detached(hash, key)];
+        const signature = [...nacl.sign.detached(Uint8Array.from(hash), key)];
         return signature;
     }
 }
