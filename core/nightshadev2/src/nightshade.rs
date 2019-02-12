@@ -4,6 +4,8 @@ use std::cmp::Ordering;
 pub type AuthorityId = usize;
 pub type BLSSignature = u64;
 
+const COMMIT_THRESHOLD: usize = 3;
+
 pub enum NSResult{
     Updated(Option<State>),
     Error(String),
@@ -113,6 +115,10 @@ impl State {
         }
     }
 
+    fn can_commit(&self) -> bool {
+        self.bare_state.confidence0 >= self.bare_state.confidence1 + COMMIT_THRESHOLD
+    }
+
     fn verify(&self) -> bool {
         true
     }
@@ -138,13 +144,6 @@ impl Ord for State {
     }
 }
 
-pub struct Nightshade {
-    owner_id: AuthorityId,
-    num_authorities: usize,
-    states: Vec<State>,
-    best_state_counter: usize,
-    seen_bare_states: HashSet<BareState>,
-}
 
 fn update_confidence1(state0: &mut State, state1: &State){
     // When this function is called it MUST hold that state0 >= state1. i.e.
@@ -156,6 +155,15 @@ fn update_confidence1(state0: &mut State, state1: &State){
             state0.proof1 = state1.proof0.clone();
         }
     }
+}
+
+pub struct Nightshade {
+    owner_id: AuthorityId,
+    num_authorities: usize,
+    states: Vec<State>,
+    best_state_counter: usize,
+    seen_bare_states: HashSet<BareState>,
+    commited: bool,
 }
 
 impl Nightshade {
@@ -172,10 +180,15 @@ impl Nightshade {
             states,
             best_state_counter: 1,
             seen_bare_states: HashSet::new(),
+            commited: false,
         }
     }
 
     fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
+        if commited {
+            return NSResult::Updated(None)
+        }
+
         // Verify this BareState only if it has not been successfully verified previously
         if !self.seen_bare_states.contains(&state.bare_state) {
             if state.verify() {
@@ -215,6 +228,10 @@ impl Nightshade {
 
             update_confidence1(&mut self.states[self.owner_id], &state);
 
+            if self.states[self.owner_id].can_commit() {
+                self.commited = true
+            }
+
             NSResult::Updated(Some(self.states[self.owner_id].clone()))
         } else {
             // TODO: It is not expected to receive a worst state than previously received,
@@ -231,6 +248,10 @@ impl Nightshade {
         // We can use some fancy mechanism to not increase confidence every time we can, to avoid
         // being manipulated by malicious actors into a metastable equilibrium
         self.best_state_counter > self.owner_id * 2 / 3
+    }
+
+    fn is_final(&self) -> bool {
+        self.commited
     }
 }
 
