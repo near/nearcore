@@ -229,6 +229,8 @@ impl Nightshade {
             }
         }
 
+        // TODO: Check whether this two states are incompatible and tag this authority as malicious
+        // and ignore it forever
         if state.bare_state > self.states[authority_id].bare_state {
             self.states[authority_id] = state.clone();
 
@@ -282,7 +284,7 @@ impl Nightshade {
         // our current state.
         // We can use some fancy mechanism to not increase confidence every time we can, to avoid
         // being manipulated by malicious actors into a metastable equilibrium
-        self.best_state_counter > self.owner_id * 2 / 3
+        self.best_state_counter > self.num_authorities * 2 / 3
     }
 
     fn is_final(&self) -> bool {
@@ -294,7 +296,13 @@ impl Nightshade {
 mod tests {
     use super::*;
 
-    // TODO: Finish this test
+    // TODO: Test best_state_counter
+
+    // TODO: Create special scenarios and test update_state on them
+
+    // TODO: Test proofs are collected properly
+
+    // TODO: Test consensus is reached on a sync scenario
     fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
         let mut ns = vec![];
 
@@ -339,32 +347,33 @@ mod tests {
         assert_eq!(state1.endorses(), 1);
     }
 
-    fn test_nightshade_basics_confidence(){
+    #[test]
+    fn test_nightshade_basics_confidence() {
+        let num_authorities = 4;
+
         let mut ns = vec![];
 
         for i in 0..num_authorities {
             ns.push(Nightshade::new(i, num_authorities));
         }
 
-        for i in 2..4{
+        for i in 2..4 {
             let state1 = ns[1].state();
-//            ns[i].update_state(i, )
+            println!("{:?} -> {:?}", i, state1);
+            ns[i].update_state(1, state1);
+            let state_i = ns[i].state();
+            assert_eq!(state_i.endorses(), 1);
+            println!("{:?}", state_i);
+
+            ns[1].update_state(i, state_i);
+            let state1 = ns[1].state();
+            println!("{:?} -> {:?}", i, state1);
+
+            // After update from authority 2 expected confidence is 0 since only authorities 1 and 2
+            // endorse outcome 1. After update from authority 3, there are 3 authorities endorsing 1
+            // with triplet (1, 0, 0) so confidence must be 1.
+            assert_eq!(state1.endorses(), 1);
+            assert_eq!(state1.bare_state.confidence0, (i - 2) as i64);
         }
-        let state1 = ns[1].state();
-
-
-        ns[2].update_state(1, state1.clone());
-        ns[3].update_state(1, state1.clone());
-
-        for i in 2..4{
-            let state = ns[i].state();
-            assert_eq!(state.endorses(), 1);
-            assert_eq!(state.bare_state.confidence0, 0);
-            ns[1].update_state(i, ns[i].state());
-        }
-
-        let state1 = ns[1].state();
-        assert_eq!(state1.endorses(), 1);
-        assert_eq!(state1.bare_state.confidence0, 1);
     }
 }
