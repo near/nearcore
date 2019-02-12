@@ -228,11 +228,11 @@ mod tests {
     use super::*;
     use crate::test_utils::*;
     use primitives::hash::hash;
-    use primitives::signature::{get_key_pair, sign};
+    use primitives::signature::get_key_pair;
     use primitives::traits::Encode;
-    use transaction::{TransactionBody, SignedTransaction, TransactionStatus};
+    use transaction::{TransactionBody, TransactionStatus};
     use crate::state_viewer::{AccountViewCallResult, StateDbViewer};
-    use crate::{get, ApplyState};
+    use crate::get;
 
     #[test]
     fn test_upload_contract() {
@@ -242,9 +242,8 @@ mod tests {
         let (new_root, _) = alice.create_account(root, &eve_account(), 10);
         assert_ne!(root, new_root);
         let (mut eve, new_root) = User::new(runtime, &eve_account(), state_db.clone(), new_root);
-        let (public_key, _) = get_key_pair();
         let (new_root1, mut apply_results) = eve.deploy_contract(
-            new_root, &eve_account(), public_key, wasm_binary
+            new_root, &eve_account(), wasm_binary
         );
         let apply_result = apply_results.pop().unwrap();
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
@@ -262,14 +261,9 @@ mod tests {
     fn test_redeploy_contract() {
         let test_binary = b"test_binary";
         let (runtime, state_db, root) = get_runtime_and_state_db();
-        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
-        let account: Account = get(
-            &mut state_update,
-            &account_id_to_bytes(COL_ACCOUNT, &bob_account())
-        ).unwrap();
         let (mut bob, root) = User::new(runtime, &bob_account(), state_db.clone(), root);
         let (new_root, mut apply_results) = bob.deploy_contract(
-            root, &bob_account(), account.public_keys[0], test_binary
+            root, &bob_account(), test_binary
         );
         let apply_result = apply_results.pop().unwrap();
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);

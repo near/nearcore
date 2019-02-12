@@ -217,18 +217,16 @@ class NearRPC(object):
             self._public_key = stdout.decode('utf-8')
         return self._public_key
 
-    def deploy_contract(self, sender, contract_name, wasm_file):
+    def deploy_contract(self, contract_name, wasm_file):
         with open(wasm_file, 'rb') as f:
             wasm_byte_array = f.read()
 
-        nonce = self._get_nonce(sender)
+        nonce = self._get_nonce(contract_name)
 
         deploy_contract = signed_transaction_pb2.DeployContractTransaction()
         deploy_contract.nonce = nonce
-        deploy_contract.originator = _get_account_id(sender)
         deploy_contract.contract_id = _get_account_id(contract_name)
         deploy_contract.wasm_byte_array = wasm_byte_array
-        deploy_contract.public_key = b58decode(self._get_public_key())
 
         signature = self._sign_transaction_body(deploy_contract)
 
@@ -236,7 +234,7 @@ class NearRPC(object):
         signed_transaction.deploy_contract.CopyFrom(deploy_contract)
         signed_transaction.signature = signature
 
-        self._update_nonce(sender)
+        self._update_nonce(contract_name)
         return self._submit_transaction(signed_transaction)
 
     def send_money(self, sender, receiver, amount):
@@ -547,7 +545,6 @@ get_beacon_block_by_hash  {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.deploy_contract(
-            args.sender,
             args.contract_name,
             args.wasm_file_location,
         )

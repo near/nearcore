@@ -295,7 +295,7 @@ impl Runtime {
                     TransactionBody::DeployContract(ref t) => {
                         system::deploy(
                             state_update,
-                            &t.originator,
+                            &t.contract_id,
                             &t.wasm_byte_array,
                             &mut sender,
                         )
@@ -1224,9 +1224,8 @@ mod tests {
     fn test_nonce_update_when_deploying_contract() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
-        let (pub_key, _) = get_key_pair();
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
-        let (new_root, _) = alice.deploy_contract(root, &eve_account(), pub_key, wasm_binary);
+        let (new_root, _) = alice.deploy_contract(root, &alice_account(), wasm_binary);
         let mut state_update = StateDbUpdate::new(state_db, new_root);
         let account: Account = get(
             &mut state_update,
