@@ -43,8 +43,8 @@ impl<'a> ContractModule<'a> {
 
         let mut builder = builder::from_module(module);
         builder.push_import(elements::ImportEntry::new(
-            "env".to_owned(),
-            "memory".to_owned(),
+            "env".to_string(),
+            "memory".to_string(),
             elements::External::Memory(entry),
         ));
 
