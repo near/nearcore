@@ -387,20 +387,20 @@ mod tests {
             ns.push(Nightshade::new(i, num_authorities));
         }
 
-        for i in 2..4 {
-            let state1 = ns[1].state();
-            ns[i].update_state(1, state1);
+        for i in 0..2 {
+            let state2 = ns[2].state();
+            ns[i].update_state(2, state2);
             let state_i = ns[i].state();
-            assert_eq!(state_i.endorses(), 1);
+            assert_eq!(state_i.endorses(), 2);
 
-            ns[1].update_state(i, state_i);
-            let state1 = ns[1].state();
+            ns[2].update_state(i, state_i);
+            let state2 = ns[2].state();
 
             // After update from authority 2 expected confidence is 0 since only authorities 1 and 2
             // endorse outcome 1. After update from authority 3, there are 3 authorities endorsing 1
-            // with triplet (1, 0, 0) so confidence must be 1.
-            assert_eq!(state1.endorses(), 1);
-            assert_eq!(state1.bare_state.confidence0, (i - 2) as i64);
+            // with triplet (0, 1, 0) so confidence must be 1.
+            assert_eq!(state2.endorses(), 2);
+            assert_eq!(state2.bare_state.confidence0, i as i64);
         }
     }
 }
