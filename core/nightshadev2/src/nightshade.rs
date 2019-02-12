@@ -145,7 +145,7 @@ impl Ord for State {
 }
 
 
-fn update_confidence1(state0: &mut State, state1: &State){
+fn update_confidence1(state0: &mut State, state1: &State) {
     // When this function is called it MUST hold that state0 >= state1. i.e.
     // assert_eq!(state1 > state0, false);
 
@@ -153,6 +153,12 @@ fn update_confidence1(state0: &mut State, state1: &State){
         if state1.bare_state.confidence0 > state0.bare_state.confidence1 {
             state0.bare_state.confidence1 = state1.bare_state.confidence0;
             state0.proof1 = state1.proof0.clone();
+        }
+    }
+    else{
+        if state1.bare_state.confidence1 > state0.bare_state.confidence1 {
+            state0.bare_state.confidence1 = state1.bare_state.confidence1;
+            state0.proof1 = state1.proof1.clone();
         }
     }
 }
