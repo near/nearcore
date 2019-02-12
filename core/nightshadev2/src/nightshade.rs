@@ -1,3 +1,5 @@
+use std::cmp::max;
+use std::cmp::min;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
@@ -63,8 +65,8 @@ impl BareState {
         }
     }
 
-    fn empty() -> Self{
-        Self{
+    fn empty() -> Self {
+        Self {
             endorses: 0,
             confidence0: -1,
             confidence1: -1,
@@ -110,7 +112,7 @@ impl State {
         }
     }
 
-    fn empty() -> Self{
+    fn empty() -> Self {
         Self {
             bare_state: BareState::empty(),
             proof0: None,
@@ -167,31 +169,41 @@ impl Ord for State {
 }
 
 
-fn update_confidence1(state0: &mut State, state1: &State) {
-    // When this function is called it MUST hold that state0 >= state1. i.e.
-    // assert_eq!(state1 > state0, false);
+fn merge(state0: &State, state1: &State) -> State {
+    let mut max_state = max(state0, state1).clone();
+    let min_state = min(state0, state1);
 
-    if state0.endorses() != state1.endorses() {
-        if state1.bare_state.confidence0 > state0.bare_state.confidence1 {
-            state0.bare_state.confidence1 = state1.bare_state.confidence0;
-            state0.proof1 = state1.proof0.clone();
+    if max_state.endorses() != min_state.endorses() {
+        if min_state.bare_state.confidence0 > max_state.bare_state.confidence1 {
+            max_state.bare_state.confidence1 = min_state.bare_state.confidence0;
+            max_state.proof1 = min_state.proof0.clone();
+        }
+    } else {
+        if min_state.bare_state.confidence1 > max_state.bare_state.confidence1 {
+            max_state.bare_state.confidence1 = min_state.bare_state.confidence1;
+            max_state.proof1 = min_state.proof1.clone();
         }
     }
-    else{
-        if state1.bare_state.confidence1 > state0.bare_state.confidence1 {
-            state0.bare_state.confidence1 = state1.bare_state.confidence1;
-            state0.proof1 = state1.proof1.clone();
-        }
-    }
+
+    max_state
+}
+
+fn incompatible_states(state0: &State, state1: &State) -> bool {
+    let merged = merge(state0, state1);
+    let max_state = max(state0, state1);
+
+    &merged != max_state
 }
 
 pub struct Nightshade {
     owner_id: AuthorityId,
     num_authorities: usize,
     states: Vec<State>,
+    // TODO: Use bitmask
+    is_adversary: Vec<bool>,
     best_state_counter: usize,
     seen_bare_states: HashSet<BareState>,
-    commited: bool,
+    committed: Option<AuthorityId>,
 }
 
 impl Nightshade {
@@ -199,10 +211,9 @@ impl Nightshade {
         let mut states = vec![];
 
         for i in 0..num_authorities {
-            if i == owner_id{
+            if i == owner_id {
                 states.push(State::new(i));
-            }
-            else{
+            } else {
                 states.push(State::empty());
             }
         }
@@ -211,9 +222,10 @@ impl Nightshade {
             owner_id,
             num_authorities,
             states,
+            is_adversary: vec![false; num_authorities],
             best_state_counter: 1,
             seen_bare_states: HashSet::new(),
-            commited: false,
+            committed: None,
         }
     }
 
@@ -222,8 +234,10 @@ impl Nightshade {
     }
 
     fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
-        if self.commited {
-            return NSResult::Updated(None);
+        if self.is_adversary[authority_id] ||
+            incompatible_states(&self.states[authority_id], &state) {
+            self.is_adversary[authority_id] = true;
+            return NSResult::Error("Not processing adversaries updates".to_string());
         }
 
         // Verify this BareState only if it has not been successfully verified previously
@@ -235,31 +249,32 @@ impl Nightshade {
             }
         }
 
-        // TODO: Check whether this two states are incompatible and tag this authority as malicious
         // and ignore it forever
         if state.bare_state > self.states[authority_id].bare_state {
             self.states[authority_id] = state.clone();
 
             // We always take the best state seen so far
-            if state > self.states[self.owner_id] {
+            let new_state = merge(&self.states[self.owner_id], &state);
+
+            if new_state != self.states[self.owner_id] {
+                self.states[self.owner_id] = new_state;
                 self.best_state_counter = 1;
-
-                let mut tmp_state = state.clone();
-                update_confidence1(&mut tmp_state, &self.states[self.owner_id]);
-
-                self.states[self.owner_id] = tmp_state;
             }
 
             if state == self.states[self.owner_id] {
                 self.best_state_counter += 1;
             }
 
+            // We MIGHT NEED to increase confidence AT MOST ONCE after have committed for first time.
+            // But we don't need to increase it more than one time since if we commit at (C, C - 3)
+            // nobody's second higher confidence can be C - 1 ever. The current implementation
+            // doesn't bound confidence.
             if self.can_increase_confidence() {
                 let mut proof = SignedState::new();
 
                 // Collect proofs to create new state
                 for i in 0..self.num_authorities {
-                    if self.states[i] == state {
+                    if &self.states[i] == &self.states[self.owner_id] {
                         proof.update(&self.states[i]);
                     }
                 }
@@ -267,12 +282,16 @@ impl Nightshade {
                 let new_state = self.states[self.owner_id].increase_confidence(proof);
 
                 self.states[self.owner_id] = new_state;
+
+                self.best_state_counter = 1;
             }
 
-            update_confidence1(&mut self.states[self.owner_id], &state);
-
             if self.states[self.owner_id].can_commit() {
-                self.commited = true
+                if let Some(endorse) = self.committed {
+                    assert_eq!(endorse, self.states[self.owner_id].endorses());
+                } else {
+                    self.committed = Some(self.states[self.owner_id].endorses());
+                }
             }
 
             NSResult::Updated(Some(self.states[self.owner_id].clone()))
@@ -294,7 +313,7 @@ impl Nightshade {
     }
 
     fn is_final(&self) -> bool {
-        self.commited
+        self.committed.is_some()
     }
 }
 
@@ -302,7 +321,7 @@ impl Nightshade {
 mod tests {
     use super::*;
 
-    // TODO: Test best_state_counter
+// TODO: Test best_state_counter
 
     // TODO: Create special scenarios and test update_state on them
 
@@ -321,8 +340,6 @@ mod tests {
 
             for i in 0..num_authorities {
                 let state = ns[i].state();
-                println!("{:?}", state);
-
                 states.push(state);
             }
 
@@ -334,15 +351,26 @@ mod tests {
                 }
             }
         }
+
+        for i in 0..num_authorities {
+            let m = ns[i].state();
+            assert_eq!(m.can_commit(), true);
+            // assert_eq!(m.bare_state.confidence0, m.bare_state.confidence1 + COMMIT_THRESHOLD);
+        }
     }
 
     #[test]
-    fn test_nightshade_two_authority(){
+    fn test_nightshade_two_authority() {
         nightshade_all_sync(2, 5);
     }
 
     #[test]
-    fn test_nightshade_basics(){
+    fn test_nightshade_three_authority() {
+        nightshade_all_sync(3, 5);
+    }
+
+    #[test]
+    fn test_nightshade_basics() {
         let mut ns0 = Nightshade::new(0, 2);
         let mut ns1 = Nightshade::new(1, 2);
         let state1 = ns1.state();
@@ -350,7 +378,7 @@ mod tests {
         let state0 = ns0.state();
         ns1.update_state(0, state0.clone());
         let state1 = ns1.state();
-        assert_eq!(state1.endorses(), 1);
+        assert_eq!(state1.endorses(), 0);
     }
 
     #[test]
