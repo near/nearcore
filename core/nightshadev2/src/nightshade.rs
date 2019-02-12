@@ -1,12 +1,12 @@
-use std::collections::HashSet;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 pub type AuthorityId = usize;
 pub type BLSSignature = u64;
 
-const COMMIT_THRESHOLD: usize = 3;
+const COMMIT_THRESHOLD: i64 = 3;
 
-pub enum NSResult{
+pub enum NSResult {
     Updated(Option<State>),
     Error(String),
 }
@@ -14,17 +14,17 @@ pub enum NSResult{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct BareState {
     endorses: AuthorityId,
-    confidence0: usize,
-    confidence1: usize,
+    confidence0: i64,
+    confidence1: i64,
 }
 
-impl PartialOrd for BareState{
+impl PartialOrd for BareState {
     fn partial_cmp(&self, other: &BareState) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for BareState{
+impl Ord for BareState {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.confidence0 != other.confidence0 {
             return if self.confidence0 > other.confidence0 {
@@ -62,6 +62,14 @@ impl BareState {
             confidence1: 0,
         }
     }
+
+    fn empty() -> Self{
+        Self{
+            endorses: 0,
+            confidence0: -1,
+            confidence1: -1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +105,14 @@ impl State {
     fn new(endorses: AuthorityId) -> Self {
         Self {
             bare_state: BareState::new(endorses),
+            proof0: None,
+            proof1: None,
+        }
+    }
+
+    fn empty() -> Self{
+        Self {
+            bare_state: BareState::empty(),
             proof0: None,
             proof1: None,
         }
@@ -177,7 +193,12 @@ impl Nightshade {
         let mut states = vec![];
 
         for i in 0..num_authorities {
-            states.push(State::new(i));
+            if i == owner_id{
+                states.push(State::new(i));
+            }
+            else{
+                states.push(State::empty());
+            }
         }
 
         Self {
@@ -190,9 +211,13 @@ impl Nightshade {
         }
     }
 
+    fn state(&self) -> State {
+        self.states[self.owner_id].clone()
+    }
+
     fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
-        if commited {
-            return NSResult::Updated(None)
+        if self.commited {
+            return NSResult::Updated(None);
         }
 
         // Verify this BareState only if it has not been successfully verified previously
@@ -209,8 +234,12 @@ impl Nightshade {
 
             // We always take the best state seen so far
             if state > self.states[self.owner_id] {
-                self.best_state_counter = 0;
-                self.states[self.owner_id] = state.clone();
+                self.best_state_counter = 1;
+
+                let mut tmp_state = state.clone();
+                update_confidence1(&mut tmp_state, &self.states[self.owner_id]);
+
+                self.states[self.owner_id] = tmp_state;
             }
 
             if state == self.states[self.owner_id] {
@@ -240,7 +269,7 @@ impl Nightshade {
 
             NSResult::Updated(Some(self.states[self.owner_id].clone()))
         } else {
-            // TODO: It is not expected to receive a worst state than previously received,
+            // It is not expected to receive a worst state than previously received,
             // unless there is an underlying gossiping mechanism that is not aware of which states
             // were previously delivered.
 
@@ -261,11 +290,81 @@ impl Nightshade {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    // TODO: Finish this test
+    fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
+        let mut ns = vec![];
+
+        for i in 0..num_authorities {
+            ns.push(Nightshade::new(i, num_authorities));
+        }
+
+        for _ in 0..num_rounds {
+            let mut states = vec![];
+
+            for i in 0..num_authorities {
+                let state = ns[i].state();
+                println!("{:?}", state);
+
+                states.push(state);
+            }
+
+            for i in 0..num_authorities {
+                for j in 0..num_authorities {
+                    if i != j {
+                        ns[i].update_state(j, states[j].clone());
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn test_nightshade_two_authority(){
+        nightshade_all_sync(2, 5);
+    }
+
+    #[test]
+    fn test_nightshade_basics(){
+        let mut ns0 = Nightshade::new(0, 2);
+        let mut ns1 = Nightshade::new(1, 2);
+        let state1 = ns1.state();
+        assert_eq!(state1.endorses(), 1);
+        let state0 = ns0.state();
+        ns1.update_state(0, state0.clone());
+        let state1 = ns1.state();
+        assert_eq!(state1.endorses(), 1);
+    }
+
+    fn test_nightshade_basics_confidence(){
+        let mut ns = vec![];
+
+        for i in 0..num_authorities {
+            ns.push(Nightshade::new(i, num_authorities));
+        }
+
+        for i in 2..4{
+            let state1 = ns[1].state();
+//            ns[i].update_state(i, )
+        }
+        let state1 = ns[1].state();
+
+
+        ns[2].update_state(1, state1.clone());
+        ns[3].update_state(1, state1.clone());
+
+        for i in 2..4{
+            let state = ns[i].state();
+            assert_eq!(state.endorses(), 1);
+            assert_eq!(state.bare_state.confidence0, 0);
+            ns[1].update_state(i, ns[i].state());
+        }
+
+        let state1 = ns[1].state();
+        assert_eq!(state1.endorses(), 1);
+        assert_eq!(state1.bare_state.confidence0, 1);
     }
 }
