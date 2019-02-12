@@ -1,6 +1,9 @@
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
  */
+
+const { FunctionCallTransaction } = require('./protos');
+
 const EMBED_WALLET_URL_SUFFIX = '/embed/';
 const LOGIN_WALLET_URL_SUFFIX = '/login/';
 const RANDOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -130,18 +133,19 @@ class WalletAccount {
     }
 
     /**
-     * Sign a transaction. If the key for senderAccountId is not present, this operation
-     * will fail.
-     * @param {object} tx Transaction details
+     * Sign a transaction body. If the key for senderAccountId is not present,
+     * this operation will fail.
+     * @param {object} body
      * @param {string} senderAccountId
      */
-    async signTransaction(tx, senderAccountId) {
+    async signTransactionBody(body, senderAccountId) {
         if (!this.isSignedIn() || senderAccountId !== this.getAccountId()) {
             throw 'Unauthorized account_id ' + senderAccountId;
         }
-        const hash = tx.hash;
-        let methodName = Buffer.from(tx.body.FunctionCall.method_name).toString();
-        let args = JSON.parse(Buffer.from(tx.body.FunctionCall.args).toString());
+        const hash = new Uint8Array(sha256.array(body));
+        const txBody = FunctionCallTransaction.decode(body);
+        let methodName = Buffer.from(txBody.FunctionCall.method_name).toString();
+        let args = JSON.parse(Buffer.from(txBody.FunctionCall.args).toString());
         let signature = await this._remoteSign(hash, methodName, args);
         return signature;
     }
