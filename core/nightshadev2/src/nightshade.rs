@@ -46,24 +46,21 @@ impl BareState {
     }
 }
 
-/// `SignedState` contains the proof that we can have confidence `C` on some outcome.
+/// `BLSProof` contains the evidence that we can have confidence `C` on some outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SignedState {
+struct BLSProof {
     signature: BLSSignature,
-    parent: Vec<BareState>,
 }
 
-impl SignedState {
+impl BLSProof {
     fn new() -> Self {
         Self {
             signature: 0,
-            parent: vec![],
         }
     }
 
     fn update(&mut self, state: &State) {
         // TODO: Update self.signature using state.get_signature
-        self.parent.push(state.bare_state.clone());
     }
 }
 
@@ -77,8 +74,8 @@ impl SignedState {
 #[derive(Debug, Clone, Eq)]
 pub struct State {
     bare_state: BareState,
-    proof0: Option<SignedState>,
-    proof1: Option<SignedState>,
+    proof0: Option<BLSProof>,
+    proof1: Option<BLSProof>,
 }
 
 impl State {
@@ -99,7 +96,7 @@ impl State {
     }
 
     /// Create new State with increased confidence using some proof
-    fn increase_confidence(&self, proof: SignedState) -> Self {
+    fn increase_confidence(&self, proof: BLSProof) -> Self {
         Self {
             bare_state: BareState {
                 endorses: self.bare_state.endorses,
@@ -178,7 +175,6 @@ pub struct Nightshade {
     owner_id: AuthorityId,
     num_authorities: usize,
     states: Vec<State>,
-    // TODO: Use bitmask
     is_adversary: Vec<bool>,
     best_state_counter: usize,
     seen_bare_states: HashSet<BareState>,
@@ -225,7 +221,7 @@ impl Nightshade {
             if state.verify() {
                 self.seen_bare_states.insert(state.bare_state.clone());
             } else {
-                return NSResult::Error("Not valid state".to_string());
+                return NSResult::Error("Not a valid state".to_string());
             }
         }
 
@@ -249,7 +245,7 @@ impl Nightshade {
             // nobody's second higher confidence can be C - 1 ever. The current implementation
             // doesn't bound confidence.
             if self.can_increase_confidence() {
-                let mut proof = SignedState::new();
+                let mut proof = BLSProof::new();
 
                 // Collect proofs to create new state
                 for i in 0..self.num_authorities {
@@ -299,6 +295,12 @@ impl Nightshade {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn check_state_proofs(state: State) {
+        // TODO: Check signature
+        assert_eq!(state.bare_state.confidence0 == 0, state.proof0 == None);
+        assert_eq!(state.bare_state.confidence1 == 0, state.proof1 == None);
+    }
 
     fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
         let mut ns = vec![];
@@ -419,8 +421,17 @@ mod tests {
         }
     }
 
-    // TODO: Test proofs are collected properly
-    // TODO: Test malicious actors are detected and handled properly
+    #[test]
+    fn malicious_detection() {
+        // Note: This test will become invalid after signatures are checked properly.
+        let mut ns = Nightshade::new(1, 2);
+        let s0 = State { bare_state: bare_state(1, 0, 0), proof0: None, proof1: None };
+        let s1 = State { bare_state: bare_state(1, 1, 0), proof0: None, proof1: None };
+        ns.update_state(0, s0);
+        assert_eq!(ns.is_adversary[0], false);
+        ns.update_state(0, s1);
+        assert_eq!(ns.is_adversary[0], true);
+    }
 
     /// Create an instance of nightshade setting the states directly
     fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState>) -> Nightshade {
