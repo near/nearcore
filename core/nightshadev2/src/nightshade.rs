@@ -13,47 +13,11 @@ pub enum NSResult {
     Error(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct BareState {
-    endorses: AuthorityId,
     confidence0: i64,
+    endorses: AuthorityId,
     confidence1: i64,
-}
-
-impl PartialOrd for BareState {
-    fn partial_cmp(&self, other: &BareState) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BareState {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.confidence0 != other.confidence0 {
-            return if self.confidence0 > other.confidence0 {
-                Ordering::Greater
-            } else {
-                Ordering::Less
-            };
-        }
-
-        if self.endorses != other.endorses {
-            return if self.endorses < other.endorses {
-                Ordering::Greater
-            } else {
-                Ordering::Less
-            };
-        }
-
-        if self.confidence1 != other.confidence1 {
-            return if self.confidence1 > other.confidence1 {
-                Ordering::Greater
-            } else {
-                Ordering::Less
-            };
-        }
-
-        Ordering::Equal
-    }
 }
 
 impl BareState {
@@ -97,8 +61,6 @@ impl SignedState {
 #[derive(Debug, Clone, Eq)]
 pub struct State {
     bare_state: BareState,
-
-    // TODO: Proof might be empty at the beginning of consensus. Use enum instead?
     proof0: Option<SignedState>,
     proof1: Option<SignedState>,
 }
@@ -188,6 +150,8 @@ fn merge(state0: &State, state1: &State) -> State {
     max_state
 }
 
+/// Check when two states received from the same authority are incompatible
+/// Two incompatible states are evidence of malicious behavior.
 fn incompatible_states(state0: &State, state1: &State) -> bool {
     let merged = merge(state0, state1);
     let max_state = max(state0, state1);
@@ -322,11 +286,8 @@ mod tests {
     use super::*;
 
     // TODO: Test best_state_counter
-
     // TODO: Create special scenarios and test update_state on them
-
     // TODO: Test proofs are collected properly
-
     // TODO: Test consensus is reached on a sync scenario
     fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
         let mut ns = vec![];
@@ -369,16 +330,51 @@ mod tests {
         nightshade_all_sync(3, 5);
     }
 
+    fn bare_state(confidence0: i64, endorses: AuthorityId, confidence1: i64) -> BareState {
+        BareState {
+            confidence0,
+            endorses,
+            confidence1,
+        }
+    }
+
+    fn state(confidence0: i64, endorses: AuthorityId, confidence1: i64) -> State {
+        State {
+            bare_state: bare_state(confidence0, endorses, confidence1),
+            proof0: None,
+            proof1: None,
+        }
+    }
+
+    #[test]
+    fn test_incompatible() {
+        assert_eq!(incompatible_states(&state(4, 1, 2), &state(3, 1, 3)), true);
+        assert_eq!(incompatible_states(&state(4, 1, 3), &state(3, 1, 3)), false);
+        assert_eq!(incompatible_states(&state(4, 2, 2), &state(3, 1, 3)), true);
+    }
+
+    #[test]
+    fn test_order() {
+        // Antisymmetry
+        assert_eq!(bare_state(3, 3, 1) > bare_state(2, 3, 2), true);
+        assert_eq!(bare_state(2, 3, 2) > bare_state(3, 3, 1), false);
+        // No reflexive
+        assert_eq!(bare_state(3, 3, 1) > bare_state(3, 3, 1), false);
+        // Lexicographically correct
+        assert_eq!(bare_state(3, 4, 1) > bare_state(3, 3, 2), true);
+        assert_eq!(bare_state(3, 3, 3) > bare_state(3, 3, 2), true);
+    }
+
     #[test]
     fn test_nightshade_basics() {
         let mut ns0 = Nightshade::new(0, 2);
         let mut ns1 = Nightshade::new(1, 2);
-        let state1 = ns1.state();
-        assert_eq!(state1.endorses(), 1);
         let state0 = ns0.state();
-        ns1.update_state(0, state0.clone());
+        assert_eq!(state0.endorses(), 0);
         let state1 = ns1.state();
-        assert_eq!(state1.endorses(), 0);
+        ns0.update_state(1, state1.clone());
+        let state0 = ns0.state();
+        assert_eq!(state0.endorses(), 1);
     }
 
     #[test]
