@@ -205,6 +205,7 @@ impl Nightshade {
         }
 
         // Verify this BareState only if it has not been successfully verified previously
+        // and ignore it forever
         if !self.seen_bare_states.contains(&state.bare_state) {
             if state.verify() {
                 self.seen_bare_states.insert(state.bare_state.clone());
@@ -213,7 +214,6 @@ impl Nightshade {
             }
         }
 
-        // and ignore it forever
         if state.bare_state > self.states[authority_id].bare_state {
             self.states[authority_id] = state.clone();
 
@@ -285,10 +285,6 @@ impl Nightshade {
 mod tests {
     use super::*;
 
-    // TODO: Test best_state_counter
-    // TODO: Create special scenarios and test update_state on them
-    // TODO: Test proofs are collected properly
-    // TODO: Test consensus is reached on a sync scenario
     fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
         let mut ns = vec![];
 
@@ -316,7 +312,6 @@ mod tests {
         for i in 0..num_authorities {
             let m = ns[i].state();
             assert_eq!(m.can_commit(), true);
-            // assert_eq!(m.bare_state.confidence0, m.bare_state.confidence1 + COMMIT_THRESHOLD);
         }
     }
 
@@ -326,8 +321,13 @@ mod tests {
     }
 
     #[test]
-    fn test_nightshade_three_authority() {
+    fn test_nightshade_three_authorities() {
         nightshade_all_sync(3, 5);
+    }
+
+    #[test]
+    fn test_nightshade_ten_authorities() {
+        nightshade_all_sync(10, 5);
     }
 
     fn bare_state(confidence0: i64, endorses: AuthorityId, confidence1: i64) -> BareState {
@@ -402,5 +402,62 @@ mod tests {
             assert_eq!(state2.endorses(), 2);
             assert_eq!(state2.bare_state.confidence0, i as i64);
         }
+    }
+
+    // TODO: Test proofs are collected properly
+    // TODO: Test malicious actors are detected and handled properly
+
+    /// Create an instance of nightshade setting the states directly
+    fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState>) -> Nightshade {
+        let num_authorities = bare_states.len();
+
+        let mut ns = Nightshade::new(owner_id, num_authorities);
+
+        ns.states = vec![];
+        ns.best_state_counter = 0;
+
+        for (i, bare_state) in bare_states.iter().enumerate() {
+            let state = State { bare_state: bare_state.clone(), proof0: None, proof1: None };
+            ns.states.push(state);
+
+            if bare_state == &bare_states[owner_id] {
+                ns.best_state_counter += 1;
+            }
+        }
+
+        ns
+    }
+
+    /// Compare nightshades only by their states (believe on other authorities states including himself)
+    fn nightshade_equal(ns0: &Nightshade, ns1: &Nightshade) -> bool {
+        if ns1.num_authorities != ns0.num_authorities {
+            return false;
+        }
+        let num_authorities = ns0.num_authorities;
+        for i in 0..num_authorities {
+            if ns0.states[i].bare_state != ns1.states[i].bare_state {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn simple_hardcoded_situation() {
+        let mut ns = create_hardcoded_nightshade(2, vec![
+            bare_state(0, 0, 0),
+            bare_state(0, 2, 0),
+            bare_state(0, 2, 0),
+        ]);
+
+        assert_eq!(ns.best_state_counter, 2);
+        ns.update_state(0, state(0, 2, 0));
+        assert_eq!(ns.best_state_counter, 1);
+
+        assert_eq!(nightshade_equal(&ns, &create_hardcoded_nightshade(0, vec![
+            bare_state(0, 2, 0),
+            bare_state(0, 2, 0),
+            bare_state(1, 2, 0),
+        ])), true);
     }
 }
