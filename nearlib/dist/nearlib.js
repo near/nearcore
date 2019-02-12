@@ -11590,8 +11590,8 @@ class WalletAccount {
         }
         const hash = new Uint8Array(sha256.array(body));
         const txBody = FunctionCallTransaction.decode(body);
-        let methodName = Buffer.from(txBody.FunctionCall.method_name).toString();
-        let args = JSON.parse(Buffer.from(txBody.FunctionCall.args).toString());
+        let methodName = Buffer.from(txBody.methodName).toString();
+        let args = JSON.parse(Buffer.from(txBody.args).toString());
         let signature = await this._remoteSign(hash, methodName, args);
         return signature;
     }
