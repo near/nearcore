@@ -392,9 +392,22 @@ impl User {
 pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
     let (runtime, state_db, genesis_root) = get_runtime_and_state_db();
     let (mut user, root) = User::new(runtime, "alice.near", state_db.clone(), genesis_root);
-    let (new_root, _) = user.deploy_contract(
+    let (root_with_account, _) = user.create_account(root, "test_contract", 0);
+    assert_ne!(root_with_account, root);
+    let (mut user, root) = User::new(user.runtime, "test_contract", user.state_db, root_with_account);
+    let (root_with_contract_code, _) = user.deploy_contract(
         root, "test_contract", wasm_binary
     );
-    assert_ne!(new_root, root);
-    (user, new_root)
+    assert_ne!(root_with_contract_code, root);
+    User::new(user.runtime, "alice.near", user.state_db, root_with_contract_code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_setup_test_contract() {
+        setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    }
 }
