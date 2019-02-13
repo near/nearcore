@@ -179,7 +179,7 @@ pub struct Nightshade {
     is_adversary: Vec<bool>,
     best_state_counter: usize,
     seen_bare_states: HashSet<BareState>,
-    committed: Option<AuthorityId>,
+    pub committed: Option<AuthorityId>,
 }
 
 impl Nightshade {
@@ -297,7 +297,7 @@ impl Nightshade {
 mod tests {
     use super::*;
 
-    fn check_state_proofs(state: State) {
+    fn check_state_proofs(state: &State) {
         // TODO: Check signature
         assert_eq!(state.bare_state.confidence0 == 0, state.proof0 == None);
         assert_eq!(state.bare_state.confidence1 == 0, state.proof1 == None);
@@ -315,6 +315,7 @@ mod tests {
 
             for i in 0..num_authorities {
                 let state = ns[i].state();
+                check_state_proofs(&state);
                 states.push(state);
             }
 
@@ -328,8 +329,9 @@ mod tests {
         }
 
         for i in 0..num_authorities {
-            let m = ns[i].state();
-            assert_eq!(m.can_commit(), true);
+            let s = ns[i].state();
+            check_state_proofs(&s);
+            assert_eq!(s.can_commit(), true);
         }
     }
 

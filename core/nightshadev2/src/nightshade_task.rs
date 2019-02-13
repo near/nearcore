@@ -6,10 +6,10 @@ use std::time::Instant;
 use futures::Async;
 use futures::future::Future;
 use futures::Poll;
-use futures::try_ready;
 use futures::sink::Sink;
 use futures::Stream;
 use futures::sync::mpsc;
+use futures::try_ready;
 use log::{debug, error, info};
 use tokio::timer::Delay;
 
@@ -37,7 +37,8 @@ pub struct NightshadeTask {
     state_receiver: mpsc::Receiver<Message>,
     state_sender: mpsc::Sender<Message>,
     control_receiver: mpsc::Receiver<Control>,
-
+    consensus_sender: mpsc::Sender<AuthorityId>,
+    consensus_reached: Option<AuthorityId>,
     /// Timer that determines the minimum time that we should not gossip after the given message
     /// for the sake of not spamming the network with small packages.
     cooldown_delay: Option<Delay>,
@@ -50,6 +51,7 @@ impl NightshadeTask {
         state_receiver: mpsc::Receiver<Message>,
         state_sender: mpsc::Sender<Message>,
         control_receiver: mpsc::Receiver<Control>,
+        consensus_sender: mpsc::Sender<AuthorityId>,
     ) -> Self {
         Self {
             owner_id,
@@ -58,6 +60,8 @@ impl NightshadeTask {
             state_receiver,
             state_sender,
             control_receiver,
+            consensus_sender,
+            consensus_reached: None,
             cooldown_delay: None,
         }
     }
@@ -164,7 +168,23 @@ impl Stream for NightshadeTask {
         let mut end_of_messages = false;
         loop {
             match self.state_receiver.poll() {
-                Ok(Async::Ready(Some(message))) => self.process_message(message),
+                Ok(Async::Ready(Some(message))) => {
+                    self.process_message(message);
+
+                    // Report as soon as possible when an authority reach consensus on some outcome
+                    if self.consensus_reached == None {
+                        if let Some(outcome) = self.nightshade_as_ref().committed {
+                            self.consensus_reached = Some(outcome);
+
+                            let consensus_sender1 = self.consensus_sender.clone();
+
+                            tokio::spawn(consensus_sender1.send(outcome)
+                                .map(|_| ())
+                                .map_err(|e| error!("Failed sending consensus: {:?}", e))
+                            );
+                        }
+                    }
+                }
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
                     // End of the stream that feeds the messages.

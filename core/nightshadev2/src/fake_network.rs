@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use futures::{Future, Sink, Stream};
-use futures::future::lazy;
+use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
 use log::error;
 use tokio::timer::Delay;
@@ -13,15 +13,18 @@ fn spawn_all(num_authorities: usize) {
         let mut control_tx_vec = vec![];
         let mut inc_gossips_tx_vec = vec![];
         let mut out_gossips_rx_vec = vec![];
+        let mut consensus_rx_vec = vec![];
 
         for owner_id in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
             let (inc_gossips_tx, inc_gossips_rx) = mpsc::channel(1024);
             let (out_gossips_tx, out_gossips_rx) = mpsc::channel(1024);
+            let (consensus_tx, consensus_rx) = mpsc::channel(1024);
 
             control_tx_vec.push(control_tx.clone());
             inc_gossips_tx_vec.push(inc_gossips_tx);
             out_gossips_rx_vec.push(out_gossips_rx);
+            consensus_rx_vec.push(consensus_rx);
 
             let task = NightshadeTask::new(
                 owner_id,
@@ -29,6 +32,7 @@ fn spawn_all(num_authorities: usize) {
                 inc_gossips_rx,
                 out_gossips_tx,
                 control_rx,
+                consensus_tx,
             );
 
             tokio::spawn(task.for_each(|_| Ok(())));
@@ -62,7 +66,31 @@ fn spawn_all(num_authorities: usize) {
             tokio::spawn(fut.for_each(|_| Ok(())));
         }
 
-        // TODO: Check consensus is reached
+        let mut futures = vec![];
+
+        for consensus_rx in consensus_rx_vec.drain(..) {
+            futures.push(consensus_rx.into_future());
+        }
+
+        tokio::spawn(join_all(futures)
+            .map(move |v| {
+                let mut general_outcome = None;
+
+                for (outcome, _) in v.iter() {
+                    let outcome = outcome.expect("Authority not committed");
+
+                    if let Some(cur_outcome) = general_outcome {
+                        if outcome != cur_outcome {
+                            panic!("Authorities have committed to different outcomes");
+                        }
+                    } else {
+                        general_outcome = Some(outcome);
+                    }
+                }
+
+                ()
+            })
+            .map_err(|e| error!("Failed achieving consensus: {:?}", e)));
 
         Ok(())
     }));
