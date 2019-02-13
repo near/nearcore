@@ -106,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn ten_authority() {
+    fn five_authorities() {
         spawn_all(5);
     }
 }

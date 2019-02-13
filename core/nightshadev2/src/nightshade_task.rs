@@ -1,5 +1,3 @@
-use std::cmp::min;
-use std::collections::HashSet;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -10,7 +8,7 @@ use futures::sink::Sink;
 use futures::Stream;
 use futures::sync::mpsc;
 use futures::try_ready;
-use log::{debug, error, info};
+use log::{error, info};
 use tokio::timer::Delay;
 
 use super::nightshade::{AuthorityId, Nightshade, State};
@@ -28,7 +26,6 @@ pub struct Message {
 }
 
 const COOLDOWN_MS: u64 = 50;
-const GOSSIP_SAMPLE_SIZE: usize = 3;
 
 pub struct NightshadeTask {
     owner_id: AuthorityId,
@@ -84,6 +81,9 @@ impl NightshadeTask {
     }
 
     fn send_state(&self, message: Message) {
+//        println!("Sending status from: {:?} to: {:?} - {:?}",
+//                 self.owner_id, message.receiver_id, message.state.bare_state);
+
         let copied_tx = self.state_sender.clone();
         tokio::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
             error!("Error sending state. {:?}", e);
@@ -101,23 +101,17 @@ impl NightshadeTask {
 
     /// Sends gossip to random authority peers.
     fn gossip_state(&self) {
-        let mut random_authorities = HashSet::new();
-        while random_authorities.len() < min(GOSSIP_SAMPLE_SIZE, self.num_authorities - 1) {
-            let next = rand::random::<usize>() % self.num_authorities;
-            if next != self.owner_id {
-                random_authorities.insert(next);
-            }
-        }
-        debug!(target: "nightshade", "Gossip message to {:?}", random_authorities);
         let my_state = self.state();
 
-        for w in &random_authorities {
-            let message = Message {
-                author: self.owner_id,
-                receiver_id: *w,
-                state: my_state.clone(),
-            };
-            self.send_state(message);
+        for i in 0..self.num_authorities {
+            if i != self.owner_id {
+                let message = Message {
+                    author: self.owner_id,
+                    receiver_id: i,
+                    state: my_state.clone(),
+                };
+                self.send_state(message);
+            }
         }
     }
 }

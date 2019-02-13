@@ -22,7 +22,7 @@ pub enum NSResult {
 /// Note: We are running consensus on authorities rather than on outcomes, `endorses` refers to an authority.
 /// In comments "outcome" will be used instead of "authority" to avoid confusion.
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
-struct BareState {
+pub struct BareState {
     confidence0: i64,
     endorses: AuthorityId,
     confidence1: i64,
@@ -73,7 +73,7 @@ impl BLSProof {
 /// Proof for `confidence1` is the proof for the state used to justify `confidence1`
 #[derive(Debug, Clone, Eq)]
 pub struct State {
-    bare_state: BareState,
+    pub bare_state: BareState,
     proof0: Option<BLSProof>,
     proof1: Option<BLSProof>,
 }
