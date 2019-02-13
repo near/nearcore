@@ -1,6 +1,5 @@
 /// Nightshade v2
-use std::cmp::max;
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
@@ -14,17 +13,20 @@ pub enum NSResult {
     Error(String),
 }
 
-/// Triplet that describe the state of each authority in the consensus
-/// `confidence0`: How much confidence we have on `endorses`.
-/// `endorses`: It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
-/// `confidence1`: Confidence of outcome with second higher confidence.
+/// Triplet that describe the state of each authority in the consensus.
 ///
-/// Note: We are running consensus on authorities rather than on outcomes, `endorses` refers to an authority.
-/// In comments "outcome" will be used instead of "authority" to avoid confusion.
+/// Notes:
+/// We are running consensus on authorities rather than on outcomes, `endorses` refers to an authority.
+/// "outcome" will be used instead of "authority" to avoid confusion.
+///
+/// The order of the fields are very important since lexicographical comparison is used derived from `PartialEq`.
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BareState {
+    /// How much confidence we have on `endorses`.
     confidence0: i64,
+    /// It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
     endorses: AuthorityId,
+    /// Confidence of outcome with second higher confidence.
     confidence1: i64,
 }
 
@@ -37,6 +39,8 @@ impl BareState {
         }
     }
 
+    /// Empty triplets are used as starting point believe on authorities from which
+    /// we have not received any update. This state is less than any valid triplet.
     fn empty() -> Self {
         Self {
             endorses: 0,
@@ -46,35 +50,37 @@ impl BareState {
     }
 }
 
-/// `BLSProof` contains the evidence that we can have confidence `C` on some outcome.
+/// `BLSProof` contains the evidence that we can have confidence `C` on some outcome `O` (and second higher confidence is `C'`)
+/// It must have signatures from more than 2/3 authorities on triplets of the form `(C - 1, O, C')`
+///
+/// This is a lazy data structure. Aggregated signature is computed after all BLS parts are supplied.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct BLSProof {
-    signature: BLSSignature,
-}
+struct BLSProof;
 
 impl BLSProof {
     fn new() -> Self {
-        Self {
-            signature: 0,
-        }
+        Self {}
     }
 
+    /// Add a state that will be used as evidence for the proof.
     fn update(&mut self, _state: &State) {
         // TODO: Update self.signature using state.get_signature
     }
 }
 
-/// `State` contains the current state (`BareState` instance) and proofs of `confidence0` and `confidence1`.
+/// `State` is a wrapper for `BareState` that contains evidence for such triplet.
 ///
 /// Proof for `confidence0` is a set of states of size greater than 2 / 3 * num_authorities signed
 /// by different authorities such that our current confidence (`confidence0`) on outcome `endorses`
 /// is consistent whit this set according to Nightshade rules.
-///
-/// Proof for `confidence1` is the proof for the state used to justify `confidence1`
 #[derive(Debug, Clone, Eq)]
 pub struct State {
+    /// Triplet that describe the state
     pub bare_state: BareState,
+    /// Proof for `confidence0`.
     proof0: Option<BLSProof>,
+    /// Proof for `confidence1`. This is `proof0` field of the state endorsing different outcome
+    /// which has highest confidence from this authority point of view.
     proof1: Option<BLSProof>,
 }
 
@@ -87,6 +93,8 @@ impl State {
         }
     }
 
+    /// Create state with empty triplet.
+    /// See `BareState::empty` for more information
     fn empty() -> Self {
         Self {
             bare_state: BareState::empty(),
@@ -95,7 +103,7 @@ impl State {
         }
     }
 
-    /// Create new State with increased confidence using some proof
+    /// Create new State with increased confidence using `proof`
     fn increase_confidence(&self, proof: BLSProof) -> Self {
         Self {
             bare_state: BareState {
@@ -108,6 +116,7 @@ impl State {
         }
     }
 
+    /// Returns whether an authority having this triplet should commit to this triplet outcome.
     fn can_commit(&self) -> bool {
         self.bare_state.confidence0 >= self.bare_state.confidence1 + COMMIT_THRESHOLD
     }
@@ -163,7 +172,7 @@ fn merge(state0: &State, state1: &State) -> State {
     max_state
 }
 
-/// Check when two states received from the same authority are incompatible
+/// Check when two states received from the same authority are incompatible.
 /// Two incompatible states are evidence of malicious behavior.
 fn incompatible_states(state0: &State, state1: &State) -> bool {
     let merged = merge(state0, state1);
@@ -172,6 +181,10 @@ fn incompatible_states(state0: &State, state1: &State) -> bool {
     &merged != max_state
 }
 
+/// # Nightshade
+///
+/// Each authority must have one Nightshade instance to compute its state, given updates from
+/// other authorities. Only contains the logic of the consensus algorithm.
 pub struct Nightshade {
     owner_id: AuthorityId,
     num_authorities: usize,

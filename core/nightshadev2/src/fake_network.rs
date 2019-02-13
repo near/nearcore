@@ -73,7 +73,7 @@ fn spawn_all(num_authorities: usize) {
         }
 
         tokio::spawn(join_all(futures)
-            .map(move |v| {
+            .map(|v| {
                 let mut general_outcome = None;
 
                 for (outcome, _) in v.iter() {
