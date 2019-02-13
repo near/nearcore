@@ -1,9 +1,11 @@
 extern crate parity_wasm;
 extern crate pwasm_utils;
 extern crate wasmi;
-extern crate tempfile;
 #[macro_use]
-extern crate lazy_static;
+extern crate cached;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 #[cfg(test)]
 #[macro_use]

@@ -192,7 +192,7 @@ pub enum ReturnData {
 }
 
 // TODO: Extract it to the root of the crate
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Config {
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,

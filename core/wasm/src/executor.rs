@@ -1,17 +1,14 @@
 use crate::ext::External;
 
-use crate::prepare;
 use std::ffi::c_void;
 
 use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
-use crate::cache::get_cached_path;
-use primitives::hash::hash;
+use crate::cache;
 
 use wasmer_runtime::{
     self,
-    Cache as WasmCache,
     memory::Memory,
     wasm::MemoryDescriptor,
     units::Pages,
@@ -43,25 +40,11 @@ pub fn execute<'a>(
         return Err(Error::EmptyMethodName);
     }
 
-    let code_hash = hash(code);
-    let file_path = get_cached_path(&code_hash.to_string());
-
-    let wasm_cache = match WasmCache::load(&file_path) {
-        Ok(wasm_cache) => wasm_cache,
-        Err(_) => {
-            // Preparing contract code
-            let prepared_code = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
-            // Compiling to cache
-            let wasm_cache = wasmer_runtime::compile_cache(&prepared_code)
-                .map_err(Into::<wasmer_runtime::error::Error>::into)?;
-            // Saving cache to disk
-            wasm_cache.store(&file_path).map_err(Error::Cache)?;
-            wasm_cache
-        }
-    };
+    let wasm_cache = cache::compile_cached_module(code, config)?;
 
     // into_module method is unsafe because the runtime cannot confirm
     // that this cache was not tampered with or corrupted.
+    // In our case the cache is cloned from memory, so it's safe to use.
     let module = unsafe { wasm_cache.into_module() }
         .map_err(Error::Cache)?;
 

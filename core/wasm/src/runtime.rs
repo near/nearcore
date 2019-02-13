@@ -562,7 +562,7 @@ pub mod imports {
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
-                fn $func( $( $arg_name: $arg_type, )* ctx: &mut Ctx) -> Result<($( $returns )*)> {
+                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns )*)> {
                     // TODO(542): Currently we need to check that the ctx.data is initialized and return to default
                     // when it's not initialized. It's because wasmer is currently calls start_func before
                     // the ctx.data is assigned to the runtime. 
