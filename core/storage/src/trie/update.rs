@@ -4,8 +4,7 @@ use std::collections::BTreeMap;
 use std::iter::Peekable;
 use std::sync::Arc;
 
-use crate::state_db::trie::{DBChanges, Trie};
-use crate::state_db::trie::TrieIterator;
+use super::{DBChanges, Trie, TrieIterator};
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {

@@ -1,4 +1,4 @@
-use crate::state_db::trie::nibble_slice::NibbleSlice;
+use self::nibble_slice::NibbleSlice;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 pub use kvdb::{DBValue, KeyValueDB};
 use primitives::hash::{hash, CryptoHash};
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use crate::COL_STATE;
 
 mod nibble_slice;
+pub mod update;
 
 #[derive(Clone, Hash, Debug)]
 enum NodeHandle {
