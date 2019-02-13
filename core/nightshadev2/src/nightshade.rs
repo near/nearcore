@@ -371,6 +371,7 @@ mod tests {
         assert_eq!(incompatible_states(&state(4, 1, 2), &state(3, 1, 3)), true);
         assert_eq!(incompatible_states(&state(4, 1, 3), &state(3, 1, 3)), false);
         assert_eq!(incompatible_states(&state(4, 2, 2), &state(3, 1, 3)), true);
+        assert_eq!(incompatible_states(&state(4, 2, 2), &state(3, 1, 2)), true);
     }
 
     #[test]
