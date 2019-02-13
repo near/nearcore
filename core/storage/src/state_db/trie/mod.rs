@@ -804,7 +804,6 @@ mod tests {
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
     fn test_populate_trie(
-        storage: &Arc<KeyValueDB>,
         trie: &Trie,
         root: &CryptoHash,
         changes: TrieChanges,
@@ -819,7 +818,6 @@ mod tests {
     }
 
     fn test_clear_trie(
-        storage: &Arc<KeyValueDB>,
         trie: &Trie,
         root: &CryptoHash,
         changes: TrieChanges,
@@ -869,8 +867,8 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(&storage, &trie, &empty_root, changes.clone());
-        let new_root = test_clear_trie(&storage, &trie, &root, changes);
+        let root = test_populate_trie(&trie, &empty_root, changes.clone());
+        let new_root = test_clear_trie(&trie, &root, changes);
         assert_eq!(new_root, empty_root);
         assert_eq!(storage.iter(Some(0)).fold(0, |acc, _| acc + 1), 0);
     }
@@ -885,7 +883,7 @@ mod tests {
             (b"x".to_vec(), Some(b"333".to_vec())),
             (b"y".to_vec(), Some(b"444".to_vec())),
         ];
-        let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), pairs.clone());
+        let root = test_populate_trie(&trie, &Trie::empty_root(), pairs.clone());
         let mut iter_pairs = vec![];
         for pair in trie.iter(&root).unwrap() {
             let (key, value) = pair.unwrap();
@@ -907,7 +905,7 @@ mod tests {
             (b"dog2".to_vec(), Some(b"puppy".to_vec())),
             (b"xxx".to_vec(), Some(b"puppy".to_vec())),
         ];
-        test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        test_populate_trie(&trie, &Trie::empty_root(), changes);
     }
 
     #[test]
@@ -921,7 +919,7 @@ mod tests {
             (b"catbb".to_vec(), Some(b"puppy".to_vec())),
             (b"dogax".to_vec(), Some(b"puppy".to_vec())),
         ];
-        test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        test_populate_trie(&trie, &Trie::empty_root(), changes);
     }
 
     #[test]
@@ -946,7 +944,7 @@ mod tests {
                 Some(vec![0]),
             ),
         ];
-        let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        let root = test_populate_trie(&trie, &Trie::empty_root(), changes);
         let mut iter = trie.iter(&root).unwrap();
         iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];

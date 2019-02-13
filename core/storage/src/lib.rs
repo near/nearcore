@@ -33,12 +33,10 @@ pub const COL_BLOCK_INDEX: Option<u32> = Some(4);
 pub const TOTAL_COLUMNS: Option<u32> = Some(5);
 
 pub type Storage = KeyValueDB;
-pub type DiskStorageConfig = DatabaseConfig;
-pub type DiskStorage = Database;
 
 pub fn open_database(storage_path: &str) -> Database {
-    let storage_config = DiskStorageConfig::with_columns(TOTAL_COLUMNS);
-    DiskStorage::open(&storage_config, storage_path).expect("Database wasn't open")
+    let storage_config = DatabaseConfig::with_columns(TOTAL_COLUMNS);
+    Database::open(&storage_config, storage_path).expect("Database wasn't open")
 }
 
 pub fn write_with_cache<T: Clone + Encode>(
