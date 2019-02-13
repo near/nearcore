@@ -59,7 +59,7 @@ impl BLSProof {
         }
     }
 
-    fn update(&mut self, state: &State) {
+    fn update(&mut self, _state: &State) {
         // TODO: Update self.signature using state.get_signature
     }
 }
@@ -116,6 +116,7 @@ impl State {
         true
     }
 
+    #[allow(dead_code)]
     fn get_signature(&self) -> BLSSignature {
         0
     }
@@ -182,7 +183,7 @@ pub struct Nightshade {
 }
 
 impl Nightshade {
-    fn new(owner_id: AuthorityId, num_authorities: usize) -> Self {
+    pub fn new(owner_id: AuthorityId, num_authorities: usize) -> Self {
         let mut states = vec![];
 
         for i in 0..num_authorities {
@@ -204,11 +205,11 @@ impl Nightshade {
         }
     }
 
-    fn state(&self) -> State {
+    pub fn state(&self) -> State {
         self.states[self.owner_id].clone()
     }
 
-    fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
+    pub fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
         if self.is_adversary[authority_id] ||
             incompatible_states(&self.states[authority_id], &state) {
             self.is_adversary[authority_id] = true;
@@ -249,7 +250,7 @@ impl Nightshade {
 
                 // Collect proofs to create new state
                 for i in 0..self.num_authorities {
-                    if &self.states[i] == &self.states[self.owner_id] {
+                    if self.states[i] == self.states[self.owner_id] {
                         proof.update(&self.states[i]);
                     }
                 }
@@ -287,7 +288,7 @@ impl Nightshade {
         self.best_state_counter > self.num_authorities * 2 / 3
     }
 
-    fn is_final(&self) -> bool {
+    pub fn is_final(&self) -> bool {
         self.committed.is_some()
     }
 }
@@ -385,7 +386,7 @@ mod tests {
     #[test]
     fn test_nightshade_basics() {
         let mut ns0 = Nightshade::new(0, 2);
-        let mut ns1 = Nightshade::new(1, 2);
+        let ns1 = Nightshade::new(1, 2);
         let state0 = ns0.state();
         assert_eq!(state0.endorses(), 0);
         let state1 = ns1.state();
@@ -442,7 +443,7 @@ mod tests {
         ns.states = vec![];
         ns.best_state_counter = 0;
 
-        for (i, bare_state) in bare_states.iter().enumerate() {
+        for bare_state in bare_states.iter() {
             let state = State { bare_state: bare_state.clone(), proof0: None, proof1: None };
             ns.states.push(state);
 
