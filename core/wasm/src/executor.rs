@@ -1,13 +1,18 @@
 use crate::ext::External;
 
-use crate::prepare;
 use std::ffi::c_void;
 
 use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
+use crate::cache;
 
-use wasmer_runtime;
+use wasmer_runtime::{
+    self,
+    memory::Memory,
+    wasm::MemoryDescriptor,
+    units::Pages,
+};
 
 const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";
 
@@ -35,10 +40,19 @@ pub fn execute<'a>(
         return Err(Error::EmptyMethodName);
     }
 
-    let prepare::PreparedContract {
-        instrumented_code,
-        memory
-    } = prepare::prepare_contract(code, &config).map_err(Error::Prepare)?;
+    let wasm_cache = cache::compile_cached_module(code, config)?;
+
+    // into_module method is unsafe because the runtime cannot confirm
+    // that this cache was not tampered with or corrupted.
+    // In our case the cache is cloned from memory, so it's safe to use.
+    let module = unsafe { wasm_cache.into_module() }
+        .map_err(Error::Cache)?;
+
+    let memory = Memory::new(MemoryDescriptor {
+        minimum: Pages(config.initial_memory_pages),
+        maximum: Some(Pages(config.max_memory_pages)),
+        shared: false
+    }).map_err(Into::<wasmer_runtime::error::Error>::into)?;
 
     let mut runtime = Runtime::new(
         ext,
@@ -51,7 +65,7 @@ pub fn execute<'a>(
 
     let import_object = runtime::imports::build(memory);
 
-    let mut instance = wasmer_runtime::instantiate(&instrumented_code, &import_object)?;
+    let mut instance = module.instantiate(&import_object)?;
 
     instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
 

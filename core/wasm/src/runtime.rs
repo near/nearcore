@@ -33,7 +33,7 @@ pub struct Runtime<'a> {
     pub random_seed: Vec<u8>,
     random_buffer_offset: usize,
     pub logs: Vec<String>,
-    memory: Option<Memory>,
+    memory: Memory,
 }
 
 impl<'a> Runtime<'a> {
@@ -43,7 +43,7 @@ impl<'a> Runtime<'a> {
         result_data: &'a [Option<Vec<u8>>],
         context: &'a RuntimeContext,
         gas_limit: Gas,
-        memory: Option<Memory>,
+        memory: Memory,
     ) -> Runtime<'a> {
         Runtime {
             ext,
@@ -64,13 +64,9 @@ impl<'a> Runtime<'a> {
     }
 
     fn memory_can_fit(&self, offset: usize, len: usize) -> bool {
-        if let Some(ref memory) = self.memory {
-            match offset.checked_add(len) {
-                None => false,
-                Some(end) => memory.size().bytes() >= Bytes(end),
-            }
-        } else {
-            false
+        match offset.checked_add(len) {
+            None => false,
+            Some(end) => self.memory.size().bytes() >= Bytes(end),
         }
     }
 
@@ -79,14 +75,12 @@ impl<'a> Runtime<'a> {
             Err(Error::MemoryAccessViolation)
         } else if len == 0 {
             Ok(Vec::new())
-        } else if let Some(ref memory) = self.memory {
-            Ok(memory
+        } else {
+            Ok(self.memory
                 .view()[offset..(offset + len)]
                 .iter()
                 .map(|cell| cell.get())
                 .collect())
-        } else {
-            Err(Error::MemoryAccessViolation)
         }
     }
 
@@ -95,15 +89,13 @@ impl<'a> Runtime<'a> {
             Err(Error::MemoryAccessViolation)
         } else if buf.is_empty() {
             Ok(())
-        } else if let Some(ref memory) = self.memory {
-            memory
+        } else {
+            self.memory
                 .view()[offset..(offset + buf.len())]
                 .iter()
                 .zip(buf.iter())
                 .for_each(|(cell, v)| cell.set(*v));
             Ok(())
-        } else {
-            Err(Error::MemoryAccessViolation)
         }
     }
 
@@ -570,7 +562,7 @@ pub mod imports {
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
-                fn $func( $( $arg_name: $arg_type, )* ctx: &mut Ctx) -> Result<($( $returns )*)> {
+                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns )*)> {
                     // TODO(542): Currently we need to check that the ctx.data is initialized and return to default
                     // when it's not initialized. It's because wasmer is currently calls start_func before
                     // the ctx.data is assigned to the runtime. 
@@ -583,24 +575,14 @@ pub mod imports {
                 }
             )*
 
-            pub(crate) fn build(memory: Option<Memory>) -> ImportObject {
-                if let Some(memory) = memory {
-                    imports! {
-                        "env" => {
-                            "memory" => memory,
-                            $(
-                                $import_name => func!($func),
-                            )*
-                        },
-                    }
-                } else {
-                    imports! {
-                        "env" => {
-                            $(
-                                $import_name => func!($func),
-                            )*
-                        },
-                    }
+            pub(crate) fn build(memory: Memory) -> ImportObject {
+                imports! {
+                    "env" => {
+                        "memory" => memory,
+                        $(
+                            $import_name => func!($func),
+                        )*
+                    },
                 }
             }
         }

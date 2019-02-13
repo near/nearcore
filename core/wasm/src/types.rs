@@ -34,25 +34,8 @@ pub enum PrepareError {
     /// instantiable and/or unlinkable.
     Instantiate,
 
-    /// Memory creation error.
-    ///
-    /// The initial memory is higher than the maximum.
-    MemoryInitialExceedMaximum,
-
-    /// Memory creation error.
-    ///
-    /// The maximum memory is higher than allowed by configuration.
-    MemoryMaximumExceedConfig,
-
-    /// Memory creation error.
-    ///
-    /// The maximum memory is not specified.
-    MemoryNoMaximum,
-
-    /// Memory creation error.
-    ///
-    /// The creation of memory failed by wasmer.
-    MemoryWasmer(WasmerError::CreationError),
+    /// Memory error.
+    Memory,
 }
 
 /// User trap in native code
@@ -179,6 +162,8 @@ pub enum Error {
     Runtime(RuntimeError),
 
     Prepare(PrepareError),
+
+    Cache(WasmerError::CacheError),
 }
 
 impl From<WasmerError::Error> for Error {
@@ -207,7 +192,7 @@ pub enum ReturnData {
 }
 
 // TODO: Extract it to the root of the crate
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Config {
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,
@@ -224,6 +209,9 @@ pub struct Config {
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
 
+    // The initial number of memory pages.
+    pub initial_memory_pages: u32,
+
     /// What is the maximal memory pages amount is allowed to have for
     /// a contract.
     pub max_memory_pages: u32,
@@ -239,6 +227,7 @@ impl Default for Config {
             regular_op_cost: 1,
             return_data_per_byte_cost: 1,
             max_stack_height: 64 * 1024,
+            initial_memory_pages: 17,
             max_memory_pages: 32,
             gas_limit: 10 * 1024 * 1024,
         }
