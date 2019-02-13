@@ -51,3 +51,7 @@ keystore = { path = "./test-utils/keygen" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
 configs = { path = "./node/configs" }
+
+[profile.release]
+lto = true        # Enable full link-time optimization.
+codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
