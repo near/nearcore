@@ -8,7 +8,7 @@ extern crate storage;
 
 use std::sync::Arc;
 use storage::test_utils::create_memory_db;
-use storage::trie::{apply_changes, Trie};
+use storage::state_db::trie::{apply_changes, Trie};
 use storage::KeyValueDB;
 
 use rand::random;

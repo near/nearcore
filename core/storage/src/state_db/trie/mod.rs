@@ -1,3 +1,4 @@
+use crate::state_db::trie::nibble_slice::NibbleSlice;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 pub use kvdb::{DBValue, KeyValueDB};
 use primitives::hash::{hash, CryptoHash};
@@ -5,7 +6,7 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
 
-use crate::nibble_slice::NibbleSlice;
+mod nibble_slice;
 
 #[derive(Clone, Hash, Debug)]
 enum NodeHandle {
@@ -733,7 +734,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                         }
                     }
                     (CrumbStatus::At, TrieNode::Leaf(_, value)) => {
-                        return Some(Ok((self.key(), DBValue::from_slice(value))))
+                        return Some(Ok((self.key(), DBValue::from_slice(value))));
                     }
                     (CrumbStatus::At, TrieNode::Extension(_, child)) => {
                         let next_node = match child {
@@ -932,8 +933,20 @@ mod tests {
         let changes = vec![
             (vec![0, 116, 101, 115, 116], Some(vec![0])),
             (vec![2, 116, 101, 115, 116], Some(vec![0])),
-            (vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98, 46, 110, 101, 97, 114], Some(vec![0])),
-            (vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117, 108, 108], Some(vec![0])),
+            (
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98,
+                    46, 110, 101, 97, 114,
+                ],
+                Some(vec![0]),
+            ),
+            (
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117,
+                    108, 108,
+                ],
+                Some(vec![0]),
+            ),
         ];
         let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
         let mut iter = trie.iter(&root).unwrap();
@@ -943,9 +956,17 @@ mod tests {
             pairs.push(pair.unwrap().0);
         }
         assert_eq!(
-            pairs[..2], [
-                vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98, 46, 110, 101, 97, 114],
-                vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117, 108, 108],
-            ]);
+            pairs[..2],
+            [
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98,
+                    46, 110, 101, 97, 114
+                ],
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117,
+                    108, 108
+                ],
+            ]
+        );
     }
 }
