@@ -20,6 +20,7 @@ pub use crate::types::{
 };
 
 pub mod types;
+pub mod mempool;
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
 
