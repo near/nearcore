@@ -37,7 +37,7 @@ impl HttpApi {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
         let mut state_update = self.client.shard_chain.get_state_update();
-        match self.client.shard_chain.statedb_viewer.view_account(
+        match self.client.shard_chain.trie_viewer.view_account(
             &mut state_update,
             &r.account_id
         ) {
@@ -64,7 +64,7 @@ impl HttpApi {
         );
         let state_update = self.client.shard_chain.get_state_update();
         let best_index = self.client.shard_chain.chain.best_index();
-        match self.client.shard_chain.statedb_viewer.call_function(
+        match self.client.shard_chain.trie_viewer.call_function(
             state_update,
             best_index, 
             &r.contract_account_id,
@@ -84,7 +84,7 @@ impl HttpApi {
         debug!(target: "near-rpc", "Received transaction {:?}", transaction);
         let originator = transaction.body.get_originator();
         let mut state_update = self.client.shard_chain.get_state_update();
-        let public_keys = self.client.shard_chain.statedb_viewer
+        let public_keys = self.client.shard_chain.trie_viewer
             .get_public_keys_for_account(&mut state_update, &originator)
             .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&transaction, &public_keys) {
@@ -103,7 +103,7 @@ impl HttpApi {
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
         let state_update = self.client.shard_chain.get_state_update();
-        let result = self.client.shard_chain.statedb_viewer
+        let result = self.client.shard_chain.trie_viewer
             .view_state(&state_update, &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),

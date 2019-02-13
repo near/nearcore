@@ -22,9 +22,8 @@ use primitives::traits::{Decode, Encode};
 pub mod state_db;
 pub mod test_utils;
 
-pub use state_db::trie::DBChanges;
-pub use state_db::update::{StateDbUpdate, StateDbUpdateIterator};
-pub use state_db::StateDb;
+pub use state_db::trie::{DBChanges, Trie};
+pub use state_db::update::{TrieUpdate, TrieUpdateIterator};
 
 pub const COL_STATE: Option<u32> = Some(0);
 pub const COL_EXTRA: Option<u32> = Some(1);

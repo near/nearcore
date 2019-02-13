@@ -13,7 +13,7 @@ component Client {
 
    component ShardBlockChain {
      [Runtime]
-     [StateDb]
+     [Trie]
      [BlockChain<SignedShardBlock>] as ShardChain
    }
    ShardBlockChain -- prepare_new_block
@@ -21,8 +21,8 @@ component Client {
    ShardBlockChain -- apply_block
 
    package RPCInterfaces {
-   StateDbUpdate -- StateDb
-   StateDbViewer -- ShardBlockChain
+   TrieUpdate -- Trie
+   TrieViewer -- ShardBlockChain
    }
 }
 
@@ -41,8 +41,8 @@ package Coroutines {
 
 
 [RPC]
-RPC --> StateDbViewer
-RPC --> StateDbUpdate
+RPC --> TrieViewer
+RPC --> TrieUpdate
 Client #-- RPC
 
 @enduml
