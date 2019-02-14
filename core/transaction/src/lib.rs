@@ -466,7 +466,11 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
                 bytes = t.write_to_bytes();
                 TransactionBody::AddKey(AddKeyTransaction::from(t))
             }
-            _ => unreachable!(),
+            Some(transaction_proto::SignedTransaction_oneof_body::delete_key(t)) => {
+                bytes = t.write_to_bytes();
+                TransactionBody::DeleteKey(DeleteKeyTransaction::from(t))
+            }
+            None => unreachable!()
         };
         let bytes = bytes.unwrap();
         let hash = hash(&bytes);
