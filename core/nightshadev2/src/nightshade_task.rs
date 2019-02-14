@@ -1,3 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -12,7 +15,9 @@ use log::{error, info};
 use tokio::timer::Delay;
 
 use super::nightshade::{AuthorityId, Nightshade, State};
-use primitives::traits::Payload;
+
+type NSSignature = usize;
+type NSHash = u64;
 
 pub enum Control {
     Reset,
@@ -21,7 +26,7 @@ pub enum Control {
 
 #[derive(Clone, Debug)]
 pub struct Message {
-    pub author: AuthorityId,
+    pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub state: State,
 }
@@ -30,7 +35,7 @@ pub struct Message {
 pub enum GossipBody<P> {
     NightshadeStateUpdate(Message),
     PayloadRequest(Vec<AuthorityId>),
-    PayloadReply(Vec<(AuthorityId, P)>),
+    PayloadReply(Vec<SignedPayload<P>>),
 }
 
 #[derive(Debug)]
@@ -40,12 +45,56 @@ pub struct Gossip<P> {
     pub body: GossipBody<P>,
 }
 
+impl<P> Gossip<P> {
+    fn verify(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Block<P> {
+    author: AuthorityId,
+    hash: NSHash,
+    payload: P,
+}
+
+#[derive(Debug, Clone)]
+pub struct SignedPayload<P> {
+    signature: NSSignature,
+    block: Block<P>,
+
+}
+
+impl<P: Hash> SignedPayload<P> {
+    fn new(author: AuthorityId, payload: P) -> Self {
+        // TODO: Use custom hashser
+        let mut hasher = DefaultHasher::new();
+        payload.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        Self {
+            signature: 0, // TODO: Implement signature,
+            block: Block {
+                author,
+                hash,
+                payload,
+            },
+        }
+    }
+}
+
+impl<P: Hash> SignedPayload<P> {
+    fn verify(&self) -> bool {
+        true
+    }
+}
+
 const COOLDOWN_MS: u64 = 50;
 
 pub struct NightshadeTask<P> {
     owner_id: AuthorityId,
     num_authorities: usize,
-    authority_payloads: Vec<Option<P>>,
+    authority_payloads: Vec<Option<SignedPayload<P>>>,
     nightshade: Option<Nightshade>,
     state_receiver: mpsc::Receiver<Gossip<P>>,
     state_sender: mpsc::Sender<Gossip<P>>,
@@ -57,17 +106,18 @@ pub struct NightshadeTask<P> {
     cooldown_delay: Option<Delay>,
 }
 
-impl<P: Payload> NightshadeTask<P> {
+impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
     pub fn new(
         owner_id: AuthorityId,
         num_authorities: usize,
+        payload: P,
         state_receiver: mpsc::Receiver<Gossip<P>>,
         state_sender: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control>,
         consensus_sender: mpsc::Sender<AuthorityId>,
     ) -> Self {
         let mut authority_payloads = vec![None; num_authorities];
-        authority_payloads[owner_id] = Some(P::new()); /// TODO actual payload
+        authority_payloads[owner_id] = Some(SignedPayload::new(owner_id, payload));
         Self {
             owner_id,
             num_authorities,
@@ -100,10 +150,10 @@ impl<P: Payload> NightshadeTask<P> {
     }
 
     fn send_state(&self, message: Message) {
-        self.send_gossip(Gossip{
+        self.send_gossip(Gossip {
             sender_id: self.owner_id,
             receiver_id: message.receiver_id,
-            body: GossipBody::NightshadeStateUpdate(message)
+            body: GossipBody::NightshadeStateUpdate(message),
         });
     }
 
@@ -120,10 +170,14 @@ impl<P: Payload> NightshadeTask<P> {
     }
 
     fn process_message(&mut self, message: Message) {
-        self.nightshade_as_mut_ref().update_state(message.author, message.state);
+        self.nightshade_as_mut_ref().update_state(message.sender_id, message.state);
     }
 
     fn process_gossip(&mut self, gossip: Gossip<P>) {
+        if !gossip.verify() {
+            return;
+        }
+
         match gossip.body {
             GossipBody::NightshadeStateUpdate(message) => self.process_message(message),
             GossipBody::PayloadRequest(authorities) => self.send_payloads(gossip.sender_id, authorities),
@@ -135,7 +189,7 @@ impl<P: Payload> NightshadeTask<P> {
         let mut payloads = Vec::new();
         for a in authorities {
             if let Some(ref p) = self.authority_payloads[a] {
-                payloads.push((a, p.clone()));
+                payloads.push(p.clone());
             }
         }
         let gossip = Gossip {
@@ -146,14 +200,22 @@ impl<P: Payload> NightshadeTask<P> {
         self.send_gossip(gossip);
     }
 
-    fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<(AuthorityId, P)>) {
-        for (authority_id, payload) in payloads {
-            // TODO mark sender_id as malicious if payload signature doesn't match authority_id
+    fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedPayload<P>>) {
+        for signed_payload in payloads {
+            if !signed_payload.verify() {
+                self.nightshade_as_mut_ref().set_adversary(sender_id);
+                continue;
+            }
+
+            let authority_id = signed_payload.block.author;
+
             if let Some(ref p) = self.authority_payloads[authority_id] {
-                // TODO mark authority_id as malicious if we got conflicting payloads
-//                assert_eq!(p, payload);
+                if p.block.hash != signed_payload.block.hash {
+                    self.nightshade_as_mut_ref().set_adversary(authority_id);
+                    self.authority_payloads[authority_id] = None;
+                }
             } else {
-                self.authority_payloads[authority_id] = Some(payload);
+                self.authority_payloads[authority_id] = Some(signed_payload);
             }
         }
     }
@@ -165,7 +227,7 @@ impl<P: Payload> NightshadeTask<P> {
         for i in 0..self.num_authorities {
             if i != self.owner_id {
                 let message = Message {
-                    author: self.owner_id,
+                    sender_id: self.owner_id,
                     receiver_id: i,
                     state: my_state.clone(),
                 };
@@ -176,6 +238,7 @@ impl<P: Payload> NightshadeTask<P> {
 
     /// We need to have the payload for anything we want to endorse
     /// TODO do it in a smarter way
+    #[allow(dead_code)]
     fn collect_missing_payloads(&self) {
         for authority in 0..self.num_authorities {
             if self.authority_payloads[authority].is_none() {
@@ -190,7 +253,7 @@ impl<P: Payload> NightshadeTask<P> {
     }
 }
 
-impl<P: Payload> Stream for NightshadeTask<P> {
+impl<P: Hash + Send + Debug + Clone + 'static> Stream for NightshadeTask<P> {
     type Item = ();
     type Error = ();
 

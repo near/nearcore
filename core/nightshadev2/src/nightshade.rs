@@ -222,6 +222,10 @@ impl Nightshade {
         self.states[self.owner_id].clone()
     }
 
+    pub fn set_adversary(&mut self, authority_id: AuthorityId){
+        self.is_adversary[authority_id] = true;
+    }
+
     pub fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
         if self.is_adversary[authority_id] ||
             incompatible_states(&self.states[authority_id], &state) {

@@ -14,24 +14,6 @@ struct DummyPayload {
     dummy: u64,
 }
 
-impl Payload for DummyPayload {
-    fn verify(&self) -> Result<(), &'static str> {
-        unimplemented!()
-    }
-
-    fn union_update(&mut self, other: Self) {
-        unimplemented!()
-    }
-
-    fn is_empty(&self) -> bool {
-        unimplemented!()
-    }
-
-    fn new() -> Self {
-        unimplemented!()
-    }
-}
-
 fn spawn_all(num_authorities: usize) {
     tokio::run(lazy(move || {
         let mut control_tx_vec = vec![];
@@ -50,9 +32,12 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
+            let payload = DummyPayload {dummy : 0};
+
             let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
                 owner_id,
                 num_authorities,
+                payload,
                 inc_gossips_rx,
                 out_gossips_tx,
                 control_rx,
