@@ -4,8 +4,8 @@
  */
 const KeyPair = require('./key_pair');
 
-const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_public';
-const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_secret';
+const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
+const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
 class BrowserLocalStorageKeystore {
