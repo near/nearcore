@@ -18,9 +18,10 @@ module.exports = {
      * @param {String} nodeUrl
      */
     connect: async function(nodeUrl) {
-        const options = {};
-        options.node_url = nodeUrl;
-        return await this.connect(options);
+        const options = {
+            nodeUrl: nodeUrl
+        };
+        return await this.setupConnection(options);
     },
     /**
      * Create a connection which can perform operations on behalf of a given account.
@@ -31,7 +32,7 @@ module.exports = {
             options.accountId = aliceAccountName;
             options.key = aliceKey;
         }
-        const keyStore = new nearlib.InMemoryKeyStore();
+        const keyStore = options.deps && options.deps.keyStore ? options.deps.keyStore : new nearlib.BrowserLocalStorageKeystore();
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(options.nodeUrl || this.getConfig().nodeUrl));
         const near = new nearlib.Near(nearClient);

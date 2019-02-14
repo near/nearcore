@@ -1,4 +1,5 @@
-const { Account, KeyPair, Near } = require('../');
+const { Account, KeyPair, Near, InMemoryKeyStore } = require('../');
+//const { InMemoryKeystore } = require('../signing');
 const dev = require('../dev');
 const fs = require('fs');
 const aliceAccountName = "alice.near";
@@ -10,8 +11,11 @@ beforeAll(async () => {
     const options = {};
     options.nodeUrl = 'http://localhost:3030';
     options.useAliceAccount = true;
+    keyStore =  new InMemoryKeyStore();
+    options.deps = {
+        keyStore: keyStore
+    };
     nearjs = await dev.setupConnection(options);
-    keyStore = nearjs.nearClient.signer.keyStore;
     account = new Account(nearjs.nearClient);
 });
 
