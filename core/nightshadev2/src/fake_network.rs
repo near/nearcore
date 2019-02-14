@@ -7,6 +7,30 @@ use log::error;
 use tokio::timer::Delay;
 
 use super::nightshade_task::{Control, NightshadeTask};
+use primitives::traits::Payload;
+
+#[derive(Clone, Hash, Debug, Serialize, Deserialize)]
+struct DummyPayload {
+    dummy: u64,
+}
+
+impl Payload for DummyPayload {
+    fn verify(&self) -> Result<(), &'static str> {
+        unimplemented!()
+    }
+
+    fn union_update(&mut self, other: Self) {
+        unimplemented!()
+    }
+
+    fn is_empty(&self) -> bool {
+        unimplemented!()
+    }
+
+    fn new() -> Self {
+        unimplemented!()
+    }
+}
 
 fn spawn_all(num_authorities: usize) {
     tokio::run(lazy(move || {
@@ -26,7 +50,7 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let task = NightshadeTask::new(
+            let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
                 owner_id,
                 num_authorities,
                 inc_gossips_rx,

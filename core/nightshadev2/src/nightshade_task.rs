@@ -12,27 +12,43 @@ use log::{error, info};
 use tokio::timer::Delay;
 
 use super::nightshade::{AuthorityId, Nightshade, State};
+use primitives::traits::Payload;
 
 pub enum Control {
     Reset,
     Stop,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Message {
     pub author: AuthorityId,
     pub receiver_id: AuthorityId,
     pub state: State,
 }
 
+#[derive(Debug)]
+pub enum GossipBody<P> {
+    NightshadeStateUpdate(Message),
+    PayloadRequest(Vec<AuthorityId>),
+    PayloadReply(Vec<(AuthorityId, P)>),
+}
+
+#[derive(Debug)]
+pub struct Gossip<P> {
+    pub sender_id: AuthorityId,
+    pub receiver_id: AuthorityId,
+    pub body: GossipBody<P>,
+}
+
 const COOLDOWN_MS: u64 = 50;
 
-pub struct NightshadeTask {
+pub struct NightshadeTask<P> {
     owner_id: AuthorityId,
     num_authorities: usize,
+    authority_payloads: Vec<Option<P>>,
     nightshade: Option<Nightshade>,
-    state_receiver: mpsc::Receiver<Message>,
-    state_sender: mpsc::Sender<Message>,
+    state_receiver: mpsc::Receiver<Gossip<P>>,
+    state_sender: mpsc::Sender<Gossip<P>>,
     control_receiver: mpsc::Receiver<Control>,
     consensus_sender: mpsc::Sender<AuthorityId>,
     consensus_reached: Option<AuthorityId>,
@@ -41,18 +57,21 @@ pub struct NightshadeTask {
     cooldown_delay: Option<Delay>,
 }
 
-impl NightshadeTask {
+impl<P: Payload> NightshadeTask<P> {
     pub fn new(
         owner_id: AuthorityId,
         num_authorities: usize,
-        state_receiver: mpsc::Receiver<Message>,
-        state_sender: mpsc::Sender<Message>,
+        state_receiver: mpsc::Receiver<Gossip<P>>,
+        state_sender: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control>,
         consensus_sender: mpsc::Sender<AuthorityId>,
     ) -> Self {
+        let mut authority_payloads = vec![None; num_authorities];
+        authority_payloads[owner_id] = Some(P::new()); /// TODO actual payload
         Self {
             owner_id,
             num_authorities,
+            authority_payloads,
             nightshade: None,
             state_receiver,
             state_sender,
@@ -81,9 +100,14 @@ impl NightshadeTask {
     }
 
     fn send_state(&self, message: Message) {
-//        println!("Sending status from: {:?} to: {:?} - {:?}",
-//                 self.owner_id, message.receiver_id, message.state.bare_state);
+        self.send_gossip(Gossip{
+            sender_id: self.owner_id,
+            receiver_id: message.receiver_id,
+            body: GossipBody::NightshadeStateUpdate(message)
+        });
+    }
 
+    fn send_gossip(&self, message: Gossip<P>) {
         let copied_tx = self.state_sender.clone();
         tokio::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
             error!("Error sending state. {:?}", e);
@@ -97,6 +121,41 @@ impl NightshadeTask {
 
     fn process_message(&mut self, message: Message) {
         self.nightshade_as_mut_ref().update_state(message.author, message.state);
+    }
+
+    fn process_gossip(&mut self, gossip: Gossip<P>) {
+        match gossip.body {
+            GossipBody::NightshadeStateUpdate(message) => self.process_message(message),
+            GossipBody::PayloadRequest(authorities) => self.send_payloads(gossip.sender_id, authorities),
+            GossipBody::PayloadReply(payloads) => self.receive_payloads(gossip.sender_id, payloads),
+        }
+    }
+
+    fn send_payloads(&self, receiver_id: AuthorityId, authorities: Vec<AuthorityId>) {
+        let mut payloads = Vec::new();
+        for a in authorities {
+            if let Some(ref p) = self.authority_payloads[a] {
+                payloads.push((a, p.clone()));
+            }
+        }
+        let gossip = Gossip {
+            sender_id: self.owner_id,
+            receiver_id,
+            body: (GossipBody::PayloadReply(payloads)),
+        };
+        self.send_gossip(gossip);
+    }
+
+    fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<(AuthorityId, P)>) {
+        for (authority_id, payload) in payloads {
+            // TODO mark sender_id as malicious if payload signature doesn't match authority_id
+            if let Some(ref p) = self.authority_payloads[authority_id] {
+                // TODO mark authority_id as malicious if we got conflicting payloads
+//                assert_eq!(p, payload);
+            } else {
+                self.authority_payloads[authority_id] = Some(payload);
+            }
+        }
     }
 
     /// Sends gossip to random authority peers.
@@ -114,9 +173,24 @@ impl NightshadeTask {
             }
         }
     }
+
+    /// We need to have the payload for anything we want to endorse
+    /// TODO do it in a smarter way
+    fn collect_missing_payloads(&self) {
+        for authority in 0..self.num_authorities {
+            if self.authority_payloads[authority].is_none() {
+                let gossip = Gossip {
+                    sender_id: self.owner_id,
+                    receiver_id: authority,
+                    body: GossipBody::PayloadRequest(vec!(authority)),
+                };
+                self.send_gossip(gossip);
+            }
+        }
+    }
 }
 
-impl Stream for NightshadeTask {
+impl<P: Payload> Stream for NightshadeTask<P> {
     type Item = ();
     type Error = ();
 
@@ -162,8 +236,8 @@ impl Stream for NightshadeTask {
         let mut end_of_messages = false;
         loop {
             match self.state_receiver.poll() {
-                Ok(Async::Ready(Some(message))) => {
-                    self.process_message(message);
+                Ok(Async::Ready(Some(gossip))) => {
+                    self.process_gossip(gossip);
 
                     // Report as soon as possible when an authority reach consensus on some outcome
                     if self.consensus_reached == None {
