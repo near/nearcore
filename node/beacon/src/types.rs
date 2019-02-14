@@ -1,11 +1,8 @@
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-use primitives::block_traits::{SignedBlock, SignedHeader};
 use configs::authority::get_authority_config;
 use configs::ChainSpec;
-use primitives::hash::{hash_struct, CryptoHash};
-use primitives::types::{AuthorityStake, GroupSignature, PartialSignature};
 use storage::Storage;
 
 use crate::authority::Authority;
@@ -40,6 +37,9 @@ mod tests {
     use storage::test_utils::create_memory_db;
 
     use super::*;
+    use primitives::hash::CryptoHash;
+    use primitives::block_traits::SignedBlock;
+    use primitives::block_traits::SignedHeader;
 
     #[test]
     fn test_genesis() {

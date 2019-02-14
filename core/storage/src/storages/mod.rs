@@ -181,7 +181,7 @@ where
 fn index_to_bytes(index: &u64) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
-            std::mem::transmute::<*const u64, *const u8>(index as *const u64),
+            index as *const u64 as *const u8,
             std::mem::size_of::<u64>() / std::mem::size_of::<u8>(),
         )
     }
@@ -203,6 +203,7 @@ fn write_with_cache<T: Clone + Encode>(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn extend_with_cache<T: Clone + Encode>(
     storage: &Storage,
     col: u32,
