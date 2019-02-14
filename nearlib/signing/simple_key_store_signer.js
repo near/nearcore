@@ -17,13 +17,16 @@ class SimpleKeyStoreSigner {
      * @param {string} senderAccountId
      */
     async signTransactionBody(body, senderAccountId) {
+        return this.signHash(new Uint8Array(sha256.array(body)), senderAccountId);
+    }
+
+    async signHash(hash, senderAccountId) {
         const encodedKey = await this.keyStore.getKey(senderAccountId);
         if (!encodedKey) {
             throw new Error(`Cannot find key for sender ${senderAccountId}`);
         }
-        const message = new Uint8Array(sha256.array(body));
         const key = bs58.decode(encodedKey.getSecretKey());
-        const signature = [...nacl.sign.detached(message, key)];
+        const signature = [...nacl.sign.detached(Uint8Array.from(hash), key)];
         return signature;
     }
 }
