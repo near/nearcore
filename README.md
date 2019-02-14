@@ -170,11 +170,11 @@ Launch the boot node:
 
 The boot node will print the string that we can use to boot from it. For example:
 
-    To boot from this node: 127.0.0.1:3000/D5kxnrPGZFtGXEniPV76CURQod4t3YMy1Q6qpWQm9mCe
+    To boot from this node: 127.0.0.1:3000/GuMriipt4yUXfkZL2z3zLPbYaozkZG6zjV6vg4QruEvY
     
 Launch the second node using the first one as the boot:
 
-    cargo run -- -a bob.near --addr 127.0.0.1:3001 --rpc_port 3031 --base-path=test2 --test-network-key-seed 2 --chain-spec-file ./node/configs/res/testnet_chain.json --boot-nodes 127.0.0.1:3000/D5kxnrPGZFtGXEniPV76CURQod4t3YMy1Q6qpWQm9mCe
+    cargo run -- -a bob.near --addr 127.0.0.1:3001 --rpc_port 3031 --base-path=test2 --test-network-key-seed 2 --chain-spec-file ./node/configs/res/testnet_chain.json --boot-nodes 127.0.0.1:3000/GuMriipt4yUXfkZL2z3zLPbYaozkZG6zjV6vg4QruEvY
 
 Submit account creation transaction on one node:
 
