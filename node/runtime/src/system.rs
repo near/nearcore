@@ -7,7 +7,7 @@ use primitives::utils::is_valid_account_id;
 use transaction::{
     AsyncCall, ReceiptTransaction, SendMoneyTransaction,
     ReceiptBody, StakeTransaction, CreateAccountTransaction,
-    SwapKeyTransaction
+    SwapKeyTransaction, AddKeyTransaction
 };
 
 use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
@@ -180,6 +180,21 @@ pub fn swap_key(
     if account.public_keys.len() == num_keys {
         return Err(format!("Account {} does not have public key {}", body.originator, cur_key));
     }
+    account.public_keys.push(new_key);
+    set(
+        state_update,
+        &account_id_to_bytes(COL_ACCOUNT, &body.originator),
+        &account
+    );
+    Ok(vec![])
+}
+
+pub fn add_key(
+    state_update: &mut StateDbUpdate,
+    body: &AddKeyTransaction,
+    account: &mut Account
+) -> Result<Vec<ReceiptTransaction>, String> {
+    let new_key = PublicKey::new(&body.new_key)?;
     account.public_keys.push(new_key);
     set(
         state_update,
@@ -543,5 +558,25 @@ mod tests {
             &account_id_to_bytes(COL_ACCOUNT, &eve_account()),
         ).unwrap();
         assert_eq!(account.public_keys, vec![pub_key2]);
+    }
+
+    #[test]
+    fn test_add_key() {
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
+        let (pub_key, _) = get_key_pair();
+        let tx_body = TransactionBody::AddKey(AddKeyTransaction {
+            nonce: 1,
+            originator: alice_account(),
+            new_key: pub_key.0[..].to_vec()
+        });
+        let (new_root, _) = alice.send_tx(root, tx_body);
+        let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 3);
+        assert_eq!(account.public_keys[2].clone(), pub_key);
     }
 }

@@ -316,6 +316,13 @@ impl Runtime {
                             &mut sender,
                         )
                     }
+                    TransactionBody::AddKey(ref t) => {
+                        system::add_key(
+                            state_update,
+                            t,
+                            &mut sender
+                        )
+                    }
                 }
             }
             _ => Err(format!("sender {} does not exist", sender_account_id))
