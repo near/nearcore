@@ -19,14 +19,16 @@ use std::{cmp, env, fs};
 use env_logger::Builder;
 use parking_lot::RwLock;
 
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock, SignedBeaconBlockHeader};
-use chain::{SignedBlock, ChainPayload, SignedShardBlock};
+use beacon::beacon_chain::BeaconBlockChain;
+use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use primitives::chain::{ChainPayload, SignedShardBlock};
 use configs::ClientConfig;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain};
 use storage::Storage;
+use primitives::block_traits::SignedBlock;
 
 pub struct Client {
     pub account_id: AccountId,

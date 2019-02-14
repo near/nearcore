@@ -25,8 +25,7 @@ use primitives::types::{
 use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
 };
-use storage::StateDbUpdate;
-use transaction::{
+use primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody,
     ReceiptTransaction, SignedTransaction,
@@ -35,7 +34,7 @@ use transaction::{
 };
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
-use chain::ReceiptBlock;
+use primitives::chain::ReceiptBlock;
 
 use crate::ext::RuntimeExt;
 use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
@@ -43,6 +42,7 @@ use crate::system::{
     SYSTEM_METHOD_CREATE_ACCOUNT, system_account,
     system_create_account
 };
+use storage::TrieUpdate;
 
 pub mod test_utils;
 pub mod state_viewer;
@@ -109,11 +109,11 @@ pub struct ApplyResult {
     pub tx_result: Vec<TransactionResult>,
 }
 
-fn get<T: DeserializeOwned>(state_update: &mut StateDbUpdate, key: &[u8]) -> Option<T> {
+fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option<T> {
     state_update.get(key).and_then(|data| Decode::decode(&data).ok())
 }
 
-fn set<T: Serialize>(state_update: &mut StateDbUpdate, key: &[u8], value: &T) {
+fn set<T: Serialize>(state_update: &mut TrieUpdate, key: &[u8], value: &T) {
     value
         .encode().ok()
         .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
@@ -127,7 +127,7 @@ impl Runtime {
 
     fn try_charge_mana(
         self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         originator: &AccountId,
         contract_id: &Option<AccountId>,
@@ -167,7 +167,7 @@ impl Runtime {
 
     fn call_function(
         self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         transaction: &FunctionCallTransaction,
         hash: CryptoHash,
         sender: &mut Account,
@@ -217,7 +217,7 @@ impl Runtime {
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
         self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
         authority_proposals: &mut Vec<AuthorityStake>
@@ -406,7 +406,7 @@ impl Runtime {
 
     fn apply_async_call(
         self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
         receiver_id: &AccountId,
@@ -472,7 +472,7 @@ impl Runtime {
 
     fn apply_callback(
         self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
         receiver_id: &AccountId,
@@ -582,7 +582,7 @@ impl Runtime {
 
     fn apply_receipt(
         self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
@@ -750,7 +750,7 @@ impl Runtime {
 
     fn process_transaction(
         runtime: Self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
@@ -790,7 +790,7 @@ impl Runtime {
 
     fn process_receipt(
         runtime: Self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
         receipt: &ReceiptTransaction,
@@ -840,7 +840,7 @@ impl Runtime {
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
         self,
-        mut state_update: StateDbUpdate,
+        mut state_update: TrieUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[ReceiptBlock],
         transactions: &[SignedTransaction],
@@ -884,7 +884,7 @@ impl Runtime {
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         self,
-        mut state_update: StateDbUpdate,
+        mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],
         initial_authorities: &[(AccountId, ReadablePublicKey, u64)]
@@ -947,9 +947,9 @@ mod tests {
 
     use primitives::hash::hash;
     use primitives::signature::{get_key_pair};
-    use storage::test_utils::create_state_db;
+    use storage::test_utils::create_trie;
 
-    use crate::state_viewer::{AccountViewCallResult, StateDbViewer};
+    use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::test_utils::*;
 
     use super::*;
@@ -958,7 +958,7 @@ mod tests {
 
     #[test]
     fn test_genesis_state() {
-        let (viewer, mut state_update) = get_test_state_db_viewer();
+        let (viewer, mut state_update) = get_test_trie_viewer();
         let result = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result.unwrap(),
@@ -974,8 +974,8 @@ mod tests {
 
     #[test]
     fn test_get_and_set_accounts() {
-        let state_db = Arc::new(create_state_db());
-        let mut state_update = StateDbUpdate::new(state_db, MerkleHash::default());
+        let trie = Arc::new(create_trie());
+        let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id), &test_account);
@@ -984,24 +984,24 @@ mod tests {
     }
 
     #[test]
-    fn test_get_account_from_state_db() {
-        let state_db = Arc::new(create_state_db());
+    fn test_get_account_from_trie() {
+        let trie = Arc::new(create_trie());
         let root = MerkleHash::default();
-        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id), &test_account);
         let (new_root, transaction) = state_update.finalize();
-        state_db.commit(transaction).unwrap();
-        let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        trie.apply_changes(transaction).unwrap();
+        let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get(&mut new_state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 
     #[test]
     fn test_smart_contract_simple() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let (new_root, apply_results) = alice.call_function(
             root, &bob_account(), "run_test", vec![], 0
         );
@@ -1021,8 +1021,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_bad_method_name() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let (_, apply_results) = alice.call_function(
             root, &bob_account(), "_run_test", vec![], 0
         );
@@ -1035,8 +1035,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_empty_method_name_with_no_tokens() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let (_, apply_results) = alice.call_function(
             root, &bob_account(), "", vec![], 0
         );
@@ -1049,8 +1049,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_empty_method_name_with_tokens() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let (new_root, apply_results) = alice.call_function(
             root, &bob_account(), "", vec![], 10
         );
@@ -1070,8 +1070,8 @@ mod tests {
 
     #[test]
     fn test_smart_contract_with_args() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let (new_root, apply_results) = alice.call_function(
             root,
             &bob_account(),
@@ -1095,8 +1095,8 @@ mod tests {
 
     #[test]
     fn test_async_call_with_no_callback() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let (_, apply_results) = alice.async_call(root, &bob_account(), "run_test", vec![]);
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1112,8 +1112,8 @@ mod tests {
 
     #[test]
     fn test_async_call_with_logs() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime, &alice_account(), state_db, root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie, root);
         let (_, apply_results) = alice.async_call(root, &bob_account(), "log_something", vec![]);
         // 2 results: Receipt, Mana receipt
         assert_eq!(apply_results.len(), 2);
@@ -1129,7 +1129,7 @@ mod tests {
 
     #[test]
     fn test_async_call_with_callback() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let (runtime, trie, root) = get_runtime_and_trie();
         let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
         let accounting_info = AccountingInfo {
             originator: alice_account(),
@@ -1159,7 +1159,7 @@ mod tests {
             ReceiptBody::NewCall(async_call),
         );
         let block_index = 1;
-        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
         let mut logs = vec![];
         runtime.apply_receipt(
@@ -1191,8 +1191,8 @@ mod tests {
 
     #[test]
     fn test_callback() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let callback_id = [0; 32].to_vec();
         let (new_root, _) = alice.callback(
             root,
@@ -1202,7 +1202,7 @@ mod tests {
             callback_id.clone()
         );
         assert_ne!(root, new_root);
-        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let mut state_update = TrieUpdate::new(trie.clone(), new_root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
         assert!(callback.is_none());
     }
@@ -1210,8 +1210,8 @@ mod tests {
     #[test]
     // if the callback failed, it should still be removed
     fn test_callback_failure() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let callback_id = [0; 32].to_vec();
         let (new_root, _) = alice.callback(
             root,
@@ -1222,18 +1222,18 @@ mod tests {
         );
         // the callback should be removed
         assert_eq!(root, new_root);
-        let mut state_update = StateDbUpdate::new(state_db, new_root);
+        let mut state_update = TrieUpdate::new(trie, new_root);
         let callback: Option<Callback> = get(&mut state_update, &callback_id_to_bytes(&callback_id));
         assert!(callback.is_none());
     }
 
     #[test]
     fn test_nonce_update_when_deploying_contract() {
-        let (runtime, state_db, root) = get_runtime_and_state_db();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let (new_root, _) = alice.deploy_contract(root, &alice_account(), wasm_binary);
-        let mut state_update = StateDbUpdate::new(state_db, new_root);
+        let mut state_update = TrieUpdate::new(trie, new_root);
         let account: Account = get(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account())
@@ -1248,9 +1248,9 @@ mod tests {
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_string(), 10000, 0));
         }
-        let (_, state_db, root) = get_runtime_and_state_db_from_chain_spec(&chain_spec);
-        let viewer = StateDbViewer {};
-        let mut state_update = StateDbUpdate::new(state_db, root);
+        let (_, trie, root) = get_runtime_and_trie_from_chain_spec(&chain_spec);
+        let viewer = TrieViewer {};
+        let mut state_update = TrieUpdate::new(trie, root);
         for i in 0..100 {
             assert_eq!(
                 viewer.view_account(&mut state_update, &format!("account{}", i)).unwrap().amount, 

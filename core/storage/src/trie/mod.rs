@@ -1,11 +1,14 @@
+use self::nibble_slice::NibbleSlice;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 pub use kvdb::{DBValue, KeyValueDB};
 use primitives::hash::{hash, CryptoHash};
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
+use crate::COL_STATE;
 
-use crate::nibble_slice::NibbleSlice;
+mod nibble_slice;
+pub mod update;
 
 #[derive(Clone, Hash, Debug)]
 enum NodeHandle {
@@ -181,8 +184,8 @@ pub struct Trie {
 pub type DBChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
 
 impl Trie {
-    pub fn new(storage: Arc<KeyValueDB>, column: Option<u32>) -> Self {
-        Trie { storage, column, null_node: Trie::empty_root() }
+    pub fn new(storage: Arc<KeyValueDB>) -> Self {
+        Trie { storage, column: COL_STATE, null_node: Trie::empty_root() }
     }
 
     pub fn empty_root() -> CryptoHash {
@@ -558,6 +561,17 @@ impl Trie {
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
         TrieIterator::new(self, root)
     }
+
+    pub fn apply_changes(&self, changes: DBChanges) -> std::io::Result<()> {
+        let mut db_transaction = self.storage.transaction();
+        for (key, value) in changes {
+            match value {
+                Some(arr) => db_transaction.put(self.column, key.as_ref(), &arr),
+                None => db_transaction.delete(self.column, key.as_ref()),
+            }
+        }
+        self.storage.write(db_transaction)
+    }
 }
 
 pub type TrieItem<'a> = Result<(Vec<u8>, DBValue), String>;
@@ -733,7 +747,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                         }
                     }
                     (CrumbStatus::At, TrieNode::Leaf(_, value)) => {
-                        return Some(Ok((self.key(), DBValue::from_slice(value))))
+                        return Some(Ok((self.key(), DBValue::from_slice(value))));
                     }
                     (CrumbStatus::At, TrieNode::Extension(_, child)) => {
                         let next_node = match child {
@@ -782,20 +796,6 @@ impl<'a> Iterator for TrieIterator<'a> {
     }
 }
 
-pub fn apply_changes(
-    storage: &Arc<KeyValueDB>,
-    col: Option<u32>,
-    changes: DBChanges,
-) -> std::io::Result<()> {
-    let mut db_transaction = storage.transaction();
-    for (key, value) in changes {
-        match value {
-            Some(arr) => db_transaction.put(col, key.as_ref(), &arr),
-            None => db_transaction.delete(col, key.as_ref()),
-        }
-    }
-    storage.write(db_transaction)
-}
 
 #[cfg(test)]
 mod tests {
@@ -805,14 +805,13 @@ mod tests {
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
     fn test_populate_trie(
-        storage: &Arc<KeyValueDB>,
         trie: &Trie,
         root: &CryptoHash,
         changes: TrieChanges,
     ) -> CryptoHash {
         let mut other_changes = changes.clone();
         let (db_changes, root) = trie.update(root, other_changes.drain(..));
-        apply_changes(storage, Some(0), db_changes).is_ok();
+        trie.apply_changes(db_changes).is_ok();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
         }
@@ -820,7 +819,6 @@ mod tests {
     }
 
     fn test_clear_trie(
-        storage: &Arc<KeyValueDB>,
         trie: &Trie,
         root: &CryptoHash,
         changes: TrieChanges,
@@ -829,7 +827,7 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
         let (db_changes, root) = trie.update(root, other_delete_changes.drain(..));
-        apply_changes(storage, Some(0), db_changes).is_ok();
+        trie.apply_changes(db_changes).is_ok();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
         }
@@ -859,7 +857,7 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-        let trie = Trie::new(storage.clone(), Some(0));
+        let trie = Trie::new(storage.clone());
         let empty_root = Trie::empty_root();
         // assert_eq!(trie.get(&empty_root, &[122]), None);
         let changes = vec![
@@ -870,8 +868,8 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(&storage, &trie, &empty_root, changes.clone());
-        let new_root = test_clear_trie(&storage, &trie, &root, changes);
+        let root = test_populate_trie(&trie, &empty_root, changes.clone());
+        let new_root = test_clear_trie(&trie, &root, changes);
         assert_eq!(new_root, empty_root);
         assert_eq!(storage.iter(Some(0)).fold(0, |acc, _| acc + 1), 0);
     }
@@ -879,14 +877,14 @@ mod tests {
     #[test]
     fn test_trie_iter() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-        let trie = Trie::new(storage.clone(), Some(0));
+        let trie = Trie::new(storage.clone());
         let pairs = vec![
             (b"a".to_vec(), Some(b"111".to_vec())),
             (b"b".to_vec(), Some(b"222".to_vec())),
             (b"x".to_vec(), Some(b"333".to_vec())),
             (b"y".to_vec(), Some(b"444".to_vec())),
         ];
-        let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), pairs.clone());
+        let root = test_populate_trie(&trie, &Trie::empty_root(), pairs.clone());
         let mut iter_pairs = vec![];
         for pair in trie.iter(&root).unwrap() {
             let (key, value) = pair.unwrap();
@@ -902,19 +900,19 @@ mod tests {
     #[test]
     fn test_trie_leaf_into_branch() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-        let trie = Trie::new(storage.clone(), Some(0));
+        let trie = Trie::new(storage.clone());
         let changes = vec![
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"dog2".to_vec(), Some(b"puppy".to_vec())),
             (b"xxx".to_vec(), Some(b"puppy".to_vec())),
         ];
-        test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        test_populate_trie(&trie, &Trie::empty_root(), changes);
     }
 
     #[test]
     fn test_trie_same_node() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-        let trie = Trie::new(storage.clone(), Some(0));
+        let trie = Trie::new(storage.clone());
         let changes = vec![
             (b"dogaa".to_vec(), Some(b"puppy".to_vec())),
             (b"dogbb".to_vec(), Some(b"puppy".to_vec())),
@@ -922,20 +920,32 @@ mod tests {
             (b"catbb".to_vec(), Some(b"puppy".to_vec())),
             (b"dogax".to_vec(), Some(b"puppy".to_vec())),
         ];
-        test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        test_populate_trie(&trie, &Trie::empty_root(), changes);
     }
 
     #[test]
     fn test_trie_iter_seek_stop_at_extension() {
         let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-        let trie = Trie::new(storage.clone(), Some(0));
+        let trie = Trie::new(storage.clone());
         let changes = vec![
             (vec![0, 116, 101, 115, 116], Some(vec![0])),
             (vec![2, 116, 101, 115, 116], Some(vec![0])),
-            (vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98, 46, 110, 101, 97, 114], Some(vec![0])),
-            (vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117, 108, 108], Some(vec![0])),
+            (
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98,
+                    46, 110, 101, 97, 114,
+                ],
+                Some(vec![0]),
+            ),
+            (
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117,
+                    108, 108,
+                ],
+                Some(vec![0]),
+            ),
         ];
-        let root = test_populate_trie(&storage, &trie, &Trie::empty_root(), changes);
+        let root = test_populate_trie(&trie, &Trie::empty_root(), changes);
         let mut iter = trie.iter(&root).unwrap();
         iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
@@ -943,9 +953,17 @@ mod tests {
             pairs.push(pair.unwrap().0);
         }
         assert_eq!(
-            pairs[..2], [
-                vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98, 46, 110, 101, 97, 114],
-                vec![0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117, 108, 108],
-            ]);
+            pairs[..2],
+            [
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98,
+                    46, 110, 101, 97, 114
+                ],
+                vec![
+                    0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 110, 117,
+                    108, 108
+                ],
+            ]
+        );
     }
 }

@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::Client;
-use beacon::types::{BeaconBlockChain, SignedBeaconBlock};
+use beacon::beacon_chain::BeaconBlockChain;
 use configs::ChainSpec;
 use node_runtime::test_utils::generate_test_chain_spec;
 use primitives::signer::InMemorySigner;
 use shard::ShardBlockChain;
 use storage::test_utils::create_memory_db;
+use primitives::beacon::SignedBeaconBlock;
 
 /// Implements dummy client for testing. The differences with the real client:
 /// * It does not do the correct signing;

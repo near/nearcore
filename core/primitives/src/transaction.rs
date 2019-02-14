@@ -1,18 +1,15 @@
-#[macro_use]
-extern crate serde_derive;
-
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
-use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
-use primitives::types::{
+use super::hash::{CryptoHash, hash};
+use super::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
+use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana,
     ManaAccounting, StructSignature, ShardId,
 };
-use primitives::utils::account_to_shard_id;
+use super::utils::account_to_shard_id;
 
 pub type LogEntry = String;
 
@@ -726,7 +723,7 @@ pub fn verify_transaction_signature(
 
 #[cfg(test)]
 mod tests {
-    use primitives::signature::{get_key_pair, sign};
+    use crate::signature::{get_key_pair, sign};
 
     use super::*;
 

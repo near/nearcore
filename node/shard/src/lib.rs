@@ -12,15 +12,16 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
+use primitives::block_traits::{SignedBlock, SignedHeader};
+use primitives::chain::{SignedShardBlock, ReceiptBlock};
 use configs::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
-use node_runtime::state_viewer::StateDbViewer;
+use node_runtime::state_viewer::TrieViewer;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex, MerkleHash};
 use primitives::merkle::{merklize, MerklePath};
-use storage::{extend_with_cache, read_with_cache, StateDb, StateDbUpdate};
-use transaction::{
+use storage::{extend_with_cache, read_with_cache, Trie, TrieUpdate};
+use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
     ReceiptTransaction
@@ -73,42 +74,42 @@ pub struct ShardBlockChain {
     transaction_addresses: RwLock<HashMap<Vec<u8>, TransactionAddress>>,
     transaction_results: RwLock<HashMap<Vec<u8>, TransactionResult>>,
     pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
-    pub state_db: Arc<StateDb>,
+    pub trie: Arc<Trie>,
     pub runtime: Runtime,
-    pub statedb_viewer: StateDbViewer,
+    pub trie_viewer: TrieViewer,
 }
 
 impl ShardBlockChain {
     pub fn new(chain_spec: &ChainSpec, storage: Arc<storage::Storage>) -> Self {
-        let state_db = Arc::new(StateDb::new(storage.clone()));
+        let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
-        let state_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
+        let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         let (genesis_root, db_changes) = runtime.apply_genesis_state(
             state_update,
             &chain_spec.accounts,
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
-        state_db.commit(db_changes).expect("Failed to commit genesis state");
+        trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
 
         let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
-        let statedb_viewer = StateDbViewer {};
+        let trie_viewer = TrieViewer {};
         Self {
             chain,
             storage,
             transaction_addresses: RwLock::new(HashMap::new()),
             transaction_results: RwLock::new(HashMap::new()),
             receipts: RwLock::new(HashMap::new()),
-            state_db,
+            trie,
             runtime,
-            statedb_viewer
+            trie_viewer
         }
     }
 
-    pub fn get_state_update(&self) -> StateDbUpdate {
+    pub fn get_state_update(&self) -> TrieUpdate {
         let root = self.chain.best_block().merkle_root_state();
-        StateDbUpdate::new(self.state_db.clone(), root)
+        TrieUpdate::new(self.trie.clone(), root)
     }
 
     #[inline]
@@ -123,7 +124,7 @@ impl ShardBlockChain {
         tx_result: Vec<TransactionResult>,
         new_receipts: HashMap<ShardId, ReceiptBlock>
     ) {
-        self.state_db.commit(db_transaction).ok();
+        self.trie.apply_changes(db_transaction).ok();
         self.chain.insert_block(block.clone());
         self.update_for_inserted_block(&block.clone(), tx_result);
         let index = block.index();
@@ -166,7 +167,7 @@ impl ShardBlockChain {
             block_index: last_block.body.header.index + 1,
             shard_id: last_block.body.header.shard_id,
         };
-        let state_update = StateDbUpdate::new(self.state_db.clone(), apply_state.root);
+        let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
         let apply_result = self.runtime.apply(
             state_update,
             &apply_state,
@@ -345,7 +346,7 @@ mod tests {
     use primitives::signature::{sign, SecretKey};
     use primitives::types::Balance;
     use storage::test_utils::create_memory_db;
-    use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
+    use primitives::transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
 
     use super::*;
 

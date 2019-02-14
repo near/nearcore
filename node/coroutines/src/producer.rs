@@ -6,11 +6,14 @@ use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 
 use crate::control_builder::get_control;
-use beacon::types::SignedBeaconBlock;
-use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
 use client::{ChainConsensusBlockBody, Client};
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::SignedShardBlock;
+use primitives::chain::ReceiptBlock;
+use primitives::block_traits::SignedBlock;
+use primitives::block_traits::SignedHeader;
 
 pub fn spawn_block_producer(
     client: Arc<Client>,

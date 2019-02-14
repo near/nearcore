@@ -8,18 +8,18 @@ use primitives::signature::{get_key_pair, PublicKey, SecretKey, sign};
 use primitives::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::test_utils::get_key_pair_from_seed;
-use storage::{StateDb, StateDbUpdate};
+use storage::{Trie, TrieUpdate};
 use storage::test_utils::create_memory_db;
-use transaction::{
+use primitives::transaction::{
     SignedTransaction, ReceiptTransaction, TransactionBody,
     SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction,
     CreateAccountTransaction, ReceiptBody, Callback, AsyncCall, CallbackInfo,
     CallbackResult, AddKeyTransaction, DeleteKeyTransaction
 };
-use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
+use primitives::chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
 use configs::ChainSpec;
-use crate::state_viewer::StateDbViewer;
+use crate::state_viewer::TrieViewer;
 
 use super::{
     ApplyResult, ApplyState, Runtime, set, callback_id_to_bytes, get, account_id_to_bytes,
@@ -70,31 +70,31 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner, SecretKey) {
     }, signer, secret_key)
 }
 
-pub fn get_runtime_and_state_db_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<StateDb>, MerkleHash) {
+pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {
     let storage = Arc::new(create_memory_db());
-    let state_db = Arc::new(StateDb::new(storage.clone()));
+    let trie = Arc::new(Trie::new(storage.clone()));
     let runtime = Runtime {};
-    let state_db_update = StateDbUpdate::new(state_db.clone(), MerkleHash::default());
+    let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (genesis_root, db_changes) = runtime.apply_genesis_state(
-        state_db_update,
+        trie_update,
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
         &chain_spec.initial_authorities
     );
-    state_db.commit(db_changes).unwrap();
-    (runtime, state_db, genesis_root)
+    trie.apply_changes(db_changes).unwrap();
+    (runtime, trie, genesis_root)
 }
 
-pub fn get_runtime_and_state_db() -> (Runtime, Arc<StateDb>, MerkleHash) {
+pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
     let (chain_spec, _, _) = generate_test_chain_spec();
-    get_runtime_and_state_db_from_chain_spec(&chain_spec)
+    get_runtime_and_trie_from_chain_spec(&chain_spec)
 }
 
-pub fn get_test_state_db_viewer() -> (StateDbViewer, StateDbUpdate) {
-    let (_, state_db, root) = get_runtime_and_state_db();
-    let state_db_viewer = StateDbViewer {};
-    let state_update = StateDbUpdate::new(state_db, root);
-    (state_db_viewer, state_update)
+pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
+    let (_, trie, root) = get_runtime_and_trie();
+    let trie_viewer = TrieViewer {};
+    let state_update = TrieUpdate::new(trie, root);
+    (trie_viewer, state_update)
 }
 
 pub fn encode_int(val: i32) -> [u8; 4] {
@@ -125,7 +125,7 @@ pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
 impl Runtime {
     pub fn apply_all_vec(
         &mut self,
-        state_db: Arc<StateDb>,
+        trie: Arc<Trie>,
         apply_state: ApplyState,
         prev_receipts: Vec<ReceiptBlock>,
         transactions: Vec<SignedTransaction>,
@@ -135,13 +135,13 @@ impl Runtime {
         let mut txs = transactions;
         let mut results = vec![];
         loop {
-            let state_update = StateDbUpdate::new(state_db.clone(), cur_apply_state.root);
+            let state_update = TrieUpdate::new(trie.clone(), cur_apply_state.root);
             let mut apply_result = self.apply(state_update, &cur_apply_state, &receipts, &txs);
             results.push(apply_result.clone());
             if apply_result.new_receipts.is_empty() {
                 return results;
             }
-            state_db.commit(apply_result.db_changes).unwrap();
+            trie.apply_changes(apply_result.db_changes).unwrap();
             cur_apply_state = ApplyState {
                 root: apply_result.root,
                 shard_id: cur_apply_state.shard_id,
@@ -155,11 +155,11 @@ impl Runtime {
 
     pub fn apply_all(
         &mut self,
-        state_db: Arc<StateDb>,
+        trie: Arc<Trie>,
         apply_state: ApplyState,
         transactions: Vec<SignedTransaction>,
     ) -> ApplyResult {
-        self.apply_all_vec(state_db, apply_state, vec![], transactions).pop().unwrap()
+        self.apply_all_vec(trie, apply_state, vec![], transactions).pop().unwrap()
     }
 }
 
@@ -167,7 +167,7 @@ pub struct User {
     runtime: Runtime,
     account_id: String,
     nonce: u64,
-    state_db: Arc<StateDb>,
+    trie: Arc<Trie>,
     pub pub_key: PublicKey,
     secret_key: SecretKey
 }
@@ -176,11 +176,11 @@ impl User {
     pub fn new(
         runtime: Runtime,
         account_id: &str,
-        state_db: Arc<StateDb>,
+        trie: Arc<Trie>,
         root: MerkleHash
     ) -> (Self, MerkleHash) {
         let (pub_key, secret_key) = get_key_pair();
-        let mut state_update = StateDbUpdate::new(state_db.clone(), root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut account: Account = get(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string())
@@ -192,13 +192,13 @@ impl User {
             &account
         );
         let (new_root, transaction) = state_update.finalize();
-        state_db.commit(transaction).unwrap();
+        trie.apply_changes(transaction).unwrap();
 
         (User {
             runtime,
             account_id: account_id.to_string(),
             nonce: 1,
-            state_db,
+            trie,
             pub_key,
             secret_key
         }, new_root)
@@ -219,10 +219,10 @@ impl User {
             block_index: 0
         };
         let apply_results = self.runtime.apply_all_vec(
-            self.state_db.clone(), apply_state, vec![], vec![transaction]
+            self.trie.clone(), apply_state, vec![], vec![transaction]
         );
         let last_apply_result = apply_results[apply_results.len() - 1].clone();
-        self.state_db.commit(last_apply_result.db_changes).unwrap();
+        self.trie.apply_changes(last_apply_result.db_changes).unwrap();
         (last_apply_result.root, apply_results)
     }
 
@@ -345,10 +345,10 @@ impl User {
             block_index: 0
         };
         let apply_results = self.runtime.apply_all_vec(
-            self.state_db.clone(), apply_state, vec![to_receipt_block(vec![receipt])], vec![]
+            self.trie.clone(), apply_state, vec![to_receipt_block(vec![receipt])], vec![]
         );
         let last_apply_result = apply_results[apply_results.len() - 1].clone();
-        self.state_db.commit(last_apply_result.db_changes).unwrap();
+        self.trie.apply_changes(last_apply_result.db_changes).unwrap();
         (last_apply_result.root, apply_results)
     }
 
@@ -396,14 +396,14 @@ impl User {
             },
         );
         callback.results.resize(1, None);
-        let mut state_update = StateDbUpdate::new(self.state_db.clone(), root);
+        let mut state_update = TrieUpdate::new(self.trie.clone(), root);
         set(
             &mut state_update,
             &callback_id_to_bytes(&id.clone()),
             &callback
         );
         let (new_root, transaction) = state_update.finalize();
-        self.state_db.commit(transaction).unwrap();
+        self.trie.apply_changes(transaction).unwrap();
         let receipt = ReceiptTransaction::new(
             self.account_id.clone(),
             dst.to_string(),
@@ -418,16 +418,16 @@ impl User {
 }
 
 pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
-    let (runtime, state_db, genesis_root) = get_runtime_and_state_db();
-    let (mut user, root) = User::new(runtime, "alice.near", state_db.clone(), genesis_root);
+    let (runtime, trie, genesis_root) = get_runtime_and_trie();
+    let (mut user, root) = User::new(runtime, "alice.near", trie.clone(), genesis_root);
     let (root_with_account, _) = user.create_account(root, "test_contract", 0);
     assert_ne!(root_with_account, root);
-    let (mut user, root) = User::new(user.runtime, "test_contract", user.state_db, root_with_account);
+    let (mut user, root) = User::new(user.runtime, "test_contract", user.trie, root_with_account);
     let (root_with_contract_code, _) = user.deploy_contract(
         root, "test_contract", wasm_binary
     );
     assert_ne!(root_with_contract_code, root);
-    User::new(user.runtime, "alice.near", user.state_db, root_with_contract_code)
+    User::new(user.runtime, "alice.near", user.trie, root_with_contract_code)
 }
 
 #[cfg(test)]

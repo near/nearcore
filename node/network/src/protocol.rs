@@ -1,9 +1,6 @@
 use crate::message::Message;
 use crate::peer::PeerMessage;
 use crate::peer_manager::PeerManager;
-use beacon::types::SignedBeaconBlock;
-use chain::ChainPayload;
-use chain::SignedShardBlock;
 use client::Client;
 use configs::NetworkConfig;
 use futures::future;
@@ -19,6 +16,9 @@ use primitives::serialize::{Decode, Encode};
 use primitives::types::AccountId;
 use primitives::types::Gossip;
 use std::sync::Arc;
+use primitives::chain::ChainPayload;
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::SignedShardBlock;
 
 /// Spawn network tasks that process incoming and outgoing messages of various kind.
 /// Args:

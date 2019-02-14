@@ -1,6 +1,8 @@
-use beacon::types::SignedBeaconBlock;
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::ChainPayload;
+use primitives::chain::ReceiptBlock;
+use primitives::chain::SignedShardBlock;
 use primitives::hash::CryptoHash;
-use chain::{SignedShardBlock, ChainPayload, ReceiptBlock};
 use primitives::types::{AccountId, BlockId, Gossip};
 use serde_derive::{Deserialize, Serialize};
 

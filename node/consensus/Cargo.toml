@@ -9,7 +9,6 @@ network = { path = "../network" }
 beacon = { path = "../../node/beacon" }
 client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
-transaction = { path = "../../core/transaction" }
 chain = { path = "../../core/chain" }
 coroutines = { path = "../coroutines" }
 txflow = { path = "../../core/txflow" }

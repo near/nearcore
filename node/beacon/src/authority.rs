@@ -1,15 +1,16 @@
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
-use rand::{SeedableRng, seq::SliceRandom, rngs::StdRng};
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::iter;
 use std::mem;
 
-use chain::SignedBlock;
-use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityMask, BlockId, AuthorityStake};
+use crate::beacon_chain::BeaconBlockChainStorage;
 use configs::AuthorityConfig;
-use crate::types::{BeaconBlockChainStorage, SignedBeaconBlockHeader};
+use primitives::beacon::SignedBeaconBlockHeader;
+use primitives::block_traits::SignedBlock;
+use primitives::hash::CryptoHash;
+use primitives::types::{AuthorityMask, AuthorityStake, BlockId};
 
 type Epoch = u64;
 type Slot = u64;
@@ -75,14 +76,11 @@ impl Authority {
         // Because of the genesis block that has slot 0 and is not in any epoch,
         // slots are shifted by 1.
         epoch * self.authority_config.epoch_length + 1
-            ..=(epoch + 1) * self.authority_config.epoch_length  // Without ..= it needs + 1.
+            ..=(epoch + 1) * self.authority_config.epoch_length // Without ..= it needs + 1.
     }
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
-    pub fn new(
-        authority_config: AuthorityConfig,
-        blockchain: &BeaconBlockChainStorage,
-    ) -> Self {
+    pub fn new(authority_config: AuthorityConfig, blockchain: &BeaconBlockChainStorage) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
             authority_config,
@@ -154,13 +152,12 @@ impl Authority {
         let num_seats =
             self.authority_config.num_seats_per_slot * self.authority_config.epoch_length;
         let stakes: Vec<_> = ordered_proposals.iter().map(|p| p.amount).collect();
-        let threshold = find_threshold(&stakes, num_seats)
-            .expect("Threshold is not found for given proposals");
+        let threshold =
+            find_threshold(&stakes, num_seats).expect("Threshold is not found for given proposals");
         // Duplicate proposals per each seat that they get.
-        let mut dup_proposals: Vec<_> = ordered_proposals.iter()
-            .flat_map(|p| {
-                iter::repeat(p).cloned().take((p.amount / threshold) as usize)
-            })
+        let mut dup_proposals: Vec<_> = ordered_proposals
+            .iter()
+            .flat_map(|p| iter::repeat(p).cloned().take((p.amount / threshold) as usize))
             .collect();
         assert!(
             dup_proposals.len() >= num_seats as usize,
@@ -227,22 +224,28 @@ impl Authority {
                 }
             }
             // Apply penalties.
-            let rollovers: Vec<_> = ordered_rollovers.drain(..).filter(|r| {
-                if let Some(p) = penalties.get(&r.account_id) {
-                    if *p > r.amount {
-                        return false;
+            let rollovers: Vec<_> = ordered_rollovers
+                .drain(..)
+                .filter(|r| {
+                    if let Some(p) = penalties.get(&r.account_id) {
+                        if *p > r.amount {
+                            return false;
+                        }
                     }
-                }
-                true
-            }).collect();
+                    true
+                })
+                .collect();
 
             // Second, use the proposals and the rollovers.
             // TODO(#308): Use proper seed.
             let (mut accepted_authorities, new_threshold) = {
-                let proposals = self
-                    .epoch_to_slots(epoch - 2)
-                    .flat_map(|s| self.proposals[&s].iter().cloned());
-                self.compute_threshold_accepted(&CryptoHash::default(), proposals.collect(), rollovers)
+                let proposals =
+                    self.epoch_to_slots(epoch - 2).flat_map(|s| self.proposals[&s].iter().cloned());
+                self.compute_threshold_accepted(
+                    &CryptoHash::default(),
+                    proposals.collect(),
+                    rollovers,
+                )
             };
             self.thresholds.insert(epoch, new_threshold);
             let slots: Vec<_> = self.epoch_to_slots(epoch).collect();
@@ -294,20 +297,19 @@ impl Authority {
             ))
         }
     }
-
 }
 
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
 
-    use crate::types::SignedBeaconBlock;
-    use chain::SignedHeader;
+    use primitives::beacon::SignedBeaconBlock;
     use primitives::hash::CryptoHash;
     use primitives::signature::get_key_pair;
     use storage::test_utils::MemoryStorage;
 
     use super::*;
+    use primitives::block_traits::SignedHeader;
 
     fn get_test_config(
         num_authorities: u32,
@@ -317,7 +319,11 @@ mod test {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
             let (public_key, _) = get_key_pair();
-            initial_authorities.push(AuthorityStake { account_id: i.to_string(), public_key, amount: 100 });
+            initial_authorities.push(AuthorityStake {
+                account_id: i.to_string(),
+                public_key,
+                amount: 100,
+            });
         }
         AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
     }
@@ -343,7 +349,12 @@ mod test {
         let bc = test_blockchain(0);
         let mut authority = Authority::new(authority_config, &bc);
         let mut prev_hash = bc.genesis_hash;
-        let num_seats = authority.get_authorities(1).unwrap().iter().map(|x| x.account_id == initial_authorities[0].account_id).count();
+        let num_seats = authority
+            .get_authorities(1)
+            .unwrap()
+            .iter()
+            .map(|x| x.account_id == initial_authorities[0].account_id)
+            .count();
         for i in 1..11 {
             let block = SignedBeaconBlock::new(i, prev_hash, vec![], CryptoHash::default());
             let mut header = block.header();

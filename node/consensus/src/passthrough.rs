@@ -7,7 +7,7 @@ use primitives::types::{MessageDataBody, SignedMessageData};
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::{self, timer::Interval};
-use chain::ChainPayload;
+use primitives::chain::ChainPayload;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 
