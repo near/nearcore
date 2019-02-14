@@ -194,6 +194,11 @@ pub fn add_key(
     account: &mut Account
 ) -> Result<Vec<ReceiptTransaction>, String> {
     let new_key = PublicKey::new(&body.new_key)?;
+    let num_keys = account.public_keys.len();
+    account.public_keys.retain(|&x| x != new_key);
+    if account.public_keys.len() < num_keys {
+        return Err("Cannot add key that already exists".to_string());
+    }
     account.public_keys.push(new_key);
     set(
         state_update,
@@ -596,6 +601,21 @@ mod tests {
         ).unwrap();
         assert_eq!(account.public_keys.len(), 3);
         assert_eq!(account.public_keys[2].clone(), pub_key);
+    }
+
+    #[test]
+    fn test_add_existing_key() {
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), state_db.clone(), root);
+        let (new_root, _) = alice.add_key(root, alice.pub_key);
+        // adding existing key should fail
+        assert_eq!(new_root, root);
+        let mut new_state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 2);
     }
 
     #[test]
