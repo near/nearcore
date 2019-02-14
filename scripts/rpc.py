@@ -522,7 +522,7 @@ get_beacon_block_by_hash  {}
             '-r',
             '--receiver',
             type=str,
-            default='bob',
+            default='bob.near',
             help='account alias of receiver',
         )
         parser.add_argument(
