@@ -600,14 +600,7 @@ impl Runtime {
                                 Ok(vec![])
                             }
                         } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                            logs.push(format!("Account {} already exists", receipt.receiver));
-                            let receipt = ReceiptTransaction::new(
-                                system_account(),
-                                receipt.originator.clone(),
-                                create_nonce_with_nonce(&receipt.nonce, 0),
-                                ReceiptBody::Refund(async_call.amount)
-                            );
-                            Ok(vec![receipt])
+                            Err(format!("Account {} already exists", receipt.receiver))
                         } else {
                             callback_info = async_call.callback.clone();
                             self.apply_async_call(
