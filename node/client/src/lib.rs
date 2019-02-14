@@ -19,7 +19,7 @@ use std::{cmp, env, fs};
 use env_logger::Builder;
 use parking_lot::RwLock;
 
-use beacon::types::BeaconBlockChain;
+use beacon::beacon_chain::BeaconBlockChain;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::chain::{ChainPayload, SignedShardBlock};
 use configs::ClientConfig;

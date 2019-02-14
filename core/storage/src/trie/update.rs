@@ -39,7 +39,7 @@ impl TrieUpdate {
         self.prospective.insert(key.to_vec(), None);
     }
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
-        // TODO: join with iterating over committed / perspective overlay here.
+        // TODO(574): join with iterating over committed / perspective overlay here.
         let mut iter = move || -> Result<(), String> {
             let mut iter = self.trie.iter(&self.root)?;
             iter.seek(prefix)?;

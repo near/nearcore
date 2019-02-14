@@ -5,7 +5,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::iter;
 use std::mem;
 
-use crate::types::BeaconBlockChainStorage;
+use crate::beacon_chain::BeaconBlockChainStorage;
 use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;

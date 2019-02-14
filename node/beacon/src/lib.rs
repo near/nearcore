@@ -7,4 +7,4 @@ extern crate primitives;
 extern crate storage;
 
 pub mod authority;
-pub mod types;
+pub mod beacon_chain;
