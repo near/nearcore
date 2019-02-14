@@ -14,6 +14,18 @@ fn runtime_send_money(bench: &mut Bencher) {
     });
 }
 
+fn runtime_wasm_bad_code(bench: &mut Bencher) {
+    let code = include_bytes!("../../../tests/hello.wasm");
+    let code = wasm::prepare::prepare_contract(code, &wasm::types::Config::default()).unwrap();
+    let (mut user, mut root) = setup_test_contract(&code);
+    bench.iter(|| {
+        let (new_root, _) = user.call_function(
+            root, "test_contract", "benchmark", b"{}".to_vec(), 0
+        );
+        root = new_root;
+    });
+}
+
 fn runtime_wasm_set_value(bench: &mut Bencher) {
     let (mut user, mut root) = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
@@ -61,6 +73,7 @@ fn runtime_wasm_benchmark_sum_1000000(bench: &mut Bencher) {
 benchmark_group!(runtime_benches, runtime_send_money);
 benchmark_group!(wasm_benches,
     runtime_wasm_set_value,
+    runtime_wasm_bad_code,
     runtime_wasm_benchmark_10_reads,
     runtime_wasm_benchmark_sum_1000,
     runtime_wasm_benchmark_sum_1000000);

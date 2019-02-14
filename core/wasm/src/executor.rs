@@ -46,7 +46,7 @@ pub fn execute<'a>(
     // that this cache was not tampered with or corrupted.
     // In our case the cache is cloned from memory, so it's safe to use.
     let module = unsafe { wasm_cache.into_module() }
-        .map_err(Error::Cache)?;
+        .map_err(|e| Error::Cache(format!("Cache error: {:?}", e)))?;
 
     let memory = Memory::new(MemoryDescriptor {
         minimum: Pages(config.initial_memory_pages),
