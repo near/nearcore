@@ -31,7 +31,7 @@ pub struct Message {
 pub enum GossipBody<P> {
     NightshadeStateUpdate(Message),
     PayloadRequest(Vec<AuthorityId>),
-    PayloadReply(Vec<SignedPayload<P>>),
+    PayloadReply(Vec<SignedBlock<P>>),
 }
 
 #[derive(Debug)]
@@ -48,12 +48,12 @@ impl<P> Gossip<P> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SignedPayload<P> {
+pub struct SignedBlock<P> {
     signature: NSSignature,
     block: Block<P>,
 }
 
-impl<P: Hash> SignedPayload<P> {
+impl<P: Hash> SignedBlock<P> {
     fn new(author: AuthorityId, payload: P) -> Self {
         Self {
             // TODO: Implement signature
@@ -63,7 +63,7 @@ impl<P: Hash> SignedPayload<P> {
     }
 }
 
-impl<P: Hash> SignedPayload<P> {
+impl<P: Hash> SignedBlock<P> {
     fn verify(&self) -> bool {
         true
     }
@@ -74,13 +74,22 @@ const COOLDOWN_MS: u64 = 50;
 pub struct NightshadeTask<P> {
     owner_id: AuthorityId,
     num_authorities: usize,
-    authority_payloads: Vec<Option<SignedPayload<P>>>,
+    /// Blocks from other authorities containing payloads. At the beginning of the consensus
+    /// authorities only have their own block. It is required for an authority to endorse a block
+    /// from other authority to have its block.
+    authority_blocks: Vec<Option<SignedBlock<P>>>,
     nightshade: Option<Nightshade>,
+    /// Channel to receive state updates from other authorities.
     state_receiver: mpsc::Receiver<Gossip<P>>,
+    /// Channel to send state updates to other authorities
     state_sender: mpsc::Sender<Gossip<P>>,
+    /// Channel to start/reset consensus
+    /// Important: Reset only works the first time it is sent.
     control_receiver: mpsc::Receiver<Control>,
     consensus_sender: mpsc::Sender<BlockHeader>,
+    /// None while not consensus have not been reached, and Some(outcome) after consensus is reached.
     consensus_reached: Option<BlockHeader>,
+    /// Number of payloads from other authorities that we still don't have.
     missing_payloads: usize,
     /// Timer that determines the minimum time that we should not gossip after the given message
     /// for the sake of not spamming the network with small packages.
@@ -98,11 +107,11 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
         let mut authority_payloads = vec![None; num_authorities];
-        authority_payloads[owner_id] = Some(SignedPayload::new(owner_id, payload));
+        authority_payloads[owner_id] = Some(SignedBlock::new(owner_id, payload));
         Self {
             owner_id,
             num_authorities,
-            authority_payloads,
+            authority_blocks: authority_payloads,
             nightshade: None,
             state_receiver,
             state_sender,
@@ -126,7 +135,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
         self.nightshade = Some(
             Nightshade::new(self.owner_id as AuthorityId,
                             self.num_authorities as usize,
-                            self.authority_payloads[self.owner_id].clone().unwrap().block.header));
+                            self.authority_blocks[self.owner_id].clone().unwrap().block.header));
     }
 
     fn state(&self) -> State {
@@ -172,7 +181,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
     fn send_payloads(&self, receiver_id: AuthorityId, authorities: Vec<AuthorityId>) {
         let mut payloads = Vec::new();
         for a in authorities {
-            if let Some(ref p) = self.authority_payloads[a] {
+            if let Some(ref p) = self.authority_blocks[a] {
                 payloads.push(p.clone());
             }
         }
@@ -184,7 +193,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
         self.send_gossip(gossip);
     }
 
-    fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedPayload<P>>) {
+    fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlock<P>>) {
         for signed_payload in payloads {
             if !signed_payload.verify() {
                 self.nightshade_as_mut_ref().set_adversary(sender_id);
@@ -193,13 +202,13 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
 
             let authority_id = signed_payload.block.author();
 
-            if let Some(ref p) = self.authority_payloads[authority_id] {
+            if let Some(ref p) = self.authority_blocks[authority_id] {
                 if p.block.hash() != signed_payload.block.hash() {
                     self.nightshade_as_mut_ref().set_adversary(authority_id);
-                    self.authority_payloads[authority_id] = None;
+                    self.authority_blocks[authority_id] = None;
                 }
             } else {
-                self.authority_payloads[authority_id] = Some(signed_payload);
+                self.authority_blocks[authority_id] = Some(signed_payload);
                 self.missing_payloads -= 1;
             }
         }
@@ -225,7 +234,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
     /// TODO do it in a smarter way
     fn collect_missing_payloads(&self) {
         for authority in 0..self.num_authorities {
-            if self.authority_payloads[authority].is_none() {
+            if self.authority_blocks[authority].is_none() {
                 let gossip = Gossip {
                     sender_id: self.owner_id,
                     receiver_id: authority,
