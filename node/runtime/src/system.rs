@@ -1,3 +1,4 @@
+use storage::TrieUpdate;
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
 use primitives::traits::Decode;
 use primitives::hash::{hash, CryptoHash};
@@ -6,12 +7,10 @@ use primitives::utils::is_valid_account_id;
 use primitives::transaction::{
     AsyncCall, ReceiptTransaction, SendMoneyTransaction,
     ReceiptBody, StakeTransaction, CreateAccountTransaction,
-    SwapKeyTransaction
+    SwapKeyTransaction, AddKeyTransaction, DeleteKeyTransaction,
 };
-
 use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
 use crate::{TxTotalStake, get_tx_stake_key};
-use storage::TrieUpdate;
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId { "system".to_string() }
@@ -189,6 +188,50 @@ pub fn swap_key(
     Ok(vec![])
 }
 
+pub fn add_key(
+    state_update: &mut TrieUpdate,
+    body: &AddKeyTransaction,
+    account: &mut Account
+) -> Result<Vec<ReceiptTransaction>, String> {
+    let new_key = PublicKey::new(&body.new_key)?;
+    let num_keys = account.public_keys.len();
+    account.public_keys.retain(|&x| x != new_key);
+    if account.public_keys.len() < num_keys {
+        return Err("Cannot add key that already exists".to_string());
+    }
+    account.public_keys.push(new_key);
+    set(
+        state_update,
+        &account_id_to_bytes(COL_ACCOUNT, &body.originator),
+        &account
+    );
+    Ok(vec![])
+}
+
+pub fn delete_key(
+    state_update: &mut TrieUpdate,
+    body: &DeleteKeyTransaction,
+    account: &mut Account,
+) -> Result<Vec<ReceiptTransaction>, String> {
+    let cur_key = PublicKey::new(&body.cur_key)?;
+    let num_keys = account.public_keys.len();
+    account.public_keys.retain(|&x| x != cur_key);
+    if account.public_keys.len() == num_keys {
+        return Err(
+            format!("Account {} tries to remove a key that it does not own", body.originator)
+        );
+    }
+    if account.public_keys.is_empty() {
+        return Err("Account must have at least one public key".to_string());
+    }
+    set(
+        state_update,
+        &account_id_to_bytes(COL_ACCOUNT, &body.originator),
+        &account
+    );
+    Ok(vec![])
+}
+
 
 
 pub fn system_create_account(
@@ -233,7 +276,6 @@ mod tests {
     use primitives::transaction::{TransactionBody, TransactionStatus};
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::get;
-    use storage::TrieUpdate;
 
     #[test]
     fn test_upload_contract() {
@@ -545,4 +587,86 @@ mod tests {
         ).unwrap();
         assert_eq!(account.public_keys, vec![pub_key2]);
     }
+
+    #[test]
+    fn test_add_key() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let (pub_key, _) = get_key_pair();
+        let (new_root, _) = alice.add_key(root, pub_key);
+        let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 3);
+        assert_eq!(account.public_keys[2].clone(), pub_key);
+    }
+
+    #[test]
+    fn test_add_existing_key() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let (new_root, _) = alice.add_key(root, alice.pub_key);
+        // adding existing key should fail
+        assert_eq!(new_root, root);
+        let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 2);
+    }
+
+    #[test]
+    fn test_delete_key() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let (new_root, _) = alice.delete_key(root, alice.pub_key);
+        let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_key_not_owned() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let (pub_key, _) = get_key_pair();
+        let (new_root, _) = alice.delete_key(root, pub_key);
+        // delete failed, root does not change
+        assert_eq!(new_root, root);
+        let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 2);
+    }
+
+    #[test]
+    fn test_delete_key_no_key_left() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, mut root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let account = get::<Account>(
+            &mut state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        let pub_keys = account.public_keys;
+        for key in pub_keys {
+            let (new_root, _) = alice.delete_key(root, key);
+            root = new_root;
+        }
+        let mut new_state_update = TrieUpdate::new(trie.clone(), root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.public_keys.len(), 1);
+    }
+
 }
