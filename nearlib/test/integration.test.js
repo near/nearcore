@@ -7,7 +7,10 @@ let account;
 let keyStore;
 
 beforeAll(async () => {
-    nearjs = await dev.connectWithAlice('http://localhost:3030');
+    const options = {};
+    options.nodeUrl = 'http://localhost:3030';
+    options.useAliceAccount = true;
+    nearjs = await dev.setupConnection(options);
     keyStore = nearjs.nearClient.signer.keyStore;
     account = new Account(nearjs.nearClient);
 });

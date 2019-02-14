@@ -14,33 +14,33 @@ module.exports = {
     getConfig: async function() {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
     },
-    connect: async function(nodeUrl) {
-        const studioConfig = await this.getConfig();
-        const near = nearlib.Near.createDefaultConfig(nodeUrl || studioConfig.nodeUrl);
-        await this.getOrCreateDevUser(near);
-        return near;
-    },
     /**
-     * Create a connection which can perform operations on behalf of alice.near. This is an
-     * account that only exists on dev enviornments, so this should never be called on mainnet.
-     * @param {string} nodeUrl
+     * @param {String} nodeUrl
      */
-    connectWithAlice: async function(nodeUrl) {
-        return this.connectWithAccount(nodeUrl, aliceAccountName, aliceKey);
+    connect: async function(nodeUrl) {
+        const options = {};
+        options.node_url = nodeUrl;
+        return await this.connect(options);
     },
     /**
      * Create a connection which can perform operations on behalf of a given account.
-     * @param {string} nodeUrl
-     * @param {string} accountId
-     * @param {KeyPair} key
+     * @param {Object} nodeUrl specifies node url. accountId specifies account id. key_pair is the key pair for account
      */
-    connectWithAccount: async function(nodeUrl, accountId, key) {
-        const studioConfig = await this.getConfig();
+    setupConnection: async function(options) {
+        if (options.useAliceAccount) {
+            options.accountId = aliceAccountName;
+            options.key = aliceKey;
+        }
         const keyStore = new nearlib.InMemoryKeyStore();
-        keyStore.setKey(accountId, key);
         const nearClient = new nearlib.NearClient(
-            new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl || studioConfig.nodeUrl));
-        return new nearlib.Near(nearClient);
+            new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(options.nodeUrl || this.getConfig().nodeUrl));
+        const near = new nearlib.Near(nearClient);
+        if (options.accountId) {
+            keyStore.setKey(options.accountId, options.key);
+        } else {
+            this.getOrCreateDevUser(near);
+        }
+        return near;
     },
     getOrCreateDevUser: async function (near) {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
