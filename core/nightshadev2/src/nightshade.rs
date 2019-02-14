@@ -1,10 +1,14 @@
 /// Nightshade v2
 use std::cmp::{max, min};
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 
 pub type AuthorityId = usize;
 pub type BLSSignature = u64;
+pub type NSSignature = usize;
+pub type NSHash = u64;
 
 const COMMIT_THRESHOLD: i64 = 3;
 
@@ -12,6 +16,44 @@ pub enum NSResult {
     Updated(Option<State>),
     Error(String),
 }
+
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct BlockHeader {
+    author: AuthorityId,
+    hash: NSHash,
+}
+
+#[derive(Debug, Clone)]
+pub struct Block<P> {
+    pub header: BlockHeader,
+    payload: P,
+}
+
+impl<P: Hash> Block<P> {
+    pub fn new(author: AuthorityId, payload: P) -> Self {
+        // TODO: Use custom hasher
+        let mut hasher = DefaultHasher::new();
+        payload.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        Self {
+            header: BlockHeader {
+                author,
+                hash,
+            },
+            payload,
+        }
+    }
+
+    pub fn author(&self) -> AuthorityId {
+        self.header.author
+    }
+
+    pub fn hash(&self) -> NSHash {
+        self.header.hash
+    }
+}
+
 
 /// Triplet that describe the state of each authority in the consensus.
 ///
@@ -25,16 +67,16 @@ pub struct BareState {
     /// How much confidence we have on `endorses`.
     confidence0: i64,
     /// It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
-    endorses: AuthorityId,
+    endorses: BlockHeader,
     /// Confidence of outcome with second higher confidence.
     confidence1: i64,
 }
 
 impl BareState {
-    fn new(endorses: AuthorityId) -> Self {
+    fn new(author: AuthorityId, hash: NSHash) -> Self {
         Self {
-            endorses,
             confidence0: 0,
+            endorses: BlockHeader { author, hash },
             confidence1: 0,
         }
     }
@@ -43,8 +85,8 @@ impl BareState {
     /// we have not received any update. This state is less than any valid triplet.
     fn empty() -> Self {
         Self {
-            endorses: 0,
             confidence0: -1,
+            endorses: BlockHeader { author: 0, hash: 0 },
             confidence1: -1,
         }
     }
@@ -85,9 +127,9 @@ pub struct State {
 }
 
 impl State {
-    fn new(endorses: AuthorityId) -> Self {
+    fn new(author: AuthorityId, hash: NSHash) -> Self {
         Self {
-            bare_state: BareState::new(endorses),
+            bare_state: BareState::new(author, hash),
             proof0: None,
             proof1: None,
         }
@@ -107,7 +149,7 @@ impl State {
     fn increase_confidence(&self, proof: BLSProof) -> Self {
         Self {
             bare_state: BareState {
-                endorses: self.bare_state.endorses,
+                endorses: self.bare_state.endorses.clone(),
                 confidence0: self.bare_state.confidence0 + 1,
                 confidence1: self.bare_state.confidence1,
             },
@@ -130,8 +172,8 @@ impl State {
         0
     }
 
-    fn endorses(&self) -> usize {
-        self.bare_state.endorses
+    fn endorses(&self) -> BlockHeader {
+        self.bare_state.endorses.clone()
     }
 }
 
@@ -192,16 +234,17 @@ pub struct Nightshade {
     is_adversary: Vec<bool>,
     best_state_counter: usize,
     seen_bare_states: HashSet<BareState>,
-    pub committed: Option<AuthorityId>,
+    pub committed: Option<BlockHeader>,
 }
 
 impl Nightshade {
-    pub fn new(owner_id: AuthorityId, num_authorities: usize) -> Self {
+    pub fn new(owner_id: AuthorityId, num_authorities: usize, block_header: BlockHeader) -> Self {
+        assert_eq!(owner_id, block_header.author);
         let mut states = vec![];
 
-        for i in 0..num_authorities {
-            if i == owner_id {
-                states.push(State::new(i));
+        for a in 0..num_authorities {
+            if a == owner_id {
+                states.push(State::new(a, block_header.hash));
             } else {
                 states.push(State::empty());
             }
@@ -222,7 +265,7 @@ impl Nightshade {
         self.states[self.owner_id].clone()
     }
 
-    pub fn set_adversary(&mut self, authority_id: AuthorityId){
+    pub fn set_adversary(&mut self, authority_id: AuthorityId) {
         self.is_adversary[authority_id] = true;
     }
 
@@ -280,7 +323,7 @@ impl Nightshade {
             }
 
             if self.states[self.owner_id].can_commit() {
-                if let Some(endorse) = self.committed {
+                if let Some(endorse) = self.committed.clone() {
                     assert_eq!(endorse, self.states[self.owner_id].endorses());
                 } else {
                     self.committed = Some(self.states[self.owner_id].endorses());
@@ -324,7 +367,8 @@ mod tests {
         let mut ns = vec![];
 
         for i in 0..num_authorities {
-            ns.push(Nightshade::new(i, num_authorities));
+            let proposal_i = BlockHeader { author: i, hash: 0 };
+            ns.push(Nightshade::new(i, num_authorities, proposal_i));
         }
 
         for _ in 0..num_rounds {
@@ -370,7 +414,10 @@ mod tests {
     fn bare_state(confidence0: i64, endorses: AuthorityId, confidence1: i64) -> BareState {
         BareState {
             confidence0,
-            endorses,
+            endorses: BlockHeader {
+                author: endorses,
+                hash: 0,
+            },
             confidence1,
         }
     }
@@ -405,14 +452,14 @@ mod tests {
 
     #[test]
     fn test_nightshade_basics() {
-        let mut ns0 = Nightshade::new(0, 2);
-        let ns1 = Nightshade::new(1, 2);
+        let mut ns0 = Nightshade::new(0, 2, BlockHeader { author: 0, hash: 0 });
+        let ns1 = Nightshade::new(1, 2, BlockHeader { author: 1, hash: 0 });
         let state0 = ns0.state();
-        assert_eq!(state0.endorses(), 0);
+        assert_eq!(state0.endorses().author, 0);
         let state1 = ns1.state();
         ns0.update_state(1, state1.clone());
         let state0 = ns0.state();
-        assert_eq!(state0.endorses(), 1);
+        assert_eq!(state0.endorses().author, 1);
     }
 
     #[test]
@@ -422,14 +469,14 @@ mod tests {
         let mut ns = vec![];
 
         for i in 0..num_authorities {
-            ns.push(Nightshade::new(i, num_authorities));
+            ns.push(Nightshade::new(i, num_authorities, BlockHeader { author: i, hash: 0 }));
         }
 
         for i in 0..2 {
             let state2 = ns[2].state();
             ns[i].update_state(2, state2);
             let state_i = ns[i].state();
-            assert_eq!(state_i.endorses(), 2);
+            assert_eq!(state_i.endorses().author, 2);
 
             ns[2].update_state(i, state_i);
             let state2 = ns[2].state();
@@ -437,7 +484,7 @@ mod tests {
             // After update from authority 2 expected confidence is 0 since only authorities 1 and 2
             // endorse outcome 1. After update from authority 3, there are 3 authorities endorsing 1
             // with triplet (0, 1, 0) so confidence must be 1.
-            assert_eq!(state2.endorses(), 2);
+            assert_eq!(state2.endorses().author, 2);
             assert_eq!(state2.bare_state.confidence0, i as i64);
         }
     }
@@ -445,7 +492,7 @@ mod tests {
     #[test]
     fn malicious_detection() {
         // Note: This test will become invalid after signatures are checked properly.
-        let mut ns = Nightshade::new(1, 2);
+        let mut ns = Nightshade::new(1, 2, BlockHeader { author: 1, hash: 0 });
         let s0 = State { bare_state: bare_state(1, 0, 0), proof0: None, proof1: None };
         let s1 = State { bare_state: bare_state(1, 1, 0), proof0: None, proof1: None };
         ns.update_state(0, s0);
@@ -458,7 +505,7 @@ mod tests {
     fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState>) -> Nightshade {
         let num_authorities = bare_states.len();
 
-        let mut ns = Nightshade::new(owner_id, num_authorities);
+        let mut ns = Nightshade::new(owner_id, num_authorities, BlockHeader { author: owner_id, hash: 0 });
 
         ns.states = vec![];
         ns.best_state_counter = 0;

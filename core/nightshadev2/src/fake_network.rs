@@ -7,7 +7,6 @@ use log::error;
 use tokio::timer::Delay;
 
 use super::nightshade_task::{Control, NightshadeTask};
-use primitives::traits::Payload;
 
 #[derive(Clone, Hash, Debug)]
 struct DummyPayload {
@@ -86,9 +85,9 @@ fn spawn_all(num_authorities: usize) {
                 let mut general_outcome = None;
 
                 for (outcome, _) in v.iter() {
-                    let outcome = outcome.expect("Authority not committed");
+                    let outcome = outcome.clone().expect("Authority not committed");
 
-                    if let Some(cur_outcome) = general_outcome {
+                    if let Some(cur_outcome) = general_outcome.clone() {
                         if outcome != cur_outcome {
                             panic!("Authorities have committed to different outcomes");
                         }

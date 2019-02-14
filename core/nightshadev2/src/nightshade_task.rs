@@ -1,6 +1,5 @@
-use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -14,10 +13,7 @@ use futures::try_ready;
 use log::{error, info};
 use tokio::timer::Delay;
 
-use super::nightshade::{AuthorityId, Nightshade, State};
-
-type NSSignature = usize;
-type NSHash = u64;
+use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, NSSignature, State};
 
 pub enum Control {
     Reset,
@@ -52,33 +48,17 @@ impl<P> Gossip<P> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Block<P> {
-    author: AuthorityId,
-    hash: NSHash,
-    payload: P,
-}
-
-#[derive(Debug, Clone)]
 pub struct SignedPayload<P> {
     signature: NSSignature,
     block: Block<P>,
-
 }
 
 impl<P: Hash> SignedPayload<P> {
     fn new(author: AuthorityId, payload: P) -> Self {
-        // TODO: Use custom hashser
-        let mut hasher = DefaultHasher::new();
-        payload.hash(&mut hasher);
-        let hash = hasher.finish();
-
         Self {
-            signature: 0, // TODO: Implement signature,
-            block: Block {
-                author,
-                hash,
-                payload,
-            },
+            // TODO: Implement signature
+            signature: 0,
+            block: Block::new(author, payload),
         }
     }
 }
@@ -99,8 +79,8 @@ pub struct NightshadeTask<P> {
     state_receiver: mpsc::Receiver<Gossip<P>>,
     state_sender: mpsc::Sender<Gossip<P>>,
     control_receiver: mpsc::Receiver<Control>,
-    consensus_sender: mpsc::Sender<AuthorityId>,
-    consensus_reached: Option<AuthorityId>,
+    consensus_sender: mpsc::Sender<BlockHeader>,
+    consensus_reached: Option<BlockHeader>,
     missing_payloads: usize,
     /// Timer that determines the minimum time that we should not gossip after the given message
     /// for the sake of not spamming the network with small packages.
@@ -115,7 +95,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
         state_receiver: mpsc::Receiver<Gossip<P>>,
         state_sender: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control>,
-        consensus_sender: mpsc::Sender<AuthorityId>,
+        consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
         let mut authority_payloads = vec![None; num_authorities];
         authority_payloads[owner_id] = Some(SignedPayload::new(owner_id, payload));
@@ -144,7 +124,9 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
 
     fn init_nightshade(&mut self) {
         self.nightshade = Some(
-            Nightshade::new(self.owner_id as AuthorityId, self.num_authorities as usize));
+            Nightshade::new(self.owner_id as AuthorityId,
+                            self.num_authorities as usize,
+                            self.authority_payloads[self.owner_id].clone().unwrap().block.header));
     }
 
     fn state(&self) -> State {
@@ -209,10 +191,10 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
                 continue;
             }
 
-            let authority_id = signed_payload.block.author;
+            let authority_id = signed_payload.block.author();
 
             if let Some(ref p) = self.authority_payloads[authority_id] {
-                if p.block.hash != signed_payload.block.hash {
+                if p.block.hash() != signed_payload.block.hash() {
                     self.nightshade_as_mut_ref().set_adversary(authority_id);
                     self.authority_payloads[authority_id] = None;
                 }
@@ -306,8 +288,8 @@ impl<P: Hash + Send + Debug + Clone + 'static> Stream for NightshadeTask<P> {
 
                     // Report as soon as possible when an authority reach consensus on some outcome
                     if self.consensus_reached == None {
-                        if let Some(outcome) = self.nightshade_as_ref().committed {
-                            self.consensus_reached = Some(outcome);
+                        if let Some(outcome) = self.nightshade_as_ref().committed.clone() {
+                            self.consensus_reached = Some(outcome.clone());
 
                             let consensus_sender1 = self.consensus_sender.clone();
 
