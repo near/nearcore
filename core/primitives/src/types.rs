@@ -78,7 +78,7 @@ impl GroupSignature {
         }
         let mut group_key = BlsAggregatePublicKey::new();
         for (index, key) in keys.iter().enumerate() {
-            if self.authority_mask.get(index) == Some(&true) {
+            if let Some(true) = self.authority_mask.get(index) {
                 group_key.aggregate(&key);
             }
         }

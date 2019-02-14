@@ -88,7 +88,7 @@ impl<E: Engine> SecretKey<E> {
 
 impl<E: Engine> PublicKey<E> {
     pub fn empty() -> Self {
-        PublicKey{ point: E::G1Affine::zero() }
+        PublicKey { point: E::G1Affine::zero() }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -213,7 +213,7 @@ impl<E: Engine> FromBytes for PublicKey<E> {
     fn from_bytes(v: Vec<u8>) -> Result<Self, Box<Error>> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            Err(LengthError(expected, v.len()))?;
+            return Err(From::from(LengthError(expected, v.len())));
         }
         let mut compressed = CompressedPublicKey::empty();
         compressed.as_mut().copy_from_slice(v.as_ref());
@@ -231,7 +231,7 @@ impl<E: Engine> FromBytes for Signature<E> {
     fn from_bytes(v: Vec<u8>) -> Result<Self, Box<std::error::Error>> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            Err(LengthError(expected, v.len()))?;
+            return Err(From::from(LengthError(expected, v.len())));
         }
         let mut compressed = CompressedSignature::empty();
         compressed.as_mut().copy_from_slice(v.as_ref());
