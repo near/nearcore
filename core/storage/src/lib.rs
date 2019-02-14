@@ -21,6 +21,7 @@ use primitives::traits::{Decode, Encode};
 
 pub mod trie;
 pub mod test_utils;
+pub mod storages;
 
 pub use trie::{DBChanges, Trie};
 pub use trie::update::{TrieUpdate, TrieUpdateIterator};
