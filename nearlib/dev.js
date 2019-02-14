@@ -2,6 +2,14 @@ const nearlib = require('./');
 const sendJson = require('./internal/send-json');
 
 const localStorageAccountIdKey = 'dev_near_user';
+
+// This key will only be available on dev/test environments. Do not rely on it for anything that runs on mainnet.
+const aliceKey = new nearlib.KeyPair(
+    '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
+    '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
+);
+const aliceAccountName = "alice.near";
+
 module.exports = {
     getConfig: async function() {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
@@ -11,6 +19,28 @@ module.exports = {
         const near = nearlib.Near.createDefaultConfig(nodeUrl || studioConfig.nodeUrl);
         await this.getOrCreateDevUser(near);
         return near;
+    },
+    /**
+     * Create a connection which can perform operations on behalf of alice.near. This is an
+     * account that only exists on dev enviornments, so this should never be called on mainnet.
+     * @param {string} nodeUrl
+     */
+    connectWithAlice: async function(nodeUrl) {
+        return this.connectWithAccount(nodeUrl, aliceAccountName, aliceKey);
+    },
+    /**
+     * Create a connection which can perform operations on behalf of a given account.
+     * @param {string} nodeUrl
+     * @param {string} accountId
+     * @param {KeyPair} key
+     */
+    connectWithAccount: async function(nodeUrl, accountId, key) {
+        const studioConfig = await this.getConfig();
+        const keyStore = new nearlib.InMemoryKeyStore();
+        keyStore.setKey(accountId, key);
+        const nearClient = new nearlib.NearClient(
+            new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl || studioConfig.nodeUrl));
+        return new nearlib.Near(nearClient);
     },
     getOrCreateDevUser: async function (near) {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);

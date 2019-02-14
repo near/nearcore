@@ -1,18 +1,16 @@
-const { Account, SimpleKeyStoreSigner, InMemoryKeyStore, KeyPair, LocalNodeConnection, NearClient, Near } = require('../');
+const { Account, KeyPair, Near } = require('../');
+const dev = require('../dev');
 const fs = require('fs');
+const aliceAccountName = "alice.near";
+let nearjs;
+let account;
+let keyStore;
 
-const aliceAccountName = 'alice.near';
-const aliceKey = new KeyPair(
-    '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
-    '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
-);
-const test_key_store = new InMemoryKeyStore();
-const simple_key_store_signer = new SimpleKeyStoreSigner(test_key_store);
-test_key_store.setKey(aliceAccountName, aliceKey);
-const localNodeConnection = new LocalNodeConnection('http://localhost:3030');
-const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
-const account = new Account(nearClient);
-const nearjs = new Near(nearClient);
+beforeAll(async () => {
+    nearjs = await dev.connectWithAlice('http://localhost:3030');
+    keyStore = nearjs.nearClient.signer.keyStore;
+    account = new Account(nearjs.nearClient);
+});
 
 test('test creating default config', async () => {
     // Make sure createDefaultConfig doesn't crash.
@@ -80,7 +78,7 @@ describe('with deployed contract', () => {
             10,
             aliceAccountName);
         await nearjs.waitForTransactionResult(createAccountResponse);
-        test_key_store.setKey(contractName, keyWithRandomSeed);
+        keyStore.setKey(contractName, keyWithRandomSeed);
         const data = [...fs.readFileSync('../tests/hello.wasm')];
         await nearjs.waitForTransactionResult(
             await nearjs.deployContract(contractName, data));
