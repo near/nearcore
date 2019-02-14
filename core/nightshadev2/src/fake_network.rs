@@ -9,7 +9,7 @@ use tokio::timer::Delay;
 use super::nightshade_task::{Control, NightshadeTask};
 use primitives::traits::Payload;
 
-#[derive(Clone, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, Hash, Debug)]
 struct DummyPayload {
     dummy: u64,
 }

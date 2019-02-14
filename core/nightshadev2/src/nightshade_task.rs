@@ -101,6 +101,7 @@ pub struct NightshadeTask<P> {
     control_receiver: mpsc::Receiver<Control>,
     consensus_sender: mpsc::Sender<AuthorityId>,
     consensus_reached: Option<AuthorityId>,
+    missing_payloads: usize,
     /// Timer that determines the minimum time that we should not gossip after the given message
     /// for the sake of not spamming the network with small packages.
     cooldown_delay: Option<Delay>,
@@ -128,6 +129,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
             control_receiver,
             consensus_sender,
             consensus_reached: None,
+            missing_payloads: num_authorities - 1,
             cooldown_delay: None,
         }
     }
@@ -216,6 +218,7 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
                 }
             } else {
                 self.authority_payloads[authority_id] = Some(signed_payload);
+                self.missing_payloads -= 1;
             }
         }
     }
@@ -238,7 +241,6 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
 
     /// We need to have the payload for anything we want to endorse
     /// TODO do it in a smarter way
-    #[allow(dead_code)]
     fn collect_missing_payloads(&self) {
         for authority in 0..self.num_authorities {
             if self.authority_payloads[authority].is_none() {
@@ -332,6 +334,10 @@ impl<P: Hash + Send + Debug + Clone + 'static> Stream for NightshadeTask<P> {
         }
 
         self.gossip_state();
+
+        if self.missing_payloads > 0 {
+            self.collect_missing_payloads();
+        }
 
         let now = Instant::now();
         self.cooldown_delay = Some(Delay::new(now + Duration::from_millis(COOLDOWN_MS)));
