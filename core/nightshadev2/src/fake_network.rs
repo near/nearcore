@@ -31,7 +31,7 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let payload = DummyPayload {dummy : 0};
+            let payload = DummyPayload {dummy : owner_id as u64};
 
             let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
                 owner_id,

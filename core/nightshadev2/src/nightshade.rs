@@ -17,12 +17,8 @@ pub enum NSResult {
     Error(String),
 }
 
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct BlockHeader {
-    author: AuthorityId,
-    hash: NSHash,
-}
-
+/// Nightshade consensus run on top of outcomes proposed by each authority.
+/// Blocks represent authorities proposal.
 #[derive(Debug, Clone)]
 pub struct Block<P> {
     pub header: BlockHeader,
@@ -45,13 +41,26 @@ impl<P: Hash> Block<P> {
         }
     }
 
+    /// Authority proposing the block
     pub fn author(&self) -> AuthorityId {
         self.header.author
     }
 
+    /// Hash of the payload contained in the block
     pub fn hash(&self) -> NSHash {
         self.header.hash
     }
+}
+
+/// BlockHeaders are used instead of Blocks as authorities proposal in the consensus.
+/// They are used to avoid receiving two different proposals from the same authority,
+/// and penalize such behavior.
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct BlockHeader {
+    /// Authority proposing the block.
+    author: AuthorityId,
+    /// Hash of the payload contained in the block.
+    hash: NSHash,
 }
 
 
@@ -163,6 +172,10 @@ impl State {
         self.bare_state.confidence0 >= self.bare_state.confidence1 + COMMIT_THRESHOLD
     }
 
+    /// Check if this state contains correct proofs about the triplet it contains.
+    /// Authority will check if this state is valid only if it has not successfully verified another
+    /// state with the same triplet before. Once it has verified that at least one authority has such
+    /// triplet, it accepts all further states with the same triplet.
     fn verify(&self) -> bool {
         true
     }
@@ -172,6 +185,7 @@ impl State {
         0
     }
 
+    /// BlockHeader (Authority and Block) that this state is endorsing.
     fn endorses(&self) -> BlockHeader {
         self.bare_state.endorses.clone()
     }
@@ -226,7 +240,7 @@ fn incompatible_states(state0: &State, state1: &State) -> bool {
 /// # Nightshade
 ///
 /// Each authority must have one Nightshade instance to compute its state, given updates from
-/// other authorities. Only contains the logic of the consensus algorithm.
+/// other authorities. It contains the logic of the consensus algorithm.
 pub struct Nightshade {
     owner_id: AuthorityId,
     num_authorities: usize,
@@ -261,6 +275,7 @@ impl Nightshade {
         }
     }
 
+    /// Current state of the authority
     pub fn state(&self) -> State {
         self.states[self.owner_id].clone()
     }
@@ -276,8 +291,7 @@ impl Nightshade {
             return NSResult::Error("Not processing adversaries updates".to_string());
         }
 
-        // Verify this BareState only if it has not been successfully verified previously
-        // and ignore it forever
+        // Verify this BareState only if it has not been successfully verified previously and ignore it forever
         if !self.seen_bare_states.contains(&state.bare_state) {
             if state.verify() {
                 self.seen_bare_states.insert(state.bare_state.clone());
@@ -317,6 +331,9 @@ impl Nightshade {
 
                 let new_state = self.states[self.owner_id].increase_confidence(proof);
 
+                assert_eq!(new_state.verify(), true);
+                self.seen_bare_states.insert(new_state.bare_state.clone());
+
                 self.states[self.owner_id] = new_state;
 
                 self.best_state_counter = 1;
@@ -340,14 +357,18 @@ impl Nightshade {
         }
     }
 
+    /// Check if current authority can increase its confidence on its current endorsed outcome.
+    /// Confidence is increased whenever we see that more than 2/3 of authorities endorsed our current state.
     fn can_increase_confidence(&self) -> bool {
-        // Confidence is increased whenever we see that more than 2/3 of participants endorsed
-        // our current state.
         // We can use some fancy mechanism to not increase confidence every time we can, to avoid
         // being manipulated by malicious actors into a metastable equilibrium
         self.best_state_counter > self.num_authorities * 2 / 3
     }
 
+    /// Check if this authority have committed to some outcome.
+    ///
+    /// Note: The internal state of an authority might change after having committed, but the outcome
+    /// will not change.
     pub fn is_final(&self) -> bool {
         self.committed.is_some()
     }
