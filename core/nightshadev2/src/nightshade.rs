@@ -58,7 +58,7 @@ impl<P: Hash> Block<P> {
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BlockHeader {
     /// Authority proposing the block.
-    author: AuthorityId,
+    pub author: AuthorityId,
     /// Hash of the payload contained in the block.
     hash: NSHash,
 }
@@ -76,7 +76,7 @@ pub struct BareState {
     /// How much confidence we have on `endorses`.
     confidence0: i64,
     /// It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
-    endorses: BlockHeader,
+    pub endorses: BlockHeader,
     /// Confidence of outcome with second higher confidence.
     confidence1: i64,
 }
@@ -188,6 +188,10 @@ impl State {
     /// BlockHeader (Authority and Block) that this state is endorsing.
     fn endorses(&self) -> BlockHeader {
         self.bare_state.endorses.clone()
+    }
+
+    pub fn block_hash(&self) -> NSHash {
+        self.bare_state.endorses.hash
     }
 }
 

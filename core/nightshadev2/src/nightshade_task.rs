@@ -163,7 +163,26 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
     }
 
     fn process_message(&mut self, message: Message) {
-        self.nightshade_as_mut_ref().update_state(message.sender_id, message.state);
+        // Get author of the payload inside this message
+        let author = message.state.bare_state.endorses.author;
+
+        // Check we already have such payload and request it otherwise
+        if let Some(signed_block) = &self.authority_blocks[author] {
+            if signed_block.block.hash() == message.state.block_hash() {
+                self.nightshade_as_mut_ref().update_state(message.sender_id, message.state);
+            } else {
+                self.nightshade_as_mut_ref().set_adversary(author);
+            }
+        } else {
+            // TODO: This message is discarded if we haven't receive the payload yet. We can store it
+            // in a queue instead, and process it after we have the payload.
+            let gossip = Gossip {
+                sender_id: self.owner_id,
+                receiver_id: author,
+                body: GossipBody::PayloadRequest(vec!(author)),
+            };
+            self.send_gossip(gossip);
+        }
     }
 
     fn process_gossip(&mut self, gossip: Gossip<P>) {
