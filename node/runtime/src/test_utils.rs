@@ -14,7 +14,7 @@ use transaction::{
     SignedTransaction, ReceiptTransaction, TransactionBody,
     SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction,
     CreateAccountTransaction, ReceiptBody, Callback, AsyncCall, CallbackInfo,
-    CallbackResult
+    CallbackResult, AddKeyTransaction, DeleteKeyTransaction
 };
 use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
@@ -300,6 +300,34 @@ impl User {
                 method_name: method_name.as_bytes().to_vec(),
                 args,
                 amount,
+        });
+        self.nonce += 1;
+        self.send_tx(root, tx_body)
+    }
+
+    pub fn add_key(
+        &mut self,
+        root: MerkleHash,
+        key: PublicKey
+    ) -> (MerkleHash, Vec<ApplyResult>) {
+        let tx_body = TransactionBody::AddKey(AddKeyTransaction {
+            nonce: self.nonce,
+            originator: self.account_id.clone(),
+            new_key: key.0[..].to_vec()
+        });
+        self.nonce += 1;
+        self.send_tx(root, tx_body)
+    }
+
+    pub fn delete_key(
+        &mut self,
+        root: MerkleHash,
+        key: PublicKey,
+    ) -> (MerkleHash, Vec<ApplyResult>) {
+        let tx_body = TransactionBody::DeleteKey(DeleteKeyTransaction {
+            nonce: self.nonce,
+            originator: self.account_id.clone(),
+            cur_key: key.0[..].to_vec()
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
