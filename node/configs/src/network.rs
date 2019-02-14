@@ -1,10 +1,12 @@
-use clap::{Arg, ArgMatches};
+use std::mem;
 use std::net::SocketAddr;
+use std::time::Duration;
+
+use clap::{Arg, ArgMatches};
 
 use crate::ClientConfig;
 use primitives::network::PeerInfo;
-use primitives::{hash::hash_struct, types::PeerId};
-use std::time::Duration;
+use primitives::{hash::hash, types::PeerId};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:3000";
 const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
@@ -72,11 +74,22 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     ]
 }
 
+pub fn get_peer_id_from_seed(seed: u32) -> PeerId {
+    let bytes: [u8; 4] = unsafe { mem::transmute(seed) };
+
+    let mut array = [0; 32];
+    for (count, b) in bytes.iter().enumerate() {
+        array[array.len() - count - 1] = *b;
+    }
+    hash(&array)
+}
+
 pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
     let listen_addr =
         matches.value_of("addr").unwrap().parse::<SocketAddr>().expect("Cannot parse address");
-    let test_network_key_seed =
-        matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap());
+    let test_network_key_seed = matches.value_of("test_network_key_seed")
+        .map(|x| x.parse::<u32>().unwrap())
+        .unwrap_or(0);
 
     let parsed_boot_nodes = matches
         .values_of("boot_nodes")
@@ -108,7 +121,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         // TODO(#222): Maybe return an error here instead of panicking.
         panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
     }
-    let peer_id = hash_struct(&test_network_key_seed);
+    let peer_id = get_peer_id_from_seed(test_network_key_seed);
     println!("To boot from this node: {}/{}", listen_addr, String::from(&peer_id));
     NetworkConfig {
         listen_addr,

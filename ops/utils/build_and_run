@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import hashlib
 import json
 import os
 import shlex
@@ -11,6 +12,36 @@ import click
 import delegator
 import jinja2
 import requests
+
+alphabet = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+
+def b58encode_int(i, default_one=True):
+    """Encode an integer using Base58"""
+    if not i and default_one:
+        return alphabet[0:1]
+
+    string = b''
+    while i:
+        i, idx = divmod(i, 58)
+        string = alphabet[idx:idx + 1] + string
+    return string
+
+
+def b58encode(v):
+    """Encode a string using Base58"""
+    pad_size = len(v)
+    v = v.lstrip(b'\0')
+    pad_size -= len(v)
+
+    p, acc = 1, 0
+    for c in reversed(list(bytearray(v))):
+        acc += p * c
+        p = p << 8
+
+    result = b58encode_int(acc, default_one=False)
+
+    return alphabet[0:1] * pad_size + result
 
 
 class DashboardTemplateFetcher(object):
@@ -103,10 +134,11 @@ class Executor(object):
         self._kubectl_create_from_yaml(ingress_yaml)
 
     @staticmethod
-    def _generate_boot_node_arg(namespace, node_index):
+    def _generate_boot_node_address(namespace, node_index):
         host_name = "node-{}.node.{}.svc.cluster.local".format(node_index, namespace)
-        port = 30333
-        return '-b ' + ','.join([host_name, str(port), str(node_index)])
+        port = 3000
+        peer_id = b58encode(hashlib.sha256(node_index.to_bytes(32, byteorder='big')).digest()).decode('utf-8')
+        return "{}:{}/{}".format(host_name, port, peer_id)
 
     def execute(
             self,
@@ -127,7 +159,7 @@ class Executor(object):
             package = 'nearcore'
             build_script = os.path.join(
                 os.path.abspath(os.path.dirname(__file__)),
-                '../../docker/build.sh',
+                '../../docker/build',
             )
             self._docker_runner.run("sudo -E {} {} {}".format(build_script, package, push_tag))
             self._docker_runner.run('sudo docker image prune -f')
@@ -138,26 +170,7 @@ class Executor(object):
         self._push_image(push_tag)
 
         namespace = "nearcore-{}".format(_uuid)
-        boot_node_arg = self._generate_boot_node_arg(namespace, node_index=0)
-        args = [boot_node_arg]
-        spec_builder_args = ' '.join(args)
-        chain_spec_command = "cargo run -p chain-spec-builder -- {}"\
-            .format(spec_builder_args)
-        chain_spec_run = delegator.run(chain_spec_command)
-        chain_spec = json.dumps(json.loads(chain_spec_run.out), separators=(',', ':'))
-        chain_spec_bucket_name = 'near-test-chain-specs'
-        key_name = "{}.json".format(_uuid)
-        s3 = boto3.resource('s3')
-        s3.meta.client.put_object(
-            Key=key_name,
-            Bucket=chain_spec_bucket_name,
-            Body=chain_spec,
-            ACL='public-read',
-        )
-        chain_spec_url = "https://s3-us-west-2.amazonaws.com/{}/{}".format(
-            chain_spec_bucket_name,
-            key_name,
-        )
+        boot_node = self._generate_boot_node_address(namespace, node_index=0)
         print('Deploying build...')
         env = jinja2.Environment(loader=jinja2.FileSystemLoader('../k8s/'))
         template = env.get_template('run.yaml')
@@ -165,7 +178,7 @@ class Executor(object):
             namespace=namespace,
             image_tag=deploy_tag,
             node_count=node_count,
-            chain_spec_url=chain_spec_url,
+            boot_node=boot_node,
         )
         self._kubectl_create_from_yaml(run_yaml)
 
@@ -208,7 +221,7 @@ class MinikubeExecutor(Executor):
             '--namespace kube-system service/registry 5000:80',
             block=False,
         )
-        time.sleep(.5)
+        time.sleep(1)
         try:
             super(MinikubeExecutor, self)._push_image(push_tag)
         except Exception as e:
@@ -251,7 +264,7 @@ is equivalent to passing `--dashboard-repo-location <location>`)
 @click.option('--debug', is_flag=True, default=False)
 @click.option('--image-tag')
 @click.option('--node-count', type=int, default=2)
-@click.option('--no-dashboard', is_flag=True, default=True)
+@click.option('--no-dashboard', is_flag=True, default=False)
 @click.option('--push-registry', callback=_validate_for_aws)
 @click.option('--kubectl-context', callback=_validate_for_aws)
 def build_and_run(
@@ -268,7 +281,6 @@ def build_and_run(
         'aws': AWSExecutor,
         'minikube': MinikubeExecutor,
     }[executor]
-
     _executor = executor_cls(
         debug,
         dashboard_repo_location,
