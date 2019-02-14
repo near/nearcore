@@ -409,6 +409,54 @@ mod tests {
     }
 
     #[test]
+    fn test_create_account_again() {
+        let (runtime, state_db, root) = get_runtime_and_state_db();
+        let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
+        let (new_root, _) = alice.create_account(root, &eve_account(), 10);
+        assert_ne!(root, new_root);
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), new_root);
+        let result2 = viewer.view_account(&mut state_update, &eve_account());
+        assert_eq!(
+            result2.unwrap(),
+            AccountViewCallResult {
+                nonce: 0,
+                account: eve_account(),
+                amount: 10,
+                stake: 0,
+                code_hash: hash(b""),
+            }
+        );
+        let (newer_root, apply_results) = alice.create_account(new_root, &eve_account(), 10);
+        // 3 results: createAccountTx, It's Receipt (failed), Refund
+        assert_eq!(apply_results.len(), 3);
+        // Signed TX successfully generated
+        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
+        assert_eq!(apply_results[0].new_receipts.len(), 1);
+        // Receipt failed (account exists)
+        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Failed);
+        assert_eq!(apply_results[1].new_receipts.len(), 1);
+        // Refund successfully executed
+        assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
+        // New nonce is different
+        assert_ne!(newer_root, new_root);
+
+        let viewer = StateDbViewer {};
+        let mut state_update = StateDbUpdate::new(state_db.clone(), newer_root);
+        let result1 = viewer.view_account(&mut state_update, &alice_account());
+        assert_eq!(
+            result1.unwrap(),
+            AccountViewCallResult {
+                nonce: 2,
+                account: alice_account(),
+                amount: 90,
+                stake: 50,
+                code_hash: default_code_hash(),
+            }
+        );
+    }
+
+    #[test]
     fn test_create_account_failure_invalid_name() {
         let (runtime, state_db, root) = get_runtime_and_state_db();
         let (mut alice, root) = User::new(runtime, &alice_account(), state_db.clone(), root);
