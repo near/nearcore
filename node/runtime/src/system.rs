@@ -4,7 +4,7 @@ use primitives::traits::{Encode, Decode};
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::utils::is_valid_account_id;
-use transaction::{
+use primitives::transaction::{
     AsyncCall, ReceiptTransaction, SendMoneyTransaction,
     ReceiptBody, StakeTransaction, CreateAccountTransaction,
     DeployContractTransaction, SwapKeyTransaction
@@ -261,10 +261,10 @@ mod tests {
     use crate::test_utils::*;
     use primitives::hash::hash;
     use primitives::signature::get_key_pair;
-    use transaction::TransactionBody;
+    use primitives::transaction::TransactionBody;
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::get;
-    use transaction::TransactionStatus;
+    use primitives::transaction::TransactionStatus;
 
     #[test]
     fn test_upload_contract() {

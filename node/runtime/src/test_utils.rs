@@ -10,13 +10,13 @@ use primitives::hash::{hash, CryptoHash};
 use primitives::test_utils::get_key_pair_from_seed;
 use storage::{Trie, TrieUpdate};
 use storage::test_utils::create_memory_db;
-use transaction::{
+use primitives::transaction::{
     SignedTransaction, ReceiptTransaction, TransactionBody,
     SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction,
     CreateAccountTransaction, ReceiptBody, Callback, AsyncCall, CallbackInfo,
     CallbackResult
 };
-use chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
+use primitives::chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
 use configs::ChainSpec;
 use crate::state_viewer::TrieViewer;

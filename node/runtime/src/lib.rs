@@ -26,7 +26,7 @@ use primitives::utils::{
     account_to_shard_id, index_to_bytes, is_valid_account_id
 };
 use storage::TrieUpdate;
-use transaction::{
+use primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody,
     ReceiptTransaction, SignedTransaction,
@@ -35,7 +35,7 @@ use transaction::{
 };
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
-use chain::ReceiptBlock;
+use primitives::chain::ReceiptBlock;
 
 use crate::ext::RuntimeExt;
 use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};

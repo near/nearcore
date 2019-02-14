@@ -1,18 +1,14 @@
-#[macro_use]
-extern crate serde_derive;
-
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use near_protos::Message as ProtoMessage;
-use near_protos::signed_transaction as transaction_proto;
-use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
-use primitives::types::{
-    AccountId, AccountingInfo, Balance, CallbackId, Mana,
-    ManaAccounting, StructSignature, ShardId,
+use super::hash::{hash, CryptoHash};
+use super::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
+use super::types::{
+    AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, ShardId, StructSignature,
 };
-use primitives::utils::account_to_shard_id;
+use super::utils::account_to_shard_id;
+use near_protos::signed_transaction as transaction_proto;
+use near_protos::Message as ProtoMessage;
 
 pub type LogEntry = String;
 
@@ -187,11 +183,7 @@ pub struct StakeTransaction {
 
 impl From<transaction_proto::StakeTransaction> for StakeTransaction {
     fn from(t: transaction_proto::StakeTransaction) -> Self {
-        StakeTransaction {
-            nonce: t.nonce,
-            originator: t.originator,
-            amount: t.amount,
-        }
+        StakeTransaction { nonce: t.nonce, originator: t.originator, amount: t.amount }
     }
 }
 
@@ -294,27 +286,27 @@ impl TransactionBody {
             TransactionBody::CreateAccount(t) => {
                 let proto: transaction_proto::CreateAccountTransaction = t.into();
                 proto.write_to_bytes()
-            },
+            }
             TransactionBody::DeployContract(t) => {
                 let proto: transaction_proto::DeployContractTransaction = t.into();
                 proto.write_to_bytes()
-            },
+            }
             TransactionBody::FunctionCall(t) => {
                 let proto: transaction_proto::FunctionCallTransaction = t.into();
                 proto.write_to_bytes()
-            },
+            }
             TransactionBody::SendMoney(t) => {
                 let proto: transaction_proto::SendMoneyTransaction = t.into();
                 proto.write_to_bytes()
-            },
+            }
             TransactionBody::Stake(t) => {
                 let proto: transaction_proto::StakeTransaction = t.into();
                 proto.write_to_bytes()
-            },
+            }
             TransactionBody::SwapKey(t) => {
                 let proto: transaction_proto::SwapKeyTransaction = t.into();
                 proto.write_to_bytes()
-            },
+            }
         };
         let bytes = bytes.unwrap();
         hash(&bytes)
@@ -329,19 +321,14 @@ pub struct SignedTransaction {
 }
 
 impl SignedTransaction {
-    pub fn new(
-        signature: StructSignature,
-        body: TransactionBody,
-    ) -> Self {
+    pub fn new(signature: StructSignature, body: TransactionBody) -> Self {
         let hash = body.get_hash();
-        Self {
-            signature,
-            body,
-            hash,
-        }
+        Self { signature, body, hash }
     }
 
-    pub fn get_hash(&self) -> CryptoHash { self.hash }
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
 
     // this is for tests
     pub fn empty() -> SignedTransaction {
@@ -351,12 +338,14 @@ impl SignedTransaction {
             receiver: AccountId::default(),
             amount: 0,
         });
-        SignedTransaction { signature: DEFAULT_SIGNATURE, body, hash: CryptoHash::default()}
+        SignedTransaction { signature: DEFAULT_SIGNATURE, body, hash: CryptoHash::default() }
     }
 }
 
 impl Hash for SignedTransaction {
-    fn hash<H: Hasher>(&self, state: &mut H) { state.write(self.hash.as_ref()) }
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.hash.as_ref())
+    }
 }
 
 impl PartialEq for SignedTransaction {
@@ -372,36 +361,32 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
             Some(transaction_proto::SignedTransaction_oneof_body::create_account(t)) => {
                 bytes = t.write_to_bytes();
                 TransactionBody::CreateAccount(CreateAccountTransaction::from(t))
-            },
+            }
             Some(transaction_proto::SignedTransaction_oneof_body::deploy_contract(t)) => {
                 bytes = t.write_to_bytes();
                 TransactionBody::DeployContract(DeployContractTransaction::from(t))
-            },
+            }
             Some(transaction_proto::SignedTransaction_oneof_body::function_call(t)) => {
                 bytes = t.write_to_bytes();
                 TransactionBody::FunctionCall(FunctionCallTransaction::from(t))
-            },
+            }
             Some(transaction_proto::SignedTransaction_oneof_body::send_money(t)) => {
                 bytes = t.write_to_bytes();
                 TransactionBody::SendMoney(SendMoneyTransaction::from(t))
-            },
+            }
             Some(transaction_proto::SignedTransaction_oneof_body::stake(t)) => {
                 bytes = t.write_to_bytes();
                 TransactionBody::Stake(StakeTransaction::from(t))
-            },
+            }
             Some(transaction_proto::SignedTransaction_oneof_body::swap_key(t)) => {
                 bytes = t.write_to_bytes();
                 TransactionBody::SwapKey(SwapKeyTransaction::from(t))
-            },
+            }
             _ => unreachable!(),
         };
         let bytes = bytes.unwrap();
         let hash = hash(&bytes);
-        SignedTransaction {
-            body,
-            signature: Signature::new(&t.signature),
-            hash,
-        }
+        SignedTransaction { body, signature: Signature::new(&t.signature), hash }
     }
 }
 
@@ -410,22 +395,22 @@ impl Into<transaction_proto::SignedTransaction> for SignedTransaction {
         let body = match self.body {
             TransactionBody::CreateAccount(t) => {
                 transaction_proto::SignedTransaction_oneof_body::create_account(t.into())
-            },
+            }
             TransactionBody::DeployContract(t) => {
                 transaction_proto::SignedTransaction_oneof_body::deploy_contract(t.into())
-            },
+            }
             TransactionBody::FunctionCall(t) => {
                 transaction_proto::SignedTransaction_oneof_body::function_call(t.into())
-            },
+            }
             TransactionBody::SendMoney(t) => {
                 transaction_proto::SignedTransaction_oneof_body::send_money(t.into())
-            },
+            }
             TransactionBody::Stake(t) => {
                 transaction_proto::SignedTransaction_oneof_body::stake(t.into())
-            },
+            }
             TransactionBody::SwapKey(t) => {
                 transaction_proto::SignedTransaction_oneof_body::swap_key(t.into())
-            },
+            }
         };
         transaction_proto::SignedTransaction {
             body: Some(body),
@@ -460,16 +445,9 @@ impl AsyncCall {
         args: Vec<u8>,
         amount: Balance,
         mana: Mana,
-        accounting_info: AccountingInfo
+        accounting_info: AccountingInfo,
     ) -> Self {
-        AsyncCall {
-            amount,
-            mana,
-            method_name,
-            args,
-            callback: None,
-            accounting_info,
-        }
+        AsyncCall { amount, mana, method_name, args, callback: None, accounting_info }
     }
 }
 
@@ -497,7 +475,12 @@ pub struct Callback {
 }
 
 impl Callback {
-    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: Mana, accounting_info: AccountingInfo) -> Self {
+    pub fn new(
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        mana: Mana,
+        accounting_info: AccountingInfo,
+    ) -> Self {
         Callback {
             method_name,
             args,
@@ -569,12 +552,7 @@ impl ReceiptTransaction {
         nonce: CryptoHash,
         body: ReceiptBody,
     ) -> Self {
-        ReceiptTransaction {
-            originator,
-            receiver,
-            nonce,
-            body,
-        }
+        ReceiptTransaction { originator, receiver, nonce, body }
     }
 
     pub fn shard_id(&self) -> ShardId {
@@ -594,7 +572,7 @@ pub enum FinalTransactionStatus {
     Unknown,
     Started,
     Failed,
-    Completed
+    Completed,
 }
 
 impl Default for TransactionStatus {
@@ -610,7 +588,7 @@ pub struct TransactionResult {
     /// Logs from this transaction.
     pub logs: Vec<LogEntry>,
     /// Receipt ids generated by this transaction.
-    pub receipts: Vec<CryptoHash>
+    pub receipts: Vec<CryptoHash>,
 }
 
 /// Logs for transaction or receipt with given hash.
@@ -636,14 +614,12 @@ pub fn verify_transaction_signature(
 ) -> bool {
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
-    public_keys.iter().any(|key| {
-        verify(&hash, &transaction.signature, &key)
-    })
+    public_keys.iter().any(|key| verify(&hash, &transaction.signature, &key))
 }
 
 #[cfg(test)]
 mod tests {
-    use primitives::signature::{get_key_pair, sign};
+    use crate::signature::{get_key_pair, sign};
 
     use super::*;
 
@@ -651,10 +627,7 @@ mod tests {
     fn test_verify_transaction() {
         let (public_key, private_key) = get_key_pair();
         let mut transaction = SignedTransaction::empty();
-        transaction.signature = sign(
-            &transaction.hash.as_ref(),
-            &private_key,
-        );
+        transaction.signature = sign(&transaction.hash.as_ref(), &private_key);
         let (wrong_public_key, _) = get_key_pair();
         let valid_keys = vec![public_key, wrong_public_key];
         assert!(verify_transaction_signature(&transaction, &valid_keys));

@@ -8,12 +8,34 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
+pub mod beacon;
+
 type StorageResult<T> = io::Result<Option<T>>;
 
 /// Uniquely identifies the chain.
+#[derive(Clone)]
 pub enum ChainId {
     BeaconChain,
     ShardChain(u32),
+}
+
+impl Into<u32> for ChainId {
+    fn into(self) -> u32 {
+        match self {
+            ChainId::BeaconChain => 0u32,
+            ChainId::ShardChain(i) => i + 1,
+        }
+    }
+}
+
+impl From<u32> for ChainId {
+    fn from(id: u32) -> Self {
+        if id == 0 {
+            ChainId::BeaconChain
+        } else {
+            ChainId::ShardChain(id - 1)
+        }
+    }
 }
 
 /// Column that stores the mapping: genesis_hash -> best_block_hash.
@@ -21,9 +43,6 @@ const COL_BEST_BLOCK: u32 = 0;
 const COL_HEADERS: u32 = 1;
 const COL_BLOCKS: u32 = 2;
 const COL_BLOCK_INDICES: u32 = 3;
-
-const NUM_BEACON_COLS: u32 = COL_BLOCK_INDICES + 1;
-const NUM_SHARD_COLS: u32 = COL_BLOCK_INDICES + 1;
 
 pub struct BlockChainStorage<SignedHeader, SignedBlock> {
     chain_id: ChainId,
@@ -36,6 +55,16 @@ pub struct BlockChainStorage<SignedHeader, SignedBlock> {
     block_indices: HashMap<Vec<u8>, CryptoHash>,
 }
 
+/// Specific block chain storages like beacon chain storage and shard chain storage should implement
+/// this trait to allow them to be used in specific beacon chain and shard chain. Rust way of doing
+/// polymorphism.
+pub trait StorageContainer {
+    /// Returns reference to the internal generic BlockChain storage.
+    fn blockchain_storage_mut<SignedHeader, SignedBlock>(
+        &mut self,
+    ) -> &mut BlockChainStorage<SignedHeader, SignedBlock>;
+}
+
 impl<SignedHeader, SignedBlock> BlockChainStorage<SignedHeader, SignedBlock>
 where
     SignedHeader: Clone + Encode + Decode,
@@ -44,10 +73,11 @@ where
     /// Converts the relative index of the column to the absolute. Absolute indices of columns of
     /// different `BlockChainStorage`'s do not overlap.
     fn abs_col(&self, col: u32) -> u32 {
-        match self.chain_id {
-            ChainId::BeaconChain => col,
-            ChainId::ShardChain(i) => NUM_BEACON_COLS + i * NUM_SHARD_COLS + col,
-        }
+        // We use pairing function to map chain id and column id to integer in such way that if we
+        // later add more columns or chains (shards) the old storage be compatible with the new
+        // code -- it will map to the same columns and chains in the new code.
+        let id: u32 = self.chain_id.clone().into();
+        (id + col) * (id + col + 1) / 2 + col
     }
 
     pub fn new(storage: Arc<Storage>, chain_id: ChainId, genesis_hash: CryptoHash) -> Self {

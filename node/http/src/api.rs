@@ -5,7 +5,6 @@ use futures::sync::mpsc::Sender;
 use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
-use transaction::{SignedTransaction, verify_transaction_signature};
 
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
@@ -15,6 +14,8 @@ use crate::types::{
     TransactionResultResponse, ViewAccountRequest, ViewAccountResponse, ViewStateRequest,
     ViewStateResponse,
 };
+use primitives::transaction::SignedTransaction;
+use primitives::transaction::verify_transaction_signature;
 
 pub struct HttpApi {
     client: Arc<Client>,

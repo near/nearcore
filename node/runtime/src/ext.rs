@@ -8,7 +8,7 @@ use primitives::types::{
     AccountId, AccountingInfo, Balance, CallbackId,
     Mana, PromiseId, ReceiptId,
 };
-use transaction::{AsyncCall, ReceiptTransaction, Callback, CallbackInfo, ReceiptBody};
+use primitives::transaction::{AsyncCall, ReceiptTransaction, Callback, CallbackInfo, ReceiptBody};
 use storage::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 

@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
+use primitives::block_traits::{SignedBlock, SignedHeader};
+use primitives::chain::{SignedShardBlock, ReceiptBlock};
 use configs::chain_spec::ChainSpec;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::TrieViewer;
@@ -20,7 +21,7 @@ use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex, MerkleHash};
 use primitives::merkle::{merklize, MerklePath};
 use storage::{extend_with_cache, read_with_cache, Trie, TrieUpdate};
-use transaction::{
+use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
     ReceiptTransaction
@@ -345,7 +346,7 @@ mod tests {
     use primitives::signature::{sign, SecretKey};
     use primitives::types::Balance;
     use storage::test_utils::create_memory_db;
-    use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
+    use primitives::transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
 
     use super::*;
 

@@ -5,9 +5,9 @@ use std::sync::Arc;
 use futures::sync::mpsc::Receiver;
 use futures::{future, Stream};
 
-use beacon::types::SignedBeaconBlock;
 use client::Client;
-use chain::SignedShardBlock;
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::SignedShardBlock;
 
 pub fn spawn_block_importer(
     client: Arc<Client>,

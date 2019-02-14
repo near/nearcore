@@ -1,66 +1,18 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use serde::{de::DeserializeOwned, Serialize};
 
 use primitives::hash::CryptoHash;
-use primitives::traits::Signer;
-use primitives::types::{BlockId, PartialSignature};
+use primitives::types::BlockId;
 use primitives::utils::index_to_bytes;
-use primitives::serialize::{Encode, Decode};
 use storage::{read_with_cache, write_with_cache, Storage};
 use serde_derive::{Serialize, Deserialize};
 use log::info;
 
-pub use crate::types::{
-    ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock,
-    ChainPayload, SignedShardBlockHeader
-};
-
-pub mod types;
+use primitives::block_traits::{SignedHeader, SignedBlock};
 
 const BLOCKCHAIN_BEST_BLOCK: &[u8] = b"best";
-
-/// Trait that abstracts ``Header"
-pub trait SignedHeader: Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
-{
-    /// Returns hash of the block body.
-    fn block_hash(&self) -> CryptoHash;
-
-    /// Returns block index.
-    fn index(&self) -> u64;
-
-    /// Returns hash of parent block.
-    fn parent_hash(&self) -> CryptoHash;
-}
-
-/// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
-/// and shard-chain blocks.
-pub trait SignedBlock: Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static {
-    type SignedHeader: SignedHeader;
-
-    /// Returns signed header for given block.
-    fn header(&self) -> Self::SignedHeader;
-
-    /// Returns index of given block.
-    fn index(&self) -> u64;
-
-    /// Returns hash of the block body.
-    fn block_hash(&self) -> CryptoHash;
-
-    /// Signs this block with given signer and returns part of multi signature.
-    fn sign(&self, signer: &Signer) -> PartialSignature {
-        signer.sign(&self.block_hash())
-    }
-
-    /// Add signature to multi sign.
-    fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize);
-
-    /// Returns stake weight of given block signers.
-    fn weight(&self) -> u128;
-}
 
 /// A block plus its "virtual" fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
