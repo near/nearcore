@@ -30,7 +30,7 @@ use primitives::test_utils::get_key_pair_from_seed;
 const TMP_DIR: &str = "./tmp/test_rpc_cli";
 const KEY_STORE_PATH: &str = "./tmp/test_rpc_cli/key_store";
 const WASM_PATH: &str = "./tests/hello";
-const WAIT_FOR_RETRY: u64 = 500;
+const WAIT_FOR_RETRY: u64 = 1000;
 const MAX_WAIT_FOR_RETRY: u32 = 20;
 
 fn test_service_ready() -> bool {
@@ -107,7 +107,13 @@ fn create_account(account_name: &str) -> Output {
         .output()
         .expect("create_account command failed to process");
 
-    wait_for(&|| check_result(view_account(Some(&account_name)))).unwrap();
+    wait_for(&|| {
+        let result = check_result(view_account(Some(account_name)));
+        result.and_then(|res| {
+            let new_account: Value = serde_json::from_str(&res).unwrap();
+            if new_account != Value::Null { Ok(()) } else { Err("Account not created".to_string()) }
+        })
+    }).unwrap();
 
     output
 }
@@ -127,6 +133,9 @@ fn view_account(account_name: Option<&str>) -> Output {
 fn deploy_contract() -> Result<(String, String), String> {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let contract_name = format!("test_contract_{}", buster);
+
+    let output = create_account(&contract_name);
+    check_result(output).unwrap();
 
     let output = Command::new("./scripts/rpc.py")
         .arg("deploy")

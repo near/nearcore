@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\x1fprotos/signed_transaction.proto\"y\n\x18\x43reateAccountTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x16\n\x0enew_account_id\x18\x03 \x01(\t\x12\x0e\n\x06\x61mount\x18\x04 \x01(\x04\x12\x12\n\npublic_key\x18\x05 \x01(\x0c\"\x80\x01\n\x19\x44\x65ployContractTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontract_id\x18\x03 \x01(\t\x12\x17\n\x0fwasm_byte_array\x18\x04 \x01(\x0c\x12\x12\n\npublic_key\x18\x05 \x01(\x0c\"\x84\x01\n\x17\x46unctionCallTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontract_id\x18\x03 \x01(\t\x12\x13\n\x0bmethod_name\x18\x04 \x01(\x0c\x12\x0c\n\x04\x61rgs\x18\x05 \x01(\x0c\x12\x0e\n\x06\x61mount\x18\x06 \x01(\x04\"[\n\x14SendMoneyTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x10\n\x08receiver\x18\x03 \x01(\t\x12\x0e\n\x06\x61mount\x18\x04 \x01(\x04\"E\n\x10StakeTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x0e\n\x06\x61mount\x18\x03 \x01(\x04\"Y\n\x12SwapKeyTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x0f\n\x07\x63ur_key\x18\x03 \x01(\x0c\x12\x0f\n\x07new_key\x18\x04 \x01(\x0c\"\xc7\x02\n\x11SignedTransaction\x12\x11\n\tsignature\x18\x01 \x01(\x0c\x12\x33\n\x0e\x63reate_account\x18\x02 \x01(\x0b\x32\x19.CreateAccountTransactionH\x00\x12\x35\n\x0f\x64\x65ploy_contract\x18\x03 \x01(\x0b\x32\x1a.DeployContractTransactionH\x00\x12\x31\n\rfunction_call\x18\x04 \x01(\x0b\x32\x18.FunctionCallTransactionH\x00\x12+\n\nsend_money\x18\x05 \x01(\x0b\x32\x15.SendMoneyTransactionH\x00\x12\"\n\x05stake\x18\x06 \x01(\x0b\x32\x11.StakeTransactionH\x00\x12\'\n\x08swap_key\x18\x07 \x01(\x0b\x32\x13.SwapKeyTransactionH\x00\x42\x06\n\x04\x62odyb\x06proto3')
+  serialized_pb=_b('\n\x1fprotos/signed_transaction.proto\"y\n\x18\x43reateAccountTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x16\n\x0enew_account_id\x18\x03 \x01(\t\x12\x0e\n\x06\x61mount\x18\x04 \x01(\x04\x12\x12\n\npublic_key\x18\x05 \x01(\x0c\"X\n\x19\x44\x65ployContractTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x13\n\x0b\x63ontract_id\x18\x02 \x01(\t\x12\x17\n\x0fwasm_byte_array\x18\x03 \x01(\x0c\"\x84\x01\n\x17\x46unctionCallTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontract_id\x18\x03 \x01(\t\x12\x13\n\x0bmethod_name\x18\x04 \x01(\x0c\x12\x0c\n\x04\x61rgs\x18\x05 \x01(\x0c\x12\x0e\n\x06\x61mount\x18\x06 \x01(\x04\"[\n\x14SendMoneyTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x10\n\x08receiver\x18\x03 \x01(\t\x12\x0e\n\x06\x61mount\x18\x04 \x01(\x04\"E\n\x10StakeTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x0e\n\x06\x61mount\x18\x03 \x01(\x04\"Y\n\x12SwapKeyTransaction\x12\r\n\x05nonce\x18\x01 \x01(\x04\x12\x12\n\noriginator\x18\x02 \x01(\t\x12\x0f\n\x07\x63ur_key\x18\x03 \x01(\x0c\x12\x0f\n\x07new_key\x18\x04 \x01(\x0c\"\xc7\x02\n\x11SignedTransaction\x12\x11\n\tsignature\x18\x01 \x01(\x0c\x12\x33\n\x0e\x63reate_account\x18\x02 \x01(\x0b\x32\x19.CreateAccountTransactionH\x00\x12\x35\n\x0f\x64\x65ploy_contract\x18\x03 \x01(\x0b\x32\x1a.DeployContractTransactionH\x00\x12\x31\n\rfunction_call\x18\x04 \x01(\x0b\x32\x18.FunctionCallTransactionH\x00\x12+\n\nsend_money\x18\x05 \x01(\x0b\x32\x15.SendMoneyTransactionH\x00\x12\"\n\x05stake\x18\x06 \x01(\x0b\x32\x11.StakeTransactionH\x00\x12\'\n\x08swap_key\x18\x07 \x01(\x0b\x32\x13.SwapKeyTransactionH\x00\x42\x06\n\x04\x62odyb\x06proto3')
 )
 
 
@@ -99,29 +99,15 @@ _DEPLOYCONTRACTTRANSACTION = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='originator', full_name='DeployContractTransaction.originator', index=1,
+      name='contract_id', full_name='DeployContractTransaction.contract_id', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='contract_id', full_name='DeployContractTransaction.contract_id', index=2,
-      number=3, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=_b("").decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='wasm_byte_array', full_name='DeployContractTransaction.wasm_byte_array', index=3,
-      number=4, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=_b(""),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='public_key', full_name='DeployContractTransaction.public_key', index=4,
-      number=5, type=12, cpp_type=9, label=1,
+      name='wasm_byte_array', full_name='DeployContractTransaction.wasm_byte_array', index=2,
+      number=3, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -138,8 +124,8 @@ _DEPLOYCONTRACTTRANSACTION = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=159,
-  serialized_end=287,
+  serialized_start=158,
+  serialized_end=246,
 )
 
 
@@ -204,8 +190,8 @@ _FUNCTIONCALLTRANSACTION = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=290,
-  serialized_end=422,
+  serialized_start=249,
+  serialized_end=381,
 )
 
 
@@ -256,8 +242,8 @@ _SENDMONEYTRANSACTION = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=424,
-  serialized_end=515,
+  serialized_start=383,
+  serialized_end=474,
 )
 
 
@@ -301,8 +287,8 @@ _STAKETRANSACTION = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=517,
-  serialized_end=586,
+  serialized_start=476,
+  serialized_end=545,
 )
 
 
@@ -353,8 +339,8 @@ _SWAPKEYTRANSACTION = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=588,
-  serialized_end=677,
+  serialized_start=547,
+  serialized_end=636,
 )
 
 
@@ -429,8 +415,8 @@ _SIGNEDTRANSACTION = _descriptor.Descriptor(
       name='body', full_name='SignedTransaction.body',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=680,
-  serialized_end=1007,
+  serialized_start=639,
+  serialized_end=966,
 )
 
 _SIGNEDTRANSACTION.fields_by_name['create_account'].message_type = _CREATEACCOUNTTRANSACTION

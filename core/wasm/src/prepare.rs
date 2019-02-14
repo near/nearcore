@@ -5,11 +5,6 @@ use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
 use parity_wasm::builder;
 use pwasm_utils::{self, rules};
 use crate::types::{Config, PrepareError as Error};
-use wasmer_runtime::{
-    memory::Memory,
-    wasm::MemoryDescriptor,
-    units::Pages,
-};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
@@ -29,7 +24,7 @@ impl<'a> ContractModule<'a> {
         })
     }
 
-    fn externalize_mem(&mut self) {
+    fn standardize_mem(&mut self) {
         let mut module = self
             .module
             .take()
@@ -37,30 +32,23 @@ impl<'a> ContractModule<'a> {
 
         let mut tmp = MemorySection::default();
 
-        let entry = module.memory_section_mut()
+        module.memory_section_mut()
             .unwrap_or_else(|| &mut tmp)
             .entries_mut()
             .pop();
 
-        match entry {
-            Some(mut entry) => {
-                if entry.limits().maximum().is_none() {
-                    entry = elements::MemoryType::new(
-                        entry.limits().initial(),
-                        Some(self.config.max_memory_pages));
-                }
+        let entry = elements::MemoryType::new(
+            self.config.initial_memory_pages,
+            Some(self.config.max_memory_pages));
 
-                let mut builder = builder::from_module(module);
-                builder.push_import(elements::ImportEntry::new(
-                    "env".to_owned(),
-                    "memory".to_owned(),
-                    elements::External::Memory(entry),
-                ));
+        let mut builder = builder::from_module(module);
+        builder.push_import(elements::ImportEntry::new(
+            "env".to_string(),
+            "memory".to_string(),
+            elements::External::Memory(entry),
+        ));
 
-                self.module = Some(builder.build());
-            }
-            None => self.module = Some(module)
-        };
+        self.module = Some(builder.build());
     }
 
     /// Ensures that module doesn't declare internal memories.
@@ -178,11 +166,6 @@ impl<'a> ContractModule<'a> {
     }
 }
 
-pub(super) struct PreparedContract {
-    pub instrumented_code: Vec<u8>,
-    pub memory: Option<Memory>,
-}
-
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
 ///
@@ -196,60 +179,32 @@ pub(super) struct PreparedContract {
 pub(super) fn prepare_contract(
     original_code: &[u8],
     config: &Config,
-) -> Result<PreparedContract, Error> {
+) -> Result<Vec<u8>, Error> {
     let mut contract_module = ContractModule::init(original_code, config)?;
-    contract_module.externalize_mem();
+    contract_module.standardize_mem();
     contract_module.ensure_no_internal_memory()?;
     contract_module.inject_gas_metering()?;
     contract_module.inject_stack_height_metering()?;
 
-    let memory = if let Some(memory_type) = contract_module.scan_imports()? {
+    if let Some(memory_type) = contract_module.scan_imports()? {
         // Inspect the module to extract the initial and maximum page count.
         let limits = memory_type.limits();
-        match (limits.initial(), limits.maximum()) {
-            (initial, Some(maximum)) if initial > maximum => {
-                // Requested initial number of pages should not exceed the requested maximum.
-                return Err(Error::MemoryInitialExceedMaximum);
-            }
-            (_, Some(maximum)) if maximum > config.max_memory_pages => {
-                // Maximum number of pages should not exceed the configured maximum.
-                return Err(Error::MemoryMaximumExceedConfig);
-            }
-            (_, None) => {
-                // Maximum number of pages should be always declared.
-                // This isn't a hard requirement and can be treated as a maxiumum set
-                // to configured maximum.
-                return Err(Error::MemoryNoMaximum);
-            }
-            (initial, Some(maximum)) => Some(Memory::new(MemoryDescriptor {
-                minimum: Pages(initial),
-                maximum: Some(Pages(maximum)),
-                shared: false,
-            }).map_err(Error::MemoryWasmer)?)
+        if limits.initial() != config.initial_memory_pages || limits.maximum() != Some(config.max_memory_pages) {
+            return Err(Error::Memory);
         }
     } else {
-        None
+        return Err(Error::Memory);
     };
 
-    Ok(PreparedContract {
-        instrumented_code: contract_module.into_wasm_code()?,
-        memory,
-    })
+    contract_module.into_wasm_code()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt;
     use wabt;
 
-    impl fmt::Debug for PreparedContract {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "PreparedContract {{ .. }}")
-        }
-    }
-
-    fn parse_and_prepare_wat(wat: &str) -> Result<PreparedContract, Error> {
+    fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, Error> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
         let config = Config::default();
         prepare_contract(wasm.as_ref(), &config)
@@ -275,15 +230,15 @@ mod tests {
 
         // initial exceed maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
-        assert_matches!(r, Err(Error::MemoryInitialExceedMaximum));
+        assert_matches!(r, Ok(_));
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-        assert_matches!(r, Err(Error::MemoryNoMaximum));
+        assert_matches!(r, Ok(_));
 
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
-        assert_matches!(r, Err(Error::MemoryMaximumExceedConfig));
+        assert_matches!(r, Ok(_));
     }
 
     #[test]

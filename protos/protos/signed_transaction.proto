@@ -10,10 +10,8 @@ message CreateAccountTransaction {
 
 message DeployContractTransaction {
     uint64 nonce = 1;
-    string originator = 2;
-    string contract_id = 3;
-    bytes wasm_byte_array = 4;
-    bytes public_key = 5;
+    string contract_id = 2;
+    bytes wasm_byte_array = 3;
 }
 
 message FunctionCallTransaction {

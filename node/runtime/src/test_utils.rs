@@ -274,14 +274,11 @@ impl User {
         &mut self,
         root: MerkleHash,
         contract_id: &str,
-        public_key: PublicKey,
         wasm_binary: &[u8]
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: self.nonce,
-            originator: self.account_id.clone(),
             contract_id: contract_id.to_string(),
-            public_key: public_key.0[..].to_vec(),
             wasm_byte_array: wasm_binary.to_vec(),
         });
         self.nonce += 1;
@@ -395,10 +392,22 @@ impl User {
 pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
     let (runtime, trie, genesis_root) = get_runtime_and_trie();
     let (mut user, root) = User::new(runtime, "alice.near", trie.clone(), genesis_root);
-    let (public_key, _) = get_key_pair();
-    let (new_root, _) = user.deploy_contract(
-        root, "test_contract", public_key, wasm_binary
+    let (root_with_account, _) = user.create_account(root, "test_contract", 0);
+    assert_ne!(root_with_account, root);
+    let (mut user, root) = User::new(user.runtime, "test_contract", user.trie, root_with_account);
+    let (root_with_contract_code, _) = user.deploy_contract(
+        root, "test_contract", wasm_binary
     );
-    assert_ne!(new_root, root);
-    (user, root)
+    assert_ne!(root_with_contract_code, root);
+    User::new(user.runtime, "alice.near", user.trie, root_with_contract_code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_setup_test_contract() {
+        setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    }
 }

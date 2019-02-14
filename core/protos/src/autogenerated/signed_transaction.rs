@@ -342,10 +342,8 @@ impl ::protobuf::reflect::ProtobufValue for CreateAccountTransaction {
 pub struct DeployContractTransaction {
     // message fields
     pub nonce: u64,
-    pub originator: ::std::string::String,
     pub contract_id: ::std::string::String,
     pub wasm_byte_array: ::std::vec::Vec<u8>,
-    pub public_key: ::std::vec::Vec<u8>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
@@ -371,33 +369,7 @@ impl DeployContractTransaction {
         self.nonce
     }
 
-    // string originator = 2;
-
-    pub fn clear_originator(&mut self) {
-        self.originator.clear();
-    }
-
-    // Param is passed by value, moved
-    pub fn set_originator(&mut self, v: ::std::string::String) {
-        self.originator = v;
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_originator(&mut self) -> &mut ::std::string::String {
-        &mut self.originator
-    }
-
-    // Take field
-    pub fn take_originator(&mut self) -> ::std::string::String {
-        ::std::mem::replace(&mut self.originator, ::std::string::String::new())
-    }
-
-    pub fn get_originator(&self) -> &str {
-        &self.originator
-    }
-
-    // string contract_id = 3;
+    // string contract_id = 2;
 
     pub fn clear_contract_id(&mut self) {
         self.contract_id.clear();
@@ -423,7 +395,7 @@ impl DeployContractTransaction {
         &self.contract_id
     }
 
-    // bytes wasm_byte_array = 4;
+    // bytes wasm_byte_array = 3;
 
     pub fn clear_wasm_byte_array(&mut self) {
         self.wasm_byte_array.clear();
@@ -448,32 +420,6 @@ impl DeployContractTransaction {
     pub fn get_wasm_byte_array(&self) -> &[u8] {
         &self.wasm_byte_array
     }
-
-    // bytes public_key = 5;
-
-    pub fn clear_public_key(&mut self) {
-        self.public_key.clear();
-    }
-
-    // Param is passed by value, moved
-    pub fn set_public_key(&mut self, v: ::std::vec::Vec<u8>) {
-        self.public_key = v;
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_public_key(&mut self) -> &mut ::std::vec::Vec<u8> {
-        &mut self.public_key
-    }
-
-    // Take field
-    pub fn take_public_key(&mut self) -> ::std::vec::Vec<u8> {
-        ::std::mem::replace(&mut self.public_key, ::std::vec::Vec::new())
-    }
-
-    pub fn get_public_key(&self) -> &[u8] {
-        &self.public_key
-    }
 }
 
 impl ::protobuf::Message for DeployContractTransaction {
@@ -493,16 +439,10 @@ impl ::protobuf::Message for DeployContractTransaction {
                     self.nonce = tmp;
                 },
                 2 => {
-                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.originator)?;
-                },
-                3 => {
                     ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.contract_id)?;
                 },
-                4 => {
+                3 => {
                     ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.wasm_byte_array)?;
-                },
-                5 => {
-                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.public_key)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -519,17 +459,11 @@ impl ::protobuf::Message for DeployContractTransaction {
         if self.nonce != 0 {
             my_size += ::protobuf::rt::value_size(1, self.nonce, ::protobuf::wire_format::WireTypeVarint);
         }
-        if !self.originator.is_empty() {
-            my_size += ::protobuf::rt::string_size(2, &self.originator);
-        }
         if !self.contract_id.is_empty() {
-            my_size += ::protobuf::rt::string_size(3, &self.contract_id);
+            my_size += ::protobuf::rt::string_size(2, &self.contract_id);
         }
         if !self.wasm_byte_array.is_empty() {
-            my_size += ::protobuf::rt::bytes_size(4, &self.wasm_byte_array);
-        }
-        if !self.public_key.is_empty() {
-            my_size += ::protobuf::rt::bytes_size(5, &self.public_key);
+            my_size += ::protobuf::rt::bytes_size(3, &self.wasm_byte_array);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -540,17 +474,11 @@ impl ::protobuf::Message for DeployContractTransaction {
         if self.nonce != 0 {
             os.write_uint64(1, self.nonce)?;
         }
-        if !self.originator.is_empty() {
-            os.write_string(2, &self.originator)?;
-        }
         if !self.contract_id.is_empty() {
-            os.write_string(3, &self.contract_id)?;
+            os.write_string(2, &self.contract_id)?;
         }
         if !self.wasm_byte_array.is_empty() {
-            os.write_bytes(4, &self.wasm_byte_array)?;
-        }
-        if !self.public_key.is_empty() {
-            os.write_bytes(5, &self.public_key)?;
+            os.write_bytes(3, &self.wasm_byte_array)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -600,11 +528,6 @@ impl ::protobuf::Message for DeployContractTransaction {
                     |m: &mut DeployContractTransaction| { &mut m.nonce },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                    "originator",
-                    |m: &DeployContractTransaction| { &m.originator },
-                    |m: &mut DeployContractTransaction| { &mut m.originator },
-                ));
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "contract_id",
                     |m: &DeployContractTransaction| { &m.contract_id },
                     |m: &mut DeployContractTransaction| { &mut m.contract_id },
@@ -613,11 +536,6 @@ impl ::protobuf::Message for DeployContractTransaction {
                     "wasm_byte_array",
                     |m: &DeployContractTransaction| { &m.wasm_byte_array },
                     |m: &mut DeployContractTransaction| { &mut m.wasm_byte_array },
-                ));
-                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
-                    "public_key",
-                    |m: &DeployContractTransaction| { &m.public_key },
-                    |m: &mut DeployContractTransaction| { &mut m.public_key },
                 ));
                 ::protobuf::reflect::MessageDescriptor::new::<DeployContractTransaction>(
                     "DeployContractTransaction",
@@ -642,10 +560,8 @@ impl ::protobuf::Message for DeployContractTransaction {
 impl ::protobuf::Clear for DeployContractTransaction {
     fn clear(&mut self) {
         self.clear_nonce();
-        self.clear_originator();
         self.clear_contract_id();
         self.clear_wasm_byte_array();
-        self.clear_public_key();
         self.unknown_fields.clear();
     }
 }
@@ -2449,35 +2365,34 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     ction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\norigi\
     nator\x18\x02\x20\x01(\tR\noriginator\x12$\n\x0enew_account_id\x18\x03\
     \x20\x01(\tR\x0cnewAccountId\x12\x16\n\x06amount\x18\x04\x20\x01(\x04R\
-    \x06amount\x12\x1d\n\npublic_key\x18\x05\x20\x01(\x0cR\tpublicKey\"\xb9\
-    \x01\n\x19DeployContractTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\
-    \x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\
-    \x1f\n\x0bcontract_id\x18\x03\x20\x01(\tR\ncontractId\x12&\n\x0fwasm_byt\
-    e_array\x18\x04\x20\x01(\x0cR\rwasmByteArray\x12\x1d\n\npublic_key\x18\
-    \x05\x20\x01(\x0cR\tpublicKey\"\xbd\x01\n\x17FunctionCallTransaction\x12\
-    \x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\
-    \x02\x20\x01(\tR\noriginator\x12\x1f\n\x0bcontract_id\x18\x03\x20\x01(\t\
-    R\ncontractId\x12\x1f\n\x0bmethod_name\x18\x04\x20\x01(\x0cR\nmethodName\
-    \x12\x12\n\x04args\x18\x05\x20\x01(\x0cR\x04args\x12\x16\n\x06amount\x18\
-    \x06\x20\x01(\x04R\x06amount\"\x80\x01\n\x14SendMoneyTransaction\x12\x14\
-    \n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\
-    \x20\x01(\tR\noriginator\x12\x1a\n\x08receiver\x18\x03\x20\x01(\tR\x08re\
-    ceiver\x12\x16\n\x06amount\x18\x04\x20\x01(\x04R\x06amount\"`\n\x10Stake\
-    Transaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\
-    \noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x16\n\x06amount\x18\x03\
-    \x20\x01(\x04R\x06amount\"|\n\x12SwapKeyTransaction\x12\x14\n\x05nonce\
+    \x06amount\x12\x1d\n\npublic_key\x18\x05\x20\x01(\x0cR\tpublicKey\"z\n\
+    \x19DeployContractTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\
+    \x05nonce\x12\x1f\n\x0bcontract_id\x18\x02\x20\x01(\tR\ncontractId\x12&\
+    \n\x0fwasm_byte_array\x18\x03\x20\x01(\x0cR\rwasmByteArray\"\xbd\x01\n\
+    \x17FunctionCallTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05\
+    nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x1f\n\
+    \x0bcontract_id\x18\x03\x20\x01(\tR\ncontractId\x12\x1f\n\x0bmethod_name\
+    \x18\x04\x20\x01(\x0cR\nmethodName\x12\x12\n\x04args\x18\x05\x20\x01(\
+    \x0cR\x04args\x12\x16\n\x06amount\x18\x06\x20\x01(\x04R\x06amount\"\x80\
+    \x01\n\x14SendMoneyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\
+    \x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x1a\
+    \n\x08receiver\x18\x03\x20\x01(\tR\x08receiver\x12\x16\n\x06amount\x18\
+    \x04\x20\x01(\x04R\x06amount\"`\n\x10StakeTransaction\x12\x14\n\x05nonce\
     \x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\t\
-    R\noriginator\x12\x17\n\x07cur_key\x18\x03\x20\x01(\x0cR\x06curKey\x12\
-    \x17\n\x07new_key\x18\x04\x20\x01(\x0cR\x06newKey\"\x9a\x03\n\x11SignedT\
-    ransaction\x12\x1c\n\tsignature\x18\x01\x20\x01(\x0cR\tsignature\x12B\n\
-    \x0ecreate_account\x18\x02\x20\x01(\x0b2\x19.CreateAccountTransactionH\0\
-    R\rcreateAccount\x12E\n\x0fdeploy_contract\x18\x03\x20\x01(\x0b2\x1a.Dep\
-    loyContractTransactionH\0R\x0edeployContract\x12?\n\rfunction_call\x18\
-    \x04\x20\x01(\x0b2\x18.FunctionCallTransactionH\0R\x0cfunctionCall\x126\
-    \n\nsend_money\x18\x05\x20\x01(\x0b2\x15.SendMoneyTransactionH\0R\tsendM\
-    oney\x12)\n\x05stake\x18\x06\x20\x01(\x0b2\x11.StakeTransactionH\0R\x05s\
-    take\x120\n\x08swap_key\x18\x07\x20\x01(\x0b2\x13.SwapKeyTransactionH\0R\
-    \x07swapKeyB\x06\n\x04bodyb\x06proto3\
+    R\noriginator\x12\x16\n\x06amount\x18\x03\x20\x01(\x04R\x06amount\"|\n\
+    \x12SwapKeyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\
+    \x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_\
+    key\x18\x03\x20\x01(\x0cR\x06curKey\x12\x17\n\x07new_key\x18\x04\x20\x01\
+    (\x0cR\x06newKey\"\x9a\x03\n\x11SignedTransaction\x12\x1c\n\tsignature\
+    \x18\x01\x20\x01(\x0cR\tsignature\x12B\n\x0ecreate_account\x18\x02\x20\
+    \x01(\x0b2\x19.CreateAccountTransactionH\0R\rcreateAccount\x12E\n\x0fdep\
+    loy_contract\x18\x03\x20\x01(\x0b2\x1a.DeployContractTransactionH\0R\x0e\
+    deployContract\x12?\n\rfunction_call\x18\x04\x20\x01(\x0b2\x18.FunctionC\
+    allTransactionH\0R\x0cfunctionCall\x126\n\nsend_money\x18\x05\x20\x01(\
+    \x0b2\x15.SendMoneyTransactionH\0R\tsendMoney\x12)\n\x05stake\x18\x06\
+    \x20\x01(\x0b2\x11.StakeTransactionH\0R\x05stake\x120\n\x08swap_key\x18\
+    \x07\x20\x01(\x0b2\x13.SwapKeyTransactionH\0R\x07swapKeyB\x06\n\x04bodyb\
+    \x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

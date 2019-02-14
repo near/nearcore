@@ -33,6 +33,17 @@ export function benchmark(): string[] {
   return globalStorage.keys("");
 }
 
+export function benchmark_sum_n(n: i32): string {
+  let i = 0;
+  let sum: u64 = 0;
+  while (i < n) {
+    sum += i;
+    i += 1;
+  }
+  return sum.toString()
+}
+
+
 export function generateLogs(): void {
   globalStorage.setItem("item", "value");
   near.log("log1");
