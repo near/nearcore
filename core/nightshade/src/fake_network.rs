@@ -12,7 +12,7 @@ use crate::nightshade::BlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
 
-#[derive(Clone, Hash, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct DummyPayload {
     dummy: u64,
 }

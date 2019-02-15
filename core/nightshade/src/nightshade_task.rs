@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -78,7 +77,7 @@ pub struct SignedBlock<P> {
     block: Block<P>,
 }
 
-impl<P: Hash> SignedBlock<P> {
+impl<P: Serialize> SignedBlock<P> {
     fn new(author: AuthorityId, payload: P) -> Self {
         Self {
             // TODO: Implement signature
@@ -88,7 +87,7 @@ impl<P: Hash> SignedBlock<P> {
     }
 }
 
-impl<P: Hash> SignedBlock<P> {
+impl<P: Serialize> SignedBlock<P> {
     fn verify(&self) -> bool {
         true
     }
@@ -123,7 +122,7 @@ pub struct NightshadeTask<P> {
     cooldown_delay: Option<Delay>,
 }
 
-impl<P: Send + Hash + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
+impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     pub fn new(
         owner_id: AuthorityId,
         num_authorities: usize,
@@ -300,7 +299,7 @@ impl<P: Send + Hash + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     }
 }
 
-impl<P: Hash + Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P> {
+impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P> {
     type Item = ();
     type Error = ();
 

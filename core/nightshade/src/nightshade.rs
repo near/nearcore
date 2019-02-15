@@ -1,20 +1,25 @@
 /// Nightshade v2
-use std::cmp::{max, min};
-use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
+use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
+
+use serde::Serialize;
+
+use primitives::hash::CryptoHash;
+use primitives::hash::hash_struct;
 
 pub type AuthorityId = usize;
 pub type BLSSignature = u64;
 pub type NSSignature = usize;
-pub type NSHash = u64;
 
 const COMMIT_THRESHOLD: i64 = 3;
 
 pub enum NSResult {
     Updated(Option<State>),
     Error(String),
+}
+
+fn empty_cryptohash() -> CryptoHash {
+    CryptoHash::new(&[0u8; 32])
 }
 
 /// Nightshade consensus run on top of outcomes proposed by each authority.
@@ -25,17 +30,12 @@ pub struct Block<P> {
     payload: P,
 }
 
-impl<P: Hash> Block<P> {
+impl<P: Serialize> Block<P> {
     pub fn new(author: AuthorityId, payload: P) -> Self {
-        // TODO: Use custom hasher
-        let mut hasher = DefaultHasher::new();
-        payload.hash(&mut hasher);
-        let hash = hasher.finish();
-
         Self {
             header: BlockHeader {
                 author,
-                hash,
+                hash: hash_struct(&payload),
             },
             payload,
         }
@@ -47,7 +47,7 @@ impl<P: Hash> Block<P> {
     }
 
     /// Hash of the payload contained in the block
-    pub fn hash(&self) -> NSHash {
+    pub fn hash(&self) -> CryptoHash {
         self.header.hash
     }
 }
@@ -60,7 +60,7 @@ pub struct BlockHeader {
     /// Authority proposing the block.
     pub author: AuthorityId,
     /// Hash of the payload contained in the block.
-    hash: NSHash,
+    hash: CryptoHash,
 }
 
 
@@ -82,21 +82,21 @@ pub struct BareState {
 }
 
 impl BareState {
-    fn new(author: AuthorityId, hash: NSHash) -> Self {
-        Self {
-            primary_confidence: 0,
-            endorses: BlockHeader { author, hash },
-            secondary_confidence: 0,
-        }
-    }
-
     /// Empty triplets are used as starting point believe on authorities from which
     /// we have not received any update. This state is less than any valid triplet.
     fn empty() -> Self {
         Self {
             primary_confidence: -1,
-            endorses: BlockHeader { author: 0, hash: 0 },
+            endorses: BlockHeader { author: 0, hash: empty_cryptohash() },
             secondary_confidence: -1,
+        }
+    }
+
+    fn new(author: AuthorityId, hash: CryptoHash) -> Self {
+        Self {
+            primary_confidence: 0,
+            endorses: BlockHeader { author, hash },
+            secondary_confidence: 0,
         }
     }
 }
@@ -136,7 +136,7 @@ pub struct State {
 }
 
 impl State {
-    fn new(author: AuthorityId, hash: NSHash) -> Self {
+    fn new(author: AuthorityId, hash: CryptoHash) -> Self {
         Self {
             bare_state: BareState::new(author, hash),
             proof0: None,
@@ -190,7 +190,7 @@ impl State {
         self.bare_state.endorses.clone()
     }
 
-    pub fn block_hash(&self) -> NSHash {
+    pub fn block_hash(&self) -> CryptoHash {
         self.bare_state.endorses.hash
     }
 }
@@ -388,13 +388,15 @@ mod tests {
         assert_eq!(state.bare_state.secondary_confidence == 0, state.proof1 == None);
     }
 
-    fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
-        let mut ns = vec![];
-
-        for i in 0..num_authorities {
-            let proposal_i = BlockHeader { author: i, hash: 0 };
-            ns.push(Nightshade::new(i, num_authorities, proposal_i));
+    fn header(author: AuthorityId) -> BlockHeader {
+        BlockHeader {
+            author,
+            hash: empty_cryptohash(),
         }
+    }
+
+    fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
+        let mut ns: Vec<_> = (0..num_authorities).map(|i| Nightshade::new(i, num_authorities, header(i))).collect();
 
         for _ in 0..num_rounds {
             let mut states = vec![];
@@ -439,10 +441,7 @@ mod tests {
     fn bare_state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> BareState {
         BareState {
             primary_confidence,
-            endorses: BlockHeader {
-                author: endorses,
-                hash: 0,
-            },
+            endorses: header(endorses),
             secondary_confidence,
         }
     }
@@ -477,8 +476,8 @@ mod tests {
 
     #[test]
     fn test_nightshade_basics() {
-        let mut ns0 = Nightshade::new(0, 2, BlockHeader { author: 0, hash: 0 });
-        let ns1 = Nightshade::new(1, 2, BlockHeader { author: 1, hash: 0 });
+        let mut ns0 = Nightshade::new(0, 2, header(0));
+        let ns1 = Nightshade::new(1, 2, header(1));
         let state0 = ns0.state();
         assert_eq!(state0.endorses().author, 0);
         let state1 = ns1.state();
@@ -494,7 +493,7 @@ mod tests {
         let mut ns = vec![];
 
         for i in 0..num_authorities {
-            ns.push(Nightshade::new(i, num_authorities, BlockHeader { author: i, hash: 0 }));
+            ns.push(Nightshade::new(i, num_authorities, header(i)));
         }
 
         for i in 0..2 {
@@ -517,7 +516,7 @@ mod tests {
     #[test]
     fn malicious_detection() {
         // Note: This test will become invalid after signatures are checked properly.
-        let mut ns = Nightshade::new(1, 2, BlockHeader { author: 1, hash: 0 });
+        let mut ns = Nightshade::new(1, 2, header(1));
         let s0 = State { bare_state: bare_state(1, 0, 0), proof0: None, proof1: None };
         let s1 = State { bare_state: bare_state(1, 1, 0), proof0: None, proof1: None };
         ns.update_state(0, s0);
@@ -530,7 +529,7 @@ mod tests {
     fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState>) -> Nightshade {
         let num_authorities = bare_states.len();
 
-        let mut ns = Nightshade::new(owner_id, num_authorities, BlockHeader { author: owner_id, hash: 0 });
+        let mut ns = Nightshade::new(owner_id, num_authorities, header(owner_id));
 
         ns.states = vec![];
         ns.best_state_counter = 0;
