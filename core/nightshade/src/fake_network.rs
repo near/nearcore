@@ -82,26 +82,27 @@ fn spawn_all(num_authorities: usize) {
             tokio::spawn(fut.for_each(|_| Ok(())));
         }
 
-        let futures: Vec<_> = consensus_rx_vec.into_iter().map(|rx| rx.into_future()).collect();
+        Ok(consensus_rx_vec)
+    });
 
-        tokio::spawn(join_all(futures)
+    let test_network = fake_network.and_then(|v| {
+        let futures: Vec<_> = v.into_iter().map(|rx| rx.into_future()).collect();
+
+        join_all(futures)
             .map(|v: Vec<(Option<BlockHeader>, _)>| {
                 // Check every authority committed to the same outcome
-                if !v.iter().all(|(outcome, _)| {
-                    Some(outcome.clone().expect("Authority not committed")) == v[0].0
-                }) {
+                if !v.iter().all(|(outcome, _)| { Some(outcome.clone().expect("Authority not committed")) == v[0].0 }) {
                     panic!("Authorities committed to different outcomes.");
                 }
             })
             .map_err(|e| {
-                error!("Failed achieving consensus: {:?}", e)
-            }));
-
-        let result: Result<(), ()> = Ok(());
-        result
+                panic!("Failed achieving consensus: {:?}", e)
+            })
     });
 
-    tokio::run(fake_network);
+    let mut rt = tokio::runtime::current_thread::Runtime::new().unwrap();
+    let res = rt.block_on(test_network);
+    assert_eq!(res.is_ok(), true);
 }
 
 #[cfg(test)]
@@ -109,12 +110,22 @@ mod tests {
     use super::spawn_all;
 
     #[test]
+    #[should_panic]
+    /// One authority don't reach consensus by itself in the current implementation
     fn one_authority() {
         spawn_all(1);
     }
 
     #[test]
-    fn five_authorities() {
+    fn several_authorities() {
+        spawn_all(2);
+        spawn_all(3);
+        spawn_all(4);
         spawn_all(5);
+    }
+
+    #[test]
+    fn ten_authorities() {
+        spawn_all(10);
     }
 }
