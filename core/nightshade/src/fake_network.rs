@@ -2,11 +2,14 @@ use std::time::{Duration, Instant};
 
 use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
+use futures::stream::StreamFuture;
 use futures::sync::mpsc;
 use log::error;
 use tokio::timer::Delay;
 
 use primitives::signature::get_key_pair;
+
+use crate::nightshade::BlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
 
@@ -16,7 +19,7 @@ struct DummyPayload {
 }
 
 fn spawn_all(num_authorities: usize) {
-    tokio::run(lazy(move || {
+    let fake_network = lazy(move || {
         let mut control_tx_vec = vec![];
         let mut inc_gossips_tx_vec = vec![];
         let mut out_gossips_rx_vec = vec![];
@@ -80,35 +83,30 @@ fn spawn_all(num_authorities: usize) {
             tokio::spawn(fut.for_each(|_| Ok(())));
         }
 
-        let mut futures = vec![];
-
-        for consensus_rx in consensus_rx_vec.drain(..) {
-            futures.push(consensus_rx.into_future());
-        }
+        let futures: Vec<_> = consensus_rx_vec.into_iter().map(|rx| rx.into_future()).collect();
 
         tokio::spawn(join_all(futures)
-            .map(|v| {
-                let mut general_outcome = None;
-
-                for (a, (outcome, _)) in v.iter().enumerate() {
-                    let outcome = outcome.clone().expect("Authority not committed");
-                    println!("Authority {:?} committed to {:?}", a, outcome);
-
-                    if let Some(cur_outcome) = general_outcome.clone() {
-                        if outcome != cur_outcome {
-                            panic!("Authorities have committed to different outcomes");
-                        }
-                    } else {
-                        general_outcome = Some(outcome);
-                    }
+            .map(|v: Vec<(Option<BlockHeader>, _)>| {
+                // Check every authority committed to the same outcome
+                if !v.iter().all(|(outcome, _)| {
+                    Some(outcome.clone().expect("Authority not committed")) == v[0].0
+                }) {
+                    panic!("Authorities committed to different outcomes.");
                 }
-
-                ()
             })
-            .map_err(|e| error!("Failed achieving consensus: {:?}", e)));
+            .map_err(|e| {
+                error!("Failed achieving consensus: {:?}", e)
+            }));
 
-        Ok(())
-    }));
+        let result: Result<(), ()> = Ok(());
+        result
+    });
+
+    let mut rt = tokio::runtime::current_thread::Runtime::new().unwrap();
+
+    let res = rt.block_on(fake_network);
+
+    assert_eq!(res.is_ok(), true);
 }
 
 #[cfg(test)]
