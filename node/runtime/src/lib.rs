@@ -747,7 +747,11 @@ impl Runtime {
 
     fn print_log(log: &[LogEntry]) {
         let log_str = log.iter().fold(String::new(), |acc, s| {
-            acc + "\n" + s
+            if acc.is_empty() {
+                s.to_string()
+            } else {
+                acc + "\n" + s
+            }
         });
         debug!(target: "runtime", "{}", log_str);
     }
@@ -788,7 +792,9 @@ impl Runtime {
                 result.status = TransactionStatus::Failed;
             }
         };
-        Self::print_log(&result.logs);
+        if !result.logs.is_empty() {
+            Self::print_log(&result.logs);
+        }
         result
     }
 
