@@ -74,19 +74,19 @@ pub struct BlockHeader {
 #[derive(Debug, Clone, Serialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BareState {
     /// How much confidence we have on `endorses`.
-    confidence0: i64,
+    primary_confidence: i64,
     /// It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
     pub endorses: BlockHeader,
     /// Confidence of outcome with second higher confidence.
-    confidence1: i64,
+    secondary_confidence: i64,
 }
 
 impl BareState {
     fn new(author: AuthorityId, hash: NSHash) -> Self {
         Self {
-            confidence0: 0,
+            primary_confidence: 0,
             endorses: BlockHeader { author, hash },
-            confidence1: 0,
+            secondary_confidence: 0,
         }
     }
 
@@ -94,9 +94,9 @@ impl BareState {
     /// we have not received any update. This state is less than any valid triplet.
     fn empty() -> Self {
         Self {
-            confidence0: -1,
+            primary_confidence: -1,
             endorses: BlockHeader { author: 0, hash: 0 },
-            confidence1: -1,
+            secondary_confidence: -1,
         }
     }
 }
@@ -121,16 +121,16 @@ impl BLSProof {
 
 /// `State` is a wrapper for `BareState` that contains evidence for such triplet.
 ///
-/// Proof for `confidence0` is a set of states of size greater than 2 / 3 * num_authorities signed
-/// by different authorities such that our current confidence (`confidence0`) on outcome `endorses`
+/// Proof for `primary_confidence` is a set of states of size greater than 2 / 3 * num_authorities signed
+/// by different authorities such that our current confidence (`primary_confidence`) on outcome `endorses`
 /// is consistent whit this set according to Nightshade rules.
 #[derive(Debug, Clone, Eq, Serialize)]
 pub struct State {
     /// Triplet that describe the state
     pub bare_state: BareState,
-    /// Proof for `confidence0`.
+    /// Proof for `primary_confidence`.
     proof0: Option<BLSProof>,
-    /// Proof for `confidence1`. This is `proof0` field of the state endorsing different outcome
+    /// Proof for `secondary_confidence`. This is `proof0` field of the state endorsing different outcome
     /// which has highest confidence from this authority point of view.
     proof1: Option<BLSProof>,
 }
@@ -159,8 +159,8 @@ impl State {
         Self {
             bare_state: BareState {
                 endorses: self.bare_state.endorses.clone(),
-                confidence0: self.bare_state.confidence0 + 1,
-                confidence1: self.bare_state.confidence1,
+                primary_confidence: self.bare_state.primary_confidence + 1,
+                secondary_confidence: self.bare_state.secondary_confidence,
             },
             proof0: Some(proof),
             proof1: self.proof1.clone(),
@@ -169,7 +169,7 @@ impl State {
 
     /// Returns whether an authority having this triplet should commit to this triplet outcome.
     fn can_commit(&self) -> bool {
-        self.bare_state.confidence0 >= self.bare_state.confidence1 + COMMIT_THRESHOLD
+        self.bare_state.primary_confidence >= self.bare_state.secondary_confidence + COMMIT_THRESHOLD
     }
 
     /// Check if this state contains correct proofs about the triplet it contains.
@@ -218,13 +218,13 @@ fn merge(state0: &State, state1: &State) -> State {
     let min_state = min(state0, state1);
 
     if max_state.endorses() != min_state.endorses() {
-        if min_state.bare_state.confidence0 > max_state.bare_state.confidence1 {
-            max_state.bare_state.confidence1 = min_state.bare_state.confidence0;
+        if min_state.bare_state.primary_confidence > max_state.bare_state.secondary_confidence {
+            max_state.bare_state.secondary_confidence = min_state.bare_state.primary_confidence;
             max_state.proof1 = min_state.proof0.clone();
         }
     } else {
-        if min_state.bare_state.confidence1 > max_state.bare_state.confidence1 {
-            max_state.bare_state.confidence1 = min_state.bare_state.confidence1;
+        if min_state.bare_state.secondary_confidence > max_state.bare_state.secondary_confidence {
+            max_state.bare_state.secondary_confidence = min_state.bare_state.secondary_confidence;
             max_state.proof1 = min_state.proof1.clone();
         }
     }
@@ -384,8 +384,8 @@ mod tests {
 
     fn check_state_proofs(state: &State) {
         // TODO: Check signature
-        assert_eq!(state.bare_state.confidence0 == 0, state.proof0 == None);
-        assert_eq!(state.bare_state.confidence1 == 0, state.proof1 == None);
+        assert_eq!(state.bare_state.primary_confidence == 0, state.proof0 == None);
+        assert_eq!(state.bare_state.secondary_confidence == 0, state.proof1 == None);
     }
 
     fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
@@ -436,20 +436,20 @@ mod tests {
         nightshade_all_sync(10, 5);
     }
 
-    fn bare_state(confidence0: i64, endorses: AuthorityId, confidence1: i64) -> BareState {
+    fn bare_state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> BareState {
         BareState {
-            confidence0,
+            primary_confidence,
             endorses: BlockHeader {
                 author: endorses,
                 hash: 0,
             },
-            confidence1,
+            secondary_confidence,
         }
     }
 
-    fn state(confidence0: i64, endorses: AuthorityId, confidence1: i64) -> State {
+    fn state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> State {
         State {
-            bare_state: bare_state(confidence0, endorses, confidence1),
+            bare_state: bare_state(primary_confidence, endorses, secondary_confidence),
             proof0: None,
             proof1: None,
         }
@@ -510,7 +510,7 @@ mod tests {
             // endorse outcome 1. After update from authority 3, there are 3 authorities endorsing 1
             // with triplet (0, 1, 0) so confidence must be 1.
             assert_eq!(state2.endorses().author, 2);
-            assert_eq!(state2.bare_state.confidence0, i as i64);
+            assert_eq!(state2.bare_state.primary_confidence, i as i64);
         }
     }
 
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn correct_confidence1() {
+    fn correct_secondary_confidence() {
         // If we are at the state (4, B, 4)
         // and get update (5, A, 3)
         // the next state must be (5, A, 4)
