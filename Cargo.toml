@@ -20,7 +20,7 @@ members = [
     "core/primitives",
     "core/storage",
     "core/txflow",
-    "core/nightshadev2",
+    "core/nightshade",
     "core/wasm",
     "core/wasm/runtest",
     "node/beacon",
