@@ -11,7 +11,12 @@ use futures::Stream;
 use futures::sync::mpsc;
 use futures::try_ready;
 use log::{error, info};
+use serde::Serialize;
 use tokio::timer::Delay;
+
+use primitives::hash::CryptoHash;
+use primitives::hash::hash_struct;
+use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
 
 use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, NSSignature, State};
 
@@ -20,14 +25,14 @@ pub enum Control {
     Stop,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Message {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub state: State,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum GossipBody<P> {
     NightshadeStateUpdate(Message),
     PayloadRequest(Vec<AuthorityId>),
@@ -39,15 +44,35 @@ pub struct Gossip<P> {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub body: GossipBody<P>,
+    signature: Signature,
 }
 
-impl<P> Gossip<P> {
-    fn verify(&self) -> bool {
-        true
+impl<P: Serialize> Gossip<P> {
+    fn new(sender_id: AuthorityId,
+           receiver_id: AuthorityId,
+           body: GossipBody<P>,
+           sk: &SecretKey,
+    ) -> Self {
+        let hash = hash_struct(&(sender_id, receiver_id, &body));
+
+        Self {
+            sender_id,
+            receiver_id,
+            body,
+            signature: sign(hash.as_ref(), &sk),
+        }
+    }
+
+    fn get_hash(&self) -> CryptoHash {
+        hash_struct(&(self.sender_id, self.receiver_id, &self.body))
+    }
+
+    fn verify(&self, pk: &PublicKey) -> bool {
+        verify(self.get_hash().as_ref(), &self.signature, &pk)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SignedBlock<P> {
     signature: NSSignature,
     block: Block<P>,
@@ -79,6 +104,8 @@ pub struct NightshadeTask<P> {
     /// from other authority to have its block.
     authority_blocks: Vec<Option<SignedBlock<P>>>,
     nightshade: Option<Nightshade>,
+    public_keys: Vec<PublicKey>,
+    owner_secret_key: SecretKey,
     /// Channel to receive state updates from other authorities.
     state_receiver: mpsc::Receiver<Gossip<P>>,
     /// Channel to send state updates to other authorities
@@ -96,11 +123,13 @@ pub struct NightshadeTask<P> {
     cooldown_delay: Option<Delay>,
 }
 
-impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
+impl<P: Send + Hash + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     pub fn new(
         owner_id: AuthorityId,
         num_authorities: usize,
         payload: P,
+        public_keys: Vec<PublicKey>,
+        owner_secret_key: SecretKey,
         state_receiver: mpsc::Receiver<Gossip<P>>,
         state_sender: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control>,
@@ -113,6 +142,8 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
             num_authorities,
             authority_blocks: authority_payloads,
             nightshade: None,
+            public_keys,
+            owner_secret_key,
             state_receiver,
             state_sender,
             control_receiver,
@@ -143,11 +174,11 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
     }
 
     fn send_state(&self, message: Message) {
-        self.send_gossip(Gossip {
-            sender_id: self.owner_id,
-            receiver_id: message.receiver_id,
-            body: GossipBody::NightshadeStateUpdate(message),
-        });
+        self.send_gossip(Gossip::new(
+            self.owner_id,
+            message.receiver_id,
+            GossipBody::NightshadeStateUpdate(message),
+            &self.owner_secret_key));
     }
 
     fn send_gossip(&self, message: Gossip<P>) {
@@ -176,17 +207,19 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
         } else {
             // TODO: This message is discarded if we haven't receive the payload yet. We can store it
             // in a queue instead, and process it after we have the payload.
-            let gossip = Gossip {
-                sender_id: self.owner_id,
-                receiver_id: author,
-                body: GossipBody::PayloadRequest(vec!(author)),
-            };
+
+            let gossip = Gossip::new(
+                self.owner_id,
+                author,
+                GossipBody::PayloadRequest(vec!(author)),
+                &self.owner_secret_key,
+            );
             self.send_gossip(gossip);
         }
     }
 
     fn process_gossip(&mut self, gossip: Gossip<P>) {
-        if !gossip.verify() {
+        if !gossip.verify(&self.public_keys[gossip.sender_id]) {
             return;
         }
 
@@ -204,11 +237,12 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
                 payloads.push(p.clone());
             }
         }
-        let gossip = Gossip {
-            sender_id: self.owner_id,
+        let gossip = Gossip::new(
+            self.owner_id,
             receiver_id,
-            body: (GossipBody::PayloadReply(payloads)),
-        };
+            GossipBody::PayloadReply(payloads),
+            &self.owner_secret_key,
+        );
         self.send_gossip(gossip);
     }
 
@@ -254,18 +288,19 @@ impl<P: Send + Hash + Debug + Clone + 'static> NightshadeTask<P> {
     fn collect_missing_payloads(&self) {
         for authority in 0..self.num_authorities {
             if self.authority_blocks[authority].is_none() {
-                let gossip = Gossip {
-                    sender_id: self.owner_id,
-                    receiver_id: authority,
-                    body: GossipBody::PayloadRequest(vec!(authority)),
-                };
+                let gossip = Gossip::new(
+                    self.owner_id,
+                    authority,
+                    GossipBody::PayloadRequest(vec!(authority)),
+                    &self.owner_secret_key,
+                );
                 self.send_gossip(gossip);
             }
         }
     }
 }
 
-impl<P: Hash + Send + Debug + Clone + 'static> Stream for NightshadeTask<P> {
+impl<P: Hash + Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P> {
     type Item = ();
     type Error = ();
 

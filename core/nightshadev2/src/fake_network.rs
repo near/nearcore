@@ -6,9 +6,11 @@ use futures::sync::mpsc;
 use log::error;
 use tokio::timer::Delay;
 
+use primitives::signature::get_key_pair;
+
 use super::nightshade_task::{Control, NightshadeTask};
 
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Hash, Debug, Serialize)]
 struct DummyPayload {
     dummy: u64,
 }
@@ -19,6 +21,15 @@ fn spawn_all(num_authorities: usize) {
         let mut inc_gossips_tx_vec = vec![];
         let mut out_gossips_rx_vec = vec![];
         let mut consensus_rx_vec = vec![];
+
+        let mut public_keys = vec![];
+        let mut secret_keys = vec![];
+
+        for _ in 0..num_authorities {
+            let (pk, sk) = get_key_pair();
+            public_keys.push(pk);
+            secret_keys.push(sk);
+        }
 
         for owner_id in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
@@ -31,12 +42,14 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let payload = DummyPayload {dummy : owner_id as u64};
+            let payload = DummyPayload { dummy: owner_id as u64 };
 
             let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
                 owner_id,
                 num_authorities,
                 payload,
+                public_keys.clone(),
+                secret_keys[owner_id].clone(),
                 inc_gossips_rx,
                 out_gossips_tx,
                 control_rx,
@@ -84,8 +97,9 @@ fn spawn_all(num_authorities: usize) {
             .map(|v| {
                 let mut general_outcome = None;
 
-                for (outcome, _) in v.iter() {
+                for (a, (outcome, _)) in v.iter().enumerate() {
                     let outcome = outcome.clone().expect("Authority not committed");
+                    println!("Authority {:?} committed to {:?}", a, outcome);
 
                     if let Some(cur_outcome) = general_outcome.clone() {
                         if outcome != cur_outcome {
