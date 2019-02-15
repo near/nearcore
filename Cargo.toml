@@ -17,6 +17,7 @@ protos-autogen = { path = "./protos/builder" }
 [workspace]
 members = [
     "core/chain",
+    "core/mempool",
     "core/primitives",
     "core/storage",
     "core/txflow",

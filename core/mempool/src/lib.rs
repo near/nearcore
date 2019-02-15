@@ -4,8 +4,8 @@ use parking_lot::RwLock;
 use tokio::sync::mpsc::{Sender, Receiver};
 use futures::{Future, Stream};
 use log::error;
-use transaction::SignedTransaction;
-use crate::types::{ReceiptBlock, ChainPayload, SignedShardBlock};
+use primitives::transaction::SignedTransaction;
+use primitives::chain::{ReceiptBlock, ChainPayload, SignedShardBlock};
 
 /// mempool that stores transactions and receipts for a chain
 #[derive(Default)]
@@ -81,7 +81,7 @@ mod tests {
     use super::*;
     use primitives::hash::CryptoHash;
     use primitives::signature::DEFAULT_SIGNATURE;
-    use transaction::{TransactionBody, SendMoneyTransaction};
+    use primitives::transaction::{TransactionBody, SendMoneyTransaction};
 
     #[test]
     fn test_import_block() {
