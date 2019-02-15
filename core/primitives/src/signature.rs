@@ -4,6 +4,7 @@ use bs58;
 use crate::hash;
 use std::fmt;
 
+use crate::types::ReadablePublicKey;
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
@@ -56,6 +57,10 @@ impl PublicKey {
         array.copy_from_slice(bytes_arr);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
         PublicKey(public_key)
+    }
+
+    pub fn to_readable(&self) -> ReadablePublicKey {
+        ReadablePublicKey(self.to_string())
     }
 }
 
@@ -219,24 +224,23 @@ pub mod bs58_signature_format {
 
 pub mod bs58_serializer {
     use serde::{Deserialize, Deserializer, Serializer};
+    use crate::traits::Base58Encoded;
 
-    pub fn serialize<T, S>(t: T, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
         where
-            Vec<u8>: From<T>,
+            T: Base58Encoded,
             S: Serializer,
     {
-        let bytes = Vec::<u8>::from(t);
-        serializer.serialize_str(&bs58::encode(bytes).into_string())
+        serializer.serialize_str(&t.to_base58())
     }
 
     pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
         where
-            T: From<Vec<u8>>,
+            T: Base58Encoded,
             D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let bytes = bs58::decode(s).into_vec().expect("Failed to convert from base58");
-        Ok(T::from(bytes))
+        Ok(T::from_base58(&s).unwrap())
     }
 }
 

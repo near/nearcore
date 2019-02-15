@@ -64,10 +64,10 @@ pub fn staking(
     sender: &mut Account,
     authority_proposals: &mut Vec<AuthorityStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if sender.amount >= body.amount && sender.public_keys.is_empty() {
+    if sender.amount >= body.amount && !sender.bls_public_key.is_empty() {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
-            public_key: sender.public_keys[0],
+            public_key: sender.bls_public_key.clone(),
             amount: body.amount,
         });
         sender.amount -= body.amount;

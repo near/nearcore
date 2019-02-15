@@ -1,3 +1,5 @@
+use primitives::aggregate_signature::BlsPublicKey;
+use primitives::traits::Base58Encoded;
 use primitives::types::AuthorityStake;
 
 use crate::chain_spec::ChainSpec;
@@ -18,7 +20,7 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
         .iter()
         .map(|(account_id, key, amount)| AuthorityStake {
             account_id: account_id.clone(),
-            public_key: key.into(),
+            public_key: BlsPublicKey::from_base58(&key.0).unwrap(),
             amount: *amount,
         })
         .collect();

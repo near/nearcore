@@ -303,9 +303,9 @@ impl Authority {
 mod test {
     use std::sync::Arc;
 
+    use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
     use primitives::hash::CryptoHash;
-    use primitives::signature::get_key_pair;
     use storage::test_utils::MemoryStorage;
 
     use super::*;
@@ -318,7 +318,7 @@ mod test {
     ) -> AuthorityConfig {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
-            let (public_key, _) = get_key_pair();
+            let public_key = BlsSecretKey::generate().get_public_key();
             initial_authorities.push(AuthorityStake {
                 account_id: i.to_string(),
                 public_key,
