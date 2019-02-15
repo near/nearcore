@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 
 use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
-use futures::stream::StreamFuture;
 use futures::sync::mpsc;
 use log::error;
 use tokio::timer::Delay;
@@ -102,11 +101,7 @@ fn spawn_all(num_authorities: usize) {
         result
     });
 
-    let mut rt = tokio::runtime::current_thread::Runtime::new().unwrap();
-
-    let res = rt.block_on(fake_network);
-
-    assert_eq!(res.is_ok(), true);
+    tokio::run(fake_network);
 }
 
 #[cfg(test)]
