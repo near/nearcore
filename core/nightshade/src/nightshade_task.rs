@@ -17,7 +17,9 @@ use primitives::hash::CryptoHash;
 use primitives::hash::hash_struct;
 use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
 
-use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, NSSignature, State};
+use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
+
+const COOLDOWN_MS: u64 = 50;
 
 pub enum Control {
     Reset,
@@ -73,27 +75,27 @@ impl<P: Serialize> Gossip<P> {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SignedBlock<P> {
-    signature: NSSignature,
     block: Block<P>,
+    signature: Signature,
 }
 
 impl<P: Serialize> SignedBlock<P> {
-    fn new(author: AuthorityId, payload: P) -> Self {
+    fn new(author: AuthorityId, payload: P, secret_key: &SecretKey) -> Self {
+        let block = Block::new(author, payload);
+        let signature = sign(block.header.hash.as_ref(), &secret_key);
+
         Self {
-            // TODO: Implement signature
-            signature: 0,
-            block: Block::new(author, payload),
+            block,
+            signature,
         }
     }
 }
 
 impl<P: Serialize> SignedBlock<P> {
-    fn verify(&self) -> bool {
-        true
+    fn verify(&self, public_key: &PublicKey) -> bool {
+        verify(self.block.header.hash.as_ref(), &self.signature, &public_key)
     }
 }
-
-const COOLDOWN_MS: u64 = 50;
 
 pub struct NightshadeTask<P> {
     owner_id: AuthorityId,
@@ -135,7 +137,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
         let mut authority_payloads = vec![None; num_authorities];
-        authority_payloads[owner_id] = Some(SignedBlock::new(owner_id, payload));
+        authority_payloads[owner_id] = Some(SignedBlock::new(owner_id, payload, &owner_secret_key));
         Self {
             owner_id,
             num_authorities,
@@ -247,12 +249,13 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
 
     fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlock<P>>) {
         for signed_payload in payloads {
-            if !signed_payload.verify() {
+            let authority_id = signed_payload.block.author();
+
+            // If the signed block is not properly signed by its author, we mark the sender as adversary.
+            if !signed_payload.verify(&self.public_keys[authority_id]) {
                 self.nightshade_as_mut_ref().set_adversary(sender_id);
                 continue;
             }
-
-            let authority_id = signed_payload.block.author();
 
             if let Some(ref p) = self.authority_blocks[authority_id] {
                 if p.block.hash() != signed_payload.block.hash() {

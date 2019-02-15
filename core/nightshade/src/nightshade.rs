@@ -60,7 +60,7 @@ pub struct BlockHeader {
     /// Authority proposing the block.
     pub author: AuthorityId,
     /// Hash of the payload contained in the block.
-    hash: CryptoHash,
+    pub hash: CryptoHash,
 }
 
 
