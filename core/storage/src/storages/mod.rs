@@ -9,6 +9,7 @@ use std::io;
 use std::sync::Arc;
 
 pub mod beacon;
+pub mod shard;
 
 type StorageResult<T> = io::Result<Option<T>>;
 
@@ -38,11 +39,37 @@ impl From<u32> for ChainId {
     }
 }
 
-/// Column that stores the mapping: genesis_hash -> best_block_hash.
+// Columns that are used both by beacon and shard chain.
+/// Column that stores the mapping: genesis hash -> best block hash.
 const COL_BEST_BLOCK: u32 = 0;
+/// Column that stores the mapping: header hash -> header.
 const COL_HEADERS: u32 = 1;
+/// Column that stores the mapping: block header hash -> block.
 const COL_BLOCKS: u32 = 2;
+/// Column that stores the indices of the current chain through the mapping: block index -> header
+/// hash.
 const COL_BLOCK_INDICES: u32 = 3;
+
+// Columns that are used by the shard chain only.
+const COL_STATE: u32 = 4;
+const COL_TRANSACTION_RESULTS: u32 = 5;
+const COL_TRANSACTION_ADDRESSES: u32 = 6;
+
+/// Number of columns per chain.
+const NUM_COLS: u32 = 7;
+
+/// Pairing function to map chain id and column id to integer in such way that if we later add more
+/// columns or chains (shards) the old storage be compatible with the new code -- it will map to the
+/// same columns and chains in the new code.
+fn pairing(chain_id: u32, col: u32) -> u32 {
+    (chain_id + col) * (chain_id + col + 1) / 2 + col
+}
+
+/// Total number of columns that are required by all shards chains and the beacon chain.
+pub fn total_columns(max_shard_id: u32) -> u32 {
+    let max_chain_id = max_shard_id + 1;
+    pairing(max_chain_id, NUM_COLS - 1) + 1
+}
 
 pub struct BlockChainStorage<SignedHeader, SignedBlock> {
     chain_id: ChainId,
@@ -58,11 +85,13 @@ pub struct BlockChainStorage<SignedHeader, SignedBlock> {
 /// Specific block chain storages like beacon chain storage and shard chain storage should implement
 /// this trait to allow them to be used in specific beacon chain and shard chain. Rust way of doing
 /// polymorphism.
-pub trait StorageContainer {
+pub trait GenericStorage {
+    type SignedHeader;
+    type SignedBlock;
     /// Returns reference to the internal generic BlockChain storage.
-    fn blockchain_storage_mut<SignedHeader, SignedBlock>(
+    fn blockchain_storage_mut(
         &mut self,
-    ) -> &mut BlockChainStorage<SignedHeader, SignedBlock>;
+    ) -> &mut BlockChainStorage<Self::SignedHeader, Self::SignedBlock>;
 }
 
 impl<SignedHeader, SignedBlock> BlockChainStorage<SignedHeader, SignedBlock>
@@ -77,7 +106,7 @@ where
         // later add more columns or chains (shards) the old storage be compatible with the new
         // code -- it will map to the same columns and chains in the new code.
         let id: u32 = self.chain_id.clone().into();
-        (id + col) * (id + col + 1) / 2 + col
+        pairing(id, col)
     }
 
     pub fn new(storage: Arc<Storage>, chain_id: ChainId, genesis_hash: CryptoHash) -> Self {

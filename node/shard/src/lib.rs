@@ -26,6 +26,7 @@ use primitives::transaction::{
     TransactionLogs, TransactionResult, TransactionStatus,
     ReceiptTransaction
 };
+use primitives::transaction::TransactionAddress;
 
 type H264 = [u8; 33];
 
@@ -43,15 +44,6 @@ fn with_index(hash: &CryptoHash, i: ExtrasIndex) -> H264 {
     result[0] = i as u8;
     result[1..].clone_from_slice(hash.as_ref());
     result
-}
-
-/// Represents address of certain transaction within block
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TransactionAddress {
-    /// Block hash
-    pub block_hash: CryptoHash,
-    /// Transaction index within the block
-    pub index: usize
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
