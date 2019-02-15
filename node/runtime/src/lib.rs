@@ -746,8 +746,15 @@ impl Runtime {
     }
 
     fn print_log(log: &[LogEntry]) {
+        if log.is_empty() {
+            return;
+        }
         let log_str = log.iter().fold(String::new(), |acc, s| {
-            acc + "\n" + s
+            if acc.is_empty() {
+                s.to_string()
+            } else {
+                acc + "\n" + s
+            }
         });
         debug!(target: "runtime", "{}", log_str);
     }
