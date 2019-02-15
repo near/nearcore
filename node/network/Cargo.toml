@@ -28,7 +28,6 @@ primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 shard = { path = "../shard" }
 storage = { path = "../../core/storage", features=["test-utils"] }
-transaction = { path = "../../core/transaction" }
 
 [features]
 test-utils = []

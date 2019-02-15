@@ -2,14 +2,17 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use crate::aggregate_signature::{BlsAggregateSignature, BlsSignature};
+use crate::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature};
 use crate::hash::CryptoHash;
-use crate::signature::{bs58_serializer, PublicKey, Signature};
+use crate::signature::{bs58_serializer, Signature};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
 /// Public key alias. Used to human readable public key.
-pub type ReadablePublicKey = String;
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ReadablePublicKey(pub String);
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ReadableBlsPublicKey(pub String);
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
 // TODO: Separate cryptographic hash from the hashmap hash.
@@ -32,12 +35,6 @@ pub type Gas = u64;
 pub type BlockIndex = u64;
 
 pub type ShardId = u32;
-
-impl<'a> From<&'a ReadablePublicKey> for PublicKey {
-    fn from(alias: &ReadablePublicKey) -> Self {
-        PublicKey::from(alias)
-    }
-}
 
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
@@ -69,6 +66,23 @@ impl GroupSignature {
 
     pub fn authority_count(&self) -> usize {
         self.authority_mask.iter().filter(|&x| *x).count()
+    }
+
+    pub fn verify(&self, keys: &Vec<BlsPublicKey>, message: &[u8]) -> bool {
+        if keys.len() < self.authority_mask.len() {
+            return false;
+        }
+        // Empty signature + empty public key would pass verification
+        if self.authority_count() == 0 {
+            return false;
+        }
+        let mut group_key = BlsAggregatePublicKey::new();
+        for (index, key) in keys.iter().enumerate() {
+            if let Some(true) = self.authority_mask.get(index) {
+                group_key.aggregate(&key);
+            }
+        }
+        group_key.get_key().verify(message, &self.signature)
     }
 }
 
@@ -239,7 +253,8 @@ pub struct AuthorityStake {
     /// Account that stakes money.
     pub account_id: AccountId,
     /// Public key of the proposed authority.
-    pub public_key: PublicKey,
+    #[serde(with = "bs58_serializer")]
+    pub public_key: BlsPublicKey,
     /// Stake / weight of the authority.
     pub amount: u64,
 }

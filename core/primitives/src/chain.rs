@@ -1,13 +1,11 @@
-use crate::{SignedBlock, SignedHeader};
-use primitives::hash::{CryptoHash, hash_struct};
-use primitives::types::{
-    GroupSignature, MerkleHash, PartialSignature, ShardId,
-};
-use primitives::traits::Payload;
-use primitives::merkle::MerklePath;
-use transaction::{ReceiptTransaction, SignedTransaction};
+use super::block_traits::{SignedBlock, SignedHeader};
+use super::hash::{hash_struct, CryptoHash};
+use super::merkle::MerklePath;
+use super::traits::Payload;
+use super::transaction::{ReceiptTransaction, SignedTransaction};
+use super::types::{GroupSignature, MerkleHash, PartialSignature, ShardId};
+use serde_derive::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
-use serde_derive::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -50,13 +48,13 @@ pub struct ReceiptBlock {
 impl PartialEq for ReceiptBlock {
     fn eq(&self, other: &ReceiptBlock) -> bool {
         self.header.hash == other.header.hash
-        && self.path == other.path
-        && self.receipts == other.receipts
+            && self.path == other.path
+            && self.receipts == other.receipts
     }
 }
 
 impl Hash for ReceiptBlock {
-    fn hash<H: Hasher>(&self, state: &mut H) { 
+    fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(hash_struct(&self).as_ref());
     }
 }
@@ -95,11 +93,7 @@ impl SignedShardBlock {
         };
         let hash = hash_struct(&header);
         SignedShardBlock {
-            body: ShardBlock {
-                header,
-                transactions,
-                receipts,
-            },
+            body: ShardBlock { header, transactions, receipts },
             hash,
             signature: GroupSignature::default(),
         }
@@ -107,7 +101,13 @@ impl SignedShardBlock {
 
     pub fn genesis(merkle_root_state: MerkleHash) -> SignedShardBlock {
         SignedShardBlock::new(
-            0, 0, CryptoHash::default(), merkle_root_state, vec![], vec![], CryptoHash::default()
+            0,
+            0,
+            CryptoHash::default(),
+            merkle_root_state,
+            vec![],
+            vec![],
+            CryptoHash::default(),
         )
     }
 
@@ -173,9 +173,6 @@ impl Payload for ChainPayload {
     }
 
     fn new() -> Self {
-        Self {
-            transactions: vec![],
-            receipts: vec![],
-        }
+        Self { transactions: vec![], receipts: vec![] }
     }
 }

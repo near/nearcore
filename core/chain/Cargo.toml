@@ -15,4 +15,3 @@ tokio = "0.1"
 near-protos = { path = "../protos" }
 primitives = { path = "../primitives" }
 storage = { path = "../storage" }
-transaction = { path = "../transaction" }

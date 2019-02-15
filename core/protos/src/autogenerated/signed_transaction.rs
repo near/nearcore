@@ -1728,6 +1728,486 @@ impl ::protobuf::reflect::ProtobufValue for SwapKeyTransaction {
 }
 
 #[derive(PartialEq,Clone,Default)]
+pub struct AddKeyTransaction {
+    // message fields
+    pub nonce: u64,
+    pub originator: ::std::string::String,
+    pub new_key: ::std::vec::Vec<u8>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl AddKeyTransaction {
+    pub fn new() -> AddKeyTransaction {
+        ::std::default::Default::default()
+    }
+
+    // uint64 nonce = 1;
+
+    pub fn clear_nonce(&mut self) {
+        self.nonce = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_nonce(&mut self, v: u64) {
+        self.nonce = v;
+    }
+
+    pub fn get_nonce(&self) -> u64 {
+        self.nonce
+    }
+
+    // string originator = 2;
+
+    pub fn clear_originator(&mut self) {
+        self.originator.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_originator(&mut self, v: ::std::string::String) {
+        self.originator = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_originator(&mut self) -> &mut ::std::string::String {
+        &mut self.originator
+    }
+
+    // Take field
+    pub fn take_originator(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.originator, ::std::string::String::new())
+    }
+
+    pub fn get_originator(&self) -> &str {
+        &self.originator
+    }
+
+    // bytes new_key = 3;
+
+    pub fn clear_new_key(&mut self) {
+        self.new_key.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_new_key(&mut self, v: ::std::vec::Vec<u8>) {
+        self.new_key = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_new_key(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.new_key
+    }
+
+    // Take field
+    pub fn take_new_key(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.new_key, ::std::vec::Vec::new())
+    }
+
+    pub fn get_new_key(&self) -> &[u8] {
+        &self.new_key
+    }
+}
+
+impl ::protobuf::Message for AddKeyTransaction {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.nonce = tmp;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.originator)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.new_key)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if self.nonce != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.nonce, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.originator.is_empty() {
+            my_size += ::protobuf::rt::string_size(2, &self.originator);
+        }
+        if !self.new_key.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.new_key);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if self.nonce != 0 {
+            os.write_uint64(1, self.nonce)?;
+        }
+        if !self.originator.is_empty() {
+            os.write_string(2, &self.originator)?;
+        }
+        if !self.new_key.is_empty() {
+            os.write_bytes(3, &self.new_key)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> AddKeyTransaction {
+        AddKeyTransaction::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "nonce",
+                    |m: &AddKeyTransaction| { &m.nonce },
+                    |m: &mut AddKeyTransaction| { &mut m.nonce },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "originator",
+                    |m: &AddKeyTransaction| { &m.originator },
+                    |m: &mut AddKeyTransaction| { &mut m.originator },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "new_key",
+                    |m: &AddKeyTransaction| { &m.new_key },
+                    |m: &mut AddKeyTransaction| { &mut m.new_key },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<AddKeyTransaction>(
+                    "AddKeyTransaction",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static AddKeyTransaction {
+        static mut instance: ::protobuf::lazy::Lazy<AddKeyTransaction> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const AddKeyTransaction,
+        };
+        unsafe {
+            instance.get(AddKeyTransaction::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for AddKeyTransaction {
+    fn clear(&mut self) {
+        self.clear_nonce();
+        self.clear_originator();
+        self.clear_new_key();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for AddKeyTransaction {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for AddKeyTransaction {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct DeleteKeyTransaction {
+    // message fields
+    pub nonce: u64,
+    pub originator: ::std::string::String,
+    pub cur_key: ::std::vec::Vec<u8>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl DeleteKeyTransaction {
+    pub fn new() -> DeleteKeyTransaction {
+        ::std::default::Default::default()
+    }
+
+    // uint64 nonce = 1;
+
+    pub fn clear_nonce(&mut self) {
+        self.nonce = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_nonce(&mut self, v: u64) {
+        self.nonce = v;
+    }
+
+    pub fn get_nonce(&self) -> u64 {
+        self.nonce
+    }
+
+    // string originator = 2;
+
+    pub fn clear_originator(&mut self) {
+        self.originator.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_originator(&mut self, v: ::std::string::String) {
+        self.originator = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_originator(&mut self) -> &mut ::std::string::String {
+        &mut self.originator
+    }
+
+    // Take field
+    pub fn take_originator(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.originator, ::std::string::String::new())
+    }
+
+    pub fn get_originator(&self) -> &str {
+        &self.originator
+    }
+
+    // bytes cur_key = 3;
+
+    pub fn clear_cur_key(&mut self) {
+        self.cur_key.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cur_key(&mut self, v: ::std::vec::Vec<u8>) {
+        self.cur_key = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_cur_key(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.cur_key
+    }
+
+    // Take field
+    pub fn take_cur_key(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.cur_key, ::std::vec::Vec::new())
+    }
+
+    pub fn get_cur_key(&self) -> &[u8] {
+        &self.cur_key
+    }
+}
+
+impl ::protobuf::Message for DeleteKeyTransaction {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.nonce = tmp;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.originator)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.cur_key)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if self.nonce != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.nonce, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.originator.is_empty() {
+            my_size += ::protobuf::rt::string_size(2, &self.originator);
+        }
+        if !self.cur_key.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.cur_key);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if self.nonce != 0 {
+            os.write_uint64(1, self.nonce)?;
+        }
+        if !self.originator.is_empty() {
+            os.write_string(2, &self.originator)?;
+        }
+        if !self.cur_key.is_empty() {
+            os.write_bytes(3, &self.cur_key)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> DeleteKeyTransaction {
+        DeleteKeyTransaction::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "nonce",
+                    |m: &DeleteKeyTransaction| { &m.nonce },
+                    |m: &mut DeleteKeyTransaction| { &mut m.nonce },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "originator",
+                    |m: &DeleteKeyTransaction| { &m.originator },
+                    |m: &mut DeleteKeyTransaction| { &mut m.originator },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "cur_key",
+                    |m: &DeleteKeyTransaction| { &m.cur_key },
+                    |m: &mut DeleteKeyTransaction| { &mut m.cur_key },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<DeleteKeyTransaction>(
+                    "DeleteKeyTransaction",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static DeleteKeyTransaction {
+        static mut instance: ::protobuf::lazy::Lazy<DeleteKeyTransaction> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const DeleteKeyTransaction,
+        };
+        unsafe {
+            instance.get(DeleteKeyTransaction::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for DeleteKeyTransaction {
+    fn clear(&mut self) {
+        self.clear_nonce();
+        self.clear_originator();
+        self.clear_cur_key();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for DeleteKeyTransaction {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DeleteKeyTransaction {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
 pub struct SignedTransaction {
     // message fields
     pub signature: ::std::vec::Vec<u8>,
@@ -1746,6 +2226,8 @@ pub enum SignedTransaction_oneof_body {
     send_money(SendMoneyTransaction),
     stake(StakeTransaction),
     swap_key(SwapKeyTransaction),
+    add_key(AddKeyTransaction),
+    delete_key(DeleteKeyTransaction),
 }
 
 impl SignedTransaction {
@@ -2072,6 +2554,104 @@ impl SignedTransaction {
             _ => SwapKeyTransaction::default_instance(),
         }
     }
+
+    // .AddKeyTransaction add_key = 8;
+
+    pub fn clear_add_key(&mut self) {
+        self.body = ::std::option::Option::None;
+    }
+
+    pub fn has_add_key(&self) -> bool {
+        match self.body {
+            ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_add_key(&mut self, v: AddKeyTransaction) {
+        self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_add_key(&mut self) -> &mut AddKeyTransaction {
+        if let ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(_)) = self.body {
+        } else {
+            self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(AddKeyTransaction::new()));
+        }
+        match self.body {
+            ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_add_key(&mut self) -> AddKeyTransaction {
+        if self.has_add_key() {
+            match self.body.take() {
+                ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            AddKeyTransaction::new()
+        }
+    }
+
+    pub fn get_add_key(&self) -> &AddKeyTransaction {
+        match self.body {
+            ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(ref v)) => v,
+            _ => AddKeyTransaction::default_instance(),
+        }
+    }
+
+    // .DeleteKeyTransaction delete_key = 9;
+
+    pub fn clear_delete_key(&mut self) {
+        self.body = ::std::option::Option::None;
+    }
+
+    pub fn has_delete_key(&self) -> bool {
+        match self.body {
+            ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_delete_key(&mut self, v: DeleteKeyTransaction) {
+        self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_delete_key(&mut self) -> &mut DeleteKeyTransaction {
+        if let ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(_)) = self.body {
+        } else {
+            self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(DeleteKeyTransaction::new()));
+        }
+        match self.body {
+            ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_delete_key(&mut self) -> DeleteKeyTransaction {
+        if self.has_delete_key() {
+            match self.body.take() {
+                ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            DeleteKeyTransaction::new()
+        }
+    }
+
+    pub fn get_delete_key(&self) -> &DeleteKeyTransaction {
+        match self.body {
+            ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(ref v)) => v,
+            _ => DeleteKeyTransaction::default_instance(),
+        }
+    }
 }
 
 impl ::protobuf::Message for SignedTransaction {
@@ -2102,6 +2682,16 @@ impl ::protobuf::Message for SignedTransaction {
             }
         }
         if let Some(SignedTransaction_oneof_body::swap_key(ref v)) = self.body {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        if let Some(SignedTransaction_oneof_body::add_key(ref v)) = self.body {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        if let Some(SignedTransaction_oneof_body::delete_key(ref v)) = self.body {
             if !v.is_initialized() {
                 return false;
             }
@@ -2152,6 +2742,18 @@ impl ::protobuf::Message for SignedTransaction {
                     }
                     self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::swap_key(is.read_message()?));
                 },
+                8 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::add_key(is.read_message()?));
+                },
+                9 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.body = ::std::option::Option::Some(SignedTransaction_oneof_body::delete_key(is.read_message()?));
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -2190,6 +2792,14 @@ impl ::protobuf::Message for SignedTransaction {
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
                 &SignedTransaction_oneof_body::swap_key(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+                &SignedTransaction_oneof_body::add_key(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+                &SignedTransaction_oneof_body::delete_key(ref v) => {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
@@ -2233,6 +2843,16 @@ impl ::protobuf::Message for SignedTransaction {
                 },
                 &SignedTransaction_oneof_body::swap_key(ref v) => {
                     os.write_tag(7, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+                &SignedTransaction_oneof_body::add_key(ref v) => {
+                    os.write_tag(8, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+                &SignedTransaction_oneof_body::delete_key(ref v) => {
+                    os.write_tag(9, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
@@ -2315,6 +2935,16 @@ impl ::protobuf::Message for SignedTransaction {
                     SignedTransaction::has_swap_key,
                     SignedTransaction::get_swap_key,
                 ));
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, AddKeyTransaction>(
+                    "add_key",
+                    SignedTransaction::has_add_key,
+                    SignedTransaction::get_add_key,
+                ));
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, DeleteKeyTransaction>(
+                    "delete_key",
+                    SignedTransaction::has_delete_key,
+                    SignedTransaction::get_delete_key,
+                ));
                 ::protobuf::reflect::MessageDescriptor::new::<SignedTransaction>(
                     "SignedTransaction",
                     fields,
@@ -2344,6 +2974,8 @@ impl ::protobuf::Clear for SignedTransaction {
         self.clear_send_money();
         self.clear_stake();
         self.clear_swap_key();
+        self.clear_add_key();
+        self.clear_delete_key();
         self.unknown_fields.clear();
     }
 }
@@ -2383,16 +3015,23 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x12SwapKeyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\
     \x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_\
     key\x18\x03\x20\x01(\x0cR\x06curKey\x12\x17\n\x07new_key\x18\x04\x20\x01\
-    (\x0cR\x06newKey\"\x9a\x03\n\x11SignedTransaction\x12\x1c\n\tsignature\
-    \x18\x01\x20\x01(\x0cR\tsignature\x12B\n\x0ecreate_account\x18\x02\x20\
-    \x01(\x0b2\x19.CreateAccountTransactionH\0R\rcreateAccount\x12E\n\x0fdep\
-    loy_contract\x18\x03\x20\x01(\x0b2\x1a.DeployContractTransactionH\0R\x0e\
-    deployContract\x12?\n\rfunction_call\x18\x04\x20\x01(\x0b2\x18.FunctionC\
-    allTransactionH\0R\x0cfunctionCall\x126\n\nsend_money\x18\x05\x20\x01(\
-    \x0b2\x15.SendMoneyTransactionH\0R\tsendMoney\x12)\n\x05stake\x18\x06\
-    \x20\x01(\x0b2\x11.StakeTransactionH\0R\x05stake\x120\n\x08swap_key\x18\
-    \x07\x20\x01(\x0b2\x13.SwapKeyTransactionH\0R\x07swapKeyB\x06\n\x04bodyb\
-    \x06proto3\
+    (\x0cR\x06newKey\"b\n\x11AddKeyTransaction\x12\x14\n\x05nonce\x18\x01\
+    \x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\norigi\
+    nator\x12\x17\n\x07new_key\x18\x03\x20\x01(\x0cR\x06newKey\"e\n\x14Delet\
+    eKeyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\
+    \x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_key\
+    \x18\x03\x20\x01(\x0cR\x06curKey\"\x81\x04\n\x11SignedTransaction\x12\
+    \x1c\n\tsignature\x18\x01\x20\x01(\x0cR\tsignature\x12B\n\x0ecreate_acco\
+    unt\x18\x02\x20\x01(\x0b2\x19.CreateAccountTransactionH\0R\rcreateAccoun\
+    t\x12E\n\x0fdeploy_contract\x18\x03\x20\x01(\x0b2\x1a.DeployContractTran\
+    sactionH\0R\x0edeployContract\x12?\n\rfunction_call\x18\x04\x20\x01(\x0b\
+    2\x18.FunctionCallTransactionH\0R\x0cfunctionCall\x126\n\nsend_money\x18\
+    \x05\x20\x01(\x0b2\x15.SendMoneyTransactionH\0R\tsendMoney\x12)\n\x05sta\
+    ke\x18\x06\x20\x01(\x0b2\x11.StakeTransactionH\0R\x05stake\x120\n\x08swa\
+    p_key\x18\x07\x20\x01(\x0b2\x13.SwapKeyTransactionH\0R\x07swapKey\x12-\n\
+    \x07add_key\x18\x08\x20\x01(\x0b2\x12.AddKeyTransactionH\0R\x06addKey\
+    \x126\n\ndelete_key\x18\t\x20\x01(\x0b2\x15.DeleteKeyTransactionH\0R\tde\
+    leteKeyB\x06\n\x04bodyb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

@@ -1,18 +1,15 @@
-#[macro_use]
-extern crate serde_derive;
-
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
-use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
-use primitives::types::{
+use super::hash::{CryptoHash, hash};
+use super::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
+use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana,
     ManaAccounting, StructSignature, ShardId,
 };
-use primitives::utils::account_to_shard_id;
+use super::utils::account_to_shard_id;
 
 pub type LogEntry = String;
 
@@ -24,6 +21,8 @@ pub enum TransactionBody {
     SendMoney(SendMoneyTransaction),
     Stake(StakeTransaction),
     SwapKey(SwapKeyTransaction),
+    AddKey(AddKeyTransaction),
+    DeleteKey(DeleteKeyTransaction),
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -205,8 +204,7 @@ impl Into<transaction_proto::StakeTransaction> for StakeTransaction {
 pub struct SwapKeyTransaction {
     pub nonce: u64,
     pub originator: AccountId,
-    // current key to the account.
-    // originator must sign the transaction with this key
+    // one of the current keys to the account that will be swapped out
     pub cur_key: Vec<u8>,
     pub new_key: Vec<u8>,
 }
@@ -235,6 +233,64 @@ impl Into<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
     }
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct AddKeyTransaction {
+    pub nonce: u64,
+    pub originator: AccountId,
+    pub new_key: Vec<u8>,
+}
+
+impl From<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
+    fn from(t: transaction_proto::AddKeyTransaction) -> Self {
+        AddKeyTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            new_key: t.new_key,
+        }
+    }
+}
+
+impl Into<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
+    fn into(self) -> transaction_proto::AddKeyTransaction {
+        transaction_proto::AddKeyTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            new_key: self.new_key,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct DeleteKeyTransaction {
+    pub nonce: u64,
+    pub originator: AccountId,
+    pub cur_key: Vec<u8>,
+}
+
+impl From<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
+    fn from(t: transaction_proto::DeleteKeyTransaction) -> Self {
+        DeleteKeyTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            cur_key: t.cur_key,
+        }
+    }
+}
+
+impl Into<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
+    fn into(self) -> transaction_proto::DeleteKeyTransaction {
+        transaction_proto::DeleteKeyTransaction {
+            nonce: self.nonce,
+            originator: self.originator,
+            cur_key: self.cur_key,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 impl TransactionBody {
     pub fn get_nonce(&self) -> u64 {
         match self {
@@ -244,6 +300,8 @@ impl TransactionBody {
             TransactionBody::FunctionCall(t) => t.nonce,
             TransactionBody::CreateAccount(t) => t.nonce,
             TransactionBody::SwapKey(t) => t.nonce,
+            TransactionBody::AddKey(t) => t.nonce,
+            TransactionBody::DeleteKey(t) => t.nonce,
         }
     }
 
@@ -255,6 +313,8 @@ impl TransactionBody {
             TransactionBody::FunctionCall(t) => t.originator.clone(),
             TransactionBody::CreateAccount(t) => t.originator.clone(),
             TransactionBody::SwapKey(t) => t.originator.clone(),
+            TransactionBody::AddKey(t) => t.originator.clone(),
+            TransactionBody::DeleteKey(t) => t.originator.clone(),
         }
     }
 
@@ -267,6 +327,8 @@ impl TransactionBody {
             TransactionBody::SendMoney(t) => Some(t.receiver.clone()),
             TransactionBody::Stake(_) => None,
             TransactionBody::SwapKey(_) => None,
+            TransactionBody::AddKey(_) => None,
+            TransactionBody::DeleteKey(_) => None,
         }
     }
 
@@ -280,6 +342,8 @@ impl TransactionBody {
             TransactionBody::SendMoney(_) => 1,
             TransactionBody::Stake(_) => 1,
             TransactionBody::SwapKey(_) => 1,
+            TransactionBody::AddKey(_) => 1,
+            TransactionBody::DeleteKey(_) => 1,
         }
     }
 
@@ -309,6 +373,14 @@ impl TransactionBody {
                 let proto: transaction_proto::SwapKeyTransaction = t.into();
                 proto.write_to_bytes()
             },
+            TransactionBody::AddKey(t) => {
+                let proto: transaction_proto::AddKeyTransaction = t.into();
+                proto.write_to_bytes()
+            }
+            TransactionBody::DeleteKey(t) => {
+                let proto: transaction_proto::DeleteKeyTransaction = t.into();
+                proto.write_to_bytes()
+            }
         };
         let bytes = bytes.unwrap();
         hash(&bytes)
@@ -387,7 +459,15 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
                 bytes = t.write_to_bytes();
                 TransactionBody::SwapKey(SwapKeyTransaction::from(t))
             },
-            _ => unreachable!(),
+            Some(transaction_proto::SignedTransaction_oneof_body::add_key(t)) => {
+                bytes = t.write_to_bytes();
+                TransactionBody::AddKey(AddKeyTransaction::from(t))
+            }
+            Some(transaction_proto::SignedTransaction_oneof_body::delete_key(t)) => {
+                bytes = t.write_to_bytes();
+                TransactionBody::DeleteKey(DeleteKeyTransaction::from(t))
+            }
+            None => unreachable!()
         };
         let bytes = bytes.unwrap();
         let hash = hash(&bytes);
@@ -420,6 +500,12 @@ impl Into<transaction_proto::SignedTransaction> for SignedTransaction {
             TransactionBody::SwapKey(t) => {
                 transaction_proto::SignedTransaction_oneof_body::swap_key(t.into())
             },
+            TransactionBody::AddKey(t) => {
+                transaction_proto::SignedTransaction_oneof_body::add_key(t.into())
+            }
+            TransactionBody::DeleteKey(t) => {
+                transaction_proto::SignedTransaction_oneof_body::delete_key(t.into())
+            }
         };
         transaction_proto::SignedTransaction {
             body: Some(body),
@@ -637,7 +723,7 @@ pub fn verify_transaction_signature(
 
 #[cfg(test)]
 mod tests {
-    use primitives::signature::{get_key_pair, sign};
+    use crate::signature::{get_key_pair, sign};
 
     use super::*;
 

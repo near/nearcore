@@ -54,3 +54,6 @@ test_nearlib:
     - ./scripts/kill_devnet.sh
     after_script:
     - *cleanup_obsolete_cache
+    artifacts:
+      paths:
+      - target/release/devnet

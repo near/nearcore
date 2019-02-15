@@ -1,8 +1,11 @@
+use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
 use bs58;
 use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField, PrimeFieldRepr};
 use rand::{OsRng, Rand, Rng};
+use crate::types::ReadableBlsPublicKey;
+use crate::traits::{Base58Encoded, FromBytes, ToBytes};
 
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
@@ -84,8 +87,20 @@ impl<E: Engine> SecretKey<E> {
 }
 
 impl<E: Engine> PublicKey<E> {
+    pub fn empty() -> Self {
+        PublicKey { point: E::G1Affine::zero() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.point == E::G1Affine::zero()
+    }
+
     pub fn compress(&self) -> CompressedPublicKey<E> {
         CompressedPublicKey( self.point.into_compressed() )
+    }
+
+    pub fn to_readable(&self) -> ReadableBlsPublicKey {
+        ReadableBlsPublicKey(self.to_string())
     }
 
     pub fn verify(&self, message: &[u8], signature: &Signature<E>) -> bool {
@@ -113,6 +128,15 @@ impl<E: Engine> PublicKey<E> {
 impl<E: Engine> fmt::Display for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", bs58::encode(self.compress().as_ref()).into_string()) }
 }
+
+// Note: deriving PartialEq and Eq doesn't work
+impl<E: Engine> PartialEq for PublicKey<E> {
+    fn eq(&self, other: &PublicKey<E>) -> bool {
+        self.point == other.point
+    }
+}
+
+impl<E: Engine> Eq for PublicKey<E> {}
 
 impl<E: Engine> Signature<E> {
     pub fn compress(&self) -> CompressedSignature<E> {
@@ -143,9 +167,9 @@ impl<E: Engine> Default for Signature<E> {
     fn default() -> Self { Self::empty() }
 }
 
-impl<E: Engine> From<&SecretKey<E>> for Vec<u8> {
-    fn from(key: &SecretKey<E>) -> Self {
-        let repr = key.scalar.into_repr();
+impl<E: Engine> ToBytes for SecretKey<E> {
+    fn to_bytes(&self) -> Vec<u8> {
+        let repr = self.scalar.into_repr();
         let mut res = Vec::new();
         res.resize(repr.num_bits() as usize / 8, 0);
         let buf = Cursor::new(&mut res);
@@ -154,62 +178,85 @@ impl<E: Engine> From<&SecretKey<E>> for Vec<u8> {
     }
 }
 
-// TODO(#502): TryFrom instead of From since conversion can fail
-impl<E: Engine> From<Vec<u8>> for SecretKey<E> {
-    fn from(v: Vec<u8>) -> Self {
+impl<E: Engine> FromBytes for SecretKey<E> {
+    fn from_bytes(v: Vec<u8>) -> Result<Self, Box<Error>> {
         let mut repr : <E::Fr as PrimeField>::Repr = Default::default();
         let buf = Cursor::new(v);
-        repr.read_be(buf).unwrap();
-        let scalar = <E::Fr as PrimeField>::from_repr(repr).unwrap();
-        Self{ scalar }
+        repr.read_be(buf)?;
+        let scalar = <E::Fr as PrimeField>::from_repr(repr)?;
+        Ok(Self{ scalar })
     }
 }
 
-impl<E: Engine> From<&PublicKey<E>> for Vec<u8> {
-    fn from(key: &PublicKey<E>) -> Self {
-        Self::from(key.compress().as_ref())
+impl<E: Engine> ToBytes for PublicKey<E> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.compress().as_ref().to_vec()
     }
 }
 
-// TODO(#502): TryFrom instead of From since conversion can fail
-impl<E: Engine> From<Vec<u8>> for PublicKey<E> {
-    fn from(v: Vec<u8>) -> Self {
+#[derive(Debug)]
+pub struct LengthError(usize, usize);
+
+impl Error for LengthError {
+    fn description(&self) -> &str {
+        "encoding has incorrect length"
+    }
+}
+
+impl fmt::Display for LengthError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}, expected {}, got {}", self.description(), self.0, self.1)
+    }
+}
+
+impl<E: Engine> FromBytes for PublicKey<E> {
+    fn from_bytes(v: Vec<u8>) -> Result<Self, Box<Error>> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            panic!("invalid signature");
+            return Err(From::from(LengthError(expected, v.len())));
         }
         let mut compressed = CompressedPublicKey::empty();
         compressed.as_mut().copy_from_slice(v.as_ref());
-        compressed.decompress().unwrap()
+        Ok(compressed.decompress()?)
     }
 }
 
-impl<E: Engine> From<&Signature<E>> for Vec<u8> {
-    fn from(sig: &Signature<E>) -> Self {
-        Self::from(sig.compress().as_ref())
+impl<E: Engine> ToBytes for Signature<E> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.compress().as_ref().to_vec()
     }
 }
 
-// TODO(#502): TryFrom instead of From since conversion can fail
-impl<E: Engine> From<Vec<u8>> for Signature<E> {
-    fn from(v: Vec<u8>) -> Self {
+impl<E: Engine> FromBytes for Signature<E> {
+    fn from_bytes(v: Vec<u8>) -> Result<Self, Box<std::error::Error>> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            panic!("invalid signature");
+            return Err(From::from(LengthError(expected, v.len())));
         }
         let mut compressed = CompressedSignature::empty();
         compressed.as_mut().copy_from_slice(v.as_ref());
-        compressed.decompress().unwrap()
+        Ok(compressed.decompress()?)
     }
 }
+
+impl<E: Engine> Base58Encoded for SecretKey<E> {}
+impl<E: Engine> Base58Encoded for PublicKey<E> {}
+impl<E: Engine> Base58Encoded for Signature<E> {}
 
 impl<E: Engine> CompressedPublicKey<E> {
     fn empty() -> Self {
         CompressedPublicKey( <E::G1Affine as CurveAffine>::Compressed::empty() )
     }
 
-    fn decompress(&self) -> Result<PublicKey<E>, GroupDecodingError> {
+    pub fn decompress(&self) -> Result<PublicKey<E>, GroupDecodingError> {
         Ok(PublicKey{ point: self.0.into_affine()? })
+    }
+
+    /// Decompress a pubkey, without verifying that the resulting point is actually on the curve.
+    /// Verifying is very slow, so if we know we've already done it (for example, if we're reading
+    /// from disk a previously validated block), we can skip point verification.  Use with caution.
+    pub fn decompress_unchecked(&self) -> PublicKey<E> {
+        PublicKey{ point: self.0.into_affine_unchecked().unwrap() }
     }
 }
 
@@ -230,8 +277,15 @@ impl<E: Engine> CompressedSignature<E> {
         CompressedSignature( <E::G2Affine as CurveAffine>::Compressed::empty() )
     }
 
-    fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
+    pub fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
         Ok(Signature{ point: self.0.into_affine()? })
+    }
+
+    /// Decompress a signature, without verifying that the resulting point is actually on the curve.
+    /// Verifying is very slow, so if we know we've already done it (for example, if we're reading
+    /// from disk a previously validated block), we can skip point verification.  Use with caution.
+    pub fn decompress_unchecked(&self) -> Signature<E> {
+        Signature{ point: self.0.into_affine_unchecked().unwrap() }
     }
 }
 
