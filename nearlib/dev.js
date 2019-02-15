@@ -17,7 +17,7 @@ module.exports = {
     /**
      * @param {String} nodeUrl
      */
-    connect: async function(nodeUrl) {
+    connect: async function(nodeUrl = 'http://localhost:3030') {
         const options = {
             nodeUrl: nodeUrl
         };
@@ -32,9 +32,11 @@ module.exports = {
             options.accountId = aliceAccountName;
             options.key = aliceKey;
         }
-        const keyStore = options.deps && options.deps.keyStore ? options.deps.keyStore : new nearlib.BrowserLocalStorageKeystore();
+        const keyStore = (options.deps && options.deps.keyStore) || new nearlib.BrowserLocalStorageKeystore();
+        console.log(keyStore);
+        const nodeUrl = options.nodeUrl || this.getConfig().nodeUrl || 'http://localhost:3030';
         const nearClient = new nearlib.NearClient(
-            new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(options.nodeUrl || this.getConfig().nodeUrl));
+            new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl));
         const near = new nearlib.Near(nearClient);
         if (options.accountId) {
             keyStore.setKey(options.accountId, options.key);

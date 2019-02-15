@@ -8,13 +8,14 @@ let account;
 let keyStore;
 
 beforeAll(async () => {
-    const options = {};
-    options.nodeUrl = 'http://localhost:3030';
-    options.useAliceAccount = true;
-    keyStore =  new InMemoryKeyStore();
-    options.deps = {
-        keyStore: keyStore
+    const options = {
+        nodeUrl: 'http://localhost:3030',
+        useAliceAccount: true,
+        deps: {
+            keyStore: new InMemoryKeyStore()
+        }
     };
+    keyStore = options.deps.keyStore;
     nearjs = await dev.setupConnection(options);
     account = new Account(nearjs.nearClient);
 });
