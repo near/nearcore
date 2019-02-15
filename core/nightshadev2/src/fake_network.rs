@@ -22,14 +22,7 @@ fn spawn_all(num_authorities: usize) {
         let mut out_gossips_rx_vec = vec![];
         let mut consensus_rx_vec = vec![];
 
-        let mut public_keys = vec![];
-        let mut secret_keys = vec![];
-
-        for _ in 0..num_authorities {
-            let (pk, sk) = get_key_pair();
-            public_keys.push(pk);
-            secret_keys.push(sk);
-        }
+        let (public_keys, secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_key_pair()).unzip();
 
         for owner_id in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
