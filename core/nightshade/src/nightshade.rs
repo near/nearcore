@@ -129,18 +129,20 @@ pub struct State {
     /// Triplet that describe the state
     pub bare_state: BareState,
     /// Proof for `primary_confidence`.
-    proof0: Option<BLSProof>,
-    /// Proof for `secondary_confidence`. This is `proof0` field of the state endorsing different outcome
-    /// which has highest confidence from this authority point of view.
-    proof1: Option<BLSProof>,
+    primary_proof: Option<BLSProof>,
+    /// Triplet that works as evidence of the second highest confidence in `bare_state`.
+    secondary_bare_state: Option<BareState>,
+    /// Proof for `secondary_bare_state`.
+    secondary_proof: Option<BLSProof>,
 }
 
 impl State {
     fn new(author: AuthorityId, hash: CryptoHash) -> Self {
         Self {
             bare_state: BareState::new(author, hash),
-            proof0: None,
-            proof1: None,
+            primary_proof: None,
+            secondary_bare_state: None,
+            secondary_proof: None,
         }
     }
 
@@ -149,8 +151,9 @@ impl State {
     fn empty() -> Self {
         Self {
             bare_state: BareState::empty(),
-            proof0: None,
-            proof1: None,
+            primary_proof: None,
+            secondary_bare_state: None,
+            secondary_proof: None,
         }
     }
 
@@ -158,12 +161,13 @@ impl State {
     fn increase_confidence(&self, proof: BLSProof) -> Self {
         Self {
             bare_state: BareState {
-                endorses: self.bare_state.endorses.clone(),
                 primary_confidence: self.bare_state.primary_confidence + 1,
+                endorses: self.bare_state.endorses.clone(),
                 secondary_confidence: self.bare_state.secondary_confidence,
             },
-            proof0: Some(proof),
-            proof1: self.proof1.clone(),
+            primary_proof: Some(proof),
+            secondary_bare_state: self.secondary_bare_state.clone(),
+            secondary_proof: self.secondary_proof.clone(),
         }
     }
 
@@ -177,12 +181,8 @@ impl State {
     /// state with the same triplet before. Once it has verified that at least one authority has such
     /// triplet, it accepts all further states with the same triplet.
     fn verify(&self) -> bool {
+        // TODO: correct verification
         true
-    }
-
-    #[allow(dead_code)]
-    fn get_signature(&self) -> BLSSignature {
-        0
     }
 
     /// BlockHeader (Authority and Block) that this state is endorsing.
@@ -220,12 +220,12 @@ fn merge(state0: &State, state1: &State) -> State {
     if max_state.endorses() != min_state.endorses() {
         if min_state.bare_state.primary_confidence > max_state.bare_state.secondary_confidence {
             max_state.bare_state.secondary_confidence = min_state.bare_state.primary_confidence;
-            max_state.proof1 = min_state.proof0.clone();
+            max_state.secondary_proof = min_state.primary_proof.clone();
         }
     } else {
         if min_state.bare_state.secondary_confidence > max_state.bare_state.secondary_confidence {
             max_state.bare_state.secondary_confidence = min_state.bare_state.secondary_confidence;
-            max_state.proof1 = min_state.proof1.clone();
+            max_state.secondary_proof = min_state.secondary_proof.clone();
         }
     }
 
@@ -384,8 +384,8 @@ mod tests {
 
     fn check_state_proofs(state: &State) {
         // TODO: Check signature
-        assert_eq!(state.bare_state.primary_confidence == 0, state.proof0 == None);
-        assert_eq!(state.bare_state.secondary_confidence == 0, state.proof1 == None);
+        assert_eq!(state.bare_state.primary_confidence == 0, state.primary_proof == None);
+        assert_eq!(state.bare_state.secondary_confidence == 0, state.secondary_proof == None);
     }
 
     fn header(author: AuthorityId) -> BlockHeader {
@@ -449,8 +449,9 @@ mod tests {
     fn state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> State {
         State {
             bare_state: bare_state(primary_confidence, endorses, secondary_confidence),
-            proof0: None,
-            proof1: None,
+            primary_proof: None,
+            secondary_bare_state: None,
+            secondary_proof: None,
         }
     }
 
@@ -517,8 +518,8 @@ mod tests {
     fn malicious_detection() {
         // Note: This test will become invalid after signatures are checked properly.
         let mut ns = Nightshade::new(1, 2, header(1));
-        let s0 = State { bare_state: bare_state(1, 0, 0), proof0: None, proof1: None };
-        let s1 = State { bare_state: bare_state(1, 1, 0), proof0: None, proof1: None };
+        let s0 = State { bare_state: bare_state(1, 0, 0), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
+        let s1 = State { bare_state: bare_state(1, 1, 0), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
         ns.update_state(0, s0);
         assert_eq!(ns.is_adversary[0], false);
         ns.update_state(0, s1);
@@ -535,7 +536,7 @@ mod tests {
         ns.best_state_counter = 0;
 
         for bare_state in bare_states.iter() {
-            let state = State { bare_state: bare_state.clone(), proof0: None, proof1: None };
+            let state = State { bare_state: bare_state.clone(), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
             ns.states.push(state);
 
             if bare_state == &bare_states[owner_id] {
