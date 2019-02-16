@@ -18,6 +18,8 @@ use primitives::hash::hash_struct;
 use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
 
 use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
+use primitives::aggregate_signature::BlsPublicKey;
+use primitives::aggregate_signature::BlsSecretKey;
 
 const COOLDOWN_MS: u64 = 50;
 
@@ -35,7 +37,8 @@ pub struct Message {
 
 #[derive(Debug, Serialize)]
 pub enum GossipBody<P> {
-    NightshadeStateUpdate(Message),
+    /// Use box because large size difference between variants
+    NightshadeStateUpdate(Box<Message>),
     PayloadRequest(Vec<AuthorityId>),
     PayloadReply(Vec<SignedBlock<P>>),
 }
@@ -105,8 +108,12 @@ pub struct NightshadeTask<P> {
     /// from other authority to have its block.
     authority_blocks: Vec<Option<SignedBlock<P>>>,
     nightshade: Option<Nightshade>,
+    /// Standard public/secret keys are used to sign payloads and gossips
     public_keys: Vec<PublicKey>,
     owner_secret_key: SecretKey,
+    /// BLS public/secret keys are used to sign state and aggregate signatures for proofs
+    bls_public_keys: Vec<BlsPublicKey>,
+    bls_owner_secret_key: BlsSecretKey,
     /// Channel to receive state updates from other authorities.
     state_receiver: mpsc::Receiver<Gossip<P>>,
     /// Channel to send state updates to other authorities
@@ -131,6 +138,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         payload: P,
         public_keys: Vec<PublicKey>,
         owner_secret_key: SecretKey,
+        bls_public_keys: Vec<BlsPublicKey>,
+        bls_owner_secret_key: BlsSecretKey,
         state_receiver: mpsc::Receiver<Gossip<P>>,
         state_sender: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control>,
@@ -145,6 +154,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             nightshade: None,
             public_keys,
             owner_secret_key,
+            bls_public_keys,
+            bls_owner_secret_key,
             state_receiver,
             state_sender,
             control_receiver,
@@ -167,7 +178,10 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         self.nightshade = Some(
             Nightshade::new(self.owner_id as AuthorityId,
                             self.num_authorities as usize,
-                            self.authority_blocks[self.owner_id].clone().unwrap().block.header));
+                            self.authority_blocks[self.owner_id].clone().unwrap().block.header,
+                            self.bls_public_keys.clone(),
+                            self.bls_owner_secret_key.clone(),
+            ));
     }
 
     fn state(&self) -> State {
@@ -178,7 +192,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         self.send_gossip(Gossip::new(
             self.owner_id,
             message.receiver_id,
-            GossipBody::NightshadeStateUpdate(message),
+            GossipBody::NightshadeStateUpdate(Box::new(message)),
             &self.owner_secret_key));
     }
 
@@ -225,7 +239,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         }
 
         match gossip.body {
-            GossipBody::NightshadeStateUpdate(message) => self.process_message(message),
+            GossipBody::NightshadeStateUpdate(message) => self.process_message(*message),
             GossipBody::PayloadRequest(authorities) => self.send_payloads(gossip.sender_id, authorities),
             GossipBody::PayloadReply(payloads) => self.receive_payloads(gossip.sender_id, payloads),
         }

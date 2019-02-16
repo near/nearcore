@@ -11,10 +11,18 @@ use primitives::signature::get_key_pair;
 use crate::nightshade::BlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
+use primitives::aggregate_signature::BlsSecretKey;
+use primitives::aggregate_signature::BlsPublicKey;
 
 #[derive(Clone, Debug, Serialize)]
 struct DummyPayload {
     dummy: u64,
+}
+
+fn get_bls_key_pair() -> (BlsPublicKey, BlsSecretKey) {
+    let secret_key = BlsSecretKey::generate();
+    let public_key = secret_key.get_public_key();
+    (public_key, secret_key)
 }
 
 fn spawn_all(num_authorities: usize) {
@@ -25,6 +33,7 @@ fn spawn_all(num_authorities: usize) {
         let mut consensus_rx_vec = vec![];
 
         let (public_keys, secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_key_pair()).unzip();
+        let (bls_public_keys, bls_secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_bls_key_pair()).unzip();
 
         for owner_id in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
@@ -45,6 +54,8 @@ fn spawn_all(num_authorities: usize) {
                 payload,
                 public_keys.clone(),
                 secret_keys[owner_id].clone(),
+                bls_public_keys.clone(),
+                bls_secret_keys[owner_id].clone(),
                 inc_gossips_rx,
                 out_gossips_tx,
                 control_rx,
@@ -114,6 +125,11 @@ mod tests {
     /// One authority don't reach consensus by itself in the current implementation
     fn one_authority() {
         spawn_all(1);
+    }
+
+    #[test]
+    fn two_authorities() {
+        spawn_all(2);
     }
 
     #[test]
