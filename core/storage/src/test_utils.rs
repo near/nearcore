@@ -1,17 +1,20 @@
 use std::sync::Arc;
 
-use kvdb_memorydb::InMemory;
-
-use crate::TOTAL_COLUMNS;
+use crate::storages::beacon::BeaconChainStorage;
+use crate::storages::shard::ShardChainStorage;
+use crate::storages::total_columns;
 use crate::Trie;
 
-pub type MemoryStorage = InMemory;
-
-pub fn create_memory_db() -> MemoryStorage {
-    kvdb_memorydb::create(TOTAL_COLUMNS.unwrap())
+/// Creates one beacon storage and one shard storage using in-memory database.
+pub fn create_beacon_shard_storages() -> (Arc<BeaconChainStorage>, Arc<ShardChainStorage>) {
+    let db = Arc::new(kvdb_memorydb::create(total_columns(1)));
+    let beacon = BeaconChainStorage::new(db.clone());
+    let shard = ShardChainStorage::new(db.clone(), 0);
+    (Arc::new(beacon), Arc::new(shard))
 }
 
-pub fn create_trie() -> Trie {
-    let storage = Arc::new(create_memory_db());
-    Trie::new(storage)
+/// Creates a Trie using a single shard storage that uses in-memory database.
+pub fn create_trie() -> Arc<Trie> {
+    let shard_storage = create_beacon_shard_storages().1;
+    Arc::new(Trie::new(shard_storage))
 }

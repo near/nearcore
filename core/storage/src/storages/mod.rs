@@ -1,6 +1,8 @@
 //! Several specializations of the storage over the general-purpose key-value storage used by the
 //! generic BlockChain and by specific BeaconChain/ShardChain.
-use crate::Storage;
+use crate::KeyValueDB;
+use primitives::block_traits::SignedBlock;
+use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Decode, Encode};
 use std::collections::hash_map::Entry;
@@ -58,6 +60,10 @@ const COL_TRANSACTION_ADDRESSES: u32 = 6;
 /// Number of columns per chain.
 const NUM_COLS: u32 = 7;
 
+/// Error that occurs when we try operating with genesis-specific columns, without setting the
+/// genesis in advance.
+const MISSING_GENESIS_ERR: &str = "Genesis is not set.";
+
 /// Pairing function to map chain id and column id to integer in such way that if we later add more
 /// columns or chains (shards) the old storage be compatible with the new code -- it will map to the
 /// same columns and chains in the new code.
@@ -66,38 +72,35 @@ fn pairing(chain_id: u32, col: u32) -> u32 {
 }
 
 /// Total number of columns that are required by all shards chains and the beacon chain.
-pub fn total_columns(max_shard_id: u32) -> u32 {
+pub fn total_columns(num_shards: u32) -> u32 {
+    let max_shard_id = num_shards - 1;
     let max_chain_id = max_shard_id + 1;
     pairing(max_chain_id, NUM_COLS - 1) + 1
 }
 
-pub struct BlockChainStorage<SignedHeader, SignedBlock> {
+pub struct BlockChainStorage<H, B> {
     chain_id: ChainId,
-    storage: Arc<Storage>,
-    genesis_hash: CryptoHash,
+    storage: Arc<KeyValueDB>,
+    genesis_hash: Option<CryptoHash>,
 
     best_block_hash: HashMap<Vec<u8>, CryptoHash>,
-    headers: HashMap<Vec<u8>, SignedHeader>,
-    blocks: HashMap<Vec<u8>, SignedBlock>,
+    headers: HashMap<Vec<u8>, H>,
+    blocks: HashMap<Vec<u8>, B>,
     block_indices: HashMap<Vec<u8>, CryptoHash>,
 }
 
 /// Specific block chain storages like beacon chain storage and shard chain storage should implement
 /// this trait to allow them to be used in specific beacon chain and shard chain. Rust way of doing
 /// polymorphism.
-pub trait GenericStorage {
-    type SignedHeader;
-    type SignedBlock;
+pub trait GenericStorage<H, B> {
     /// Returns reference to the internal generic BlockChain storage.
-    fn blockchain_storage_mut(
-        &mut self,
-    ) -> &mut BlockChainStorage<Self::SignedHeader, Self::SignedBlock>;
+    fn blockchain_storage_mut(&mut self) -> &mut BlockChainStorage<H, B>;
 }
 
-impl<SignedHeader, SignedBlock> BlockChainStorage<SignedHeader, SignedBlock>
+impl<H, B> BlockChainStorage<H, B>
 where
-    SignedHeader: Clone + Encode + Decode,
-    SignedBlock: Clone + Encode + Decode,
+    H: SignedHeader,
+    B: SignedBlock<SignedHeader = H>,
 {
     /// Converts the relative index of the column to the absolute. Absolute indices of columns of
     /// different `BlockChainStorage`'s do not overlap.
@@ -109,16 +112,28 @@ where
         pairing(id, col)
     }
 
-    pub fn new(storage: Arc<Storage>, chain_id: ChainId, genesis_hash: CryptoHash) -> Self {
+    pub fn new(storage: Arc<KeyValueDB>, chain_id: ChainId) -> Self {
         Self {
             storage,
             chain_id,
-            genesis_hash,
+            genesis_hash: None,
             best_block_hash: Default::default(),
             headers: Default::default(),
             blocks: Default::default(),
             block_indices: Default::default(),
         }
+    }
+
+    pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
+        self.genesis_hash = Some(genesis.block_hash());
+        self.add_block(genesis)
+    }
+
+    pub fn add_block(&mut self, block: B) -> io::Result<()> {
+        self.set_best_block_hash(block.block_hash())?;
+        self.set_hash_by_index(block.index(), block.block_hash())?;
+        self.set_header(&block.block_hash(), block.header().clone())?;
+        self.set_block(&block.block_hash(), block)
     }
 
     #[inline]
@@ -127,7 +142,7 @@ where
             self.storage.as_ref(),
             self.abs_col(COL_BEST_BLOCK),
             &mut self.best_block_hash,
-            self.genesis_hash.as_ref(),
+            self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR).as_ref(),
         )
     }
 
@@ -137,13 +152,13 @@ where
             self.storage.as_ref(),
             self.abs_col(COL_BEST_BLOCK),
             &mut self.best_block_hash,
-            self.genesis_hash.as_ref(),
+            self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR).as_ref(),
             value,
         )
     }
 
     #[inline]
-    pub fn header(&mut self, hash: &CryptoHash) -> StorageResult<&SignedHeader> {
+    pub fn header(&mut self, hash: &CryptoHash) -> StorageResult<&H> {
         read_with_cache(
             self.storage.as_ref(),
             self.abs_col(COL_HEADERS),
@@ -153,7 +168,7 @@ where
     }
 
     #[inline]
-    pub fn set_header(&mut self, hash: &CryptoHash, header: SignedHeader) -> io::Result<()> {
+    pub fn set_header(&mut self, hash: &CryptoHash, header: H) -> io::Result<()> {
         write_with_cache(
             self.storage.as_ref(),
             self.abs_col(COL_HEADERS),
@@ -164,7 +179,7 @@ where
     }
 
     #[inline]
-    pub fn block(&mut self, hash: &CryptoHash) -> StorageResult<&SignedBlock> {
+    pub fn block(&mut self, hash: &CryptoHash) -> StorageResult<&B> {
         read_with_cache(
             self.storage.as_ref(),
             self.abs_col(COL_BLOCKS),
@@ -174,7 +189,7 @@ where
     }
 
     #[inline]
-    pub fn set_block(&mut self, hash: &CryptoHash, block: SignedBlock) -> io::Result<()> {
+    pub fn set_block(&mut self, hash: &CryptoHash, block: B) -> io::Result<()> {
         write_with_cache(
             self.storage.as_ref(),
             self.abs_col(COL_BLOCKS),
@@ -186,6 +201,17 @@ where
 
     #[inline]
     pub fn hash_by_index(&mut self, index: u64) -> StorageResult<&CryptoHash> {
+        // Check to make sure the requested index is not larger than the index of the best block.
+        let best_block_index = match self.best_block_hash()? {
+            None => return Ok(None),
+            Some(best_hash) => match self.block(best_hash)? {
+                None => return Ok(None),
+                Some(block) => block.index(),
+            },
+        };
+        if best_block_index < index {
+            return Ok(None);
+        }
         read_with_cache(
             self.storage.as_ref(),
             self.abs_col(COL_BLOCK_INDICES),
@@ -217,7 +243,7 @@ fn index_to_bytes(index: &u64) -> &[u8] {
 }
 
 fn write_with_cache<T: Clone + Encode>(
-    storage: &Storage,
+    storage: &KeyValueDB,
     col: u32,
     cache: &mut HashMap<Vec<u8>, T>,
     key: &[u8],
@@ -232,9 +258,8 @@ fn write_with_cache<T: Clone + Encode>(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn extend_with_cache<T: Clone + Encode>(
-    storage: &Storage,
+    storage: &KeyValueDB,
     col: u32,
     cache: &mut HashMap<Vec<u8>, T>,
     values: HashMap<Vec<u8>, T>,
@@ -253,7 +278,7 @@ fn extend_with_cache<T: Clone + Encode>(
 }
 
 fn read_with_cache<'a, T: Decode + 'a>(
-    storage: &Storage,
+    storage: &KeyValueDB,
     col: u32,
     cache: &'a mut HashMap<Vec<u8>, T>,
     key: &[u8],

@@ -16,12 +16,7 @@ pub struct TrieUpdate {
 
 impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
-        TrieUpdate {
-            trie,
-            root,
-            committed: BTreeMap::default(),
-            prospective: BTreeMap::default(),
-        }
+        TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
     }
     pub fn get(&self, key: &[u8]) -> Option<DBValue> {
         if let Some(value) = self.prospective.get(key) {

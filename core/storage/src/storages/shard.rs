@@ -1,6 +1,6 @@
 use super::{extend_with_cache, read_with_cache, StorageResult};
 use super::{BlockChainStorage, GenericStorage};
-use super::{ChainId, Storage};
+use super::{ChainId, KeyValueDB};
 use super::{COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS};
 use primitives::chain::SignedShardBlock;
 use primitives::chain::SignedShardBlockHeader;
@@ -19,26 +19,19 @@ pub struct ShardChainStorage {
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
 }
 
-impl GenericStorage for ShardChainStorage {
-    type SignedHeader = SignedShardBlockHeader;
-    type SignedBlock = SignedShardBlock;
-
+impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
     #[inline]
     fn blockchain_storage_mut(
         &mut self,
-    ) -> &mut BlockChainStorage<Self::SignedHeader, Self::SignedBlock> {
+    ) -> &mut BlockChainStorage<SignedShardBlockHeader, SignedShardBlock> {
         &mut self.generic_storage
     }
 }
 
 impl ShardChainStorage {
-    pub fn new(storage: Arc<Storage>, shard_id: u32, genesis_hash: CryptoHash) -> Self {
+    pub fn new(storage: Arc<KeyValueDB>, shard_id: u32) -> Self {
         Self {
-            generic_storage: BlockChainStorage::new(
-                storage,
-                ChainId::ShardChain(shard_id),
-                genesis_hash,
-            ),
+            generic_storage: BlockChainStorage::new(storage, ChainId::ShardChain(shard_id)),
             transaction_results: Default::default(),
             transaction_addresses: Default::default(),
         }
