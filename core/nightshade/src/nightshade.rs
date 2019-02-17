@@ -7,6 +7,7 @@ use serde::Serialize;
 use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signature::bs58_serializer;
+use primitives::serialize::Encode;
 
 pub type AuthorityId = usize;
 
@@ -99,14 +100,12 @@ impl BareState {
         }
     }
 
-    fn encode(&self) -> &[u8] {
-        // TODO: Encode bare state
-        // let encoded = self.encode().expect("Fail serializing triplet.");
-        &[0u8; 32]
+    fn bs_encode(&self) -> Vec<u8> {
+        self.encode().expect("Fail serializing triplet.")
     }
 
     fn sign(&self, secret_key: &BlsSecretKey) -> BlsSignature {
-        secret_key.sign(self.encode())
+        secret_key.sign(&self.bs_encode())
     }
 
     fn verify(&self) -> bool {
@@ -143,7 +142,7 @@ impl Proof {
             }
         }
         let pk = aggregated_pk.get_key();
-        pk.verify(self.bare_state.encode(), &self.signature)
+        pk.verify(&self.bare_state.bs_encode(), &self.signature)
     }
 }
 
@@ -238,7 +237,7 @@ impl State {
         // Check this is a valid triplet
         check_true!(self.bare_state.verify());
         // Check signature for the triplet
-        check_true!(public_keys[authority].verify(self.bare_state.encode(), &self.signature));
+        check_true!(public_keys[authority].verify(&self.bare_state.bs_encode(), &self.signature));
         if self.bare_state.primary_confidence > 0 {
             // If primary confidence is greater than zero there must be a proof for it
             if let Some(primary_proof) = &self.primary_proof {

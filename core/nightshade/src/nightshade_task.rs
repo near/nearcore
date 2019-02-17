@@ -145,12 +145,12 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         control_receiver: mpsc::Receiver<Control>,
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
-        let mut authority_payloads = vec![None; num_authorities];
-        authority_payloads[owner_id] = Some(SignedBlock::new(owner_id, payload, &owner_secret_key));
+        let mut authority_blocks = vec![None; num_authorities];
+        authority_blocks[owner_id] = Some(SignedBlock::new(owner_id, payload, &owner_secret_key));
         Self {
             owner_id,
             num_authorities,
-            authority_blocks: authority_payloads,
+            authority_blocks,
             nightshade: None,
             public_keys,
             owner_secret_key,
