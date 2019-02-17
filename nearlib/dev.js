@@ -4,11 +4,11 @@ const sendJson = require('./internal/send-json');
 const localStorageAccountIdKey = 'dev_near_user';
 
 // This key will only be available on dev/test environments. Do not rely on it for anything that runs on mainnet.
-const aliceKey = new nearlib.KeyPair(
+const devKey = new nearlib.KeyPair(
     '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
     '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
 );
-const aliceAccountName = "alice.near";
+const devAccountName = 'alice.near';
 
 module.exports = {
     getConfig: async function() {
@@ -18,19 +18,19 @@ module.exports = {
      * @param {String} nodeUrl
      */
     connect: async function(nodeUrl = 'http://localhost:3030') {
-        const options = {
-            nodeUrl: nodeUrl
-        };
-        return await this.setupConnection(options);
+        return await this.setupConnection({nodeUrl});
     },
     /**
      * Create a connection which can perform operations on behalf of a given account.
-     * @param {Object} nodeUrl specifies node url. accountId specifies account id. key_pair is the key pair for account
+     * @param {object} options object to pass named parameters.
+     * @param {Object} options.nodeUrl specifies node url. accountId specifies account id. key_pair is the key pair for account
+     * @param {boolean} options.useDevAccount specify to use development account to create accounts / deploy contracts. Should be used only on TestNet.
+     * @param {string} options.accountId account ID to use.
      */
     setupConnection: async function(options) {
-        if (options.useAliceAccount) {
-            options.accountId = aliceAccountName;
-            options.key = aliceKey;
+        if (options.useDevAccount) {
+            options.accountId = devAccountName;
+            options.key = devKey;
         }
         const keyStore = (options.deps && options.deps.keyStore) || new nearlib.BrowserLocalStorageKeystore();
         console.log(keyStore);

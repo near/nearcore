@@ -1,22 +1,18 @@
 const { Account, KeyPair, Near, InMemoryKeyStore } = require('../');
-//const { InMemoryKeystore } = require('../signing');
 const dev = require('../dev');
 const fs = require('fs');
-const aliceAccountName = "alice.near";
+const aliceAccountName = 'alice.near';
 let nearjs;
 let account;
 let keyStore;
 
 beforeAll(async () => {
-    const options = {
+    keyStore = new InMemoryKeyStore();
+    nearjs = await dev.setupConnection({
         nodeUrl: 'http://localhost:3030',
-        useAliceAccount: true,
-        deps: {
-            keyStore: new InMemoryKeyStore()
-        }
-    };
-    keyStore = options.deps.keyStore;
-    nearjs = await dev.setupConnection(options);
+        useDevAccount: true,
+        deps: { keyStore },
+    });
     account = new Account(nearjs.nearClient);
 });
 
@@ -138,12 +134,11 @@ describe('with deployed contract', () => {
         expect(getValueResult).toEqual(setCallValue);
 
         // test that load contract works and we can make calls afterwards
-        const options = {
+        const contract = await nearjs.loadContract(contractName, {
             viewMethods: ['hello', 'getValue'],
             changeMethods: ['setValue'],
-            sender: aliceAccountName
-        };
-        const contract = await nearjs.loadContract(contractName, options);
+            sender: aliceAccountName,
+        });
         const helloResult = await contract.hello(args);
         expect(helloResult).toEqual('hello trex');
         var setCallValue2 = await generateUniqueString('setCallPrefix');
