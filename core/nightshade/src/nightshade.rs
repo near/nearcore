@@ -373,9 +373,9 @@ impl Nightshade {
                 let mut collected_proofs = 0;
 
                 // Collect proofs to create new state
-                for a in 0..self.num_authorities {
+                for (a, bit) in mask.iter_mut().enumerate() {
                     if self.states[a] == *my_state {
-                        mask[a] = true;
+                        *bit = true;
                         aggregated_signature.aggregate(&state.signature);
                         collected_proofs += 1;
                     }
