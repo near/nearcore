@@ -6,13 +6,13 @@ use futures::sync::mpsc;
 use log::error;
 use tokio::timer::Delay;
 
+use primitives::aggregate_signature::BlsPublicKey;
+use primitives::aggregate_signature::BlsSecretKey;
 use primitives::signature::get_key_pair;
 
 use crate::nightshade::BlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
-use primitives::aggregate_signature::BlsSecretKey;
-use primitives::aggregate_signature::BlsPublicKey;
 
 #[derive(Clone, Debug, Serialize)]
 struct DummyPayload {
@@ -71,7 +71,7 @@ fn spawn_all(num_authorities: usize) {
 
             let control_tx1 = control_tx.clone();
 
-            let stop_task = Delay::new(Instant::now() + Duration::from_secs(1)).then(|_| {
+            let stop_task = Delay::new(Instant::now() + Duration::from_secs(30)).then(|_| {
                 control_tx1
                     .send(Control::Stop)
                     .map(|_| ())
@@ -133,10 +133,17 @@ mod tests {
     }
 
     #[test]
-    fn several_authorities() {
-        spawn_all(2);
+    fn three_authorities() {
         spawn_all(3);
+    }
+
+    #[test]
+    fn four_authorities() {
         spawn_all(4);
+    }
+
+    #[test]
+    fn five_authorities() {
         spawn_all(5);
     }
 

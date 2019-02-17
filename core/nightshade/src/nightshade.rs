@@ -456,7 +456,7 @@ mod tests {
     fn create_nightshades(num_authorities: usize) -> Vec<Nightshade> {
         let (public_keys, secret_keys) = generate_bls_key_pairs(num_authorities);
 
-        let mut ns: Vec<_> = (0..num_authorities)
+        let ns: Vec<_> = (0..num_authorities)
             .map(|i|
                 Nightshade::new(
                     i,
