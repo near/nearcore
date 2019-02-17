@@ -4,10 +4,8 @@ use std::collections::HashSet;
 
 use serde::Serialize;
 
-use primitives::aggregate_signature::{BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
-use primitives::hash::CryptoHash;
-use primitives::hash::hash_struct;
-
+use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
+use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signature::bs58_serializer;
 
 pub type AuthorityId = usize;
@@ -65,7 +63,6 @@ pub struct BlockHeader {
     pub hash: CryptoHash,
 }
 
-
 /// Triplet that describe the state of each authority in the consensus.
 ///
 /// Notes:
@@ -102,11 +99,18 @@ impl BareState {
         }
     }
 
+    fn encode(&self) -> &[u8] {
+        // TODO: Encode bare state
+        // let encoded = self.encode().expect("Fail serializing triplet.");
+        &[0u8; 32]
+    }
+
     fn sign(&self, secret_key: &BlsSecretKey) -> BlsSignature {
-        // TODO: Encode this
-//        let encoded = self.encode().expect("Fail serializing triplet.");
-//        secret_key.sign(encoded as &[u8])
-        secret_key.sign(&[0u8; 32])
+        secret_key.sign(self.encode())
+    }
+
+    fn verify(&self) -> bool {
+        self.primary_confidence >= self.secondary_confidence && self.secondary_confidence >= 0
     }
 }
 
@@ -130,6 +134,17 @@ impl Proof {
             signature,
         }
     }
+
+    fn verify(&self, public_keys: &Vec<BlsPublicKey>) -> bool {
+        let mut aggregated_pk = AggregatePublicKey::new();
+        for (active, pk) in self.mask.iter().zip(public_keys) {
+            if *active {
+                aggregated_pk.aggregate(pk);
+            }
+        }
+        let pk = aggregated_pk.get_key();
+        pk.verify(self.bare_state.encode(), &self.signature)
+    }
 }
 
 /// `State` is a wrapper for `BareState` that contains evidence for such triplet.
@@ -150,6 +165,14 @@ pub struct State {
     signature: BlsSignature,
 }
 
+macro_rules! check_true {
+    ($condition:expr) => {
+        if !$condition{
+            return false;
+        }
+    };
+}
+
 impl State {
     /// Create new state
     fn new(author: AuthorityId, hash: CryptoHash, secret_key: &BlsSecretKey) -> Self {
@@ -167,7 +190,7 @@ impl State {
     /// See `BareState::empty` for more information
     ///
     /// Note: The signature of this state is going to be incorrect, but this state
-    /// will never be transmitted to other participants as current state. This is just
+    /// will never be transmitted to other participants as current state.
     fn empty(secret_key: &BlsSecretKey) -> Self {
         let bare_state = BareState::empty();
         let signature = bare_state.sign(&secret_key);
@@ -202,14 +225,67 @@ impl State {
         self.bare_state.primary_confidence >= self.bare_state.secondary_confidence + COMMIT_THRESHOLD
     }
 
-    /// Check if this state contains correct proofs about the triplet it contains.
-    /// Authority will check if this state is valid only if it has not successfully verified another
+    /// Check if this state has correct proofs about the triplet it contains.
+    /// Each authority will check if this state is valid only if it has not successfully verified another
     /// state with the same triplet before. Once it has verified that at least one authority has such
     /// triplet, it accepts all further states with the same triplet.
-    fn verify(&self) -> bool {
-        // TODO: correct verification
-        // Check that merge of two proofs (bare_states) is current bare_state
-        // Verify signatures, aggregated signature for both proof0 and 1 whenever necessary
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The authority that send this state.
+    /// * `public_keys` - Public key of every authority in the network
+    fn verify(&self, authority: AuthorityId, public_keys: &Vec<BlsPublicKey>) -> bool {
+        // Check this is a valid triplet
+        check_true!(self.bare_state.verify());
+        // Check signature for the triplet
+        check_true!(public_keys[authority].verify(self.bare_state.encode(), &self.signature));
+        if self.bare_state.primary_confidence > 0 {
+            // If primary confidence is greater than zero there must be a proof for it
+            if let Some(primary_proof) = &self.primary_proof {
+                // Check primary_proof is ok
+                check_true!(primary_proof.verify(&public_keys));
+                if self.bare_state.secondary_confidence > 0 {
+                    // If secondary confidence is greater than zero there must be a proof for it
+                    // Note that secondary confidence can be only greater than zero if primary confidence is greater than zero
+                    if let Some(secondary_proof) = &self.secondary_proof {
+                        // Check secondary_proof is ok
+                        check_true!(secondary_proof.verify(&public_keys));
+                        let cur_bs = &self.bare_state;
+                        let primary_bs = &primary_proof.bare_state;
+                        let secondary_bs = &secondary_proof.bare_state;
+                        // Current triplet and triplet from first proof must endorse same outcome
+                        check_true!(cur_bs.endorses == primary_bs.endorses);
+                        // Both proof triplets can't endorse same outcome
+                        check_true!(primary_bs.endorses != secondary_bs.endorses);
+                        // Primary confidence must be equal to one plus primary confidence from first proof triplet
+                        check_true!(cur_bs.primary_confidence == primary_bs.primary_confidence + 1);
+                        // Secondary confidence must equal to one plus primary confidence from second proof triplet
+                        check_true!(cur_bs.secondary_confidence == secondary_bs.primary_confidence + 1);
+                        // Secondary confidence must be consistent with secondary confidence from first proof triplet
+                        check_true!(secondary_bs.primary_confidence + 1 >= primary_bs.secondary_confidence);
+                    } else {
+                        return false;
+                    }
+                } else {
+                    check_true!(self.secondary_proof.is_none());
+                    let bs_primary = &primary_proof.bare_state;
+                    // If our current secondary confidence is zero, then the proof for primary confidence
+                    // must have zero secondary confidence too.
+                    check_true!(bs_primary.secondary_confidence == 0);
+                    // Check that our current triplet is equal to triplet from the proof after increasing
+                    // primary confidence by one
+                    check_true!(self.bare_state == BareState {
+                        primary_confidence: bs_primary.primary_confidence + 1,
+                        endorses: bs_primary.endorses.clone(),
+                        secondary_confidence: bs_primary.secondary_confidence,
+                    });
+                }
+            } else {
+                return false;
+            }
+        } else {
+            check_true!(self.primary_proof.is_none());
+        }
         true
     }
 
@@ -283,9 +359,7 @@ pub struct Nightshade {
     best_state_counter: usize,
     seen_bare_states: HashSet<BareState>,
     pub committed: Option<BlockHeader>,
-    #[allow(dead_code)]
     bls_public_keys: Vec<BlsPublicKey>,
-    #[allow(dead_code)]
     bls_owner_secret_key: BlsSecretKey,
 }
 
@@ -339,7 +413,7 @@ impl Nightshade {
 
         // Verify this BareState only if it has not been successfully verified previously and ignore it forever
         if !self.seen_bare_states.contains(&state.bare_state) {
-            if state.verify() {
+            if state.verify(authority_id, &self.bls_public_keys) {
                 self.seen_bare_states.insert(state.bare_state.clone());
             } else {
                 return NSResult::Error("Not a valid state".to_string());
@@ -386,8 +460,9 @@ impl Nightshade {
                 // Double check we already have enough proofs
                 assert_eq!(collected_proofs, self.best_state_counter);
                 let new_state = my_state.increase_confidence(proof, &self.bls_owner_secret_key);
-                // Verify new generated state is correct
-                assert_eq!(new_state.verify(), true);
+                // Verify new generated state is correct.
+                // TODO: Remove this assertion
+                assert_eq!(new_state.verify(self.owner_id, &self.bls_public_keys), true);
                 self.seen_bare_states.insert(new_state.bare_state.clone());
                 self.states[self.owner_id] = new_state;
                 self.best_state_counter = 1;
@@ -441,7 +516,6 @@ mod tests {
     }
 
     fn check_state_proofs(state: &State) {
-        // TODO: Check signature
         assert_eq!(state.bare_state.primary_confidence == 0, state.primary_proof.is_none());
         assert_eq!(state.bare_state.secondary_confidence == 0, state.secondary_proof.is_none());
     }

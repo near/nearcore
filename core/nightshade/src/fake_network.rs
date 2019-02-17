@@ -14,6 +14,8 @@ use crate::nightshade::BlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
 
+const TASK_DURATION_SEC: u64 = 60;
+
 #[derive(Clone, Debug, Serialize)]
 struct DummyPayload {
     dummy: u64,
@@ -71,12 +73,13 @@ fn spawn_all(num_authorities: usize) {
 
             let control_tx1 = control_tx.clone();
 
-            let stop_task = Delay::new(Instant::now() + Duration::from_secs(30)).then(|_| {
-                control_tx1
-                    .send(Control::Stop)
-                    .map(|_| ())
-                    .map_err(|e| error!("Error sending control {:?}", e))
-            });
+            let stop_task = Delay::new(Instant::now() + Duration::from_secs(TASK_DURATION_SEC))
+                .then(|_| {
+                    control_tx1
+                        .send(Control::Stop)
+                        .map(|_| ())
+                        .map_err(|e| error!("Error sending control {:?}", e))
+                });
             tokio::spawn(stop_task);
         }
 
