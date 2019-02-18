@@ -1,16 +1,11 @@
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use log::info;
 use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
-use primitives::utils::index_to_bytes;
-use serde_derive::{Deserialize, Serialize};
 use storage::GenericStorage;
 
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use std::marker::PhantomData;
-use std::ops::DerefMut;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

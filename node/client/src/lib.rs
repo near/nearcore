@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-use std::sync::Arc;
 use std::{cmp, env, fs};
 
 use env_logger::Builder;
@@ -29,7 +28,6 @@ use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain};
 use primitives::block_traits::SignedBlock;
 use storage::create_storage;
-use std::borrow::Cow;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

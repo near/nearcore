@@ -1,6 +1,5 @@
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::Client;
 use beacon::beacon_chain::BeaconBlockChain;
