@@ -56,7 +56,7 @@ fn test_service_ready(rpc_port: u16, test_name: &str) -> bool {
 
     let mut client_cfg = configs::ClientConfig::default();
     client_cfg.base_path = base_path;
-    client_cfg.log_level = log::LevelFilter::Off;
+//    client_cfg.log_level = log::LevelFilter::Off;
     let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
     let rpc_cfg = configs::RPCConfig { rpc_port };
     thread::spawn(|| {
@@ -274,32 +274,34 @@ fn test_set_get_values() {
     let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
     // TODO(581): Uncomment when it is solved.
-//    // It takes more than two nonce changes for the action to propagate.
-//    wait_for(&|| {
-//        let new_account: Value =
-//            serde_json::from_str(&check_result(view_account(None, rpc_port))?).unwrap();
-//        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 {
-//            Ok(())
-//        } else {
-//            Err("Nonce didn't change".to_string())
-//        }
-//    })
-//    .unwrap();
-//
-//    let output = Command::new("./scripts/rpc.py")
-//        .arg("call_view_function")
-//        .arg(contract_name)
-//        .arg("getValue")
-//        .arg("-u")
-//        .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
-//        .arg("--args")
-//        .arg("{}")
-//        .output()
-//        .expect("call_view_function command failed to process");
-//
-//    let result = check_result(output).unwrap();
-//    let data: Value = serde_json::from_str(&result).unwrap();
-//    assert_eq!(data["result"], json!("test"));
+    // It takes more than two nonce changes for the action to propagate.
+    wait_for(&|| {
+        let new_account: Value =
+            serde_json::from_str(&check_result(view_account(None, rpc_port))?).unwrap();
+        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 {
+            Ok(())
+        } else {
+            Err("Nonce didn't change".to_string())
+        }
+    })
+    .unwrap();
+    // Waiting for nonce to increase seems to be not enough. Additionally, we need to sleep for 5 sec.
+    thread::sleep(Duration::from_secs(5));
+
+    let output = Command::new("./scripts/rpc.py")
+        .arg("call_view_function")
+        .arg(contract_name)
+        .arg("getValue")
+        .arg("-u")
+        .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
+        .arg("--args")
+        .arg("{}")
+        .output()
+        .expect("call_view_function command failed to process");
+
+    let result = check_result(output).unwrap();
+    let data: Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(data["result"], json!("test"));
 }
 
 #[test]

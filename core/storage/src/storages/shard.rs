@@ -108,7 +108,7 @@ impl ShardChainStorage {
     pub fn get_state(&self, hash: &CryptoHash) -> StorageResult<Vec<u8>> {
         self.generic_storage
             .storage
-            .get(Some(COL_STATE), &self.generic_storage.enc_hash(hash))
+            .get(Some(COL_STATE), &self.generic_storage.enc_slice(hash.as_ref()))
             .map(|a| a.map(|b| b.to_vec()))
     }
 
