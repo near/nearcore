@@ -192,7 +192,7 @@ fn deploy_contract(rpc_port: u16) -> Result<(String, String), String> {
 #[test]
 fn test_send_money() {
     let rpc_port = 3030;
-    assert!(test_service_ready(rpc_port, "test_send_money_inner"));
+    assert!(test_service_ready(rpc_port, "test_send_money"));
     let buster = rand::thread_rng().gen_range(0, 10000);
     let receiver_name = format!("send_money_test_{}.near", buster);
     create_account(&receiver_name, rpc_port);
@@ -232,7 +232,7 @@ fn test_send_money() {
 #[test]
 fn test_view_account() {
     let rpc_port = 3031;
-    assert!(test_service_ready(rpc_port, "test_view_account_inner"));
+    assert!(test_service_ready(rpc_port, "test_view_account"));
     let output = view_account(None, rpc_port);
     let result = check_result(output).unwrap();
     let _: ViewAccountResponse = serde_json::from_str(&result).unwrap();
@@ -241,15 +241,16 @@ fn test_view_account() {
 #[test]
 fn test_deploy() {
     let rpc_port = 3032;
-    assert!(test_service_ready(rpc_port, "test_deploy_inner"));
+    assert!(test_service_ready(rpc_port, "test_deploy"));
     let (result, contract_name) = deploy_contract(rpc_port).unwrap();
     let data: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(data["account_id"], json!(contract_name));
 }
 
+#[test]
 fn test_set_get_values() {
     let rpc_port = 3033;
-    assert!(test_service_ready(rpc_port, "test_set_get_values_inner"));
+    assert!(test_service_ready(rpc_port, "test_set_get_values"));
 
     let account: Value =
         serde_json::from_str(&check_result(view_account(None, rpc_port)).unwrap()).unwrap();
@@ -272,41 +273,39 @@ fn test_set_get_values() {
     let result = check_result(output).unwrap();
     let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
-    // It takes more than two nonce changes for the action to propagate.
-    wait_for(&|| {
-        let new_account: Value =
-            serde_json::from_str(&check_result(view_account(None, rpc_port))?).unwrap();
-        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 {
-            Ok(())
-        } else {
-            Err("Nonce didn't change".to_string())
-        }
-    })
-    .unwrap();
-
-    let output = Command::new("./scripts/rpc.py")
-        .arg("call_view_function")
-        .arg(contract_name)
-        .arg("getValue")
-        .arg("--args")
-        .arg("{}")
-        .arg("-u")
-        .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
-        .output()
-        .expect("call_view_function command failed to process");
-
-    let result = check_result(output).unwrap();
-    let data: Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(data["result"], json!("test"));
+    // TODO(581): Uncomment when it is solved.
+//    // It takes more than two nonce changes for the action to propagate.
+//    wait_for(&|| {
+//        let new_account: Value =
+//            serde_json::from_str(&check_result(view_account(None, rpc_port))?).unwrap();
+//        if new_account["nonce"].as_u64().unwrap() > account["nonce"].as_u64().unwrap() + 1 {
+//            Ok(())
+//        } else {
+//            Err("Nonce didn't change".to_string())
+//        }
+//    })
+//    .unwrap();
+//
+//    let output = Command::new("./scripts/rpc.py")
+//        .arg("call_view_function")
+//        .arg(contract_name)
+//        .arg("getValue")
+//        .arg("-u")
+//        .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
+//        .arg("--args")
+//        .arg("{}")
+//        .output()
+//        .expect("call_view_function command failed to process");
+//
+//    let result = check_result(output).unwrap();
+//    let data: Value = serde_json::from_str(&result).unwrap();
+//    assert_eq!(data["result"], json!("test"));
 }
-
-// TODO(#391): Disabled until the issue is fixed.
-// test! { fn test_set_get_values() { test_set_get_values_inner() } }
 
 #[test]
 fn test_view_state() {
     let rpc_port = 3034;
-    assert!(test_service_ready(rpc_port, "test_view_state_inner"));
+    assert!(test_service_ready(rpc_port, "test_view_state"));
     let (_, contract_name) = deploy_contract(rpc_port).unwrap();
     let output = Command::new("./scripts/rpc.py")
         .arg("view_state")
@@ -323,7 +322,7 @@ fn test_view_state() {
 #[test]
 fn test_create_account() {
     let rpc_port = 3035;
-    assert!(test_service_ready(rpc_port, "test_create_account_inner"));
+    assert!(test_service_ready(rpc_port, "test_create_account"));
     let output = create_account("eve.near", rpc_port);
 
     wait_for(&|| {
@@ -357,7 +356,7 @@ fn test_create_account() {
 #[test]
 fn test_swap_key() {
     let rpc_port = 3036;
-    assert!(test_service_ready(rpc_port, "test_swap_key_inner"));
+    assert!(test_service_ready(rpc_port, "test_swap_key"));
     let output = Command::new("./scripts/rpc.py")
         .arg("swap_key")
         .arg(&*PUBLIC_KEY)
@@ -388,14 +387,14 @@ fn get_latest_beacon_block(rpc_port: u16) -> SignedBeaconBlockResponse {
 #[test]
 fn test_view_latest_beacon_block() {
     let rpc_port = 3037;
-    assert!(test_service_ready(rpc_port, "test_view_latest_beacon_block_inner"));
+    assert!(test_service_ready(rpc_port, "test_view_latest_beacon_block"));
     let _ = get_latest_beacon_block(rpc_port);
 }
 
 #[test]
 fn test_get_beacon_block_by_hash() {
     let rpc_port = 3038;
-    assert!(test_service_ready(rpc_port, "test_get_beacon_block_by_hash_inner"));
+    assert!(test_service_ready(rpc_port, "test_get_beacon_block_by_hash"));
     let latest_block = get_latest_beacon_block(rpc_port);
     let output = Command::new("./scripts/rpc.py")
         .arg("get_beacon_block_by_hash")
@@ -423,14 +422,14 @@ fn get_latest_shard_block(rpc_port: u16) -> SignedShardBlockResponse {
 #[test]
 fn test_view_latest_shard_block() {
     let rpc_port = 3039;
-    assert!(test_service_ready(rpc_port, "test_view_latest_shard_block_inner"));
+    assert!(test_service_ready(rpc_port, "test_view_latest_shard_block"));
     let _ = get_latest_shard_block(rpc_port);
 }
 
 #[test]
 fn test_get_shard_block_by_hash() {
     let rpc_port = 3040;
-    assert!(test_service_ready(rpc_port, "test_get_shard_block_by_hash_inner"));
+    assert!(test_service_ready(rpc_port, "test_get_shard_block_by_hash"));
     let latest_block = get_latest_shard_block(rpc_port);
     let output = Command::new("./scripts/rpc.py")
         .arg("get_shard_block_by_hash")
