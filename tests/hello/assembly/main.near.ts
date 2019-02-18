@@ -2,6 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
+      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -11,64 +12,7 @@
       @external("env", "input_read_into")
       declare function input_read_into(ptr: usize): void;
     
-import "allocator/arena";
-export { memory };
-
-import { contractContext, globalStorage, near } from "./near";
-
-export function hello(name: string): string {
-
-  return "hello " + name;
-}
-
-export function setValue(value: string): string {
-  globalStorage.setItem("name", value);
-  return value;
-}
-
-export function getValue(): string {
-  return globalStorage.getItem("name");
-}
-
-export function getAllKeys(): string[] {
-  let keys = globalStorage.keys("n");
-  assert(keys.length == 1);
-  assert(keys[0] == "name");
-  return keys;
-}
-
-export function benchmark(): string[] {
-  let i = 0;
-  while (i < 10) {
-    globalStorage.setItem(i.toString(), "123123");
-    i += 1;
-  }
-  return globalStorage.keys("");
-}
-
-export function benchmark_sum_n(n: i32): string {
-  let i = 0;
-  let sum: u64 = 0;
-  while (i < n) {
-    sum += i;
-    i += 1;
-  }
-  return sum.toString()
-}
-
-
-export function generateLogs(): void {
-  globalStorage.setItem("item", "value");
-  near.log("log1");
-  near.log("log2");
-}
-
-export function triggerAssert(): void {
-  near.log("log before assert");
-  assert(false, "expected to fail");
-}
-
-
+import {contractContext as contractContext,globalStorage as globalStorage,near as near} from "./near";
 export class __near_ArgsParser_hello extends ThrowingJSONHandler {
         buffer: Uint8Array;
         decoder: JSONDecoder<__near_ArgsParser_hello>;
@@ -116,7 +60,7 @@ export function near_func_hello(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_hello>(handler);
       handler.decoder.deserialize(json);
-let result = hello(
+let result = wrapped_hello(
 handler.__near_param_name
 );
 
@@ -180,7 +124,7 @@ export function near_func_setValue(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_setValue>(handler);
       handler.decoder.deserialize(json);
-let result = setValue(
+let result = wrapped_setValue(
 handler.__near_param_value
 );
 
@@ -231,7 +175,7 @@ export function near_func_getValue(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_getValue>(handler);
       handler.decoder.deserialize(json);
-let result = getValue(
+let result = wrapped_getValue(
 
 );
 
@@ -293,7 +237,7 @@ export function near_func_getAllKeys(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_getAllKeys>(handler);
       handler.decoder.deserialize(json);
-let result = getAllKeys(
+let result = wrapped_getAllKeys(
 
 );
 
@@ -302,7 +246,7 @@ let result = getAllKeys(
       
 if (result != null) {
           encoder.pushArray("result");
-          __near_encode_Array_String(result, encoder);
+          __near_encode_Array_String(<Array<String>>result, encoder);
           encoder.popArray();
         } else {
           encoder.setNull("result");
@@ -346,7 +290,7 @@ export function near_func_benchmark(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_benchmark>(handler);
       handler.decoder.deserialize(json);
-let result = benchmark(
+let result = wrapped_benchmark(
 
 );
 
@@ -355,11 +299,75 @@ let result = benchmark(
       
 if (result != null) {
           encoder.pushArray("result");
-          __near_encode_Array_String(result, encoder);
+          __near_encode_Array_String(<Array<String>>result, encoder);
           encoder.popArray();
         } else {
           encoder.setNull("result");
         }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_benchmark_storage extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_benchmark_storage>;
+        handledRoot: boolean = false;
+      
+__near_param_n: i32;
+setInteger(name: string, value: i32): void {
+if (name == "n") {
+            this.__near_param_n = value;
+            return;
+          }
+
+          super.setInteger(name, value);
+        }
+setNull(name: string): void {
+if (name == "n") {
+        this.__near_param_n = <i32>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_benchmark_storage(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_benchmark_storage();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_benchmark_storage>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_benchmark_storage(
+handler.__near_param_n
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+            encoder.setString("result", result);
+          } else {
+            encoder.setNull("result");
+          }
 
         encoder.popObject();
         return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
@@ -412,7 +420,7 @@ export function near_func_benchmark_sum_n(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_benchmark_sum_n>(handler);
       handler.decoder.deserialize(json);
-let result = benchmark_sum_n(
+let result = wrapped_benchmark_sum_n(
 handler.__near_param_n
 );
 
@@ -463,7 +471,7 @@ export function near_func_generateLogs(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_generateLogs>(handler);
       handler.decoder.deserialize(json);
-generateLogs(
+wrapped_generateLogs(
 
 );
 }
@@ -501,7 +509,7 @@ export function near_func_triggerAssert(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_triggerAssert>(handler);
       handler.decoder.deserialize(json);
-triggerAssert(
+wrapped_triggerAssert(
 
 );
 }
