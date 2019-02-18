@@ -302,9 +302,9 @@ impl Authority {
 #[cfg(test)]
 mod test {
 
+    use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
     use primitives::hash::CryptoHash;
-    use primitives::signature::get_key_pair;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
@@ -319,10 +319,10 @@ mod test {
     ) -> ChainSpec {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
-            let (public_key, _) = get_key_pair();
+            let public_key = BlsSecretKey::generate().get_public_key();
             initial_authorities.push((
                 i.to_string(),
-                String::from(&public_key),
+                public_key.to_readable(),
                 100,
             ));
         }

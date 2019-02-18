@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use primitives::beacon::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use near_protos::serde::b64_format as protos_b64_format;
+use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
-use primitives::signature::{bs58_pub_key_format, PublicKey};
+use primitives::signature::{bs58_serializer};
 use primitives::types::{
     AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId
 };
@@ -53,8 +54,8 @@ pub struct ViewStateResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct AuthorityProposalResponse {
     pub account_id: AccountId,
-    #[serde(with = "bs58_pub_key_format")]
-    pub public_key: PublicKey,
+    #[serde(with = "bs58_serializer")]
+    pub public_key: BlsPublicKey,
     pub amount: u64,
 }
 

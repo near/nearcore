@@ -75,5 +75,51 @@ fn bls_aggregate_pubkey_slow(bench: &mut Bencher) {
     });
 }
 
-benchmark_group!(benches, bls_sign, bls_verify, bls_aggregate_signature, bls_aggregate_pubkey, bls_aggregate_signature_slow, bls_aggregate_pubkey_slow);
+fn bls_decompress_pubkey(bench: &mut Bencher) {
+    let public = BlsSecretKey::generate().get_public_key();
+    let compressed = public.compress();
+
+    bench.iter(|| {
+        compressed.decompress().unwrap();
+    });
+}
+
+fn bls_decompress_signature(bench: &mut Bencher) {
+    let key = BlsSecretKey::generate();
+    let message = "Hello, world!";
+    let signature = key.sign(message.as_bytes());
+    let compressed = signature.compress();
+
+    bench.iter(|| {
+        compressed.decompress().unwrap();
+    });
+}
+
+fn bls_decompress_pubkey_unchecked(bench: &mut Bencher) {
+    let public = BlsSecretKey::generate().get_public_key();
+    let compressed = public.compress();
+
+    bench.iter(|| {
+        compressed.decompress_unchecked();
+    });
+}
+
+fn bls_decompress_signature_unchecked(bench: &mut Bencher) {
+    let key = BlsSecretKey::generate();
+    let message = "Hello, world!";
+    let signature = key.sign(message.as_bytes());
+    let compressed = signature.compress();
+
+    bench.iter(|| {
+        compressed.decompress_unchecked();
+    });
+}
+
+benchmark_group!(benches,
+                 bls_sign, bls_verify,
+                 bls_aggregate_signature, bls_aggregate_pubkey,
+                 bls_aggregate_signature_slow, bls_aggregate_pubkey_slow,
+                 bls_decompress_signature, bls_decompress_pubkey,
+                 bls_decompress_signature_unchecked, bls_decompress_pubkey_unchecked,
+                 );
 benchmark_main!(benches);
