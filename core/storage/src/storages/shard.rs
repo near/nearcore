@@ -48,8 +48,15 @@ impl ShardChainStorage {
             .body
             .receipts
             .iter()
-            .flat_map(|b| b.receipts.iter().map(|r| r.nonce.into()))
-            .chain(block.body.transactions.iter().map(|t| t.get_hash().into()))
+            .flat_map(|b| b.receipts.iter().map(|r| self.generic_storage.enc_hash(&r.nonce)))
+            .chain(
+                block
+                    .body
+                    .transactions
+                    .iter()
+                    .map(|t| self.generic_storage.enc_hash(&t.get_hash())),
+            )
+            .map(|k| k.to_vec())
             .collect();
 
         let updates: HashMap<Vec<u8>, TransactionAddress> = keys
@@ -60,7 +67,7 @@ impl ShardChainStorage {
             .collect();
         extend_with_cache(
             self.generic_storage.storage.as_ref(),
-            self.generic_storage.abs_col(COL_TRANSACTION_ADDRESSES),
+            COL_TRANSACTION_ADDRESSES,
             &mut self.transaction_addresses,
             updates,
         )?;
@@ -69,7 +76,7 @@ impl ShardChainStorage {
             keys.into_iter().zip(tx_results.into_iter()).collect();
         extend_with_cache(
             self.generic_storage.storage.as_ref(),
-            self.generic_storage.abs_col(COL_TRANSACTION_RESULTS),
+            COL_TRANSACTION_RESULTS,
             &mut self.transaction_results,
             updates,
         )
@@ -80,9 +87,9 @@ impl ShardChainStorage {
     pub fn transaction_address(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionAddress> {
         read_with_cache(
             self.generic_storage.storage.as_ref(),
-            self.generic_storage.abs_col(COL_TRANSACTION_ADDRESSES),
+            COL_TRANSACTION_ADDRESSES,
             &mut self.transaction_addresses,
-            hash.as_ref(),
+            &self.generic_storage.enc_hash(hash),
         )
     }
 
@@ -91,9 +98,9 @@ impl ShardChainStorage {
     pub fn transaction_result(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionResult> {
         read_with_cache(
             self.generic_storage.storage.as_ref(),
-            self.generic_storage.abs_col(COL_TRANSACTION_RESULTS),
+            COL_TRANSACTION_RESULTS,
             &mut self.transaction_results,
-            hash.as_ref(),
+            &self.generic_storage.enc_hash(hash),
         )
     }
 
@@ -102,7 +109,7 @@ impl ShardChainStorage {
     pub fn get_state(&self, hash: &CryptoHash) -> StorageResult<Vec<u8>> {
         self.generic_storage
             .storage
-            .get(Some(self.generic_storage.abs_col(COL_STATE)), hash.as_ref())
+            .get(Some(COL_STATE), &self.generic_storage.enc_hash(hash))
             .map(|a| a.map(|b| b.to_vec()))
     }
 
@@ -112,11 +119,11 @@ impl ShardChainStorage {
         changes: &HashMap<Vec<u8>, Option<Vec<u8>>>,
     ) -> std::io::Result<()> {
         let mut db_transaction = self.generic_storage.storage.transaction();
-        let col = Some(self.generic_storage.abs_col(COL_STATE));
+        let col = Some(COL_STATE);
         for (key, value) in changes {
             match value {
-                Some(arr) => db_transaction.put(col, key.as_ref(), &arr),
-                None => db_transaction.delete(col, key.as_ref()),
+                Some(arr) => db_transaction.put(col, &self.generic_storage.enc_slice(&key), &arr),
+                None => db_transaction.delete(col, &self.generic_storage.enc_slice(&key)),
             }
         }
         self.generic_storage.storage.write(db_transaction)
