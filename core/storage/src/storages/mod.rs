@@ -9,6 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 pub mod beacon;
 pub mod shard;
@@ -124,9 +125,19 @@ where
         }
     }
 
+    pub fn genesis_hash(&self) -> &CryptoHash {
+        self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR)
+    }
+
     pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
         self.genesis_hash = Some(genesis.block_hash());
-        self.add_block(genesis)
+        if self.block(&genesis.block_hash())?.is_none() {
+            // Only add genesis block if it was not added before. It might have been added before
+            // if we have launched on the existing storage.
+            self.add_block(genesis)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn add_block(&mut self, block: B) -> io::Result<()> {
@@ -202,9 +213,9 @@ where
     #[inline]
     pub fn hash_by_index(&mut self, index: u64) -> StorageResult<&CryptoHash> {
         // Check to make sure the requested index is not larger than the index of the best block.
-        let best_block_index = match self.best_block_hash()? {
+        let best_block_index = match self.best_block_hash()?.cloned() {
             None => return Ok(None),
-            Some(best_hash) => match self.block(best_hash)? {
+            Some(best_hash) => match self.block(&best_hash)? {
                 None => return Ok(None),
                 Some(block) => block.index(),
             },

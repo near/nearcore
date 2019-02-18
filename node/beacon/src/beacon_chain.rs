@@ -1,23 +1,22 @@
-use parking_lot::RwLock;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use configs::authority::get_authority_config;
 use configs::ChainSpec;
 
 use crate::authority::Authority;
-use primitives::beacon::SignedBeaconBlock;
+use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use storage::BeaconChainStorage;
 
-pub type GenericBlockChain =
-    chain::BlockChain<SignedBeaconHeader, SignedBeaconBlock, BeaconChainStorage>;
+pub type BeaconBlockChainCore =
+    chain::BlockChain<SignedBeaconBlockHeader, SignedBeaconBlock, BeaconChainStorage>;
 
 pub struct BeaconBlockChain {
-    pub chain: GenericBlockChain,
+    pub chain: BeaconBlockChainCore,
     pub authority: RwLock<Authority>,
 }
 
 impl BeaconBlockChain {
-    pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: Arc<BeaconChainStorage>) -> Self {
+    pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: Arc<RwLock<BeaconChainStorage>>) -> Self {
         let chain = chain::BlockChain::new(genesis, storage);
         let authority_config = get_authority_config(chain_spec);
         let authority = RwLock::new(Authority::new(authority_config, &chain));
@@ -35,12 +34,12 @@ mod tests {
     use primitives::signer::InMemorySigner;
     use primitives::types::BlockId;
     use std::collections::HashMap;
-    use storage::test_utils::create_memory_db;
 
     use super::*;
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
+    use storage::test_utils::create_beacon_shard_storages;
 
 //    #[test]
 //    fn test_genesis() {
@@ -54,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_restart_chain() {
-        let storage = Arc::new(create_memory_db());
+        let storage = create_beacon_shard_storages().0;
         let genesis =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
         let bc = BlockChain::new(genesis.clone(), storage.clone());
@@ -63,7 +62,7 @@ mod tests {
         let signer = InMemorySigner::default();
         let sig = block1.sign(&signer);
         block1.add_signature(&sig, 0);
-        assert_eq!(bc.insert_block(block1.clone()), false);
+        bc.insert_block(block1.clone());
         let best_block = bc.best_block();
         let best_block_header = best_block.header();
         assert_eq!(best_block.block_hash(), block1.block_hash());

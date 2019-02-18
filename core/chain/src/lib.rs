@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use parking_lot::RwLock;
+use std::sync::{Arc, RwLock};
 
 use log::info;
 use primitives::hash::CryptoHash;
@@ -11,12 +9,18 @@ use serde_derive::{Deserialize, Serialize};
 use storage::GenericStorage;
 
 use primitives::block_traits::{SignedBlock, SignedHeader};
+use std::marker::PhantomData;
+use std::ops::DerefMut;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// General BlockChain container.
 pub struct BlockChain<H, B, S> {
     /// Storage backend.
-    storage: RwLock<Arc<S>>,
+    storage: Arc<RwLock<S>>,
     // TODO: Add fork choice rule, tracking of finalized, pending, etc blocks.
+    phantom_header: PhantomData<H>,
+    phantom_block: PhantomData<B>,
 }
 
 impl<H, B, S> BlockChain<H, B, S>
@@ -25,20 +29,31 @@ where
     B: SignedBlock<SignedHeader = H>,
     S: GenericStorage<H, B>,
 {
-    pub fn new(genesis: B, storage: Arc<S>) -> Self {
-        let bc = Self { storage: RwLock::new(storage) };
+    pub fn new(genesis: B, storage: Arc<RwLock<S>>) -> Self {
+        let bc =
+            Self { storage, phantom_header: Default::default(), phantom_block: Default::default() };
         bc.storage
             .write()
+            .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
             .set_genesis(genesis)
             .expect("Failed to initialize storage from genesis");
         bc
     }
 
+    pub fn genesis_hash(&self) -> CryptoHash {
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .blockchain_storage_mut()
+            .genesis_hash()
+            .clone()
+    }
+
     pub fn best_block(&self) -> B {
-        let mut guard = self.storage.write();
-        let hash = guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap();
-        guard.blockchain_storage_mut().block(hash).unwrap().unwrap()
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+        let hash = guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap().clone();
+        guard.blockchain_storage_mut().block(&hash).unwrap().unwrap().clone()
     }
 
     #[inline]
@@ -48,12 +63,14 @@ where
 
     #[inline]
     pub fn best_hash(&self) -> CryptoHash {
-        self.storage.write().blockchain_storage_mut().best_block_hash().unwrap().unwrap().clone()
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+        guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap().clone()
     }
 
     /// Check if block already is known.
     pub fn is_known(&self, hash: &CryptoHash) -> bool {
-        match self.storage.write().blockchain_storage_mut().header(hash) {
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+        match guard.blockchain_storage_mut().header(hash) {
             Ok(Some(_)) => true,
             _ => false,
         }
@@ -61,60 +78,51 @@ where
 
     fn update_best_block(&self, block: B) {
         let hash = block.block_hash();
-        let mut guard = self.storage.write();
-        guard.blockchain_storage_mut().set_best_block_hash(hash.clone());
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+        guard.blockchain_storage_mut().set_best_block_hash(hash.clone()).unwrap();
         guard.blockchain_storage_mut().add_block(block).unwrap();
     }
 
     /// Inserts a verified block.
-    /// Returns true if block is disconnected.
-    pub fn insert_block(&self, block: B) -> bool {
+    pub fn insert_block(&self, block: B) {
         let block_hash = block.block_hash();
         if self.is_known(&block_hash) {
             // TODO: known header but not known block.
-            return false;
+            return;
         }
 
-        let maybe_parent = self
+        if self
             .storage
             .write()
+            .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
             .block(&block.header().parent_hash())
-            .unwrap();
-        if maybe_parent.is_none() {
-            return false;
+            .unwrap()
+            .is_none()
+        {
+            return;
         }
         self.update_best_block(block);
-        true
-    }
-
-    fn get_block_hash_by_index(&self, index: u64) -> Option<CryptoHash> {
-        read_with_cache(
-            &self.storage,
-            storage::COL_BLOCK_INDEX,
-            &self.index_to_hash,
-            &index_to_bytes(index),
-        )
     }
 
     pub fn get_block(&self, id: &BlockId) -> Option<B> {
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         let hash = match id {
-            BlockId::Number(idx) => self.get_block_hash_by_index(*idx)?,
+            BlockId::Number(idx) => guard.blockchain_storage_mut().hash_by_index(*idx).unwrap()?,
             BlockId::Hash(h) => h,
-        };
-        self.storage.write().blockchain_storage_mut().block(&hash).unwrap()
-    }
-
-    fn get_block_header_by_hash(&self, block_hash: &CryptoHash) -> Option<H> {
-        read_with_cache(&self.storage, storage::COL_HEADERS, &self.headers, block_hash.as_ref())
+        }
+        .clone();
+        guard.blockchain_storage_mut().block(&hash).unwrap().cloned()
     }
 
     pub fn get_header(&self, id: &BlockId) -> Option<H> {
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         let hash = match id {
-            BlockId::Number(idx) => self.get_block_hash_by_index(*idx)?,
+            BlockId::Number(idx) => guard.blockchain_storage_mut().hash_by_index(*idx).unwrap()?,
             BlockId::Hash(h) => h,
-        };
-        self.storage.write().blockchain_storage_mut().header(&hash).unwrap()
+        }
+        .clone();
+        guard.blockchain_storage_mut().header(&hash).unwrap().cloned()
     }
 
     pub fn get_blocks_by_index(&self, start: u64, limit: u64) -> Result<Vec<B>, String> {

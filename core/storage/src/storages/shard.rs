@@ -10,6 +10,7 @@ use primitives::transaction::TransactionResult;
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 /// Shard chain
 pub struct ShardChainStorage {

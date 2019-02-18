@@ -7,7 +7,8 @@ extern crate log;
 extern crate primitives;
 
 pub use kvdb::{DBTransaction, DBValue, KeyValueDB};
-use kvdb_rocksdb::{Database, DatabaseConfig, KeyValueDB};
+use kvdb_rocksdb::{Database, DatabaseConfig};
+
 
 pub mod storages;
 pub mod test_utils;
@@ -20,19 +21,20 @@ pub use trie::{DBChanges, Trie};
 pub use storages::{BlockChainStorage, GenericStorage};
 pub use storages::beacon::BeaconChainStorage;
 pub use storages::shard::ShardChainStorage;
+use std::sync::RwLock;
 
 /// Initializes beacon and shard chain storages from the given path.
 pub fn create_storage(
     storage_path: &str,
     num_shards: u32,
-) -> (Arc<BeaconChainStorage>, Vec<Arc<ShardChainStorage>>) {
+) -> (Arc<RwLock<BeaconChainStorage>>, Vec<Arc<RwLock<ShardChainStorage>>>) {
     let db_config = DatabaseConfig::with_columns(Some(total_columns(num_shards)));
     let db =
         Arc::new(Database::open(&db_config, storage_path).expect("Failed to open the database"));
-    let beacon = Arc::new(BeaconChainStorage::new(db.clone()));
+    let beacon = Arc::new(RwLock::new(BeaconChainStorage::new(db.clone())));
     let mut shards = vec![];
     for id in 0..num_shards {
-        shards.push(Arc::new(ShardChainStorage::new(db.clone(), id)));
+        shards.push(Arc::new(RwLock::new(ShardChainStorage::new(db.clone(), id))));
     }
     (beacon, shards)
 }
