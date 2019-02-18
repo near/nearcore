@@ -14,7 +14,7 @@ use crate::nightshade::BlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
 
-const TASK_DURATION_SEC: u64 = 60;
+const TASK_DURATION_SEC: u64 = 300;
 
 #[derive(Clone, Debug, Serialize)]
 struct DummyPayload {
