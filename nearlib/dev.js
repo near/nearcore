@@ -41,11 +41,11 @@ module.exports = {
         if (options.accountId) {
             keyStore.setKey(options.accountId, options.key);
         } else {
-            this.getOrCreateDevUser(near);
+            this.getOrCreateDevUser(near, keyStore);
         }
         return near;
     },
-    getOrCreateDevUser: async function (near) {
+    getOrCreateDevUser: async function (near, keyStore = null) {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
         if (tempUserAccountId) {
             // Make sure the user actually exists and recreate it if it doesn't
@@ -66,8 +66,8 @@ module.exports = {
             newAccountId: tempUserAccountId,
             newAccountPublicKey: keypair.getPublicKey()
         });
-        const keyStore = new nearlib.BrowserLocalStorageKeystore();
-        keyStore.setKey(tempUserAccountId, keypair);
+        const localKeyStore = keyStore || new nearlib.BrowserLocalStorageKeystore();
+        localKeyStore.setKey(tempUserAccountId, keypair);
         window.localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;
     },
