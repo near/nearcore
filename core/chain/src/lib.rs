@@ -42,7 +42,7 @@ where
 
     pub fn best_block(&self) -> B {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        let hash = guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap().clone();
+        let hash = *guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap();
         guard.blockchain_storage_mut().block(&hash).unwrap().unwrap().clone()
     }
 

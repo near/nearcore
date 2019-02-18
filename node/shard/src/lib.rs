@@ -187,7 +187,7 @@ impl ShardBlockChain {
             .transaction_result(hash)
             .unwrap()
             .cloned()
-            .unwrap_or(TransactionResult::default())
+            .unwrap_or_default()
     }
 
     fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
