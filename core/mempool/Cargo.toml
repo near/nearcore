@@ -14,4 +14,8 @@ tokio = "0.1"
 
 near-protos = { path = "../protos" }
 primitives = { path = "../primitives" }
-storage = { path = "../storage" }
+shard = { path = "../../node/shard" }
+
+[dev-dependencies]
+node-runtime = { path = "../../node/runtime" }
+storage = { path = "../../core/storage"}

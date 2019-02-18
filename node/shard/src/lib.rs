@@ -233,7 +233,7 @@ impl ShardBlockChain {
         }
     }
 
-    fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
+    pub fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
         let key = with_index(&hash, ExtrasIndex::TransactionAddress);
         read_with_cache(
             &self.storage.clone(),
