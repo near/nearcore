@@ -189,15 +189,13 @@ impl State {
     /// See `BareState::empty` for more information
     ///
     /// Note: The signature of this state is going to be incorrect, but this state
-    /// will never be transmitted to other participants as current state.
-    fn empty(secret_key: &BlsSecretKey) -> Self {
-        let bare_state = BareState::empty();
-        let signature = bare_state.sign(&secret_key);
+    /// will never be sended to other participants as current state.
+    fn empty() -> Self {
         Self {
-            bare_state,
+            bare_state: BareState::empty(),
             primary_proof: None,
             secondary_proof: None,
-            signature,
+            signature: BlsSignature::empty(),
         }
     }
 
@@ -377,9 +375,13 @@ impl Nightshade {
             if a == owner_id {
                 states.push(State::new(a, block_header.hash, &bls_owner_secret_key));
             } else {
-                states.push(State::empty(&bls_owner_secret_key));
+                states.push(State::empty());
             }
         }
+
+        // Mark first authority triplet as seen from the beginning
+        let mut seen_bare_states = HashSet::new();
+        seen_bare_states.insert(states[owner_id].bare_state.clone());
 
         Self {
             owner_id,
@@ -387,7 +389,7 @@ impl Nightshade {
             states,
             is_adversary: vec![false; num_authorities],
             best_state_counter: 1,
-            seen_bare_states: HashSet::new(),
+            seen_bare_states,
             committed: None,
             bls_public_keys,
             bls_owner_secret_key,
@@ -419,17 +421,19 @@ impl Nightshade {
             }
         }
 
-        // TODO: Even if we have seen this triplet already verify the state, just don't verify proofs
+        // TODO: Even if we have seen this triplet already verify the state, just don't verify proofs. Mark as adversarial
+        // TODO: We should have BLS signature for every state to aggregate them if necessary, should we use EDS also to to check authority
 
         if state.bare_state > self.states[authority_id].bare_state {
             self.states[authority_id] = state.clone();
 
-            // TODO: Not verifying a new state might be a problem in this merge, because honest nodes care about proofs while merging
             // We always take the best state seen so far
+            // Note: If our state changes after merging with new state,
+            // we are sure that this state and its proofs have been verified.
             let mut new_state = merge(&self.states[self.owner_id], &state);
 
             if new_state != self.states[self.owner_id] {
-                // Sign new state
+                // Sign new state (Only sign this state if we are going to accept it)
                 new_state.signature = new_state.bare_state.sign(&self.bls_owner_secret_key);
                 self.states[self.owner_id] = new_state;
                 self.best_state_counter = 1;
@@ -464,9 +468,8 @@ impl Nightshade {
                 // Double check we already have enough proofs
                 assert_eq!(collected_proofs, self.best_state_counter);
                 let new_state = my_state.increase_confidence(proof, &self.bls_owner_secret_key);
-                // Verify new generated state is correct.
-                // TODO: Remove this assertion
-                assert_eq!(new_state.verify(self.owner_id, &self.bls_public_keys), true);
+                // New state must be valid. Verifying is expensive! Enable this assert for testing.
+                // assert_eq!(new_state.verify(self.owner_id, &self.bls_public_keys), true);
                 self.seen_bare_states.insert(new_state.bare_state.clone());
                 self.states[self.owner_id] = new_state;
                 self.best_state_counter = 1;
@@ -509,9 +512,11 @@ impl Nightshade {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rand::{SeedableRng, XorShiftRng};
+
     use primitives::aggregate_signature::AggregateSignature;
+
+    use super::*;
 
     fn generate_bls_key_pairs(total: usize) -> (Vec<BlsPublicKey>, Vec<BlsSecretKey>) {
         // Use rng to create deterministic tests
@@ -546,12 +551,11 @@ mod tests {
         };
         // Aggregate signature
         let mut aggregated_signature = AggregateSignature::new();
-        for sk in sks{
+        for sk in sks {
             let s = triplet.sign(&sk);
             aggregated_signature.aggregate(&s);
         }
         let signature = aggregated_signature.get_signature();
-
         // Aggregate public keys
         let mut aggregated_pk = AggregatePublicKey::new();
         for pk in pks {
@@ -608,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nightshade_two_authority() {
+    fn test_nightshade_two_authorities() {
         nightshade_all_sync(2, 5);
     }
 
@@ -631,8 +635,7 @@ mod tests {
     }
 
     fn state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> State {
-        let secret_key = BlsSecretKey::generate();
-        let mut state = State::empty(&secret_key);
+        let mut state = State::empty();
         state.bare_state = bare_state(primary_confidence, endorses, secondary_confidence);
         state
     }
