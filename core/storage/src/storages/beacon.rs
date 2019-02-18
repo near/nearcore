@@ -3,8 +3,6 @@ use crate::storages::ChainId;
 use crate::KeyValueDB;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::beacon::SignedBeaconBlockHeader;
-use primitives::hash::CryptoHash;
-use std::io;
 use std::sync::Arc;
 
 /// Beacon chain does not require additional behavior besides storing and retrieving blocks. Later,

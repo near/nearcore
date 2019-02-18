@@ -9,7 +9,6 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
-use std::sync::RwLock;
 
 pub mod beacon;
 pub mod shard;
@@ -108,11 +107,11 @@ where
     }
 
     /// Encodes block index by adding a prefix that corresponds to the chain id.
-    fn enc_index(&self, index: &u64) -> [u8; 12] {
+    fn enc_index(&self, index: u64) -> [u8; 12] {
         let id: u32 = self.chain_id.clone().into();
         let mut res = [0; 12];
         res[..4].copy_from_slice(chain_id_to_bytes(&id));
-        res[4..].copy_from_slice(index_to_bytes(index));
+        res[4..].copy_from_slice(index_to_bytes(&index));
         res
     }
 
@@ -205,13 +204,13 @@ where
         if best_block_index < index {
             return Ok(None);
         }
-        let key = self.enc_index(&index);
+        let key = self.enc_index(index);
         read_with_cache(self.storage.as_ref(), COL_BLOCK_INDICES, &mut self.block_indices, &key)
     }
 
     #[inline]
     pub fn set_hash_by_index(&mut self, index: u64, hash: CryptoHash) -> io::Result<()> {
-        let key = self.enc_index(&index);
+        let key = self.enc_index(index);
         write_with_cache(
             self.storage.as_ref(),
             COL_BLOCK_INDICES,
