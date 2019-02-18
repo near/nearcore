@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
 use primitives::hash::{CryptoHash, hash_struct};
-use primitives::signature::bs58_serializer;
 use primitives::serialize::Encode;
+use primitives::signature::bs58_serializer;
 
 pub type AuthorityId = usize;
 
@@ -419,13 +419,18 @@ impl Nightshade {
             }
         }
 
+        // TODO: Even if we have seen this triplet already verify the state, just don't verify proofs
+
         if state.bare_state > self.states[authority_id].bare_state {
             self.states[authority_id] = state.clone();
 
+            // TODO: Not verifying a new state might be a problem in this merge, because honest nodes care about proofs while merging
             // We always take the best state seen so far
-            let new_state = merge(&self.states[self.owner_id], &state);
+            let mut new_state = merge(&self.states[self.owner_id], &state);
 
             if new_state != self.states[self.owner_id] {
+                // Sign new state
+                new_state.signature = new_state.bare_state.sign(&self.bls_owner_secret_key);
                 self.states[self.owner_id] = new_state;
                 self.best_state_counter = 1;
             }
@@ -449,7 +454,7 @@ impl Nightshade {
                 for (a, bit) in mask.iter_mut().enumerate() {
                     if self.states[a] == *my_state {
                         *bit = true;
-                        aggregated_signature.aggregate(&state.signature);
+                        aggregated_signature.aggregate(&self.states[a].signature);
                         collected_proofs += 1;
                     }
                 }
@@ -505,10 +510,15 @@ impl Nightshade {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{SeedableRng, XorShiftRng};
+    use primitives::aggregate_signature::AggregateSignature;
 
     fn generate_bls_key_pairs(total: usize) -> (Vec<BlsPublicKey>, Vec<BlsSecretKey>) {
+        // Use rng to create deterministic tests
+        let mut rng = XorShiftRng::from_seed([11111111, 22222222, 33333333, 44444444]);
+
         (0..total).map(|_| {
-            let secret_key = BlsSecretKey::generate();
+            let secret_key = BlsSecretKey::generate_from_rng(&mut rng);
             let public_key = secret_key.get_public_key();
             (public_key, secret_key)
         }).unzip()
@@ -522,8 +532,34 @@ mod tests {
     fn header(author: AuthorityId) -> BlockHeader {
         BlockHeader {
             author,
-            hash: empty_cryptohash(),
+            hash: hash_struct(&author),
         }
+    }
+
+    #[test]
+    fn bls_on_bare_states() {
+        let (pks, sks) = generate_bls_key_pairs(2);
+        let triplet = BareState {
+            primary_confidence: 0,
+            endorses: header(1),
+            secondary_confidence: 0,
+        };
+        // Aggregate signature
+        let mut aggregated_signature = AggregateSignature::new();
+        for sk in sks{
+            let s = triplet.sign(&sk);
+            aggregated_signature.aggregate(&s);
+        }
+        let signature = aggregated_signature.get_signature();
+
+        // Aggregate public keys
+        let mut aggregated_pk = AggregatePublicKey::new();
+        for pk in pks {
+            aggregated_pk.aggregate(&pk);
+        }
+        let a_pk = aggregated_pk.get_key();
+
+        assert_eq!(a_pk.verify(&triplet.bs_encode(), &signature), true);
     }
 
     fn create_nightshades(num_authorities: usize) -> Vec<Nightshade> {
