@@ -301,7 +301,6 @@ impl Authority {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
 
     use primitives::beacon::SignedBeaconBlock;
     use primitives::hash::CryptoHash;
@@ -311,6 +310,7 @@ mod test {
     use super::*;
     use primitives::block_traits::SignedHeader;
     use configs::ChainSpec;
+    use crate::beacon_chain::BeaconBlockChain;
 
     fn get_test_chainspec(
         num_authorities: u32,

@@ -26,14 +26,14 @@ impl BeaconBlockChain {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+//    use std::sync::Arc;
 
     use chain::BlockChain;
-    use primitives::aggregate_signature::BlsSignature;
-    use primitives::hash::hash;
+//    use primitives::aggregate_signature::BlsSignature;
+//    use primitives::hash::hash;
     use primitives::signer::InMemorySigner;
     use primitives::types::BlockId;
-    use std::collections::HashMap;
+//    use std::collections::HashMap;
 
     use super::*;
     use primitives::block_traits::SignedBlock;

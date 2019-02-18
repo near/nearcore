@@ -37,12 +37,7 @@ where
     }
 
     pub fn genesis_hash(&self) -> CryptoHash {
-        self.storage
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .blockchain_storage_mut()
-            .genesis_hash()
-            .clone()
+        *self.storage.write().expect(POISONED_LOCK_ERR).blockchain_storage_mut().genesis_hash()
     }
 
     pub fn best_block(&self) -> B {
@@ -59,7 +54,7 @@ where
     #[inline]
     pub fn best_hash(&self) -> CryptoHash {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap().clone()
+        *guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap()
     }
 
     /// Check if block already is known.
@@ -74,7 +69,7 @@ where
     fn update_best_block(&self, block: B) {
         let hash = block.block_hash();
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        guard.blockchain_storage_mut().set_best_block_hash(hash.clone()).unwrap();
+        guard.blockchain_storage_mut().set_best_block_hash(hash).unwrap();
         guard.blockchain_storage_mut().add_block(block).unwrap();
     }
 
@@ -102,21 +97,19 @@ where
 
     pub fn get_block(&self, id: &BlockId) -> Option<B> {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        let hash = match id {
+        let hash = *match id {
             BlockId::Number(idx) => guard.blockchain_storage_mut().hash_by_index(*idx).unwrap()?,
             BlockId::Hash(h) => h,
-        }
-        .clone();
+        };
         guard.blockchain_storage_mut().block(&hash).unwrap().cloned()
     }
 
     pub fn get_header(&self, id: &BlockId) -> Option<H> {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        let hash = match id {
+        let hash = *match id {
             BlockId::Number(idx) => guard.blockchain_storage_mut().hash_by_index(*idx).unwrap()?,
             BlockId::Hash(h) => h,
-        }
-        .clone();
+        };
         guard.blockchain_storage_mut().header(&hash).unwrap().cloned()
     }
 
