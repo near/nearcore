@@ -43,6 +43,17 @@ message SwapKeyTransaction {
     bytes new_key = 4;
 }
 
+message AddKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes new_key = 3;
+}
+
+message DeleteKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes cur_key = 3;
+}
 
 message SignedTransaction {
     bytes signature = 1;
@@ -53,5 +64,7 @@ message SignedTransaction {
         SendMoneyTransaction send_money = 5;
         StakeTransaction stake = 6;
         SwapKeyTransaction swap_key = 7;
+        AddKeyTransaction add_key = 8;
+        DeleteKeyTransaction delete_key = 9;
     }
 }

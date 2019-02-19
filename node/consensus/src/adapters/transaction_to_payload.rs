@@ -1,7 +1,7 @@
 //! A simple task converting transactions to payloads.
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::{Future, Sink, Stream};
-use chain::ChainPayload;
+use primitives::chain::ChainPayload;
 
 // TODO(#265): Include transaction verification here.
 pub fn spawn_task<T: Send + 'static>(
@@ -25,7 +25,7 @@ mod tests {
     use futures::sync::mpsc::channel;
     use futures::{lazy, stream};
     use primitives::signature::DEFAULT_SIGNATURE;
-    use transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody};
+    use primitives::transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody};
 
     #[test]
     fn pass_through() {

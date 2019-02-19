@@ -384,7 +384,7 @@ class NearRPC(object):
     ):
         if args is None:
             args = "{}"
-        args = list(bytearray(args))
+        args = list(bytearray(args, 'utf-8'))
 
         params = {
             'contract_account_id': _get_account_id(contract_name),
@@ -522,7 +522,7 @@ get_beacon_block_by_hash  {}
             '-r',
             '--receiver',
             type=str,
-            default='bob',
+            default='bob.near',
             help='account alias of receiver',
         )
         parser.add_argument(

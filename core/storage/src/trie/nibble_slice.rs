@@ -190,7 +190,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
             match self.at(i).partial_cmp(&them.at(i)).unwrap() {
                 Ordering::Less => return Some(Ordering::Less),
                 Ordering::Greater => return Some(Ordering::Greater),
-                _ => {},
+                _ => {}
             }
         }
         self.len().partial_cmp(&them.len())
@@ -200,7 +200,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
 impl<'a> fmt::Debug for NibbleSlice<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_empty() {
-            return Ok(())
+            return Ok(());
         }
         write!(f, "{:01x}", self.at(0))?;
         for i in 1..self.len() {

@@ -8,14 +8,14 @@ use primitives::types::{
     AccountId, AccountingInfo, Balance, CallbackId,
     Mana, PromiseId, ReceiptId,
 };
-use transaction::{AsyncCall, ReceiptTransaction, Callback, CallbackInfo, ReceiptBody};
-use storage::{StateDbUpdate, StateDbUpdateIterator};
+use primitives::transaction::{AsyncCall, ReceiptTransaction, Callback, CallbackInfo, ReceiptBody};
+use storage::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{External, Result as ExtResult, Error as ExtError};
 
 use super::{account_id_to_bytes, create_nonce_with_nonce, COL_ACCOUNT, callback_id_to_bytes, set};
 
 pub struct RuntimeExt<'a> {
-    state_db_update: &'a mut StateDbUpdate,
+    trie_update: &'a mut TrieUpdate,
     storage_prefix: Vec<u8>,
     pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
     pub callbacks: HashMap<CallbackId, Callback>,
@@ -23,13 +23,13 @@ pub struct RuntimeExt<'a> {
     accounting_info: AccountingInfo,
     nonce: u64,
     transaction_hash: &'a CryptoHash,
-    iters: HashMap<u32, Peekable<StateDbUpdateIterator<'a>>>,
+    iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
     last_iter_id: u32,
 }
 
 impl<'a> RuntimeExt<'a> {
     pub fn new(
-        state_db_update: &'a mut StateDbUpdate,
+        trie_update: &'a mut TrieUpdate,
         account_id: &AccountId,
         accounting_info: &AccountingInfo,
         transaction_hash: &'a CryptoHash
@@ -37,7 +37,7 @@ impl<'a> RuntimeExt<'a> {
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
         prefix.append(&mut b",".to_vec());
         RuntimeExt { 
-            state_db_update,
+            trie_update,
             storage_prefix: prefix,
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
@@ -70,7 +70,7 @@ impl<'a> RuntimeExt<'a> {
     pub fn flush_callbacks(&mut self) {
         for (id, callback) in self.callbacks.drain() {
             set(
-                self.state_db_update,
+                self.trie_update,
                 &callback_id_to_bytes(&id),
                 &callback
             );
@@ -81,28 +81,28 @@ impl<'a> RuntimeExt<'a> {
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        self.state_db_update.set(&storage_key, &DBValue::from_slice(value));
+        self.trie_update.set(&storage_key, &DBValue::from_slice(value));
         Ok(())
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        let value = self.state_db_update.get(&storage_key);
+        let value = self.trie_update.get(&storage_key);
         Ok(value.map(|buf| buf.to_vec()))
     }
 
     fn storage_remove(&mut self, key: &[u8]) {
         let storage_key = self.create_storage_key(key);
-        self.state_db_update.remove(&storage_key);
+        self.trie_update.remove(&storage_key);
     }
 
     fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
         self.iters.insert(
             self.last_iter_id,
             // It is safe to insert an iterator of lifetime 'a into a HashMap of lifetime 'a.
-            // We just could not convince Rust that `self.state_db_update` has lifetime 'a as it
+            // We just could not convince Rust that `self.trie_update` has lifetime 'a as it
             // shrinks the lifetime to the lifetime of `self`.
-            unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
+            unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .iter(&self.create_storage_key(prefix))
                 .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
         );
@@ -113,7 +113,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_range(&mut self, start: &[u8], end: &[u8]) -> ExtResult<u32> {
         self.iters.insert(
             self.last_iter_id,
-            unsafe { &mut *(self.state_db_update as *mut StateDbUpdate) }
+            unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .range(&self.storage_prefix, start, end)
                 .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
         );

@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
-use beacon::types::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
+use primitives::beacon::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use near_protos::serde::b64_format as protos_b64_format;
+use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
-use primitives::signature::{bs58_pub_key_format, PublicKey};
+use primitives::signature::{bs58_serializer};
 use primitives::types::{
     AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId
 };
-use chain::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
-use transaction::{
+use primitives::chain::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
+use primitives::transaction::{
     FinalTransactionResult, SignedTransaction, TransactionResult,
 };
 
@@ -53,8 +54,8 @@ pub struct ViewStateResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct AuthorityProposalResponse {
     pub account_id: AccountId,
-    #[serde(with = "bs58_pub_key_format")]
-    pub public_key: PublicKey,
+    #[serde(with = "bs58_serializer")]
+    pub public_key: BlsPublicKey,
     pub amount: u64,
 }
 
