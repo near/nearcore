@@ -131,11 +131,12 @@ mod tests {
     use primitives::signature::{SecretKey, sign};
     use primitives::transaction::{TransactionBody, SendMoneyTransaction};
     use node_runtime::test_utils::generate_test_chain_spec;
-    use storage::test_utils::create_memory_db;
+    use storage::test_utils::create_beacon_shard_storages;
 
     fn get_test_chain() -> (ShardBlockChain, SecretKey) {
         let (chain_spec, _, secret_key) = generate_test_chain_spec();
-        let chain = ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()));
+        let shard_storage = create_beacon_shard_storages().1;
+        let chain = ShardBlockChain::new(&chain_spec, shard_storage);
         (chain, secret_key)
     }
 

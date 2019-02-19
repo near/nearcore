@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
+      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
