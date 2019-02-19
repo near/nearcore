@@ -190,7 +190,7 @@ impl ShardBlockChain {
             .unwrap_or_default()
     }
 
-    fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
+    pub fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
         self.storage.write().expect(POISONED_LOCK_ERR).transaction_address(hash).unwrap().cloned()
     }
 

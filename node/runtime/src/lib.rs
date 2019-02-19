@@ -952,8 +952,6 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use primitives::hash::hash;
     use primitives::signature::{get_key_pair};
     use storage::test_utils::create_trie;
