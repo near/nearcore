@@ -92,7 +92,7 @@ impl BareState {
         }
     }
 
-    fn new(author: AuthorityId, hash: CryptoHash) -> Self {
+    pub fn new(author: AuthorityId, hash: CryptoHash) -> Self {
         Self {
             primary_confidence: 0,
             endorses: BlockHeader { author, hash },
@@ -100,11 +100,11 @@ impl BareState {
         }
     }
 
-    fn bs_encode(&self) -> Vec<u8> {
+    pub fn bs_encode(&self) -> Vec<u8> {
         self.encode().expect("Fail serializing triplet.")
     }
 
-    fn sign(&self, secret_key: &BlsSecretKey) -> BlsSignature {
+    pub fn sign(&self, secret_key: &BlsSecretKey) -> BlsSignature {
         secret_key.sign(&self.bs_encode())
     }
 
