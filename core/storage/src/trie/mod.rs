@@ -841,24 +841,24 @@ mod tests {
         assert_eq!(node, new_node);
     }
 
-//    #[test]
-//    fn test_basic_trie() {
-//        let trie = create_trie();
-//        let empty_root = Trie::empty_root();
-//        // assert_eq!(trie.get(&empty_root, &[122]), None);
-//        let changes = vec![
-//            (b"doge".to_vec(), Some(b"coin".to_vec())),
-//            (b"docu".to_vec(), Some(b"value".to_vec())),
-//            (b"do".to_vec(), Some(b"verb".to_vec())),
-//            (b"horse".to_vec(), Some(b"stallion".to_vec())),
-//            (b"dog".to_vec(), Some(b"puppy".to_vec())),
-//            (b"h".to_vec(), Some(b"value".to_vec())),
-//        ];
-//        let root = test_populate_trie(&trie, &empty_root, changes.clone());
-//        let new_root = test_clear_trie(&trie, &root, changes);
-//        assert_eq!(new_root, empty_root);
+    #[test]
+    fn test_basic_trie() {
+        let trie = create_trie();
+        let empty_root = Trie::empty_root();
+        // assert_eq!(trie.get(&empty_root, &[122]), None);
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+            (b"do".to_vec(), Some(b"verb".to_vec())),
+            (b"horse".to_vec(), Some(b"stallion".to_vec())),
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
+            (b"h".to_vec(), Some(b"value".to_vec())),
+        ];
+        let root = test_populate_trie(&trie, &empty_root, changes.clone());
+        let new_root = test_clear_trie(&trie, &root, changes);
+        assert_eq!(new_root, empty_root);
 //        assert_eq!(storage.iter(Some(0)).fold(0, |acc, _| acc + 1), 0);
-//    }
+    }
 
     #[test]
     fn test_trie_iter() {

@@ -41,15 +41,15 @@ mod tests {
     use primitives::hash::CryptoHash;
     use storage::test_utils::create_beacon_shard_storages;
 
-//    #[test]
-//    fn test_genesis() {
-//        let storage = Arc::new(create_memory_db());
-//        let genesis =
-//            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-//        let bc = BlockChain::new(genesis.clone(), storage);
-//        assert_eq!(bc.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
-//        assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
-//    }
+    #[test]
+    fn test_genesis() {
+        let storage = create_beacon_shard_storages().0;
+        let genesis =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let bc = BlockChain::new(genesis.clone(), storage);
+        assert_eq!(bc.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
+        assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
+    }
 
     #[test]
     fn test_restart_chain() {
