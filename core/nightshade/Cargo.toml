@@ -15,3 +15,10 @@ log = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
 bs58 = "0.2.0"
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "bench"
+harness = false
