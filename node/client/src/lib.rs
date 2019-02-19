@@ -54,6 +54,7 @@ fn configure_logging(log_level: log::LevelFilter) {
         "service",
         "wasm",
         "client",
+        "memorypool",
     ];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
