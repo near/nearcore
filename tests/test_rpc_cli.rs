@@ -62,7 +62,7 @@ fn test_service_ready(rpc_port: u16, test_name: &str) -> bool {
     thread::spawn(|| {
         devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
     });
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_secs(3));
     true
 }
 
