@@ -62,7 +62,7 @@ fn test_service_ready(rpc_port: u16, test_name: &str) -> bool {
     thread::spawn(|| {
         devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
     });
-    wait_for(&|| get_latest_beacon_block(rpc_port));
+    wait_for(&|| get_latest_beacon_block(rpc_port)).unwrap();
     true
 }
 
