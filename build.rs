@@ -1,3 +1,4 @@
+// demo
 use protos_autogen;
 
 fn main() {
