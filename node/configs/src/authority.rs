@@ -5,6 +5,7 @@ use primitives::types::AuthorityStake;
 use crate::chain_spec::ChainSpec;
 
 /// Configure the authority rotation.
+#[derive(Clone)]
 pub struct AuthorityConfig {
     /// List of initial proposals at genesis block.
     pub initial_proposals: Vec<AuthorityStake>,

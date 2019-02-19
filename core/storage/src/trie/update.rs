@@ -16,12 +16,7 @@ pub struct TrieUpdate {
 
 impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
-        TrieUpdate {
-            trie,
-            root,
-            committed: BTreeMap::default(),
-            prospective: BTreeMap::default(),
-        }
+        TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
     }
     pub fn get(&self, key: &[u8]) -> Option<DBValue> {
         if let Some(value) = self.prospective.get(key) {
@@ -281,7 +276,7 @@ mod tests {
 
     #[test]
     fn trie() {
-        let trie = Arc::new(create_trie());
+        let trie = create_trie();
         let root = MerkleHash::default();
         let mut trie_update = TrieUpdate::new(trie.clone(), root);
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
@@ -298,7 +293,7 @@ mod tests {
 
     #[test]
     fn trie_iter() {
-        let trie = Arc::new(create_trie());
+        let trie = create_trie();
         let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         trie_update.set(b"aaa", &DBValue::from_slice(b"puppy"));

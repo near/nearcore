@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-use std::sync::Arc;
 use std::{cmp, env, fs};
 
 use env_logger::Builder;
@@ -27,8 +26,10 @@ use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
 use shard::{ShardBlockChain};
-use storage::Storage;
 use primitives::block_traits::SignedBlock;
+use storage::create_storage;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub struct Client {
     pub account_id: AccountId,
@@ -79,27 +80,31 @@ pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 const STORAGE_PATH: &str = "storage/db";
 const KEY_STORE_PATH: &str = "storage/keystore";
 
-fn get_storage(base_path: &Path) -> Arc<Storage> {
+fn get_storage_path(base_path: &Path) -> String {
     let mut storage_path = base_path.to_owned();
     storage_path.push(STORAGE_PATH);
     match fs::canonicalize(storage_path.clone()) {
         Ok(path) => info!("Opening storage database at {:?}", path),
         _ => info!("Could not resolve {:?} path", storage_path),
     };
-    Arc::new(storage::open_database(&storage_path.to_string_lossy()))
+    storage_path.to_str().unwrap().to_owned()
 }
 
 pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
     pub fn new(config: &ClientConfig) -> Self {
-        let storage = get_storage(&config.base_path);
+        let storage_path = get_storage_path(&config.base_path);
+        // For now, use only one shard.
+        let num_shards = 1;
+        let (beacon_storage, mut shard_storages) = create_storage(storage_path.as_str(), num_shards);
+        let shard_storage = shard_storages.pop().unwrap();
 
         let chain_spec = &config.chain_spec;
-        let shard_chain = ShardBlockChain::new(chain_spec, storage.clone());
-        let genesis = SignedBeaconBlock::genesis(shard_chain.chain.genesis_hash);
-        let beacon_chain = BeaconBlockChain::new(genesis, &chain_spec, storage.clone());
-        info!(target: "client", "Genesis root: {:?}", beacon_chain.chain.genesis_hash);
+        let shard_chain = ShardBlockChain::new(chain_spec, shard_storage);
+        info!(target: "client", "Genesis root: {:?}", shard_chain.genesis_hash());
+        let genesis = SignedBeaconBlock::genesis(shard_chain.genesis_hash());
+        let beacon_chain = BeaconBlockChain::new(genesis, &chain_spec, beacon_storage);
 
         let mut key_file_path = config.base_path.to_path_buf();
         key_file_path.push(KEY_STORE_PATH);
@@ -142,6 +147,7 @@ impl Client {
             .beacon_chain
             .authority
             .read()
+            .expect(POISONED_LOCK_ERR)
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) =
@@ -266,7 +272,9 @@ impl Client {
 
     // Authority-related code. Consider hiding it inside the shard chain.
     fn update_authority(&self, beacon_header: &SignedBeaconBlockHeader) {
-        self.beacon_chain.authority.write().process_block_header(beacon_header);
+        self.beacon_chain.authority.write()
+            .expect(POISONED_LOCK_ERR)
+            .process_block_header(beacon_header);
     }
 
     /// Returns own UID and UID to authority map for the given block number.
@@ -276,7 +284,9 @@ impl Client {
         block_index: u64,
     ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
         let next_authorities =
-            self.beacon_chain.authority.read().get_authorities(block_index).unwrap_or_else(|_| {
+            self.beacon_chain.authority.read()
+                .expect(POISONED_LOCK_ERR)
+                .get_authorities(block_index).unwrap_or_else(|_| {
                 panic!("Failed to get authorities for block index {}", block_index)
             });
 

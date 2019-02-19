@@ -710,6 +710,15 @@ pub struct FinalTransactionResult {
     pub logs: Vec<TransactionLogs>,
 }
 
+/// Represents address of certain transaction within block
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct TransactionAddress {
+    /// Block hash
+    pub block_hash: CryptoHash,
+    /// Transaction index within the block
+    pub index: usize
+}
+
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,
     public_keys: &Vec<PublicKey>,

@@ -8,51 +8,26 @@ extern crate serde_derive;
 extern crate storage;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use parking_lot::RwLock;
-
-use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{SignedShardBlock, ReceiptBlock};
 use configs::chain_spec::ChainSpec;
-use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::TrieViewer;
+use node_runtime::{ApplyState, Runtime};
+use primitives::block_traits::{SignedBlock, SignedHeader};
+use primitives::chain::SignedShardBlockHeader;
+use primitives::chain::{ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityStake, BlockId, ShardId, BlockIndex, MerkleHash};
 use primitives::merkle::{merklize, MerklePath};
-use storage::{extend_with_cache, read_with_cache, Trie, TrieUpdate};
+use primitives::transaction::TransactionAddress;
 use primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, SignedTransaction,
+    FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
-    ReceiptTransaction
 };
+use primitives::types::{AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
+use storage::ShardChainStorage;
+use storage::{Trie, TrieUpdate};
 
-type H264 = [u8; 33];
-
-/// Represents index of extra data in database
-#[derive(Copy, Debug, Hash, Eq, PartialEq, Clone)]
-pub enum ExtrasIndex {
-    /// Transaction address index
-    TransactionAddress = 0,
-    /// Transaction result index
-    TransactionResult = 1,
-}
-
-fn with_index(hash: &CryptoHash, i: ExtrasIndex) -> H264 {
-    let mut result = [0; 33];
-    result[0] = i as u8;
-    result[1..].clone_from_slice(hash.as_ref());
-    result
-}
-
-/// Represents address of certain transaction within block
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TransactionAddress {
-    /// Block hash
-    pub block_hash: CryptoHash,
-    /// Transaction index within the block
-    pub index: usize
-}
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SignedTransactionInfo {
@@ -65,22 +40,20 @@ type ShardBlockExtraInfo = (
     storage::DBChanges,
     Vec<AuthorityStake>,
     Vec<TransactionResult>,
-    HashMap<ShardId, ReceiptBlock>
+    HashMap<ShardId, ReceiptBlock>,
 );
 
 pub struct ShardBlockChain {
-    pub chain: chain::BlockChain<SignedShardBlock>,
-    storage: Arc<storage::Storage>,
-    transaction_addresses: RwLock<HashMap<Vec<u8>, TransactionAddress>>,
-    transaction_results: RwLock<HashMap<Vec<u8>, TransactionResult>>,
+    pub chain: Arc<chain::BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
     pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
     pub trie: Arc<Trie>,
+    storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
     pub trie_viewer: TrieViewer,
 }
 
 impl ShardBlockChain {
-    pub fn new(chain_spec: &ChainSpec, storage: Arc<storage::Storage>) -> Self {
+    pub fn new(chain_spec: &ChainSpec, storage: Arc<RwLock<ShardChainStorage>>) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -93,18 +66,9 @@ impl ShardBlockChain {
         trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
 
-        let chain = chain::BlockChain::<SignedShardBlock>::new(genesis, storage.clone());
+        let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
-        Self {
-            chain,
-            storage,
-            transaction_addresses: RwLock::new(HashMap::new()),
-            transaction_results: RwLock::new(HashMap::new()),
-            receipts: RwLock::new(HashMap::new()),
-            trie,
-            runtime,
-            trie_viewer
-        }
+        Self { chain, receipts: RwLock::new(HashMap::new()), trie, storage, runtime, trie_viewer }
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
@@ -114,7 +78,7 @@ impl ShardBlockChain {
 
     #[inline]
     pub fn genesis_hash(&self) -> CryptoHash {
-        self.chain.genesis_hash
+        self.chain.genesis_hash()
     }
 
     pub fn insert_block(
@@ -122,31 +86,31 @@ impl ShardBlockChain {
         block: &SignedShardBlock,
         db_transaction: storage::DBChanges,
         tx_result: Vec<TransactionResult>,
-        new_receipts: HashMap<ShardId, ReceiptBlock>
+        new_receipts: HashMap<ShardId, ReceiptBlock>,
     ) {
         self.trie.apply_changes(db_transaction).ok();
         self.chain.insert_block(block.clone());
-        self.update_for_inserted_block(&block.clone(), tx_result);
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .extend_transaction_results_addresses(block, tx_result)
+            .unwrap();
         let index = block.index();
-        self.receipts.write().insert(index, new_receipts);
+        self.receipts.write().expect(POISONED_LOCK_ERR).insert(index, new_receipts);
     }
 
     fn compute_receipt_blocks(
         shard_ids: Vec<ShardId>,
         receipts: Vec<Vec<ReceiptTransaction>>,
         receipt_merkle_paths: Vec<MerklePath>,
-        block: &SignedShardBlock
+        block: &SignedShardBlock,
     ) -> HashMap<ShardId, ReceiptBlock> {
         shard_ids
             .into_iter()
             .zip(
-                receipts.into_iter()
-                .zip(receipt_merkle_paths.into_iter())
-                .map(|(receipts, path)| ReceiptBlock {
-                    header: block.header(),
-                    receipts,
-                    path
-                })
+                receipts.into_iter().zip(receipt_merkle_paths.into_iter()).map(
+                    |(receipts, path)| ReceiptBlock { header: block.header(), receipts, path },
+                ),
             )
             .collect()
     }
@@ -155,7 +119,7 @@ impl ShardBlockChain {
         &self,
         last_block_hash: CryptoHash,
         prev_receipts: Vec<ReceiptBlock>,
-        transactions: Vec<SignedTransaction>
+        transactions: Vec<SignedTransaction>,
     ) -> (SignedShardBlock, ShardBlockExtraInfo) {
         let last_block = self
             .chain
@@ -168,15 +132,10 @@ impl ShardBlockChain {
             shard_id: last_block.body.header.shard_id,
         };
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
-        let apply_result = self.runtime.apply(
-            state_update,
-            &apply_state,
-            &prev_receipts,
-            &transactions,
-        );
-        let (shard_ids, new_receipts): (Vec<_>, Vec<_>) = apply_result.new_receipts
-                .into_iter()
-                .unzip();
+        let apply_result =
+            self.runtime.apply(state_update, &apply_state, &prev_receipts, &transactions);
+        let (shard_ids, new_receipts): (Vec<_>, Vec<_>) =
+            apply_result.new_receipts.into_iter().unzip();
         let (receipt_merkle_root, receipt_merkle_paths) = merklize(&new_receipts);
         let shard_block = SignedShardBlock::new(
             last_block.body.header.shard_id,
@@ -191,7 +150,7 @@ impl ShardBlockChain {
             shard_ids,
             new_receipts,
             receipt_merkle_paths,
-            &shard_block
+            &shard_block,
         );
         let shard_block_extra = (
             apply_result.db_changes,
@@ -208,10 +167,11 @@ impl ShardBlockChain {
         let (shard_block, (db_changes, _, tx_result, receipt_map)) = self.prepare_new_block(
             block.body.header.parent_hash,
             block.body.receipts,
-            block.body.transactions
+            block.body.transactions,
         );
         if shard_block.body.header.merkle_root_state == state_merkle_root
-        && shard_block.body.header.receipt_merkle_root == receipt_merkle_root {
+            && shard_block.body.header.receipt_merkle_root == receipt_merkle_root
+        {
             self.insert_block(&shard_block, db_changes, tx_result, receipt_map);
             true
         } else {
@@ -221,37 +181,30 @@ impl ShardBlockChain {
     }
 
     pub fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
-        let key = with_index(&hash, ExtrasIndex::TransactionResult);
-        match read_with_cache(
-            &self.storage.clone(),
-            storage::COL_EXTRA,
-            &self.transaction_results,
-            &key,
-        ) {
-            Some(result) => result,
-            None => TransactionResult::default()
-        }
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .transaction_result(hash)
+            .unwrap()
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
-        let key = with_index(&hash, ExtrasIndex::TransactionAddress);
-        read_with_cache(
-            &self.storage.clone(),
-            storage::COL_EXTRA,
-            &self.transaction_addresses,
-            &key,
-        )
+        self.storage.write().expect(POISONED_LOCK_ERR).transaction_address(hash).unwrap().cloned()
     }
 
-    pub fn get_transaction_info(
-        &self,
-        hash: &CryptoHash,
-    ) -> Option<SignedTransactionInfo> {
+    pub fn get_transaction_info(&self, hash: &CryptoHash) -> Option<SignedTransactionInfo> {
         self.get_transaction_address(&hash).map(|address| {
             let block_id = BlockId::Hash(address.block_hash);
-            let block = self.chain.get_block(&block_id)
+            let block = self
+                .chain
+                .get_block(&block_id)
                 .expect("transaction address points to non-existent block");
-            let transaction = block.body.transactions.get(address.index)
+            let transaction = block
+                .body
+                .transactions
+                .get(address.index)
                 .expect("transaction address points to invalid index inside block");
             let result = self.get_transaction_result(&hash);
             SignedTransactionInfo {
@@ -262,58 +215,25 @@ impl ShardBlockChain {
         })
     }
 
-    pub fn update_for_inserted_block(&self, block: &SignedShardBlock, tx_result: Vec<TransactionResult>) {
-        let updates: HashMap<Vec<u8>, TransactionAddress> = block.body.receipts.iter()
-            .flat_map(|b| b.receipts.iter()
-                .map(|r| with_index(&r.nonce, ExtrasIndex::TransactionAddress))
-            )
-            .chain(
-                block.body.transactions.iter()
-                .map(|t| with_index(&t.get_hash(), ExtrasIndex::TransactionAddress))
-            )
-            .enumerate()
-            .map(|(i, key)| (key.to_vec(), TransactionAddress {
-                    block_hash: block.hash,
-                    index: i,
-                }))
-            .collect();
-        extend_with_cache(
-            &self.storage.clone(),
-            storage::COL_EXTRA,
-            &self.transaction_addresses,
-            updates,
-        );
-
-        let updates: HashMap<Vec<u8>, TransactionResult> = block.body.receipts.iter()
-            .flat_map(|b| b.receipts.iter()
-                .map(|r| with_index(&r.nonce, ExtrasIndex::TransactionResult))
-            )
-            .chain(
-                block.body.transactions.iter()
-                .map(|t| with_index(&t.get_hash(), ExtrasIndex::TransactionResult))
-            )
-            .enumerate()
-            .map(|(i, key)| (key.to_vec(), tx_result[i].clone()))
-            .collect();
-        extend_with_cache(
-            &self.storage.clone(),
-            storage::COL_EXTRA,
-            &self.transaction_results,
-            updates,
-        );
-    }
-
-    fn collect_transaction_final_result(&self, transaction_result: &TransactionResult, logs: &mut Vec<TransactionLogs>) -> FinalTransactionStatus {
+    fn collect_transaction_final_result(
+        &self,
+        transaction_result: &TransactionResult,
+        logs: &mut Vec<TransactionLogs>,
+    ) -> FinalTransactionStatus {
         match transaction_result.status {
             TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
             TransactionStatus::Failed => FinalTransactionStatus::Failed,
             TransactionStatus::Completed => {
                 for r in transaction_result.receipts.iter() {
                     let receipt_result = self.get_transaction_result(&r);
-                    logs.push(TransactionLogs{ hash: *r, lines: receipt_result.logs.clone(), receipts: receipt_result.receipts.clone() });
+                    logs.push(TransactionLogs {
+                        hash: *r,
+                        lines: receipt_result.logs.clone(),
+                        receipts: receipt_result.receipts.clone(),
+                    });
                     match self.collect_transaction_final_result(&receipt_result, logs) {
                         FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
-                        FinalTransactionStatus::Completed => {},
+                        FinalTransactionStatus::Completed => {}
                         _ => return FinalTransactionStatus::Started,
                     };
                 }
@@ -326,17 +246,23 @@ impl ShardBlockChain {
         let transaction_result = self.get_transaction_result(hash);
         let mut result = FinalTransactionResult {
             status: FinalTransactionStatus::Unknown,
-            logs: vec![TransactionLogs{ hash: *hash, lines: transaction_result.logs.clone(), receipts: transaction_result.receipts.clone() }] };
-        result.status = self.collect_transaction_final_result(&transaction_result, &mut result.logs);
+            logs: vec![TransactionLogs {
+                hash: *hash,
+                lines: transaction_result.logs.clone(),
+                receipts: transaction_result.receipts.clone(),
+            }],
+        };
+        result.status =
+            self.collect_transaction_final_result(&transaction_result, &mut result.logs);
         result
     }
 
-    pub fn get_receipt_block(&self, block_index: BlockIndex, shard_id: ShardId) -> Option<ReceiptBlock> {
-        self.receipts
-            .read()
-            .get(&block_index)
-            .and_then(|m| m.get(&shard_id))
-            .cloned()
+    pub fn get_receipt_block(
+        &self,
+        block_index: BlockIndex,
+        shard_id: ShardId,
+    ) -> Option<ReceiptBlock> {
+        self.receipts.read().expect(POISONED_LOCK_ERR).get(&block_index).and_then(|m| m.get(&shard_id)).cloned()
     }
 }
 
@@ -344,15 +270,18 @@ impl ShardBlockChain {
 mod tests {
     use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::signature::{sign, SecretKey};
+    use primitives::transaction::{
+        SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus,
+    };
     use primitives::types::Balance;
-    use storage::test_utils::create_memory_db;
-    use primitives::transaction::{SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus};
+    use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
     fn get_test_chain() -> (ShardBlockChain, SecretKey) {
         let (chain_spec, _, secret_key) = generate_test_chain_spec();
-        let chain = ShardBlockChain::new(&chain_spec, Arc::new(create_memory_db()));
+        let shard_storage = create_beacon_shard_storages().1;
+        let chain = ShardBlockChain::new(&chain_spec, shard_storage);
         (chain, secret_key)
     }
 
@@ -360,13 +289,13 @@ mod tests {
         originator: &str,
         receiver: &str,
         amount: Balance,
-        secret_key: SecretKey
+        secret_key: SecretKey,
     ) -> SignedTransaction {
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: 1, 
+            nonce: 1,
             originator: originator.to_string(),
             receiver: receiver.to_string(),
-            amount
+            amount,
         });
         let hash = tx_body.get_hash();
         let signature = sign(hash.as_ref(), &secret_key);
@@ -384,11 +313,8 @@ mod tests {
     fn test_transaction_failed() {
         let (chain, secret_key) = get_test_chain();
         let tx = send_money_tx("xyz.near", "bob.near", 100, secret_key);
-        let (block, (db_changes, _, tx_status, receipts)) = chain.prepare_new_block(
-            chain.genesis_hash(), 
-            vec![],
-            vec![tx.clone()]
-        );
+        let (block, (db_changes, _, tx_status, receipts)) =
+            chain.prepare_new_block(chain.genesis_hash(), vec![], vec![tx.clone()]);
         chain.insert_block(&block, db_changes, tx_status, receipts);
 
         let result = chain.get_transaction_result(&tx.get_hash());
@@ -399,11 +325,8 @@ mod tests {
     fn test_get_transaction_status_complete() {
         let (chain, secret_key) = get_test_chain();
         let tx = send_money_tx("alice.near", "bob.near", 10, secret_key);
-        let (block, (db_changes, _, tx_status, new_receipts)) = chain.prepare_new_block(
-            chain.genesis_hash(),
-            vec![],
-            vec![tx.clone()]
-        );
+        let (block, (db_changes, _, tx_status, new_receipts)) =
+            chain.prepare_new_block(chain.genesis_hash(), vec![], vec![tx.clone()]);
         chain.insert_block(&block, db_changes, tx_status, new_receipts);
 
         let result = chain.get_transaction_result(&tx.get_hash());
@@ -418,9 +341,8 @@ mod tests {
         assert_eq!(final_result.logs[0].receipts.len(), 1);
 
         let receipt_block = chain.get_receipt_block(block.index(), block.shard_id()).unwrap();
-        let (block2, (db_changes2, _, tx_status2, receipts)) = chain.prepare_new_block(
-            block.hash, vec![receipt_block], vec![]
-        );
+        let (block2, (db_changes2, _, tx_status2, receipts)) =
+            chain.prepare_new_block(block.hash, vec![receipt_block], vec![]);
         chain.insert_block(&block2, db_changes2, tx_status2, receipts);
 
         let result2 = chain.get_transaction_result(&result.receipts[0]);
@@ -450,19 +372,12 @@ mod tests {
         let db_changes = HashMap::default();
         chain.insert_block(&block, db_changes, vec![TransactionResult::default()], HashMap::new());
         let address = chain.get_transaction_address(&t.get_hash());
-        let expected = TransactionAddress {
-            block_hash: block.hash,
-            index: 0,
-        };
+        let expected = TransactionAddress { block_hash: block.hash, index: 0 };
         assert_eq!(address, Some(expected.clone()));
 
-        let cache_key = with_index(
-            &t.get_hash(),
-            ExtrasIndex::TransactionAddress,
-        );
-        let read = chain.transaction_addresses.read();
-        let v = read.get(&cache_key.to_vec());
-        assert_eq!(v.unwrap(), &expected.clone());
+        let v = chain.storage.write().expect(POISONED_LOCK_ERR).transaction_address(&t.get_hash())
+            .unwrap().unwrap().clone();
+        assert_eq!(v, expected);
     }
 
     // TODO(472): Add extensive testing for ShardBlockChain.
