@@ -5,12 +5,12 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::iter;
 use std::mem;
 
-use crate::beacon_chain::BeaconBlockChainStorage;
 use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityMask, AuthorityStake, BlockId};
+use crate::beacon_chain::BeaconBlockChainCore;
 
 type Epoch = u64;
 type Slot = u64;
@@ -80,7 +80,7 @@ impl Authority {
     }
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
-    pub fn new(authority_config: AuthorityConfig, blockchain: &BeaconBlockChainStorage) -> Self {
+    pub fn new(authority_config: AuthorityConfig, blockchain: &BeaconBlockChainCore) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
             authority_config,
@@ -301,42 +301,50 @@ impl Authority {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
 
     use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
     use primitives::hash::CryptoHash;
-    use storage::test_utils::MemoryStorage;
+    use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
     use primitives::block_traits::SignedHeader;
+    use configs::ChainSpec;
+    use crate::beacon_chain::BeaconBlockChain;
 
-    fn get_test_config(
+    fn get_test_chainspec(
         num_authorities: u32,
-        epoch_length: u64,
-        num_seats_per_slot: u64,
-    ) -> AuthorityConfig {
+        beacon_chain_epoch_length: u64,
+        beacon_chain_num_seats_per_slot: u64,
+    ) -> ChainSpec {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
             let public_key = BlsSecretKey::generate().get_public_key();
-            initial_authorities.push(AuthorityStake {
-                account_id: i.to_string(),
-                public_key,
-                amount: 100,
-            });
+            initial_authorities.push((
+                i.to_string(),
+                public_key.to_readable(),
+                100,
+            ));
         }
-        AuthorityConfig { initial_proposals: initial_authorities, epoch_length, num_seats_per_slot }
+        ChainSpec {
+            accounts: Default::default(),
+            genesis_wasm: Default::default(),
+            initial_authorities,
+            beacon_chain_epoch_length,
+            beacon_chain_num_seats_per_slot,
+            boot_nodes: Default::default(),
+        }
     }
 
-    fn test_blockchain(num_blocks: u64) -> BeaconBlockChainStorage {
-        let storage = Arc::new(MemoryStorage::default());
+    fn test_blockchain(num_blocks: u64, chain_spec: &ChainSpec) -> BeaconBlockChain {
+        let storage = create_beacon_shard_storages().0;
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BeaconBlockChainStorage::new(last_block.clone(), storage);
+        let bc = BeaconBlockChain::new(last_block.clone(), chain_spec, storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
-            bc.insert_block(block.clone());
+            bc.chain.insert_block(block.clone());
             last_block = block;
         }
         bc
@@ -344,11 +352,12 @@ mod test {
 
     #[test]
     fn test_single_authority() {
-        let authority_config = get_test_config(1, 10, 5);
-        let initial_authorities = authority_config.initial_proposals.to_vec();
-        let bc = test_blockchain(0);
-        let mut authority = Authority::new(authority_config, &bc);
-        let mut prev_hash = bc.genesis_hash;
+        let chain_spec = get_test_chainspec(1, 10, 5);
+        let bc = test_blockchain(0, &chain_spec);
+        let config = bc.authority.read().unwrap().authority_config.clone();
+        let initial_authorities = config.initial_proposals.to_vec();
+        let mut authority = bc.authority.write().unwrap();
+        let mut prev_hash = bc.chain.best_hash();
         let num_seats = authority
             .get_authorities(1)
             .unwrap()
@@ -366,10 +375,11 @@ mod test {
 
     #[test]
     fn test_authority_genesis() {
-        let authority_config = get_test_config(4, 2, 2);
-        let initial_authorities = authority_config.initial_proposals.to_vec();
-        let bc = test_blockchain(0);
-        let mut authority = Authority::new(authority_config, &bc);
+        let chain_spec = get_test_chainspec(4, 2, 2);
+        let bc = test_blockchain(0, &chain_spec);
+        let config = bc.authority.read().unwrap().authority_config.clone();
+        let initial_authorities = config.initial_proposals.to_vec();
+        let mut authority = bc.authority.write().unwrap();
         assert_eq!(authority.get_authorities(0).unwrap(), vec![]);
         assert_eq!(
             authority.get_authorities(1).unwrap(),
@@ -388,7 +398,7 @@ mod test {
             vec![initial_authorities[1].clone(), initial_authorities[2].clone()]
         );
         assert!(authority.get_authorities(5).is_err());
-        let block1 = SignedBeaconBlock::new(1, bc.genesis_hash, vec![], CryptoHash::default());
+        let block1 = SignedBeaconBlock::new(1, bc.chain.genesis_hash(), vec![], CryptoHash::default());
         let mut header1 = block1.header();
         // Authority #1 didn't show up.
         header1.signature.authority_mask = vec![true, false];

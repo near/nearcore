@@ -309,6 +309,70 @@ if (result != null) {
         return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
       
 }
+export class __near_ArgsParser_benchmark_storage extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_benchmark_storage>;
+        handledRoot: boolean = false;
+      
+__near_param_n: i32;
+setInteger(name: string, value: i32): void {
+if (name == "n") {
+            this.__near_param_n = value;
+            return;
+          }
+
+          super.setInteger(name, value);
+        }
+setNull(name: string): void {
+if (name == "n") {
+        this.__near_param_n = <i32>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_benchmark_storage(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_benchmark_storage();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_benchmark_storage>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_benchmark_storage(
+handler.__near_param_n
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+            encoder.setString("result", result);
+          } else {
+            encoder.setNull("result");
+          }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
 export class __near_ArgsParser_benchmark_sum_n extends ThrowingJSONHandler {
         buffer: Uint8Array;
         decoder: JSONDecoder<__near_ArgsParser_benchmark_sum_n>;

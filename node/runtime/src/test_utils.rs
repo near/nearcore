@@ -9,7 +9,7 @@ use primitives::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::test_utils::get_key_pair_from_seed;
 use storage::{Trie, TrieUpdate};
-use storage::test_utils::create_memory_db;
+use storage::test_utils::create_trie;
 use primitives::transaction::{
     SignedTransaction, ReceiptTransaction, TransactionBody,
     SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction,
@@ -71,8 +71,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner, SecretKey) {
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {
-    let storage = Arc::new(create_memory_db());
-    let trie = Arc::new(Trie::new(storage.clone()));
+    let trie = create_trie();
     let runtime = Runtime {};
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (genesis_root, db_changes) = runtime.apply_genesis_state(

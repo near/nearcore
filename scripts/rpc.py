@@ -384,7 +384,7 @@ class NearRPC(object):
     ):
         if args is None:
             args = "{}"
-        args = list(bytearray(args))
+        args = list(bytearray(args, 'utf-8'))
 
         params = {
             'contract_account_id': _get_account_id(contract_name),
