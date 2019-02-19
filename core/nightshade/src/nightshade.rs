@@ -421,9 +421,6 @@ impl Nightshade {
             }
         }
 
-        // TODO: Even if we have seen this triplet already verify the state, just don't verify proofs. Mark as adversarial
-        // TODO: We should have BLS signature for every state to aggregate them if necessary, should we use EDS also to to check authority
-
         if state.bare_state > self.states[authority_id].bare_state {
             self.states[authority_id] = state.clone();
 
