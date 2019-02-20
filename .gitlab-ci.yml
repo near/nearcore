@@ -46,6 +46,7 @@ test_nearlib:
     - *setup_deps
     script:
     - rustc --version && cargo --version
+    - cargo build --benches --all
     - cargo build --release --package=devnet
     - cargo run --release --package=devnet &
     - ./scripts/waitonserver.sh
