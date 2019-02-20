@@ -62,7 +62,7 @@ fn test_service_ready(rpc_port: u16, test_name: &str) -> bool {
     thread::spawn(|| {
         devnet::start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
     });
-    thread::sleep(Duration::from_secs(3));
+    wait_for(&|| get_latest_beacon_block(rpc_port)).unwrap();
     true
 }
 
@@ -375,29 +375,29 @@ fn test_swap_key() {
     let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 }
 
-fn get_latest_beacon_block(rpc_port: u16) -> SignedBeaconBlockResponse {
+fn get_latest_beacon_block(rpc_port: u16) -> Result<SignedBeaconBlockResponse, String> {
     let output = Command::new("./scripts/rpc.py")
         .arg("view_latest_beacon_block")
         .arg("-u")
         .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
         .output()
         .expect("view_latest_shard_block command failed to process");
-    let result = check_result(output).unwrap();
-    serde_json::from_str(&result).unwrap()
+    let result = check_result(output)?;
+    serde_json::from_str(&result).map_err(|e| format!("{}", e).to_string())
 }
 
 #[test]
 fn test_view_latest_beacon_block() {
     let rpc_port = 3037;
     assert!(test_service_ready(rpc_port, "test_view_latest_beacon_block"));
-    let _ = get_latest_beacon_block(rpc_port);
+    let _ = get_latest_beacon_block(rpc_port).unwrap();
 }
 
 #[test]
 fn test_get_beacon_block_by_hash() {
     let rpc_port = 3038;
     assert!(test_service_ready(rpc_port, "test_get_beacon_block_by_hash"));
-    let latest_block = get_latest_beacon_block(rpc_port);
+    let latest_block = get_latest_beacon_block(rpc_port).unwrap();
     let output = Command::new("./scripts/rpc.py")
         .arg("get_beacon_block_by_hash")
         .arg(String::from(&latest_block.hash))
