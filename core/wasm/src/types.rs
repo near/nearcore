@@ -46,6 +46,8 @@ pub enum RuntimeError {
     StorageReadError,
     /// Storage update error
     StorageUpdateError,
+    /// Storage remove error
+    StorageRemoveError,
     /// Memory access violation
     MemoryAccessViolation,
     /// Native code returned incorrect value
@@ -112,6 +114,7 @@ impl ::std::fmt::Display for RuntimeError {
         match *self {
             RuntimeError::StorageReadError => write!(f, "Storage read error"),
             RuntimeError::StorageUpdateError => write!(f, "Storage update error"),
+            RuntimeError::StorageRemoveError => write!(f, "Storage remove error"),
             RuntimeError::MemoryAccessViolation => write!(f, "Memory access violation"),
             RuntimeError::InvalidGasState => write!(f, "Invalid gas state"),
             RuntimeError::BalanceQueryError => write!(f, "Balance query resulted in an error"),

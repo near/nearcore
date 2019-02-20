@@ -91,9 +91,10 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(value.map(|buf| buf.to_vec()))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) {
+    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
         self.trie_update.remove(&storage_key);
+        Ok(())
     }
 
     fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {

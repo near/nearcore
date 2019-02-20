@@ -173,14 +173,6 @@ impl<'a> TrieUpdateIterator<'a> {
             overlay_iter,
         })
     }
-    //
-    //    #[inline]
-    //    fn stop_cond(&self, key: &Vec<u8>) -> bool {
-    //        !key.starts_with(&self.prefix) || match &self.end_offset {
-    //            Some(end) => key > end,
-    //            None => true
-    //        }
-    //    }
 }
 
 impl<'a> Iterator for TrieUpdateIterator<'a> {
@@ -289,6 +281,38 @@ mod tests {
         let mut values = vec![];
         trie_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec()));
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+    }
+
+    #[test]
+    fn trie_remove() {
+        let trie = create_trie();
+
+        // Delete non-existing element.
+        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        trie_update.remove(b"dog");
+        let (new_root, transaction) = trie_update.finalize();
+        trie.apply_changes(transaction).ok();
+        assert_eq!(new_root, MerkleHash::default());
+
+        // Add and right away delete element.
+        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
+        trie_update.remove(b"dog");
+        let (new_root, transaction) = trie_update.finalize();
+        trie.apply_changes(transaction).ok();
+        assert_eq!(new_root, MerkleHash::default());
+
+        // Add, apply changes and then delete element.
+        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
+        let (new_root, transaction) = trie_update.finalize();
+        trie.apply_changes(transaction).ok();
+        assert_ne!(new_root, MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        trie_update.remove(b"dog");
+        let (new_root, transaction) = trie_update.finalize();
+        trie.apply_changes(transaction).ok();
+        assert_eq!(new_root, MerkleHash::default());
     }
 
     #[test]
