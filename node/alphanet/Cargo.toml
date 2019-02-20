@@ -1,0 +1,11 @@
+[package]
+name = "alphanet"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+futures="0.1"
+tokio="0.1"
+network = { path = "../network" }
+log = "0.4"

@@ -29,6 +29,7 @@ near-protos = { path = "../../core/protos" }
 shard = { path = "../shard" }
 storage = { path = "../../core/storage", features=["test-utils"] }
 transaction = { path = "../../core/transaction" }
+nightshade = { path = "../../core/nightshade" }
 
 [features]
 test-utils = []

@@ -114,10 +114,10 @@ pub struct NightshadeTask<P> {
     /// BLS public/secret keys are used to sign state and aggregate signatures for proofs
     bls_public_keys: Vec<BlsPublicKey>,
     bls_owner_secret_key: BlsSecretKey,
-    /// Channel to receive state updates from other authorities.
-    state_receiver: mpsc::Receiver<Gossip<P>>,
-    /// Channel to send state updates to other authorities
-    state_sender: mpsc::Sender<Gossip<P>>,
+    /// Channel to receive gossips from other authorities.
+    inc_gossips: mpsc::Receiver<Gossip<P>>,
+    /// Channel to send gossips to other authorities
+    out_gossips: mpsc::Sender<Gossip<P>>,
     /// Channel to start/reset consensus
     /// Important: Reset only works the first time it is sent.
     control_receiver: mpsc::Receiver<Control>,
@@ -156,8 +156,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             owner_secret_key,
             bls_public_keys,
             bls_owner_secret_key,
-            state_receiver,
-            state_sender,
+            inc_gossips: state_receiver,
+            out_gossips: state_sender,
             control_receiver,
             consensus_sender,
             consensus_reached: None,
@@ -197,7 +197,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     }
 
     fn send_gossip(&self, message: Gossip<P>) {
-        let copied_tx = self.state_sender.clone();
+        let copied_tx = self.out_gossips.clone();
         tokio::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
             error!("Error sending state. {:?}", e);
         }));
@@ -363,7 +363,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
         // Process new messages
         let mut end_of_messages = false;
         loop {
-            match self.state_receiver.poll() {
+            match self.inc_gossips.poll() {
                 Ok(Async::Ready(Some(gossip))) => {
                     self.process_gossip(gossip);
 
