@@ -239,6 +239,7 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "beacon 0.0.1",
+ "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "chain 0.0.1",
  "configs 0.1.0",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",

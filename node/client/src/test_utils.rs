@@ -27,8 +27,3 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
         pending_shard_blocks: RwLock::new(HashMap::new()),
     }
 }
-
-pub fn get_client() -> Client {
-    let (chain_spec, signer, _) = generate_test_chain_spec();
-    get_client_from_cfg(&chain_spec, signer)
-}

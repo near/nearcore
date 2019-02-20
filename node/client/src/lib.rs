@@ -178,7 +178,7 @@ impl Client {
     pub fn try_produce_block(&self, body: ChainConsensusBlockBody) -> BlockProductionResult {
         let current_index = self.beacon_chain.chain.best_block().index();
         if body.beacon_block_index < current_index + 1 {
-            // The consensus is too lae, the block was already imported.
+            // The consensus is too late, the block was already imported.
             return BlockProductionResult::LateConsensus { current_index };
         }
         // TODO: verify signature
