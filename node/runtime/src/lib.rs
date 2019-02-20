@@ -351,6 +351,7 @@ impl Runtime {
             Some(info) => info,
             _ => {
                 let receipts = runtime_ext.get_receipts();
+                runtime_ext.flush_callbacks();
                 return Ok(receipts);
             }
         };
