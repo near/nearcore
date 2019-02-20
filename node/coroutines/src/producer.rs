@@ -14,6 +14,7 @@ use primitives::chain::SignedShardBlock;
 use primitives::chain::ReceiptBlock;
 use primitives::block_traits::SignedBlock;
 use primitives::block_traits::SignedHeader;
+use client::BlockProductionResult;
 
 pub fn spawn_block_producer(
     client: Arc<Client>,
@@ -31,7 +32,7 @@ pub fn spawn_block_producer(
 
     let task = receiver
         .for_each(move |body| {
-            if let Some((new_beacon_block, new_shard_block)) = client.produce_block(body) {
+            if let BlockProductionResult::Success(new_beacon_block, new_shard_block) = client.try_produce_block(body) {
                 // Send beacon block to network
                 tokio::spawn({
                     block_announce_tx
