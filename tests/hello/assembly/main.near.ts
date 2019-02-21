@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
+      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, store_many as wrapped_store_many, read_many as wrapped_read_many, store_many_strs as wrapped_store_many_strs, read_many_strs as wrapped_read_many_strs, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -368,6 +368,286 @@ if (result != null) {
           } else {
             encoder.setNull("result");
           }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_store_many extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_store_many>;
+        handledRoot: boolean = false;
+      
+__near_param_offset: i32;
+__near_param_n: i32;
+setInteger(name: string, value: i32): void {
+if (name == "offset") {
+            this.__near_param_offset = value;
+            return;
+          }
+if (name == "n") {
+            this.__near_param_n = value;
+            return;
+          }
+
+          super.setInteger(name, value);
+        }
+setNull(name: string): void {
+if (name == "offset") {
+        this.__near_param_offset = <i32>null;
+        return;
+      }
+if (name == "n") {
+        this.__near_param_n = <i32>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_store_many(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_store_many();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_store_many>(handler);
+      handler.decoder.deserialize(json);
+wrapped_store_many(
+handler.__near_param_offset,handler.__near_param_n
+);
+}
+export class __near_ArgsParser_read_many extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_read_many>;
+        handledRoot: boolean = false;
+      
+__near_param_offset: i32;
+__near_param_n: i32;
+setInteger(name: string, value: i32): void {
+if (name == "offset") {
+            this.__near_param_offset = value;
+            return;
+          }
+if (name == "n") {
+            this.__near_param_n = value;
+            return;
+          }
+
+          super.setInteger(name, value);
+        }
+setNull(name: string): void {
+if (name == "offset") {
+        this.__near_param_offset = <i32>null;
+        return;
+      }
+if (name == "n") {
+        this.__near_param_n = <i32>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_read_many(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_read_many();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_read_many>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_read_many(
+handler.__near_param_offset,handler.__near_param_n
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushArray("result");
+          __near_encode_Array_String(<Array<String>>result, encoder);
+          encoder.popArray();
+        } else {
+          encoder.setNull("result");
+        }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_JSONHandler_Array_String extends ThrowingJSONHandler {
+      buffer: Uint8Array;
+      decoder: JSONDecoder<__near_JSONHandler_Array_String>;
+      handledRoot: boolean = false;
+      value: Array<String> = new Array<String>();
+setString(name: string, value: String): void {
+        this.value.push(value);
+      }
+      setNull(name: string): void {
+        this.value.push(<String>null);
+      }
+      pushArray(name: string): bool {
+        assert(name == null && !this.handledRoot);
+        this.handledRoot = true;
+        return true;
+      }
+}
+
+export function __near_decode_Array_String(
+        buffer: Uint8Array, state: DecoderState):Array<String> {
+      let handler = new __near_JSONHandler_Array_String();
+      handler.buffer = buffer;
+      handler.decoder = new JSONDecoder<__near_JSONHandler_Array_String>(handler);
+      handler.decoder.deserialize(buffer, state);
+      return handler.value;
+    }
+
+export class __near_ArgsParser_store_many_strs extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_store_many_strs>;
+        handledRoot: boolean = false;
+      
+__near_param_keys: Array<String>;
+__near_param_values: Array<String>;
+setNull(name: string): void {
+if (name == "keys") {
+        this.__near_param_keys = <Array<String>>null;
+        return;
+      }
+if (name == "values") {
+        this.__near_param_values = <Array<String>>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+if (name == "keys") {
+          this.__near_param_keys = <Array<String>>__near_decode_Array_String(this.buffer, this.decoder.state);
+          return false;
+        }
+if (name == "values") {
+          this.__near_param_values = <Array<String>>__near_decode_Array_String(this.buffer, this.decoder.state);
+          return false;
+        }
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_store_many_strs(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_store_many_strs();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_store_many_strs>(handler);
+      handler.decoder.deserialize(json);
+wrapped_store_many_strs(
+handler.__near_param_keys,handler.__near_param_values
+);
+}
+export class __near_ArgsParser_read_many_strs extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_read_many_strs>;
+        handledRoot: boolean = false;
+      
+__near_param_keys: Array<String>;
+setNull(name: string): void {
+if (name == "keys") {
+        this.__near_param_keys = <Array<String>>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+if (name == "keys") {
+          this.__near_param_keys = <Array<String>>__near_decode_Array_String(this.buffer, this.decoder.state);
+          return false;
+        }
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_read_many_strs(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_read_many_strs();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_read_many_strs>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_read_many_strs(
+handler.__near_param_keys
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushArray("result");
+          __near_encode_Array_String(<Array<String>>result, encoder);
+          encoder.popArray();
+        } else {
+          encoder.setNull("result");
+        }
 
         encoder.popObject();
         return_value(near.bufferWithSize(encoder.serialize()).buffer.data);

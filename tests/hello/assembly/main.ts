@@ -49,6 +49,38 @@ export function benchmark_storage(n: i32): string {
   return sum.toString()
 }
 
+export function store_many(offset: i32, n: i32): void {
+  for (let i = 0; i < n; ++i) {
+    let key: i32 = offset + i;
+    let value: i32 = near.random32() as i32;
+    globalStorage.setItem(key.toString(), value.toString());
+  }
+}
+
+export function read_many(offset: i32, n: i32): string[] {
+  let values = new Array<string>(n);
+  for (let i = 0; i < n; ++i) {
+    let key: i32 = offset + i;
+    values[i] = globalStorage.getItem(key.toString());
+  }
+  return values;
+}
+
+export function store_many_strs(keys: string[], values: string[]): void {
+  assert(keys.length == values.length, "Should be equal");
+  for (let i = 0; i < keys.length; ++i) {
+    globalStorage.setItem(keys[i], values[i]);
+  }
+}
+
+export function read_many_strs(keys: string[]): string[] {
+  let values = new Array<string>(keys.length);
+  for (let i = 0; i < keys.length; ++i) {
+    values[i] = globalStorage.getItem(keys[i]);
+  }
+  return values;
+}
+
 export function benchmark_sum_n(n: i32): string {
   let i = 0;
   let sum: u64 = 0;

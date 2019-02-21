@@ -3,17 +3,21 @@ declare function logF64(val: f64): void;
 
 export class JSONEncoder {
     private isFirstKey: boolean = true
-    private inObject: Array<boolean> = [false]
-    private result: string = ""
+    private result: string[] = new Array<string>();
 
     serialize(): Uint8Array {
         // TODO: Write directly to UTF8 bytes
-        let utf8ptr = this.result.toUTF8();
-        let buffer = new Uint8Array(this.result.lengthUTF8);
+        let result = this.toString();
+        let utf8ptr = result.toUTF8();
+        let buffer = new Uint8Array(result.lengthUTF8);
         for (let i = 0; i <  buffer.length; i++) {
             buffer[i] = load<u8>(utf8ptr + i);
         }
         return buffer.subarray(0, buffer.length - 1);
+    }
+
+    toString(): String {
+        return this.result.join("");
     }
 
     setString(name: string, value: string): void {
@@ -40,7 +44,6 @@ export class JSONEncoder {
         this.writeKey(name);
         this.write("[");
         this.isFirstKey = true
-        this.inObject.push(false);
         return true;
     }
 
@@ -52,7 +55,6 @@ export class JSONEncoder {
         this.writeKey(name);
         this.write("{");
         this.isFirstKey = true
-        this.inObject.push(true);
         return true;
     }
 
@@ -108,12 +110,10 @@ export class JSONEncoder {
     }
 
     private writeInteger(value: i32): void {
-        // TODO: More efficient encoding
-        let arr: Array<i32> = [value];
-        this.write(arr.toString());
+        this.write(value.toString());
     }
 
     private write(str: string): void {
-        this.result += str;
+        this.result.push(str);
     }
 }

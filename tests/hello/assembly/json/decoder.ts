@@ -201,7 +201,6 @@ export class JSONDecoder<JSONHandlerT extends JSONHandler> {
         for (;;) {
             let byte = this.readChar();
             assert(byte >= 0x20, "Unexpected control character");
-            // TODO: Make sure unicode handled properly
             if (byte == '"'.charCodeAt(0)) {
                 stringParts.push(
                     String.fromUTF8(this.state.buffer.buffer.data + savedIndex, this.state.readIndex - savedIndex - 1));
