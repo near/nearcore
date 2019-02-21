@@ -89,7 +89,7 @@ describe('with deployed contract', () => {
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
             viewMethods: ['getAllKeys'],
-            changeMethods: ['generateLogs', 'triggerAssert']
+            changeMethods: ['generateLogs', 'triggerAssert', 'testSetRemove']
         });
     });
 
@@ -163,6 +163,11 @@ describe('with deployed contract', () => {
         expect(logs[1]).toMatch(new RegExp(`^\\[${contractName}\\]: ABORT: "expected to fail" filename: "main.ts" line: \\d+ col: \\d+$`));
         expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer(CallError(Runtime(User { msg: "Error: AssertFailed" })))`);
     });
+
+    test('test set/remove', async () => {
+        const result = await contract.testSetRemove({value: "123"});
+        expect(result.status).toBe('Completed');
+    })
 });
 
 // Generate some unique string with a given prefix using the alice nonce. 

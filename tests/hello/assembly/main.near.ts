@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert} from "./main";
+      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -511,5 +511,56 @@ export function near_func_triggerAssert(): void {
       handler.decoder.deserialize(json);
 wrapped_triggerAssert(
 
+);
+}
+export class __near_ArgsParser_testSetRemove extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_testSetRemove>;
+        handledRoot: boolean = false;
+      
+__near_param_value: String;
+setString(name: string, value: String): void {
+if (name == "value") {
+            this.__near_param_value = value;
+            return;
+          }
+
+          super.setString(name, value);
+        }
+setNull(name: string): void {
+if (name == "value") {
+        this.__near_param_value = <String>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_testSetRemove(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_testSetRemove();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_testSetRemove>(handler);
+      handler.decoder.deserialize(json);
+wrapped_testSetRemove(
+handler.__near_param_value
 );
 }
