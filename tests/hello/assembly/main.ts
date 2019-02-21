@@ -68,7 +68,6 @@ export function benchmark_sum_n(n: i32): string {
   return sum.toString()
 }
 
-
 export function generateLogs(): void {
   globalStorage.setItem("item", "value");
   near.log("log1");
@@ -80,3 +79,8 @@ export function triggerAssert(): void {
   assert(false, "expected to fail");
 }
 
+export function testSetRemove(value: string): void {
+    globalStorage.setItem("test", value);
+    globalStorage.removeItem("test");
+    assert(globalStorage.getItem("test") == null, "Item must be empty");
+}

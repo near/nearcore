@@ -17,7 +17,7 @@ pub trait External {
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
 
-    fn storage_remove(&mut self, key: &[u8]);
+    fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
 
     fn storage_iter(&mut self, prefix: &[u8]) -> Result<u32>;
 

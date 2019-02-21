@@ -40,8 +40,9 @@ impl External for MyExt {
         }
     }
 
-    fn storage_remove(&mut self, key: &[u8]) {
+    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
         self.storage.remove(key);
+        Ok(())
     }
 
     fn storage_iter(&mut self, _prefix: &[u8]) -> ExtResult<u32> {

@@ -393,15 +393,15 @@ impl Trie {
         death_row: &mut HashMap<CryptoHash, u32>,
     ) -> Result<Option<TrieNode>, String> {
         match node {
-            TrieNode::Empty => Err("Removing empty node".to_string()),
-            TrieNode::Leaf(key, _) => {
+            TrieNode::Empty => Ok(Some(node)),
+            TrieNode::Leaf(key, value) => {
                 if NibbleSlice::from_encoded(&key).0 == partial {
                     if let Some(hash) = hash {
                         *death_row.entry(hash).or_insert(0) += 1
                     }
                     Ok(None)
                 } else {
-                    Err("Removing missing leaf node".to_string())
+                    Ok(Some(TrieNode::Leaf(key, value)))
                 }
             }
             TrieNode::Branch(mut children, value) => {
@@ -418,12 +418,14 @@ impl Trie {
                     let idx = partial.at(0) as usize;
                     if let Some(node_or_hash) = children[idx].take() {
                         let new_node = match node_or_hash {
-                            NodeHandle::Hash(hash) => self.delete(
-                                self.retrieve_node(&hash)?,
-                                Some(hash),
-                                partial.mid(1),
-                                death_row,
-                            )?,
+                            NodeHandle::Hash(hash) => {
+                                self.delete(
+                                    self.retrieve_node(&hash)?,
+                                    Some(hash),
+                                    partial.mid(1),
+                                    death_row,
+                                )?
+                            },
                             NodeHandle::InMemory(node) => {
                                 self.delete(*node, None, partial.mid(1), death_row)?
                             }
@@ -444,7 +446,7 @@ impl Trie {
                             Ok(Some(TrieNode::Branch(children, value)))
                         }
                     } else {
-                        Err("Removing missing node".to_string())
+                        Ok(Some(TrieNode::Branch(children, value)))
                     }
                 }
             }
@@ -476,7 +478,7 @@ impl Trie {
                         None => Ok(None),
                     }
                 } else {
-                    Err("Removing missing node".to_string())
+                    Ok(Some(TrieNode::Extension(key, child)))
                 }
             }
         }
@@ -535,7 +537,7 @@ impl Trie {
                 None => {
                     root_node = match self
                         .delete(root_node, last_root, key, &mut death_row)
-                        .expect("Failed to delete")
+                        .expect("Failed to remove element")
                     {
                         Some(value) => value,
                         None => TrieNode::Empty,

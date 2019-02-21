@@ -4,6 +4,8 @@ env:
 extends: 'eslint:recommended'
 parserOptions:
   ecmaVersion: 2018
+  ecmaFeatures:
+    experimentalObjectRestSpread: true
 rules:
   indent:
     - error

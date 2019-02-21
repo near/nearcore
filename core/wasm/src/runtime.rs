@@ -218,6 +218,14 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
+    /// Remove key from storage
+    fn storage_remove(&mut self, key_ptr: u32) -> Result<()> {
+        let key = self.read_buffer(key_ptr as usize)?;
+        self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
+        debug!(target: "wasm", "storage_remove('{}')", format_buf(&key));
+        Ok(())
+    }
+
     /// Gets iterator for keys with given prefix
     fn storage_iter(&mut self, prefix_ptr: u32) -> Result<u32> {
         let prefix = self.read_buffer(prefix_ptr as usize)?;
@@ -598,6 +606,7 @@ pub mod imports {
         "storage_iter_peek_len" => storage_iter_peek_len<[storage_id: u32] -> [u32]>,
         "storage_iter_peek_into" => storage_iter_peek_into<[storage_id: u32, val_ptr: u32] -> []>,
         "storage_write" => storage_write<[key_ptr: u32, val_ptr: u32] -> []>,
+        "storage_remove" => storage_remove<[key_ptr: u32] -> []>,
         // TODO(#350): Refactor all reads and writes into generic reads. 
         // Generic data read. Returns the length of the buffer for the type/key.
         "read_len" => read_len<[buffer_type_index: u32, _key_ptr: u32] -> [u32]>,
