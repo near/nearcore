@@ -7,6 +7,7 @@ use primitives::types::{AccountId, BlockId, Gossip};
 use serde_derive::{Deserialize, Serialize};
 
 pub type RequestId = u64;
+pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub enum Message {
@@ -14,8 +15,14 @@ pub enum Message {
     // is significantly larger than other enum members
     Receipt(Box<ReceiptBlock>),
     Status(Status),
-    BlockAnnounce(Box<(SignedBeaconBlock, SignedShardBlock)>),
+
+    BlockAnnounce(Box<CoupledBlock>),
+    BlockFetchRequest(RequestId, Vec<CryptoHash>),
+    BlockFetchResponse(RequestId, Vec<CoupledBlock>),
+
     Gossip(Box<Gossip<ChainPayload>>),
+    PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
+    PayloadResponse(RequestId, Vec<ChainPayload>)
 }
 
 /// status sent on connection
@@ -32,26 +39,3 @@ pub struct Status {
     /// Account id.
     pub account_id: Option<AccountId>,
 }
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub struct BlockRequest {
-    /// request id
-    pub id: RequestId,
-    /// starting from this id
-    pub from: BlockId,
-    /// ending at this id,
-    pub to: Option<BlockId>,
-    /// max number of blocks requested
-    pub max: Option<u64>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockResponse {
-    // request id that the response is responding to
-    pub id: RequestId,
-    // block data
-    pub blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockAnnounce(pub SignedBeaconBlock, pub SignedShardBlock);

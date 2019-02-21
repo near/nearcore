@@ -306,4 +306,10 @@ impl Client {
         let index = self.beacon_chain.chain.best_block().index() + 1;
         self.get_uid_to_authority_map(index).1
     }
+
+    /// Fetch "coupled" blocks by hash
+    pub fn fetch_blocks(&self, hashes: &Vec<CryptoHash>) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
+        let mut result = vec![];
+        Ok(result)
+    }
 }

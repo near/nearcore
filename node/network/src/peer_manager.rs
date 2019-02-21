@@ -138,7 +138,23 @@ impl PeerManager {
         Self { all_peer_states }
     }
 
-    /// Get channel for the given `account_id`, if the corrresponding peer is `Ready`.
+    /// This should be called if peer has done something wrong.
+    pub fn suspect_malicious(&self, peer_id: &PeerId) {
+        // TODO: add counter + banning (disconnect and don't connect again) flag here for given peers.
+    }
+
+    /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.
+    pub fn get_peer_channel(&self, peer_id: &PeerId) -> Option<Sender<PeerMessage>> {
+        match self.all_peer_states.read().expect(POISONED_LOCK_ERR).get(peer_id) {
+            Some(state) => match state.read().expect(POISONED_LOCK_ERR).deref() {
+                PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Get channel for the given `account_id`, if the corresponding peer is `Ready`.
     pub fn get_account_channel(&self, account_id: AccountId) -> Option<Sender<PeerMessage>> {
         self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
             if info.account_id.as_ref() == Some(&account_id) {
