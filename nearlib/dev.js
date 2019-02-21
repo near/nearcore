@@ -30,19 +30,19 @@ module.exports = {
         const nodeUrl = options.nodeUrl || this.getConfig().nodeUrl || 'http://localhost:3030';
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl));
-        const near = new nearlib.Near(nearClient);
+        this.near = new nearlib.Near(nearClient);
         if (options.accountId) {
             keyStore.setKey(options.accountId, options.key);
         } else {
-            this.getOrCreateDevUser(near, keyStore);
+            await this.getOrCreateDevUser(options.deps);
         }
-        return near;
+        return this.near;
     },
-    getOrCreateDevUser: async function (near, keyStore = null) {
+    getOrCreateDevUser: async function (deps = {}) {
         let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
         if (tempUserAccountId) {
             // Make sure the user actually exists and recreate it if it doesn't
-            const accountLib = new nearlib.Account(near.nearClient);
+            const accountLib = new nearlib.Account(this.near.nearClient);
             try {
                 await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
@@ -55,19 +55,27 @@ module.exports = {
         }
         const keypair = await nearlib.KeyPair.fromRandomSeed();
         const nearConfig = await this.getConfig();
-        await sendJson('POST', `${nearConfig.baseUrl}/account`, {
-            newAccountId: tempUserAccountId,
-            newAccountPublicKey: keypair.getPublicKey()
-        });
-        const localKeyStore = keyStore || new nearlib.BrowserLocalStorageKeystore();
+        const createAccount = deps.createAccount ? deps.createAccount :
+            async (accountId, newAccountPublicKey) =>
+                createAccountWithContractHelper(nearconfig, accountId, newAccountPublicKey);
+        await createAccount(tempUserAccountId, keypair.getPublicKey());
+        const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
         localKeyStore.setKey(tempUserAccountId, keypair);
-        window.localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
+        const localStorage = deps.localStorage ? deps.localStorage : window.localStorage;
+        localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;
     },
     get myAccountId() {
         return window.localStorage.getItem(localStorageAccountIdKey);
     }
 };
+
+async function createAccountWithContractHelper(nearconfig, tempUserAccountId, newAccountPublicKey) {
+    return await sendJson('POST', `${nearConfig.baseUrl}/account`, {
+        newAccountId: tempUserAccountId,
+        newAccountPublicKey: keypair.getPublicKey()
+    });
+}
 
 function getCookie(name) {
     var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');

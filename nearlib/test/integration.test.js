@@ -2,16 +2,35 @@ const { Account, KeyPair, Near, InMemoryKeyStore } = require('../');
 const dev = require('../dev');
 const fs = require('fs');
 const aliceAccountName = 'alice.near';
+// every new account has this codehash
+const newAccountCodeHash = "GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn";
 let nearjs;
 let account;
 let keyStore;
 
 beforeAll(async () => {
     keyStore = new InMemoryKeyStore();
+    const localStorage = (function() {
+        let store = {};
+        return {
+          getItem: function(key) {
+            return store[key];
+          },
+          setItem: function(key, value) {
+            store[key] = value.toString();
+          },
+          clear: function() {
+            store = {};
+          },
+          removeItem: function(key) {
+            delete store[key];
+          }
+        };
+      })();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
-        deps: { keyStore },
+        deps: { keyStore, localStorage },
     });
     account = new Account(nearjs.nearClient);
 });
@@ -19,6 +38,33 @@ beforeAll(async () => {
 test('test creating default config', async () => {
     // Make sure createDefaultConfig doesn't crash.
     Near.createDefaultConfig();
+});
+
+test('test dev connect with no account creates a new account', async () => {
+    const keyStoreNoAccount = new InMemoryKeyStore();
+    const nearNoAccount = await dev.connect({
+        nodeUrl: 'http://localhost:3030',
+        deps: {
+            keyStore: keyStoreNoAccount,
+            createAccount: (async (newAccountName, newAccountPublicKey) => {
+                const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                await nearjs.waitForTransactionResult(createAccountResponse);
+            })
+        },
+    });
+    expect(Object.keys(keyStoreNoAccount.keys).length).toEqual(1);
+    const newAccountId = Object.keys(keyStoreNoAccount.keys)[0];
+    const viewAccountResponse = await account.viewAccount(newAccountId);
+    const newAccountKeyPair = await keyStoreNoAccount.getKey(newAccountId);
+    expect(newAccountKeyPair).toBeTruthy();
+    const expectedAccount = {
+        nonce: 0,
+        account_id: newAccountId,
+        amount: 1,
+        code_hash: newAccountCodeHash,
+        stake: 0,
+    };
+    expect(viewAccountResponse).toEqual(expectedAccount);
 });
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -37,7 +83,7 @@ test('create account and then view account returns the created account', async (
         nonce: 0,
         account_id: newAccountName,
         amount: 1,
-        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        code_hash: newAccountCodeHash,
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
@@ -58,7 +104,7 @@ test('create account with a new key and then view account returns the created ac
         nonce: 0,
         account_id: newAccountName,
         amount: amount,
-        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        code_hash: newAccountCodeHash,
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
