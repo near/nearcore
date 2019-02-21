@@ -16,20 +16,46 @@ use std::path::Path;
 use std::{cmp, env, fs};
 
 use env_logger::Builder;
-use parking_lot::RwLock;
 
 use beacon::beacon_chain::BeaconBlockChain;
-use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::chain::{ChainPayload, SignedShardBlock};
 use configs::ClientConfig;
+use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use primitives::block_traits::SignedBlock;
+use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::{ShardBlockChain};
-use primitives::block_traits::SignedBlock;
+use shard::ShardBlockChain;
+use std::sync::RwLock;
 use storage::create_storage;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+type BlockIdx = u64;
+
+/// Result of client trying to produce a block from a given consensus.
+#[allow(clippy::large_enum_variant)]  // This enum is no different from `Option`.
+pub enum BlockProductionResult {
+    /// The blocks were successfully produced.
+    Success(SignedBeaconBlock, SignedShardBlock),
+    /// The consensus was achieved after the block with the given index was already imported.
+    /// The beacon and the shard chains are currently at index `current_index`.
+    LateConsensus { current_index: BlockIdx },
+}
+
+/// Result of client trying to import a block.
+pub enum BlockImportingResult {
+    /// The block was successfully imported, and `new_index` is the new index. Note, the `new_index`
+    /// can be greater by any amount than the index of the imported block, if it was a pending
+    /// parent of some pending block.
+    Success { new_index: BlockIdx },
+    /// The block was not imported, because its parent is missing. Blocks with indices
+    /// `missing_indices` should be fetched. This block might and might not have been already
+    /// recorded as pending.
+    MissingParent { parent_hash: CryptoHash, missing_indices: Vec<BlockIdx> },
+    /// The block was not imported, because it is already in the blockchain.
+    AlreadyImported,
+}
 
 pub struct Client {
     pub account_id: AccountId,
@@ -98,7 +124,8 @@ impl Client {
         let storage_path = get_storage_path(&config.base_path);
         // For now, use only one shard.
         let num_shards = 1;
-        let (beacon_storage, mut shard_storages) = create_storage(storage_path.as_str(), num_shards);
+        let (beacon_storage, mut shard_storages) =
+            create_storage(storage_path.as_str(), num_shards);
         let shard_storage = shard_storages.pop().unwrap();
 
         let chain_spec = &config.chain_spec;
@@ -127,13 +154,34 @@ impl Client {
         }
     }
 
+    /// Get indices of the blocks that we are missing.
+    fn get_missing_indices(&self) -> Vec<BlockIdx> {
+        // Use `pending_beacon_blocks` because currently beacon blocks and shard blocks are tied
+        // 1 to 1.
+        let guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
+        if guard.is_empty() {
+            /// There are no pending blocks.
+            vec![]
+        } else {
+            let best_index = self.beacon_chain.chain.best_index();
+            let max_pending_index = guard.values().map(|b| b.index()).max().unwrap();
+            assert!(
+                max_pending_index <= best_index,
+                "Old pending blocks are expected to be pruned"
+            );
+            guard
+                .values()
+                .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })
+                .collect()
+        }
+    }
+
     // Block producer code.
-    pub fn produce_block(
-        &self,
-        body: ChainConsensusBlockBody,
-    ) -> Option<(SignedBeaconBlock, SignedShardBlock)> {
-        if body.beacon_block_index != self.beacon_chain.chain.best_block().index() + 1 {
-            return None;
+    pub fn try_produce_block(&self, body: ChainConsensusBlockBody) -> BlockProductionResult {
+        let current_index = self.beacon_chain.chain.best_block().index();
+        if body.beacon_block_index < current_index + 1 {
+            // The consensus is too late, the block was already imported.
+            return BlockProductionResult::LateConsensus { current_index };
         }
         // TODO: verify signature
         let mut transactions = vec![];
@@ -151,8 +199,7 @@ impl Client {
             .expect(POISONED_LOCK_ERR)
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
-        let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) =
-            self
+        let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
             .shard_chain
             .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
         let mut block = SignedBeaconBlock::new(
@@ -170,24 +217,24 @@ impl Client {
             }
         }
 
-        if self.beacon_chain.chain.is_known(&block.hash) {
-            info!(target: "client", "The block was already imported, before we managed to produce it.");
-            io::stdout().flush().expect("Could not flush stdout");
-            None
-        } else {
-            self.shard_chain.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
-            self.beacon_chain.chain.insert_block(block.clone());
-            info!(target: "client",
+        assert!(
+            !self.beacon_chain.chain.is_known(&block.hash),
+            "The block was already imported, before we managed to produce it.\
+             This should never happen, because block production is atomic."
+        );
+
+        self.shard_chain.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
+        self.beacon_chain.chain.insert_block(block.clone());
+        info!(target: "client",
                   "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
                   block.body.header.index, block.hash, shard_block.hash);
-            io::stdout().flush().expect("Could not flush stdout");
-            // Just produced blocks should be the best in the blockchain.
-            assert_eq!(self.shard_chain.chain.best_block().hash, shard_block.hash);
-            assert_eq!(self.beacon_chain.chain.best_block().hash, block.hash);
-            // Update the authority.
-            self.update_authority(&block.header());
-            Some((block, shard_block))
-        }
+        io::stdout().flush().expect("Could not flush stdout");
+        // Just produced blocks should be the best in the blockchain.
+        assert_eq!(self.shard_chain.chain.best_block().hash, shard_block.hash);
+        assert_eq!(self.beacon_chain.chain.best_block().hash, block.hash);
+        // Update the authority.
+        self.update_authority(&block.header());
+        BlockProductionResult::Success(block, shard_block)
     }
 
     fn blocks_to_process(
@@ -195,12 +242,13 @@ impl Client {
     ) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
         let mut part_add = vec![];
         let mut part_pending = HashMap::default();
-        for (hash, other) in self.pending_beacon_blocks.write().drain() {
+        for (hash, other) in self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).drain() {
             if self.beacon_chain.chain.is_known(&other.body.header.parent_hash)
                 && (self.shard_chain.chain.is_known(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
                         .read()
+                        .expect(POISONED_LOCK_ERR)
                         .contains_key(&other.body.header.shard_block_hash))
             {
                 part_add.push(other);
@@ -214,22 +262,31 @@ impl Client {
     /// Attempts to import a beacon block. Fails to import if there are no known parent blocks.
     /// If succeeds might unlock more blocks that were waiting for this parent. If import changes
     /// the best block then it returns it, otherwise it returns None.
-    pub fn import_blocks(
+    pub fn try_import_blocks(
         &self,
         beacon_block: SignedBeaconBlock,
         shard_block: SignedShardBlock,
-    ) -> Option<SignedBeaconBlock> {
+    ) -> BlockImportingResult {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
         info!(target: "client", "Importing block index: {:?}, beacon = {:?}, shard = {:?}", beacon_block.body.header.index, beacon_block.hash, shard_block.hash);
-        if self.beacon_chain.chain.is_known(&hash)
-            || self.pending_beacon_blocks.write().contains_key(&hash)
-        {
-            return None;
+        if self.beacon_chain.chain.is_known(&hash) {
+            return BlockImportingResult::AlreadyImported;
         }
-        self.pending_shard_blocks.write().insert(shard_block.hash, shard_block);
-        self.pending_beacon_blocks.write().insert(hash, beacon_block);
+
+        if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains_key(&hash) {
+            return BlockImportingResult::MissingParent {
+                parent_hash: hash,
+                missing_indices: self.get_missing_indices(),
+            };
+        }
+
+        self.pending_shard_blocks
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .insert(shard_block.hash, shard_block);
+        self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(hash, beacon_block);
         let best_block_hash = self.beacon_chain.chain.best_hash();
 
         let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
@@ -239,7 +296,7 @@ impl Client {
             // Otherwise put it in `blocks_to_add`.
             let (part_add, part_pending) = self.blocks_to_process();
             blocks_to_add.extend(part_add);
-            *self.pending_beacon_blocks.write() = part_pending;
+            *self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR) = part_pending;
 
             // Get the next block to add, unless there are no more blocks left.
             let next_beacon_block = match blocks_to_add.pop() {
@@ -254,6 +311,7 @@ impl Client {
             let next_shard_block = self
                 .pending_shard_blocks
                 .write()
+                .expect(POISONED_LOCK_ERR)
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
@@ -264,16 +322,22 @@ impl Client {
             self.update_authority(&next_beacon_block.header());
         }
         let new_best_block = self.beacon_chain.chain.best_block();
+
         if new_best_block.block_hash() == best_block_hash {
-            None
+            BlockImportingResult::MissingParent {
+                parent_hash: hash,
+                missing_indices: self.get_missing_indices(),
+            }
         } else {
-            Some(new_best_block)
+            BlockImportingResult::Success { new_index: new_best_block.index() }
         }
     }
 
     // Authority-related code. Consider hiding it inside the shard chain.
     fn update_authority(&self, beacon_header: &SignedBeaconBlockHeader) {
-        self.beacon_chain.authority.write()
+        self.beacon_chain
+            .authority
+            .write()
             .expect(POISONED_LOCK_ERR)
             .process_block_header(beacon_header);
     }
@@ -284,10 +348,13 @@ impl Client {
         &self,
         block_index: u64,
     ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
-        let next_authorities =
-            self.beacon_chain.authority.read()
-                .expect(POISONED_LOCK_ERR)
-                .get_authorities(block_index).unwrap_or_else(|_| {
+        let next_authorities = self
+            .beacon_chain
+            .authority
+            .read()
+            .expect(POISONED_LOCK_ERR)
+            .get_authorities(block_index)
+            .unwrap_or_else(|_| {
                 panic!("Failed to get authorities for block index {}", block_index)
             });
 

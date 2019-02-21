@@ -20,3 +20,11 @@ configs = { path = "../../node/configs" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
+
+[dev-dependencies]
+bencher = "0.1.5"
+rand = "0.4"
+
+[[bench]]
+name = "client_bench"
+harness = false

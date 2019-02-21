@@ -1,13 +1,12 @@
-use parking_lot::RwLock;
 use std::collections::HashMap;
 
 use crate::Client;
 use beacon::beacon_chain::BeaconBlockChain;
 use configs::ChainSpec;
-use node_runtime::test_utils::generate_test_chain_spec;
+use primitives::beacon::SignedBeaconBlock;
 use primitives::signer::InMemorySigner;
 use shard::ShardBlockChain;
-use primitives::beacon::SignedBeaconBlock;
+use std::sync::RwLock;
 use storage::test_utils::create_beacon_shard_storages;
 
 /// Implements dummy client for testing. The differences with the real client:
@@ -26,9 +25,4 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: InMemorySigner) -> Cl
         pending_beacon_blocks: RwLock::new(HashMap::new()),
         pending_shard_blocks: RwLock::new(HashMap::new()),
     }
-}
-
-pub fn get_client() -> Client {
-    let (chain_spec, signer, _) = generate_test_chain_spec();
-    get_client_from_cfg(&chain_spec, signer)
 }

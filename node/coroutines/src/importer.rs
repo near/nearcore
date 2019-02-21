@@ -14,7 +14,7 @@ pub fn spawn_block_importer(
     incoming_block_tx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     let task = incoming_block_tx.for_each(move |(beacon_block, shard_block)| {
-        client.import_blocks(beacon_block, shard_block);
+        client.try_import_blocks(beacon_block, shard_block);
         future::ok(())
     });
     tokio::spawn(task);
