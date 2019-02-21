@@ -8,7 +8,7 @@ let keyStore;
 
 beforeAll(async () => {
     keyStore = new InMemoryKeyStore();
-    nearjs = await dev.setupConnection({
+    nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
         deps: { keyStore },

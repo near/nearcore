@@ -15,19 +15,13 @@ module.exports = {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
     },
     /**
-     * @param {String} nodeUrl
-     */
-    connect: async function(nodeUrl = 'http://localhost:3030') {
-        return await this.setupConnection({nodeUrl});
-    },
-    /**
      * Create a connection which can perform operations on behalf of a given account.
      * @param {object} options object to pass named parameters.
      * @param {Object} options.nodeUrl specifies node url. accountId specifies account id. key_pair is the key pair for account
      * @param {boolean} options.useDevAccount specify to use development account to create accounts / deploy contracts. Should be used only on TestNet.
      * @param {string} options.accountId account ID to use.
      */
-    setupConnection: async function(options) {
+    connect: async function(options) {
         if (options.useDevAccount) {
             options.accountId = devAccountName;
             options.key = devKey;
