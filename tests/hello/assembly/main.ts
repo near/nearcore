@@ -73,5 +73,5 @@ export function triggerAssert(): void {
 export function testSetRemove(value: string): void {
     globalStorage.setItem("test", value);
     globalStorage.removeItem("test");
-    assert(globalStorage.getItem("test") == null, "Item must by empty");
+    assert(globalStorage.getItem("test") == null, "Item must be empty");
 }
