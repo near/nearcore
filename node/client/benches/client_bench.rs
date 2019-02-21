@@ -215,8 +215,8 @@ fn money_transaction_blocks(bench: &mut Bencher) {
     let (mut client, secret_key_alice, secret_key_bob) = get_client("money_transaction_blocks");
 
     let mut batches = vec![];
-    let mut alice_nonce = 0;
-    let mut bob_nonce = 0;
+    let mut alice_nonce = 1;
+    let mut bob_nonce = 1;
     let mut hashes = vec![];
     for block_idx in 0..num_blocks {
         let mut batch = vec![];
