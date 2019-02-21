@@ -8,6 +8,15 @@ export function hello(name: string): string {
   return "hello " + name;
 }
 
+export function setKeyValue(key: string, value: string): string {
+  globalStorage.setItem(key, value);
+  return value;
+}
+
+export function getValueByKey(key: string): string {
+  return globalStorage.getItem(key);
+}
+
 export function setValue(value: string): string {
   globalStorage.setItem("name", value);
   return value;

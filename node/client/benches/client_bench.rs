@@ -1,54 +1,28 @@
-#[macro_use]
-extern crate bencher;
+use bencher::{benchmark_group, benchmark_main, Bencher};
 
-use bencher::Bencher;
-
-extern crate storage;
-
-use std::sync::Arc;
-
-use client::BlockProductionResult;
-use client::ChainConsensusBlockBody;
-use client::Client;
-use configs::ChainSpec;
-use configs::ClientConfig;
-use primitives::aggregate_signature::BlsPublicKey;
-use primitives::aggregate_signature::BlsSecretKey;
-use primitives::beacon::SignedBeaconBlock;
+use client::{BlockProductionResult, ChainConsensusBlockBody, Client};
+use configs::{ChainSpec, ClientConfig};
+use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use primitives::block_traits::SignedBlock;
-use primitives::chain::ChainPayload;
-use primitives::chain::ReceiptBlock;
+use primitives::chain::{ChainPayload, ReceiptBlock};
 use primitives::hash::CryptoHash;
-use primitives::signature::sign;
-use primitives::signature::SecretKey as SK;
-use primitives::signature::DEFAULT_SIGNATURE;
+use primitives::signature::{sign, SecretKey as SK, DEFAULT_SIGNATURE};
 use primitives::test_utils::get_key_pair_from_seed;
-use primitives::transaction::CreateAccountTransaction;
-use primitives::transaction::DeployContractTransaction;
-use primitives::transaction::FinalTransactionResult;
-use primitives::transaction::FinalTransactionStatus;
-use primitives::transaction::FunctionCallTransaction;
-use primitives::transaction::SendMoneyTransaction;
-use primitives::transaction::SignedTransaction;
-use primitives::transaction::TransactionBody;
-use primitives::types::MessageDataBody;
-use primitives::types::SignedMessageData;
-use std::collections::HashSet;
-use std::io;
-use std::io::Write;
+use primitives::transaction::{
+    CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
+    FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
+};
+use primitives::types::{MessageDataBody, SignedMessageData};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::RwLock;
-use storage::create_storage;
-use storage::storages::GenericStorage;
-use storage::BeaconChainStorage;
-use storage::ShardChainStorage;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
 const BOB_ACC_ID: &str = "bob.near";
 const CONTRACT_ID: &str = "contract.near";
 const DEFAULT_BALANCE: u64 = 10_000_000;
-const DEFAULT_STAKE: u64 =1_000_000;
+const DEFAULT_STAKE: u64 = 1_000_000;
 
 fn get_bls_keys(seed: [u32; 4]) -> (BlsPublicKey, BlsSecretKey) {
     use rand::{SeedableRng, XorShiftRng};
@@ -60,15 +34,24 @@ fn get_bls_keys(seed: [u32; 4]) -> (BlsPublicKey, BlsSecretKey) {
 
 fn get_chain_spec() -> (ChainSpec, SK, SK) {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let (alice_pk_bls, alice_sk_bls) = get_bls_keys([1, 1, 1, 1]);
+    let (alice_pk_bls, _alice_sk_bls) = get_bls_keys([1, 1, 1, 1]);
     let (alice_pk, alice_sk) = get_key_pair_from_seed(ALICE_ACC_ID);
     let (bob_pk, bob_sk) = get_key_pair_from_seed(BOB_ACC_ID);
     let spec = ChainSpec {
         accounts: vec![
-            (ALICE_ACC_ID.to_string(), alice_pk.clone().to_readable(), DEFAULT_BALANCE, DEFAULT_STAKE),
+            (
+                ALICE_ACC_ID.to_string(),
+                alice_pk.clone().to_readable(),
+                DEFAULT_BALANCE,
+                DEFAULT_STAKE,
+            ),
             (BOB_ACC_ID.to_string(), bob_pk.to_readable(), DEFAULT_BALANCE, DEFAULT_STAKE),
         ],
-        initial_authorities: vec![(ALICE_ACC_ID.to_string(), alice_pk_bls.to_readable(), DEFAULT_STAKE)],
+        initial_authorities: vec![(
+            ALICE_ACC_ID.to_string(),
+            alice_pk_bls.to_readable(),
+            DEFAULT_STAKE,
+        )],
         genesis_wasm,
         beacon_chain_epoch_length: 1,
         beacon_chain_num_seats_per_slot: 1,
@@ -115,7 +98,7 @@ fn transaction_and_receipts_to_consensus(
 }
 
 /// Produces blocks by consuming batches of transactions. Runs until all receipts are processed.
-fn produce_blocks(mut batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
+fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
     let mut prev_receipt_blocks = vec![];
     let mut transactions;
     let mut next_block_idx = client.shard_chain.chain.best_index() + 1;
@@ -225,7 +208,7 @@ fn verify_transaction_statuses(hashes: &Vec<CryptoHash>, client: &mut Client) {
     }
 }
 
-/// Creates block with money transactions.
+/// Runs multiple money transactions per block.
 fn money_transaction_blocks(bench: &mut Bencher) {
     let num_blocks = 10usize;
     let transactions_per_block = 100usize;
@@ -237,8 +220,8 @@ fn money_transaction_blocks(bench: &mut Bencher) {
     let mut hashes = vec![];
     for block_idx in 0..num_blocks {
         let mut batch = vec![];
-        for transaction_idx in 0..transactions_per_block {
-            let (mut t, mut sk);
+        for _transaction_idx in 0..transactions_per_block {
+            let (mut t, sk);
             if block_idx % 2 == 0 {
                 t = SendMoneyTransaction {
                     nonce: alice_nonce,
@@ -271,6 +254,7 @@ fn money_transaction_blocks(bench: &mut Bencher) {
     verify_transaction_statuses(&hashes, &mut client);
 }
 
+/// Executes multiple contract calls that write a lot of storage per block.
 fn heavy_storage_blocks(bench: &mut Bencher) {
     let method_name = "benchmark_storage";
     let args = "{\"n\":1000}";
@@ -290,11 +274,10 @@ fn heavy_storage_blocks(bench: &mut Bencher) {
     // First run the client until the contract is deployed.
     produce_blocks(&mut vec![vec![t_deploy]], &mut client);
 
-    for block_idx in 0..num_blocks {
+    for _block_idx in 0..num_blocks {
         let mut batch = vec![];
-        for transaction_idx in 0..transactions_per_block {
-            let (t, _next_nonce) =
-                call_contract(&secret_key_alice, next_nonce, "benchmark_storage", "{\"n\":1000}");
+        for _transaction_idx in 0..transactions_per_block {
+            let (t, _next_nonce) = call_contract(&secret_key_alice, next_nonce, method_name, args);
             next_nonce = _next_nonce;
             hashes.push(t.body.get_hash());
             batch.push(t);
@@ -309,5 +292,72 @@ fn heavy_storage_blocks(bench: &mut Bencher) {
     verify_transaction_statuses(&hashes, &mut client);
 }
 
-benchmark_group!(benches, heavy_storage_blocks, money_transaction_blocks);
+/// Execute multiple contract calls that get and set variables multiple times per block.
+fn set_get_values_blocks(bench: &mut Bencher) {
+    let num_blocks = 10usize;
+    let transactions_per_block = 100usize;
+    let (mut client, secret_key_alice, _) = get_client("set_get_values_blocks");
+    let mut batches = vec![];
+    let mut next_nonce = 1;
+    // Store the hashes of the transactions we are submitting.
+    let mut hashes = vec![];
+    // These are the values that we expect to be set in the storage.
+    let mut expected_storage = HashMap::new();
+
+    // First run the client until the contract account is created.
+    let (t_create, t_deploy, _next_nonce) = deploy_test_contract(&secret_key_alice, next_nonce);
+    next_nonce = _next_nonce;
+    hashes.extend(vec![t_create.body.get_hash(), t_deploy.body.get_hash()]);
+    produce_blocks(&mut vec![vec![t_create]], &mut client);
+    // First run the client until the contract is deployed.
+    produce_blocks(&mut vec![vec![t_deploy]], &mut client);
+
+    for block_idx in 0..num_blocks {
+        let mut batch = vec![];
+        for transaction_idx in 0..transactions_per_block {
+            let key = block_idx * transactions_per_block + transaction_idx;
+            let value = key * 10;
+            expected_storage.insert(key, value);
+            let (t, _next_nonce) = call_contract(
+                &secret_key_alice,
+                next_nonce,
+                "setKeyValue",
+                format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value).as_str(),
+            );
+            next_nonce = _next_nonce;
+            hashes.push(t.body.get_hash());
+            batch.push(t);
+        }
+        batches.push(batch);
+    }
+
+    bench.iter(|| {
+        produce_blocks(&mut batches, &mut client);
+
+        // As a part of the benchmark get values from the storage and verify that they are correct.
+
+        for (k, v) in expected_storage.iter() {
+            let state_update = client.shard_chain.get_state_update();
+            let best_index = client.shard_chain.chain.best_index();
+            let res = client
+                .shard_chain
+                .trie_viewer
+                .call_function(
+                    state_update,
+                    best_index,
+                    &CONTRACT_ID.to_string(),
+                    &"getValueByKey".to_string(),
+                    format!("{{\"key\":\"{}\"}}", k).as_bytes(),
+                )
+                .unwrap();
+            let res = std::str::from_utf8(&res).unwrap();
+            let res: Value = serde_json::from_str(res).unwrap();
+            assert_eq!(res["result"], format!("{}", v));
+        }
+    });
+
+    verify_transaction_statuses(&hashes, &mut client);
+}
+
+benchmark_group!(benches, money_transaction_blocks, heavy_storage_blocks, set_get_values_blocks);
 benchmark_main!(benches);
