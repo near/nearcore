@@ -63,7 +63,6 @@ fn get_chain_spec() -> (ChainSpec, SK, SK) {
 fn get_client(test_name: &str) -> (Client, SK, SK) {
     let mut base_path = Path::new(TMP_DIR).to_owned();
     base_path.push(test_name);
-    println!("Looking at: {}", std::env::current_dir().unwrap().to_str().unwrap());
     if base_path.exists() {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
