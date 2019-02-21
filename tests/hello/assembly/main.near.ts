@@ -133,22 +133,9 @@ export function near_func_setKeyValue(): void {
       handler.buffer = json;
       handler.decoder = new JSONDecoder<__near_ArgsParser_setKeyValue>(handler);
       handler.decoder.deserialize(json);
-let result = wrapped_setKeyValue(
+wrapped_setKeyValue(
 handler.__near_param_key,handler.__near_param_value
 );
-
-        let encoder = new JSONEncoder();
-        encoder.pushObject(null);
-      
-if (result != null) {
-            encoder.setString("result", result);
-          } else {
-            encoder.setNull("result");
-          }
-
-        encoder.popObject();
-        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
-      
 }
 export class __near_ArgsParser_getValueByKey extends ThrowingJSONHandler {
         buffer: Uint8Array;

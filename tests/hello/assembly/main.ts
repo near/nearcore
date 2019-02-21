@@ -8,9 +8,8 @@ export function hello(name: string): string {
   return "hello " + name;
 }
 
-export function setKeyValue(key: string, value: string): string {
+export function setKeyValue(key: string, value: string): void {
   globalStorage.setItem(key, value);
-  return value;
 }
 
 export function getValueByKey(key: string): string {
