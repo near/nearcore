@@ -34,6 +34,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 type BlockIdx = u64;
 
 /// Result of client trying to produce a block from a given consensus.
+#[allow(clippy::large-enum-variant)]  // This enum is no different from `Option`.
 pub enum BlockProductionResult {
     /// The blocks were successfully produced.
     Success(SignedBeaconBlock, SignedShardBlock),
