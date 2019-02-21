@@ -71,6 +71,7 @@ fn get_client(test_name: &str) -> (Client, SK, SK) {
     cfg.base_path = base_path;
     let (chain_spec, alice_sk, bob_sk) = get_chain_spec();
     cfg.chain_spec = chain_spec;
+    cfg.log_level = log::LevelFilter::Off;
     (Client::new(&cfg), alice_sk, bob_sk)
 }
 
