@@ -17,11 +17,17 @@ use primitives::aggregate_signature::BlsSecretKey;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
+use primitives::chain::ReceiptBlock;
 use primitives::hash::CryptoHash;
 use primitives::signature::sign;
 use primitives::signature::SecretKey as SK;
 use primitives::signature::DEFAULT_SIGNATURE;
 use primitives::test_utils::get_key_pair_from_seed;
+use primitives::transaction::CreateAccountTransaction;
+use primitives::transaction::DeployContractTransaction;
+use primitives::transaction::FinalTransactionResult;
+use primitives::transaction::FinalTransactionStatus;
+use primitives::transaction::FunctionCallTransaction;
 use primitives::transaction::SendMoneyTransaction;
 use primitives::transaction::SignedTransaction;
 use primitives::transaction::TransactionBody;
@@ -40,6 +46,9 @@ use storage::ShardChainStorage;
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
 const BOB_ACC_ID: &str = "bob.near";
+const CONTRACT_ID: &str = "contract.near";
+const DEFAULT_BALANCE: u64 = 10_000_000;
+const DEFAULT_STAKE: u64 =1_000_000;
 
 fn get_bls_keys(seed: [u32; 4]) -> (BlsPublicKey, BlsSecretKey) {
     use rand::{SeedableRng, XorShiftRng};
@@ -54,14 +63,12 @@ fn get_chain_spec() -> (ChainSpec, SK, SK) {
     let (alice_pk_bls, alice_sk_bls) = get_bls_keys([1, 1, 1, 1]);
     let (alice_pk, alice_sk) = get_key_pair_from_seed(ALICE_ACC_ID);
     let (bob_pk, bob_sk) = get_key_pair_from_seed(BOB_ACC_ID);
-    let balance = 10000;
-    let stake = 10;
     let spec = ChainSpec {
         accounts: vec![
-            (ALICE_ACC_ID.to_string(), alice_pk.clone().to_readable(), balance, stake),
-            (BOB_ACC_ID.to_string(), bob_pk.to_readable(), balance, stake),
+            (ALICE_ACC_ID.to_string(), alice_pk.clone().to_readable(), DEFAULT_BALANCE, DEFAULT_STAKE),
+            (BOB_ACC_ID.to_string(), bob_pk.to_readable(), DEFAULT_BALANCE, DEFAULT_STAKE),
         ],
-        initial_authorities: vec![(ALICE_ACC_ID.to_string(), alice_pk_bls.to_readable(), stake)],
+        initial_authorities: vec![(ALICE_ACC_ID.to_string(), alice_pk_bls.to_readable(), DEFAULT_STAKE)],
         genesis_wasm,
         beacon_chain_epoch_length: 1,
         beacon_chain_num_seats_per_slot: 1,
@@ -84,88 +91,223 @@ fn get_client(test_name: &str) -> (Client, SK, SK) {
     (Client::new(&cfg), alice_sk, bob_sk)
 }
 
-fn produce_blocks(bench: &mut Bencher, mut batches: Vec<Vec<SignedTransaction>>, client: Client) {
-    bench.iter(move || {
-        let mut prev_receipt_blocks = vec![];
-        for (block_idx, batch) in batches.drain(..).enumerate() {
-            let consensus = ChainConsensusBlockBody {
-                messages: vec![SignedMessageData {
-                    owner_sig: DEFAULT_SIGNATURE,
-                    hash: 0,
-                    body: MessageDataBody {
-                        owner_uid: 0,
-                        parents: HashSet::new(),
-                        epoch: 0,
-                        payload: ChainPayload {
-                            transactions: batch,
-                            receipts: prev_receipt_blocks,
-                        },
-                        endorsements: vec![],
-                    },
-                    beacon_block_index: block_idx as u64 + 2,
-                }],
-                beacon_block_index: block_idx as u64 + 2,
-            };
-            if let BlockProductionResult::Success(_beacon_block, shard_block) =
-            client.try_produce_block(consensus)
-            {
-                prev_receipt_blocks = client
-                    .shard_chain
-                    .get_receipt_block(shard_block.index(), shard_block.shard_id())
-                    .map(|b| vec![b])
-                    .unwrap_or(vec![]);
-            } else {
-                panic!("Block production should always succeed");
-            }
-        }
-    });
+/// Constructs consensus block from transactions and receipt blocks.
+fn transaction_and_receipts_to_consensus(
+    transactions: Vec<SignedTransaction>,
+    receipts: Vec<ReceiptBlock>,
+    beacon_block_index: u64,
+) -> ChainConsensusBlockBody {
+    ChainConsensusBlockBody {
+        messages: vec![SignedMessageData {
+            owner_sig: DEFAULT_SIGNATURE,
+            hash: 0,
+            body: MessageDataBody {
+                owner_uid: 0,
+                parents: HashSet::new(),
+                epoch: 0,
+                payload: ChainPayload { transactions, receipts },
+                endorsements: vec![],
+            },
+            beacon_block_index,
+        }],
+        beacon_block_index,
+    }
 }
 
-fn produce_blocks_money(bench: &mut Bencher) {
+/// Produces blocks by consuming batches of transactions. Runs until all receipts are processed.
+fn produce_blocks(mut batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
+    let mut prev_receipt_blocks = vec![];
+    let mut transactions;
+    let mut next_block_idx = client.shard_chain.chain.best_index() + 1;
+    loop {
+        if batches.is_empty() {
+            if prev_receipt_blocks.is_empty() {
+                // We ran out of the transactions and receipts to process.
+                break;
+            } else {
+                // We ran out of the transactions but we still need to finish processing receipts.
+                transactions = vec![];
+            }
+        } else {
+            transactions = batches.remove(0);
+        }
+        let consensus = transaction_and_receipts_to_consensus(
+            transactions,
+            prev_receipt_blocks,
+            next_block_idx,
+        );
+        if let BlockProductionResult::Success(_beacon_block, shard_block) =
+            client.try_produce_block(consensus)
+        {
+            prev_receipt_blocks = client
+                .shard_chain
+                .get_receipt_block(shard_block.index(), shard_block.shard_id())
+                .map(|b| vec![b])
+                .unwrap_or(vec![]);
+        } else {
+            panic!("Block production should always succeed");
+        }
+
+        next_block_idx += 1;
+    }
+}
+
+fn sign_transaction(t: TransactionBody, sk: &SK) -> SignedTransaction {
+    let hash = t.get_hash();
+    let signature = sign(hash.as_ref(), sk);
+    SignedTransaction::new(signature, t)
+}
+
+/// Create transactions that would deploy the contract on the blockchain.
+/// Returns transactions and the new nonce.
+fn deploy_test_contract(
+    deployer_sk: &SK,
+    mut next_nonce: u64,
+) -> (SignedTransaction, SignedTransaction, u64) {
+    // Create account for the contract.
+    let (contract_pk, contract_sk) = get_key_pair_from_seed(CONTRACT_ID);
+    let t_create = CreateAccountTransaction {
+        nonce: next_nonce,
+        originator: ALICE_ACC_ID.to_string(),
+        new_account_id: CONTRACT_ID.to_string(),
+        amount: 10,
+        public_key: contract_pk.0[..].to_vec(),
+    };
+    let t_create = TransactionBody::CreateAccount(t_create);
+    let t_create = sign_transaction(t_create, &deployer_sk);
+
+    next_nonce += 1;
+
+    // Create contract deployment transaction.
+    let wasm_binary: &[u8] = include_bytes!("../../../tests/hello.wasm");
+    let t_deploy = DeployContractTransaction {
+        nonce: next_nonce,
+        contract_id: CONTRACT_ID.to_string(),
+        wasm_byte_array: wasm_binary.to_vec(),
+    };
+    let t_deploy = TransactionBody::DeployContract(t_deploy);
+    let t_deploy = sign_transaction(t_deploy, &contract_sk);
+    next_nonce += 1;
+
+    (t_create, t_deploy, next_nonce)
+}
+
+/// Create transaction that calls the contract.
+fn call_contract(
+    deployer_sk: &SK,
+    mut next_nonce: u64,
+    method_name: &str,
+    args: &str,
+) -> (SignedTransaction, u64) {
+    let t = FunctionCallTransaction {
+        nonce: next_nonce,
+        originator: ALICE_ACC_ID.to_string(),
+        contract_id: CONTRACT_ID.to_string(),
+        method_name: method_name.as_bytes().to_vec(),
+        args: args.as_bytes().to_vec(),
+        amount: 0,
+    };
+    let t = TransactionBody::FunctionCall(t);
+    let t = sign_transaction(t, &deployer_sk);
+    next_nonce += 1;
+    (t, next_nonce)
+}
+
+/// Verifies that the status of all submitted transactions is `Complete`.
+fn verify_transaction_statuses(hashes: &Vec<CryptoHash>, client: &mut Client) {
+    for h in hashes {
+        assert_eq!(
+            client.shard_chain.get_transaction_final_result(h).status,
+            FinalTransactionStatus::Completed,
+            "Transaction was not completed {:?}",
+            client.shard_chain.get_transaction_final_result(h)
+        );
+    }
+}
+
+/// Creates block with money transactions.
+fn money_transaction_blocks(bench: &mut Bencher) {
     let num_blocks = 10usize;
-    let transactions_per_block = 1000usize;
-    let (client, secret_key_alice, secret_key_bob) = get_client("produce_blocks_money");
+    let transactions_per_block = 100usize;
+    let (mut client, secret_key_alice, secret_key_bob) = get_client("money_transaction_blocks");
 
     let mut batches = vec![];
-    let mut direction = true;
-    let mut nonce = 0;
+    let mut alice_nonce = 0;
+    let mut bob_nonce = 0;
+    let mut hashes = vec![];
     for block_idx in 0..num_blocks {
         let mut batch = vec![];
         for transaction_idx in 0..transactions_per_block {
-            let (t, sk) = if direction {
-                (
-                    SendMoneyTransaction {
-                        nonce,
-                        originator: ALICE_ACC_ID.to_string(),
-                        receiver: BOB_ACC_ID.to_string(),
-                        amount: 1,
-                    },
-                    &secret_key_alice,
-                )
+            let (mut t, mut sk);
+            if block_idx % 2 == 0 {
+                t = SendMoneyTransaction {
+                    nonce: alice_nonce,
+                    originator: ALICE_ACC_ID.to_string(),
+                    receiver: BOB_ACC_ID.to_string(),
+                    amount: 1,
+                };
+                sk = &secret_key_alice;
+                alice_nonce += 1;
             } else {
-                (
-                    SendMoneyTransaction {
-                        nonce,
-                        originator: BOB_ACC_ID.to_string(),
-                        receiver: ALICE_ACC_ID.to_string(),
-                        amount: 1,
-                    },
-                    &secret_key_bob,
-                )
-            };
-            let t = TransactionBody::SendMoney(t);
-            let hash = t.get_hash();
-            let signature = sign(hash.as_ref(), sk);
-            batch.push(SignedTransaction::new(signature, t));
-            direction = !direction;
-            if !direction {
-                nonce += 1;
+                t = SendMoneyTransaction {
+                    nonce: bob_nonce,
+                    originator: BOB_ACC_ID.to_string(),
+                    receiver: ALICE_ACC_ID.to_string(),
+                    amount: 1,
+                };
+                sk = &secret_key_bob;
+                bob_nonce += 1;
             }
+            let t = TransactionBody::SendMoney(t);
+            let t = sign_transaction(t, &sk);
+            hashes.push(t.body.get_hash());
+            batch.push(t);
         }
         batches.push(batch);
     }
-    produce_blocks(bench, batches, client);
+    bench.iter(|| {
+        produce_blocks(&mut batches, &mut client);
+    });
+    verify_transaction_statuses(&hashes, &mut client);
 }
 
-benchmark_group!(benches, produce_blocks_money);
+fn heavy_storage_blocks(bench: &mut Bencher) {
+    let method_name = "benchmark_storage";
+    let args = "{\"n\":1000}";
+    let num_blocks = 10usize;
+    let transactions_per_block = 100usize;
+    let (mut client, secret_key_alice, _) = get_client("heavy_storage_blocks");
+    let mut batches = vec![];
+    let mut next_nonce = 1;
+    // Store the hashes of the transactions we are submitting.
+    let mut hashes = vec![];
+
+    // First run the client until the contract account is created.
+    let (t_create, t_deploy, _next_nonce) = deploy_test_contract(&secret_key_alice, next_nonce);
+    next_nonce = _next_nonce;
+    hashes.extend(vec![t_create.body.get_hash(), t_deploy.body.get_hash()]);
+    produce_blocks(&mut vec![vec![t_create]], &mut client);
+    // First run the client until the contract is deployed.
+    produce_blocks(&mut vec![vec![t_deploy]], &mut client);
+
+    for block_idx in 0..num_blocks {
+        let mut batch = vec![];
+        for transaction_idx in 0..transactions_per_block {
+            let (t, _next_nonce) =
+                call_contract(&secret_key_alice, next_nonce, "benchmark_storage", "{\"n\":1000}");
+            next_nonce = _next_nonce;
+            hashes.push(t.body.get_hash());
+            batch.push(t);
+        }
+        batches.push(batch);
+    }
+
+    bench.iter(|| {
+        produce_blocks(&mut batches, &mut client);
+    });
+
+    verify_transaction_statuses(&hashes, &mut client);
+}
+
+benchmark_group!(benches, heavy_storage_blocks, money_transaction_blocks);
 benchmark_main!(benches);
