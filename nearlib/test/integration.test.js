@@ -4,29 +4,14 @@ const fs = require('fs');
 const aliceAccountName = 'alice.near';
 // every new account has this codehash
 const newAccountCodeHash = "GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn";
+const localStorageAccountIdKey = 'dev_near_user';
 let nearjs;
 let account;
 let keyStore;
 
 beforeAll(async () => {
     keyStore = new InMemoryKeyStore();
-    const localStorage = (function() {
-        let store = {};
-        return {
-          getItem: function(key) {
-            return store[key];
-          },
-          setItem: function(key, value) {
-            store[key] = value.toString();
-          },
-          clear: function() {
-            store = {};
-          },
-          removeItem: function(key) {
-            delete store[key];
-          }
-        };
-      })();
+    const localStorage = createMockLocalStorage();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
@@ -40,31 +25,67 @@ test('test creating default config', async () => {
     Near.createDefaultConfig();
 });
 
-test('test dev connect with no account creates a new account', async () => {
-    const keyStoreNoAccount = new InMemoryKeyStore();
-    const nearNoAccount = await dev.connect({
-        nodeUrl: 'http://localhost:3030',
-        deps: {
-            keyStore: keyStoreNoAccount,
-            createAccount: (async (newAccountName, newAccountPublicKey) => {
-                const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
-                await nearjs.waitForTransactionResult(createAccountResponse);
-            })
-        },
+describe("dev connect", () => {
+    test('test dev connect with no account creates a new account', async () => {
+        const keyStoreNoAccount = new InMemoryKeyStore();
+        const localStorage = createMockLocalStorage();
+        const nearNoAccount = await dev.connect({
+            nodeUrl: 'http://localhost:3030',
+            deps: {
+                keyStore: keyStoreNoAccount,
+                localStorage: localStorage,
+                createAccount: (async (newAccountName, newAccountPublicKey) => {
+                    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                    await nearjs.waitForTransactionResult(createAccountResponse);
+                })
+            },
+        });
+        expect(Object.keys(keyStoreNoAccount.keys).length).toEqual(1);
+        const newAccountId = Object.keys(keyStoreNoAccount.keys)[0];
+        const viewAccountResponse = await account.viewAccount(newAccountId);
+        const newAccountKeyPair = await keyStoreNoAccount.getKey(newAccountId);
+        expect(newAccountKeyPair).toBeTruthy();
+        const expectedAccount = {
+            nonce: 0,
+            account_id: newAccountId,
+            amount: 1,
+            code_hash: newAccountCodeHash,
+            stake: 0,
+        };
+        expect(viewAccountResponse).toEqual(expectedAccount);
+        expect(localStorage.getItem(localStorageAccountIdKey)).toEqual(newAccountId);
     });
-    expect(Object.keys(keyStoreNoAccount.keys).length).toEqual(1);
-    const newAccountId = Object.keys(keyStoreNoAccount.keys)[0];
-    const viewAccountResponse = await account.viewAccount(newAccountId);
-    const newAccountKeyPair = await keyStoreNoAccount.getKey(newAccountId);
-    expect(newAccountKeyPair).toBeTruthy();
-    const expectedAccount = {
-        nonce: 0,
-        account_id: newAccountId,
-        amount: 1,
-        code_hash: newAccountCodeHash,
-        stake: 0,
-    };
-    expect(viewAccountResponse).toEqual(expectedAccount);
+
+    
+    test('test dev connect with invalid account creates a new account', async () => {
+        const keyStoreNoAccount = new InMemoryKeyStore();
+        const localStorage = createMockLocalStorage();
+        localStorage.setItem(localStorageAccountIdKey, await generateUniqueString("invalid"));
+        const nearNoAccount = await dev.connect({
+            nodeUrl: 'http://localhost:3030',
+            deps: {
+                keyStore: keyStoreNoAccount,
+                localStorage: localStorage,
+                createAccount: (async (newAccountName, newAccountPublicKey) => {
+                    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                    await nearjs.waitForTransactionResult(createAccountResponse);
+                })
+            },
+        });
+        expect(Object.keys(keyStoreNoAccount.keys).length).toEqual(1);
+        const newAccountId = Object.keys(keyStoreNoAccount.keys)[0];
+        const viewAccountResponse = await account.viewAccount(newAccountId);
+        const newAccountKeyPair = await keyStoreNoAccount.getKey(newAccountId);
+        expect(newAccountKeyPair).toBeTruthy();
+        const expectedAccount = {
+            nonce: 0,
+            account_id: newAccountId,
+            amount: 1,
+            code_hash: newAccountCodeHash,
+            stake: 0,
+        };
+        expect(viewAccountResponse).toEqual(expectedAccount);
+    });
 });
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -216,3 +237,21 @@ const generateUniqueString = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);
     return prefix + viewAccountResponse.nonce;
 };
+
+const createMockLocalStorage = function() {
+    let store = {};
+    return {
+      getItem: function(key) {
+        return store[key];
+      },
+      setItem: function(key, value) {
+        store[key] = value.toString();
+      },
+      clear: function() {
+        store = {};
+      },
+      removeItem: function(key) {
+        delete store[key];
+      }
+    };
+  };

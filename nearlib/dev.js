@@ -39,12 +39,13 @@ module.exports = {
         return this.near;
     },
     getOrCreateDevUser: async function (deps = {}) {
-        let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
+        const localStorage = deps.localStorage ? deps.localStorage : window.localStorage;
+        let tempUserAccountId = localStorage.getItem(localStorageAccountIdKey);
         if (tempUserAccountId) {
             // Make sure the user actually exists and recreate it if it doesn't
             const accountLib = new nearlib.Account(this.near.nearClient);
             try {
-                await accountLib.viewAccount(tempUserAccountId);
+                const result = await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
             } catch (e) {
                 console.log('Error looking up temp account', e);
@@ -61,7 +62,6 @@ module.exports = {
         await createAccount(tempUserAccountId, keypair.getPublicKey());
         const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
         localKeyStore.setKey(tempUserAccountId, keypair);
-        const localStorage = deps.localStorage ? deps.localStorage : window.localStorage;
         localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;
     },
