@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::Client;
 use beacon::beacon_chain::BeaconBlockChain;
 use configs::ChainSpec;
-use node_runtime::test_utils::generate_test_chain_spec;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::signer::InMemorySigner;
 use shard::ShardBlockChain;
