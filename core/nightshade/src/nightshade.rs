@@ -396,6 +396,11 @@ impl Nightshade {
             match state.verify(authority_id, &self.bls_public_keys) {
                 Ok(_) => self.seen_bare_states.insert(state.bare_state.clone()),
                 Err(_e) => {
+                    // The authority sent an invalid state. Since we checked the gossip signature that contains this state,
+                    // we are sure that this authority is behaving maliciously. Verifying states is a slow
+                    // component of the algorithm and setting this authority as adversarial avoid the case
+                    // when a malicious actor try to spam an honest authority using invalid states.
+                    self.is_adversary[authority_id] = true;
                     // TODO: return more information about why verification fails
                     return Err("Not a valid state".to_string());
                 }
