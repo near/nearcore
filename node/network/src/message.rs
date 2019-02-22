@@ -22,7 +22,7 @@ pub enum Message {
 
     Gossip(Box<Gossip<ChainPayload>>),
     PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
-    PayloadResponse(RequestId, Vec<ChainPayload>)
+    PayloadResponse(RequestId, ChainPayload)
 }
 
 /// status sent on connection

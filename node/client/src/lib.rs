@@ -1,35 +1,36 @@
-#[macro_use]
-extern crate log;
 extern crate beacon;
 extern crate chain;
+#[macro_use]
+extern crate log;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
-pub mod test_utils;
-
+use std::{cmp, env, fs};
 use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use parking_lot::RwLock;
 
 use beacon::beacon_chain::BeaconBlockChain;
-use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::chain::{ChainPayload, SignedShardBlock};
 use configs::ClientConfig;
+use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use primitives::block_traits::SignedBlock;
+use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::{ShardBlockChain};
-use primitives::block_traits::SignedBlock;
+use primitives::types::{AccountId, AuthorityStake, BlockId, ConsensusBlockBody, UID};
+use shard::ShardBlockChain;
 use storage::create_storage;
 
+pub mod test_utils;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const BEACON_SHARD_BLOCK_MATCH: &str = "Expected to have shard block present when processing beacon block";
 
 pub struct Client {
     pub account_id: AccountId,
@@ -135,13 +136,6 @@ impl Client {
         if body.beacon_block_index != self.beacon_chain.chain.best_block().index() + 1 {
             return None;
         }
-        // TODO: verify signature
-        let mut transactions = vec![];
-        let mut receipts = vec![];
-        for message in body.messages {
-            transactions.extend(message.body.payload.transactions);
-            receipts.extend(message.body.payload.receipts);
-        }
 
         let last_block = self.beacon_chain.chain.best_block();
         let authorities = self
@@ -154,7 +148,7 @@ impl Client {
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) =
             self
             .shard_chain
-            .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
+            .prepare_new_block(last_block.body.header.shard_block_hash, body.payload.receipts, body.payload.transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
@@ -255,7 +249,7 @@ impl Client {
                 .pending_shard_blocks
                 .write()
                 .remove(&next_beacon_block.body.header.shard_block_hash)
-                .expect("Expected to have shard block present when processing beacon block");
+                .expect(BEACON_SHARD_BLOCK_MATCH);
 
             if self.shard_chain.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
@@ -307,9 +301,23 @@ impl Client {
         self.get_uid_to_authority_map(index).1
     }
 
-    /// Fetch "coupled" blocks by hash
-    pub fn fetch_blocks(&self, hashes: &Vec<CryptoHash>) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
+    /// Fetch "coupled" blocks by hash.
+    pub fn fetch_blocks(&self, hashes: Vec<CryptoHash>) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
         let mut result = vec![];
+        for hash in hashes.iter() {
+            match self.beacon_chain.chain.get_block(&BlockId::Hash(*hash)) {
+                Some(beacon_block) => {
+                    let shard_block = self.shard_chain.chain.get_block(&BlockId::Hash(beacon_block.body.header.shard_block_hash)).expect(BEACON_SHARD_BLOCK_MATCH);
+                    result.push((beacon_block, shard_block));
+                },
+                None => return Err(format!("Missing {:?} in beacon chain", hash))
+            }
+        }
         Ok(result)
+    }
+
+    /// Fetch transaction / receipts by hash from mempool.
+    pub fn fetch_payload(&self, transaction_hashes: Vec<CryptoHash>, receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
+        Ok(ChainPayload { transactions: vec![], receipts: vec![] })
     }
 }

@@ -1,16 +1,14 @@
 #[macro_use]
 extern crate bencher;
 extern crate rand;
-
-use bencher::Bencher;
-
 extern crate storage;
 
-use std::sync::Arc;
-use storage::test_utils::create_trie;
-use storage::{KeyValueDB, Trie};
-
+use bencher::Bencher;
 use rand::random;
+
+use storage::Trie;
+use storage::test_utils::create_trie;
+
 
 fn rand_bytes() -> Vec<u8> {
     (0..10).map(|_| random::<u8>()).collect()

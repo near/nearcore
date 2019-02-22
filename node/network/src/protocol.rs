@@ -11,9 +11,7 @@ use log::warn;
 
 use client::Client;
 use configs::NetworkConfig;
-use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::ChainPayload;
-use primitives::chain::SignedShardBlock;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, Gossip, PeerId};
@@ -42,11 +40,11 @@ impl Protocol {
                     forward_msg(self.inc_block_tx.clone(), (unboxed.0, unboxed.1));
                 },
                 Message::BlockFetchRequest(request_id, hashes) => {
-                    match self.client.fetch_blocks(&hashes) {
+                    match self.client.fetch_blocks(hashes) {
                         Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
                         Err(_) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!("Failed to fetch blocks for {:?} from {}. Possible grinding attack.", hashes, peer_id);
+                            warn!("Failed to fetch blocks from {}. Possible grinding attack.", peer_id);
                         }
                     }
 
@@ -56,7 +54,7 @@ impl Protocol {
                         Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
                         Err(_) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!("Failed to fetch payload for {:?}, {:?} from {}. Possible grinding attack.", transaction_hashes, receipt_hashes, peer_id);
+                            warn!("Failed to fetch payload from {}. Possible grinding attack.", peer_id);
                         }
                     }
                 }
@@ -89,7 +87,7 @@ impl Protocol {
         }
     }
 
-    fn send_fetch_response(&self, peer_id: &PeerId, request_id: RequestId, blocks: Vec<CoupledBlock>) {
+    fn send_block_response(&self, peer_id: &PeerId, request_id: RequestId, blocks: Vec<CoupledBlock>) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data = Encode::encode(&Message::BlockFetchResponse(request_id, blocks)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));

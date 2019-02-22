@@ -142,7 +142,7 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
         publishable.sort_by(|(epoch1, _), (epoch2, _)| epoch1.cmp(epoch2));
 
         // Returned consensuses. Lowest epoch first.
-        let mut res = vec![];
+        let res = vec![];
         // TODO(#125) Currently this goes through without beacon chain consensus. Once we have a
         // beacon chain consensus the epoch will be used.
         for (epoch, group) in publishable {
@@ -151,10 +151,10 @@ impl<'a, P: 'a + Payload, W: WitnessSelector, M: 'a + MisbehaviorReporter> DAG<'
                 .iter().next().expect("At least one message expected.");
             let mut parents = vec![];
             self.collect_parents(repr, &mut parents);
-            res.push(ConsensusBlockBody {
-                messages: parents.iter().map(|m| m.data.clone()).collect(),
-                beacon_block_index: self.beacon_block_index
-            });
+//            res.push(ConsensusBlockBody {
+//                messages: parents.iter().map(|m| m.data.clone()).collect(),
+//                beacon_block_index: self.beacon_block_index
+//            });
             self.published_epochs.insert(*epoch);
         }
         res

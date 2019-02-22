@@ -139,8 +139,8 @@ impl PeerManager {
     }
 
     /// This should be called if peer has done something wrong.
-    pub fn suspect_malicious(&self, peer_id: &PeerId) {
-        // TODO: add counter + banning (disconnect and don't connect again) flag here for given peers.
+    pub fn suspect_malicious(&self, _peer_id: &PeerId) {
+        // TODO(??): add counter + banning (disconnect and don't connect again) flag here for given peers.
     }
 
     /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.

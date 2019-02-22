@@ -219,8 +219,7 @@ pub struct ConsensusBlockHeader {
 
 #[derive(Hash, Debug, PartialEq, Eq)]
 pub struct ConsensusBlockBody<P> {
-    /// TxFlow messages that constitute that consensus block together with the endorsements.
-    pub messages: Vec<SignedMessageData<P>>,
+    pub payload: P,
     pub beacon_block_index: u64,
 }
 

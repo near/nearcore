@@ -152,7 +152,7 @@ impl SignedBlock for SignedShardBlock {
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 pub struct ChainPayload {
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<ReceiptBlock>,
