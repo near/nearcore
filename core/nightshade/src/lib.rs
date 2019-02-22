@@ -4,6 +4,7 @@ extern crate serde;
 extern crate bs58;
 
 mod nightshade;
+mod verifier;
 pub mod nightshade_task;
 
 #[cfg(test)]
