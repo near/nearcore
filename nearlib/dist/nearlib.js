@@ -83,7 +83,7 @@ window.nearlib.dev = require('./dev');
 const nearlib = require('./');
 const sendJson = require('./internal/send-json');
 
-const localStorageAccountIdKey = 'dev_near_user';
+const storageAccountIdKey = 'dev_near_user';
 
 // This key will only be available on dev/test environments. Do not rely on it for anything that runs on mainnet.
 const devKey = new nearlib.KeyPair(
@@ -94,7 +94,7 @@ const devAccountName = 'alice.near';
 
 module.exports = {
     getConfig: async function() {
-        return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
+        return JSON.parse(decodeURIComponent(getCookie('fiddleConfig'))) || {};
     },
     /**
      * Create a connection which can perform operations on behalf of a given account.
@@ -121,8 +121,8 @@ module.exports = {
         return this.near;
     },
     getOrCreateDevUser: async function (deps = {}) {
-        const localStorage = deps.localStorage ? deps.localStorage : window.localStorage;
-        let tempUserAccountId = localStorage.getItem(localStorageAccountIdKey);
+        const storage = deps.storage || window.storage;
+        let tempUserAccountId = storage.getItem(storageAccountIdKey);
         const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
         const accountKey = await localKeyStore.getKey(tempUserAccountId);
         if (tempUserAccountId && accountKey) {
@@ -145,11 +145,11 @@ module.exports = {
                 createAccountWithContractHelper(nearConfig, accountId, newAccountPublicKey);
         await createAccount(tempUserAccountId, keypair.getPublicKey());
         localKeyStore.setKey(tempUserAccountId, keypair);
-        localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
+        storage.setItem(storageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;
     },
     get myAccountId() {
-        return window.localStorage.getItem(localStorageAccountIdKey);
+        return window.storage.getItem(storageAccountIdKey);
     }
 };
 
