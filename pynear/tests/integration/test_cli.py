@@ -31,9 +31,22 @@ def make_devnet(request):
     return _make_devnet
 
 
-def test_view_latest_beacon_block(make_devnet, tmpdir):
-    assert make_devnet(tmpdir)
-    command = "pynear view_latest_beacon_block"
+def get_latest_beacon_block():
+    command = 'pynear view_latest_beacon_block'
     process = delegator.run(command)
     assert process.return_code == 0
-    json.loads(process.out)
+    return json.loads(process.out)
+
+
+def test_view_latest_beacon_block(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    get_latest_beacon_block()
+
+
+def test_get_beacon_block_by_hash(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    latest_block = get_latest_beacon_block()
+    hash_ = latest_block['hash']
+    command = "pynear get_beacon_block_by_hash {}".format(hash_)
+    process = delegator.run(command)
+    assert latest_block == json.loads(process.out)
