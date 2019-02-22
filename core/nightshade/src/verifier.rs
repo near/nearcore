@@ -1,10 +1,11 @@
-use crate::nightshade::{BareState, State, AuthorityId};
 use primitives::aggregate_signature::BlsPublicKey;
 
-macro_rules! check_true {
-    ($condition:expr) => {
+use crate::nightshade::{AuthorityId, BareState, NSVerifyErr, State};
+
+macro_rules! check_or {
+    ($condition:expr, $error:expr) => {
         if !$condition{
-            return false;
+            return Err($error);
         }
     };
 }
@@ -19,58 +20,58 @@ impl State {
     ///
     /// * `authority` - The authority that send this state.
     /// * `public_keys` - Public key of every authority in the network
-    pub fn verify(&self, authority: AuthorityId, public_keys: &Vec<BlsPublicKey>) -> bool {
+    pub fn verify(&self, authority: AuthorityId, public_keys: &Vec<BlsPublicKey>) -> Result<(), NSVerifyErr> {
         // Check this is a valid triplet
-        check_true!(self.bare_state.verify());
+        self.bare_state.verify()?;
         // Check signature for the triplet
-        check_true!(public_keys[authority].verify(&self.bare_state.bs_encode(), &self.signature));
+        check_or!(public_keys[authority].verify(&self.bare_state.bs_encode(), &self.signature), NSVerifyErr::InvalidBlsSignature);
         if self.bare_state.primary_confidence > 0 {
             // If primary confidence is greater than zero there must be a proof for it
             if let Some(primary_proof) = &self.primary_proof {
                 // Check primary_proof is ok
-                check_true!(primary_proof.verify(&public_keys));
+                primary_proof.verify(&public_keys)?;
                 if self.bare_state.secondary_confidence > 0 {
                     // If secondary confidence is greater than zero there must be a proof for it
                     // Note that secondary confidence can be only greater than zero if primary confidence is greater than zero
                     if let Some(secondary_proof) = &self.secondary_proof {
                         // Check secondary_proof is ok
-                        check_true!(secondary_proof.verify(&public_keys));
+                        secondary_proof.verify(&public_keys)?;
                         let cur_bs = &self.bare_state;
                         let primary_bs = &primary_proof.bare_state;
                         let secondary_bs = &secondary_proof.bare_state;
                         // Current triplet and triplet from first proof must endorse same outcome
-                        check_true!(cur_bs.endorses == primary_bs.endorses);
+                        check_or!(cur_bs.endorses == primary_bs.endorses, NSVerifyErr::InconsistentState);
                         // Both proof triplets can't endorse same outcome
-                        check_true!(primary_bs.endorses != secondary_bs.endorses);
+                        check_or!(primary_bs.endorses != secondary_bs.endorses, NSVerifyErr::InconsistentState);
                         // Primary confidence must be equal to one plus primary confidence from first proof triplet
-                        check_true!(cur_bs.primary_confidence == primary_bs.primary_confidence + 1);
+                        check_or!(cur_bs.primary_confidence == primary_bs.primary_confidence + 1, NSVerifyErr::InconsistentState);
                         // Secondary confidence must equal to one plus primary confidence from second proof triplet
-                        check_true!(cur_bs.secondary_confidence == secondary_bs.primary_confidence + 1);
+                        check_or!(cur_bs.secondary_confidence == secondary_bs.primary_confidence + 1, NSVerifyErr::InconsistentState);
                         // Secondary confidence must be consistent with secondary confidence from first proof triplet
-                        check_true!(secondary_bs.primary_confidence + 1 >= primary_bs.secondary_confidence);
+                        check_or!(secondary_bs.primary_confidence + 1 >= primary_bs.secondary_confidence, NSVerifyErr::InconsistentState);
                     } else {
-                        return false;
+                        return Err(NSVerifyErr::MissingProof);
                     }
                 } else {
-                    check_true!(self.secondary_proof.is_none());
+                    check_or!(self.secondary_proof.is_none(), NSVerifyErr::ExtraProof);
                     let bs_primary = &primary_proof.bare_state;
                     // If our current secondary confidence is zero, then the proof for primary confidence
                     // must have zero secondary confidence too.
-                    check_true!(bs_primary.secondary_confidence == 0);
+                    check_or!(bs_primary.secondary_confidence == 0, NSVerifyErr::InconsistentState);
                     // Check that our current triplet is equal to triplet from the proof after increasing
                     // primary confidence by one
-                    check_true!(self.bare_state == BareState {
+                    check_or!(self.bare_state == BareState {
                         primary_confidence: bs_primary.primary_confidence + 1,
                         endorses: bs_primary.endorses.clone(),
                         secondary_confidence: bs_primary.secondary_confidence,
-                    });
+                    }, NSVerifyErr::InconsistentState);
                 }
             } else {
-                return false;
+                return Err(NSVerifyErr::MissingProof);
             }
         } else {
-            check_true!(self.primary_proof.is_none());
+            check_or!(self.primary_proof.is_none(), NSVerifyErr::ExtraProof);
         }
-        true
+        Ok(())
     }
 }

@@ -105,8 +105,12 @@ impl BareState {
         secret_key.sign(&self.bs_encode())
     }
 
-    pub fn verify(&self) -> bool {
-        self.primary_confidence >= self.secondary_confidence && self.secondary_confidence >= 0
+    pub fn verify(&self) -> Result<(), NSVerifyErr> {
+        if self.primary_confidence >= self.secondary_confidence && self.secondary_confidence >= 0 {
+            Ok(())
+        } else {
+            Err(NSVerifyErr::InvalidTriplet)
+        }
     }
 }
 
@@ -131,7 +135,15 @@ impl Proof {
         }
     }
 
-    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>) -> bool {
+    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>) -> Result<(), NSVerifyErr> {
+        // Verify that this proof contains enough signature in order to be accepted as valid
+        let mask_total: usize = self.mask.iter().map(|&b| { b as usize }).sum();
+        let total = self.mask.len();
+
+        if mask_total < total * 2 / 3 {
+            return Err(NSVerifyErr::MissingSignatures);
+        }
+
         let mut aggregated_pk = AggregatePublicKey::new();
         for (active, pk) in self.mask.iter().zip(public_keys) {
             if *active {
@@ -139,8 +151,32 @@ impl Proof {
             }
         }
         let pk = aggregated_pk.get_key();
-        pk.verify(&self.bare_state.bs_encode(), &self.signature)
+
+        if pk.verify(&self.bare_state.bs_encode(), &self.signature) {
+            Ok(())
+        } else {
+            Err(NSVerifyErr::InvalidProof)
+        }
     }
+}
+
+/// Possible error after verification one state
+pub enum NSVerifyErr {
+    // Bad formed triplet. Primary confidence must be equal or greater than secondary confidence.
+    // Both confidence must be non negative integers.
+    InvalidTriplet,
+    // Bls signature provided doesn't match against bls public key + triplet data
+    InvalidBlsSignature,
+    // Proof doesn't contain enough signatures to increase confidence
+    MissingSignatures,
+    // Proofs provided are incorrect. Aggregated signature doesn't match with aggregated public keys + triplet data
+    InvalidProof,
+    // The proof for the current triplet is wrong. Confidence/Outcomes are not valid.
+    InconsistentState,
+    // There is a proof for a triplet that doesn't require it.
+    ExtraProof,
+    // Triplet requires a proof that is not present
+    MissingProof,
 }
 
 /// `State` is a wrapper for `BareState` that contains evidence for such triplet.
@@ -357,11 +393,13 @@ impl Nightshade {
 
         // Verify this BareState only if it has not been successfully verified previously and ignore it forever
         if !self.seen_bare_states.contains(&state.bare_state) {
-            if state.verify(authority_id, &self.bls_public_keys) {
-                self.seen_bare_states.insert(state.bare_state.clone());
-            } else {
-                return Err("Not a valid state".to_string());
-            }
+            match state.verify(authority_id, &self.bls_public_keys) {
+                Ok(_) => self.seen_bare_states.insert(state.bare_state.clone()),
+                Err(_e) => {
+                    // TODO: return more information about why verification fails
+                    return Err("Not a valid state".to_string());
+                }
+            };
         }
 
         if state.bare_state > self.states[authority_id].bare_state {
