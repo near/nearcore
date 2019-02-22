@@ -102,7 +102,7 @@ fn check_result(output: Output) -> Result<String, String> {
 }
 
 fn create_account(account_name: &str, rpc_port: u16) -> Output {
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("create_account")
         .arg(account_name)
         .arg("10")
@@ -133,7 +133,7 @@ fn create_account(account_name: &str, rpc_port: u16) -> Output {
 
 fn view_account(account_name: Option<&str>, rpc_port: u16) -> Output {
     if let Some(a) = account_name {
-        Command::new("./scripts/rpc.py")
+        Command::new("pynear")
             .arg("view_account")
             .arg("--account")
             .arg(a)
@@ -142,7 +142,7 @@ fn view_account(account_name: Option<&str>, rpc_port: u16) -> Output {
             .output()
             .expect("view_account command failed to process")
     } else {
-        Command::new("./scripts/rpc.py")
+        Command::new("pynear")
             .arg("view_account")
             .arg("-u")
             .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
@@ -158,7 +158,7 @@ fn deploy_contract(rpc_port: u16) -> Result<(String, String), String> {
     let output = create_account(&contract_name, rpc_port);
     check_result(output).unwrap();
 
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("deploy")
         .arg(contract_name.as_str())
         .arg("tests/hello.wasm")
@@ -196,7 +196,7 @@ fn test_send_money() {
     let buster = rand::thread_rng().gen_range(0, 10000);
     let receiver_name = format!("send_money_test_{}.near", buster);
     create_account(&receiver_name, rpc_port);
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("send_money")
         .arg("-d")
         .arg(KEY_STORE_PATH)
@@ -256,7 +256,7 @@ fn test_set_get_values() {
         serde_json::from_str(&check_result(view_account(None, rpc_port)).unwrap()).unwrap();
 
     let (_, contract_name) = deploy_contract(rpc_port).unwrap();
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("schedule_function_call")
         .arg(&contract_name)
         .arg("setValue")
@@ -288,7 +288,7 @@ fn test_set_get_values() {
     // Waiting for nonce to increase seems to be not enough. Additionally, we need to sleep for 5 sec.
     thread::sleep(Duration::from_secs(5));
 
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("call_view_function")
         .arg(contract_name)
         .arg("getValue")
@@ -309,7 +309,7 @@ fn test_view_state() {
     let rpc_port = 3034;
     assert!(test_service_ready(rpc_port, "test_view_state"));
     let (_, contract_name) = deploy_contract(rpc_port).unwrap();
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("view_state")
         .arg(contract_name)
         .arg("-u")
@@ -343,7 +343,7 @@ fn test_create_account() {
     let result = check_result(output).unwrap();
     let _: SubmitTransactionResponse = serde_json::from_str(&result).unwrap();
 
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("view_account")
         .arg("--account")
         .arg("eve.near")
@@ -359,7 +359,7 @@ fn test_create_account() {
 fn test_swap_key() {
     let rpc_port = 3036;
     assert!(test_service_ready(rpc_port, "test_swap_key"));
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("swap_key")
         .arg(&*PUBLIC_KEY)
         .arg(&*PUBLIC_KEY)
@@ -376,7 +376,7 @@ fn test_swap_key() {
 }
 
 fn get_latest_beacon_block(rpc_port: u16) -> Result<SignedBeaconBlockResponse, String> {
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("view_latest_beacon_block")
         .arg("-u")
         .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
@@ -398,7 +398,7 @@ fn test_get_beacon_block_by_hash() {
     let rpc_port = 3038;
     assert!(test_service_ready(rpc_port, "test_get_beacon_block_by_hash"));
     let latest_block = get_latest_beacon_block(rpc_port).unwrap();
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("get_beacon_block_by_hash")
         .arg(String::from(&latest_block.hash))
         .arg("-u")
@@ -411,7 +411,7 @@ fn test_get_beacon_block_by_hash() {
 }
 
 fn get_latest_shard_block(rpc_port: u16) -> SignedShardBlockResponse {
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("view_latest_shard_block")
         .arg("-u")
         .arg(format!("http://127.0.0.1:{}/", rpc_port).as_str())
@@ -433,7 +433,7 @@ fn test_get_shard_block_by_hash() {
     let rpc_port = 3040;
     assert!(test_service_ready(rpc_port, "test_get_shard_block_by_hash"));
     let latest_block = get_latest_shard_block(rpc_port);
-    let output = Command::new("./scripts/rpc.py")
+    let output = Command::new("pynear")
         .arg("get_shard_block_by_hash")
         .arg(String::from(&latest_block.hash))
         .arg("-u")

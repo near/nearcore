@@ -94,7 +94,7 @@ fn start_testnet() {
     test_node_ready(base_path, bob_info.clone(), 3031, vec![alice_info]);
 
     // Create an account on alice node.
-    Command::new("./scripts/rpc.py")
+    Command::new("pynear")
         .arg("create_account")
         .arg("jason")
         .arg("1")
@@ -109,7 +109,7 @@ fn start_testnet() {
 
     // Wait until this account is present on the bob.near node.
     let view_account = || -> bool {
-        let res = Command::new("./scripts/rpc.py")
+        let res = Command::new("pynear")
             .arg("view_account")
             .arg("-a")
             .arg("jason")
