@@ -140,7 +140,7 @@ impl Proof {
         let mask_total: usize = self.mask.iter().map(|&b| { b as usize }).sum();
         let total = self.mask.len();
 
-        if mask_total < total * 2 / 3 {
+        if mask_total <= total * 2 / 3 {
             return Err(NSVerifyErr::MissingSignatures);
         }
 
