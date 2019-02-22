@@ -184,7 +184,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             ));
     }
 
-    fn state(&self) -> State {
+    fn state(&self) -> &State {
         self.nightshade_as_ref().state()
     }
 

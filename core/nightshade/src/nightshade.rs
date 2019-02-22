@@ -376,8 +376,8 @@ impl Nightshade {
     }
 
     /// Current state of the authority
-    pub fn state(&self) -> State {
-        self.states[self.owner_id].clone()
+    pub fn state(&self) -> &State {
+        &self.states[self.owner_id]
     }
 
     pub fn set_adversary(&mut self, authority_id: AuthorityId) {
@@ -570,7 +570,7 @@ mod tests {
             for i in 0..num_authorities {
                 let state = ns[i].state();
                 check_state_proofs(&state);
-                states.push(state);
+                states.push(state.clone());
             }
 
             for i in 0..num_authorities {
@@ -644,8 +644,8 @@ mod tests {
         let mut ns = create_nightshades(2);
         let state0 = ns[0].state();
         assert_eq!(state0.endorses().author, 0);
-        let state1 = ns[1].state();
-        assert_eq!(ns[0].update_state(1, state1.clone()).is_ok(), true);
+        let state1 = ns[1].state().clone();
+        assert_eq!(ns[0].update_state(1, state1).is_ok(), true);
         let state0 = ns[0].state();
         assert_eq!(state0.endorses().author, 1);
     }
@@ -656,9 +656,9 @@ mod tests {
         let mut ns = create_nightshades(num_authorities);
 
         for i in 0..2 {
-            let state2 = ns[2].state();
+            let state2 = ns[2].state().clone();
             assert_eq!(ns[i].update_state(2, state2).is_ok(), true);
-            let state_i = ns[i].state();
+            let state_i = ns[i].state().clone();
             assert_eq!(state_i.endorses().author, 2);
 
             assert_eq!(ns[2].update_state(i, state_i).is_ok(), true);
