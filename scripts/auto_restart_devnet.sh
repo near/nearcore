@@ -14,9 +14,14 @@ function ctrl_c() {
 
 while :
 do
-    echo "Starting the devnet and sleeping for 10 sec"
+    echo "Starting the devnet"
     cargo run --release --package=devnet -- --log-level Debug --test-block-period=500 >> devnet.log 2>&1 &
-    sleep 10
+    sleep 1
+    until scripts/rpc.py view_account -a alice.near
+    do
+        echo "The devnet is not stated yet"
+        sleep 1
+    done
     ACCOUNT=rebooter_$(openssl rand -hex 10)
     echo "Creating account $ACCOUNT"
     scripts/rpc.py create_account $ACCOUNT 0
