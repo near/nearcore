@@ -80,7 +80,7 @@ get_beacon_block_by_hash  {}
             '--originator',
             type=str,
             default='alice.near',
-            help='account alias of originator',
+            help='account_id of originator',
         )
         parser.add_argument(
             '-b',
@@ -130,7 +130,7 @@ get_beacon_block_by_hash  {}
             '--receiver',
             type=str,
             default='bob.near',
-            help='account alias of receiver',
+            help='account_id of receiver',
         )
         parser.add_argument(
             '-a',
@@ -160,14 +160,14 @@ get_beacon_block_by_hash  {}
         """Create an account"""
         parser = self._get_command_parser(self.create_account.__doc__)
         self._add_transaction_args(parser)
-        parser.add_argument('account_alias', type=str)
+        parser.add_argument('account_id', type=str)
         parser.add_argument('amount', type=int)
         parser.add_argument('--account_public-key', type=str)
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.create_account(
             args.originator,
-            args.account_alias,
+            args.account_id,
             args.amount,
             args.account_public_key,
         )
@@ -233,7 +233,7 @@ get_beacon_block_by_hash  {}
             '--account',
             type=str,
             default='alice.near',
-            help='alias of account to view',
+            help='id of account to view',
         )
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)

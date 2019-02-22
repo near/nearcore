@@ -254,7 +254,7 @@ class NearLib(object):
     def create_account(
             self,
             originator,
-            account_alias,
+            account_id,
             amount,
             account_public_key,
     ):
@@ -266,7 +266,7 @@ class NearLib(object):
         create_account = signed_transaction_pb2.CreateAccountTransaction()
         create_account.nonce = nonce
         create_account.originator = originator
-        create_account.new_account_id = account_alias
+        create_account.new_account_id = account_id
         create_account.amount = amount
         create_account.public_key = b58.b58decode(account_public_key)
 
@@ -302,9 +302,9 @@ class NearLib(object):
         self._update_nonce(account)
         return self._submit_transaction(signed_transaction)
 
-    def view_account(self, account_alias):
+    def view_account(self, account_id):
         params = {
-            'account_id': account_alias,
+            'account_id': account_id,
         }
         return self._call_rpc('view_account', params)
 
