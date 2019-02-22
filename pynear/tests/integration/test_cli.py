@@ -32,6 +32,16 @@ def make_devnet(request):
     return _make_devnet
 
 
+@pytest.fixture(scope='session')
+def hello_wasm_path():
+    cur_dir = os.path.abspath(os.path.dirname(__file__))
+    hello_dir = os.path.join(cur_dir, '../../../tests/hello')
+    command = 'npm install && npm run build'
+    process = delegator.run(command, cwd=hello_dir)
+    assert process.return_code == 0, process.err
+    return os.path.join(hello_dir, '../hello.wasm')
+
+
 class Helpers(object):
     @staticmethod
     def get_latest_beacon_block():
@@ -65,15 +75,27 @@ class Helpers(object):
 
         @retry(stop_max_attempt_number=5, wait_fixed=1000)
         def _wait_for_account():
-            assert cls.view_account(account_id)
+            return cls.view_account(account_id)
 
-        _wait_for_account()
+        return _wait_for_account()
 
     @classmethod
-    def deploy_contract(cls):
+    def deploy_contract(cls, wasm_path):
         buster = random.randint(0, 10000)
         contract_name = "test_contract_{}".format(buster)
         cls.create_account(contract_name)
+
+        command = "pynear deploy {} {}".format(contract_name, wasm_path)
+        process = delegator.run(command)
+        assert process.return_code == 0, process.err
+
+        @retry(stop_max_attempt_number=5, wait_fixed=1000)
+        def _wait_for_contract():
+            return cls.view_account(contract_name)
+
+        contract = _wait_for_contract()
+        assert contract['account_id'] == contract_name
+        return contract
 
 
 def test_view_latest_beacon_block(make_devnet, tmpdir):
@@ -115,5 +137,6 @@ def test_create_account(make_devnet, tmpdir):
     Helpers.create_account(account_id)
 
 
-def test_deploy_contract(make_devnet, tmpdir):
+def test_deploy_contract(make_devnet, tmpdir, hello_wasm_path):
     assert make_devnet(tmpdir)
+    Helpers.deploy_contract(hello_wasm_path)
