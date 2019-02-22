@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import sys
 
 import requests
 
@@ -79,7 +80,7 @@ class NearLib(object):
             error = "Connection to {} refused. " \
                     "To start RPC server at http://127.0.0.1:3030, run:\n" \
                     "cargo run -p devnet"
-            print(error.format(self._server_url))
+            print(error.format(self._server_url), file=sys.stderr)
             exit(1)
 
     def _sign_transaction_body(self, body):

@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 
 import delegator
 import pytest
@@ -34,7 +35,7 @@ def make_devnet(request):
 def get_latest_beacon_block():
     command = 'pynear view_latest_beacon_block'
     process = delegator.run(command)
-    assert process.return_code == 0
+    assert process.return_code == 0, process.err
     return json.loads(process.out)
 
 
@@ -50,3 +51,32 @@ def test_get_beacon_block_by_hash(make_devnet, tmpdir):
     command = "pynear get_beacon_block_by_hash {}".format(hash_)
     process = delegator.run(command)
     assert latest_block == json.loads(process.out)
+
+
+def get_latest_shard_block():
+    command = 'pynear view_latest_shard_block'
+    process = delegator.run(command)
+    assert process.return_code == 0, process.err
+    return json.loads(process.out)
+
+
+def test_view_latest_shard_block(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    get_latest_shard_block()
+
+
+def test_get_shard_block_by_hash(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    latest_block = get_latest_shard_block()
+    hash_ = latest_block['hash']
+    command = "pynear get_shard_block_by_hash {}".format(hash_)
+    process = delegator.run(command)
+    assert latest_block == json.loads(process.out)
+
+
+def test_view_account(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    command = 'pynear view_account'
+    process = delegator.run(command)
+    assert process.return_code == 0, process.err
+    json.loads(process.out)
