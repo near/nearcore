@@ -13,13 +13,13 @@ use log::{error, info, warn};
 use serde::Serialize;
 use tokio::timer::Delay;
 
+use primitives::aggregate_signature::BlsPublicKey;
+use primitives::aggregate_signature::BlsSecretKey;
 use primitives::hash::CryptoHash;
 use primitives::hash::hash_struct;
 use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
 
 use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
-use primitives::aggregate_signature::BlsPublicKey;
-use primitives::aggregate_signature::BlsSecretKey;
 
 const COOLDOWN_MS: u64 = 50;
 
@@ -28,14 +28,14 @@ pub enum Control {
     Stop,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub state: State,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum GossipBody<P> {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -43,7 +43,7 @@ pub enum GossipBody<P> {
     PayloadReply(Vec<SignedBlock<P>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Gossip<P> {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
@@ -76,7 +76,7 @@ impl<P: Serialize> Gossip<P> {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedBlock<P> {
     block: Block<P>,
     signature: Signature,
@@ -140,8 +140,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         owner_secret_key: SecretKey,
         bls_public_keys: Vec<BlsPublicKey>,
         bls_owner_secret_key: BlsSecretKey,
-        state_receiver: mpsc::Receiver<Gossip<P>>,
-        state_sender: mpsc::Sender<Gossip<P>>,
+        inc_gossips: mpsc::Receiver<Gossip<P>>,
+        out_gossips: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control>,
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
@@ -156,8 +156,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             owner_secret_key,
             bls_public_keys,
             bls_owner_secret_key,
-            inc_gossips: state_receiver,
-            out_gossips: state_sender,
+            inc_gossips,
+            out_gossips,
             control_receiver,
             consensus_sender,
             consensus_reached: None,
@@ -410,5 +410,46 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
         } else {
             Ok(Async::Ready(Some(())))
         }
+
+        // TODO: Finish consensus automatically if more than 2/3 of participants have committed already
     }
+}
+
+pub fn spawn_nightshade_task<P>(
+    owner_id: AuthorityId,
+    num_authorities: usize,
+    payload: P,
+    public_keys: Vec<PublicKey>,
+    owner_secret_key: SecretKey,
+    bls_public_keys: Vec<BlsPublicKey>,
+    bls_owner_secret_key: BlsSecretKey,
+    inc_gossips: mpsc::Receiver<Gossip<P>>,
+    out_gossips: mpsc::Sender<Gossip<P>>,
+    consensus_sender: mpsc::Sender<BlockHeader>,
+) -> mpsc::Sender<Control> where P: Serialize + Send + Clone + Debug + 'static {
+    // Create control channel and send reset signal.
+    // Nightshade task should end alone after more than 2/3 of authorities have committed.
+    let (control_tx, control_rx) = mpsc::channel(1024);
+
+    let control_tx1 = control_tx.clone();
+    let start_task = control_tx1.send(Control::Reset).map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
+    tokio::spawn(start_task);
+
+    let task = NightshadeTask::new(
+        owner_id,
+        num_authorities,
+        payload,
+        public_keys,
+        owner_secret_key,
+        bls_public_keys,
+        bls_owner_secret_key,
+        inc_gossips,
+        out_gossips,
+        control_rx,
+        consensus_sender,
+    );
+
+    tokio::spawn(task.for_each(|_| Ok(())));
+
+    control_tx
 }
