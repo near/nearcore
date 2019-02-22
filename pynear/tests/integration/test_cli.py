@@ -1,6 +1,6 @@
 import json
 import os
-import sys
+import random
 
 import delegator
 import pytest
@@ -44,7 +44,7 @@ class Helpers(object):
     def view_account(account_name=None):
         command = 'pynear view_account'
         if account_name is not None:
-            command = "{} {}".format(command, account_name)
+            command = "{} --account {}".format(command, account_name)
 
         process = delegator.run(command)
         assert process.return_code == 0, process.err
@@ -56,6 +56,24 @@ class Helpers(object):
         process = delegator.run(command)
         assert process.return_code == 0, process.err
         return json.loads(process.out)
+
+    @classmethod
+    def create_account(cls, account_id):
+        command = "pynear create_account {} 10".format(account_id)
+        process = delegator.run(command)
+        assert process.return_code == 0, process.err
+
+        @retry(stop_max_attempt_number=5, wait_fixed=1000)
+        def _wait_for_account():
+            assert cls.view_account(account_id)
+
+        _wait_for_account()
+
+    @classmethod
+    def deploy_contract(cls):
+        buster = random.randint(0, 10000)
+        contract_name = "test_contract_{}".format(buster)
+        cls.create_account(contract_name)
 
 
 def test_view_latest_beacon_block(make_devnet, tmpdir):
@@ -89,3 +107,13 @@ def test_get_shard_block_by_hash(make_devnet, tmpdir):
 def test_view_account(make_devnet, tmpdir):
     assert make_devnet(tmpdir)
     Helpers.view_account()
+
+
+def test_create_account(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    account_id = 'eve.near'
+    Helpers.create_account(account_id)
+
+
+def test_deploy_contract(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
