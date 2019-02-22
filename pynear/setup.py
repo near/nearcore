@@ -7,6 +7,7 @@ setup(
     package_dir={'': 'src'},
     install_requires=[
         'protobuf==3.6.1',
+        'requests==2.21.0',
     ],
     entry_points='''
         [console_scripts]

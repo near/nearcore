@@ -5,6 +5,8 @@ import os
 import subprocess
 import sys
 
+import requests
+
 from near.pynear import b58
 from near.pynear.protos import signed_transaction_pb2
 
@@ -326,3 +328,8 @@ class NearLib(object):
             return json.loads(''.join([chr(x) for x in result["result"]]))
         except json.JSONDecodeError:
             return result
+
+    def check_health(self):
+        url = "{}healthz".format(self._server_url)
+        response = requests.get(url)
+        return response.status_code == 200
