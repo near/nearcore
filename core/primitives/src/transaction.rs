@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
+use crate::logging;
 use super::hash::{CryptoHash, hash};
 use super::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
 use super::types::{
@@ -69,7 +70,11 @@ pub struct DeployContractTransaction {
 
 impl fmt::Debug for DeployContractTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DeployContractTransaction {{ nonce: {}, contract_id: {}, wasm_byte_array: ... }}", self.nonce, self.contract_id)
+        write!(f, "DeployContractTransaction {{ nonce: {}, contract_id: {}, wasm_byte_array: {} }}",
+            self.nonce,
+            self.contract_id,
+            logging::pretty_vec(&self.wasm_byte_array),
+        )
     }
 }
 
@@ -135,7 +140,13 @@ impl Into<transaction_proto::FunctionCallTransaction> for FunctionCallTransactio
 
 impl fmt::Debug for FunctionCallTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FunctionCallTransaction {{ nonce: {}, originator: {}, contract_id: {}, method_name: {:?}, args: ..., amount: {} }}", self.nonce, self.originator, self.contract_id, String::from_utf8(self.method_name.clone()), self.amount)
+        write!(f, "FunctionCallTransaction {{ nonce: {}, originator: {}, contract_id: {}, method_name: {}, args: {} amount: {} }}",
+            self.nonce,
+            self.originator,
+            self.contract_id,
+            logging::pretty_utf8(&self.method_name),
+            logging::pretty_utf8(&self.args),
+            self.amount)
     }
 }
 
@@ -200,7 +211,7 @@ impl Into<transaction_proto::StakeTransaction> for StakeTransaction {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SwapKeyTransaction {
     pub nonce: u64,
     pub originator: AccountId,
@@ -233,7 +244,19 @@ impl Into<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+impl fmt::Debug for SwapKeyTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SwapKeyTransaction {{ nonce: {}, originator: {}, cur_key: {}, new_key: {} }}",
+            self.nonce,
+            self.originator,
+            logging::pretty_utf8(&self.cur_key),
+            logging::pretty_utf8(&self.new_key),
+        )
+    }
+}
+
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct AddKeyTransaction {
     pub nonce: u64,
     pub originator: AccountId,
@@ -262,7 +285,18 @@ impl Into<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+impl fmt::Debug for AddKeyTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AddKeyTransaction {{ nonce: {}, originator: {}, new_key: {} }}",
+            self.nonce,
+            self.originator,
+            logging::pretty_utf8(&self.new_key),
+        )
+    }
+}
+
+
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeleteKeyTransaction {
     pub nonce: u64,
     pub originator: AccountId,
@@ -290,6 +324,17 @@ impl Into<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
         }
     }
 }
+
+impl fmt::Debug for DeleteKeyTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AddKeyTransaction {{ nonce: {}, originator: {}, cur_key: {} }}",
+            self.nonce,
+            self.originator,
+            logging::pretty_utf8(&self.cur_key),
+        )
+    }
+}
+
 
 impl TransactionBody {
     pub fn get_nonce(&self) -> u64 {
@@ -555,12 +600,13 @@ impl AsyncCall {
 
 impl fmt::Debug for AsyncCall {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AsyncCall {{ amount: {}, mana: {}, method_name: {:?}, args: ..., callback: {:?}, accounting_info: {:?} }}",
-               self.amount,
-               self.mana,
-               String::from_utf8(self.method_name.clone()),
-               self.callback,
-               self.accounting_info,
+        write!(f, "AsyncCall {{ amount: {}, mana: {}, method_name: {}, args: {} callback: {:?}, accounting_info: {:?} }}",
+            self.amount,
+            self.mana,
+            logging::pretty_utf8(&self.method_name),
+            logging::pretty_utf8(&self.args),
+            self.callback,
+            self.accounting_info,
         )
     }
 }
@@ -592,17 +638,19 @@ impl Callback {
 
 impl fmt::Debug for Callback {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Callback {{ method_name: {:?}, args: ..., results: ..., mana: {}, callback: {:?}, result_counter: {}, accounting_info: {:?} }}",
-               String::from_utf8(self.method_name.clone()),
-               self.mana,
-               self.callback,
-               self.result_counter,
-               self.accounting_info,
+        write!(f, "Callback {{ method_name: {}, args: {}, results: {}, mana: {}, callback: {:?}, result_counter: {}, accounting_info: {:?} }}",
+            logging::pretty_utf8(&self.method_name),
+            logging::pretty_utf8(&self.args),
+            logging::pretty_results(&self.results),
+            self.mana,
+            self.callback,
+            self.result_counter,
+            self.accounting_info,
         )
     }
 }
 
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CallbackInfo {
     // callback id
     pub id: CallbackId,
@@ -618,7 +666,18 @@ impl CallbackInfo {
     }
 }
 
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+impl fmt::Debug for CallbackInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CallbackInfo {{ id: {}, result_index: {}, receiver: {} }}",
+            logging::pretty_vec(&self.id),
+            self.result_index,
+            self.receiver,
+        )
+    }
+}
+
+
+#[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CallbackResult {
     // callback id
     pub info: CallbackInfo,
@@ -629,6 +688,15 @@ pub struct CallbackResult {
 impl CallbackResult {
     pub fn new(info: CallbackInfo, result: Option<Vec<u8>>) -> Self {
         CallbackResult { info, result }
+    }
+}
+
+impl fmt::Debug for CallbackResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CallbackResult {{ info: {:?}, result: {} }}",
+            self.info,
+            logging::pretty_result(&self.result),
+        )
     }
 }
 
@@ -683,7 +751,7 @@ impl Default for TransactionStatus {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
+#[derive(PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct TransactionResult {
     /// Transaction status.
     pub status: TransactionStatus,
@@ -693,21 +761,52 @@ pub struct TransactionResult {
     pub receipts: Vec<CryptoHash>
 }
 
+impl fmt::Debug for TransactionResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "TransactionResult {{ status: {:?}, logs: {}, receipts: {} }}",
+            self.status,
+            logging::pretty_vec(&self.logs),
+            logging::pretty_vec(&self.receipts),
+        )
+    }
+}
+
+
 /// Logs for transaction or receipt with given hash.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub struct TransactionLogs {
     pub hash: CryptoHash,
     pub lines: Vec<LogEntry>,
     pub receipts: Vec<CryptoHash>,
 }
 
+impl fmt::Debug for TransactionLogs {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "TransactionLogs {{ hash: {:?}, lines: {}, receipts: {} }}",
+            self.hash,
+            logging::pretty_vec(&self.lines),
+            logging::pretty_vec(&self.receipts),
+        )
+    }
+}
+
+
 /// Result of transaction and all of subsequent the receipts.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub struct FinalTransactionResult {
     /// Status of the whole transaction and it's receipts.
     pub status: FinalTransactionStatus,
     /// Logs per transaction / receipt ids ordered in DFS manner.
     pub logs: Vec<TransactionLogs>,
+}
+
+impl fmt::Debug for FinalTransactionResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "FinalTransactionResult {{ status: {:?}, logs: {} }}",
+            self.status,
+            logging::pretty_vec(&self.logs),
+        )
+    }
 }
 
 /// Represents address of certain transaction within block
@@ -716,7 +815,7 @@ pub struct TransactionAddress {
     /// Block hash
     pub block_hash: CryptoHash,
     /// Transaction index within the block
-    pub index: usize
+    pub index: usize,
 }
 
 pub fn verify_transaction_signature(
