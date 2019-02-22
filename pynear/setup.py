@@ -6,6 +6,7 @@ setup(
     packages=find_packages('src'),
     package_dir={'': 'src'},
     install_requires=[
+        'ed25519==1.4',
         'protobuf==3.6.1',
         'requests==2.21.0',
     ],

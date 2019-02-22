@@ -1,13 +1,11 @@
 import base64
 import hashlib
 import json
-import os
-import subprocess
-import sys
 
 import requests
 
 from near.pynear import b58
+from near.pynear.key_store import InMemoryKeyStore
 from near.pynear.protos import signed_transaction_pb2
 
 try:
@@ -38,21 +36,18 @@ def _post(url, data=''):
 class NearLib(object):
     def __init__(
             self,
-            server_url,
-            keystore_binary=None,
-            keystore_path=None,
+            server_url='http://localhost:3030/',
+            keystore=None,
             public_key=None,
             debug=False,
     ):
         self._server_url = server_url
-        self._keystore_binary = keystore_binary
-        self._keystore_path = keystore_path
+        if keystore is None:
+            keystore = InMemoryKeyStore()
+        self._keystore = keystore
+        self._public_key = public_key
         self._nonces = {}
         self._debug = debug
-
-        # This may be None, use 'self._get_public_key' in order
-        # to check against the keystore
-        self._public_key = public_key
 
     def _get_nonce(self, originator):
         if originator not in self._nonces:
@@ -88,35 +83,11 @@ class NearLib(object):
             exit(1)
 
     def _sign_transaction_body(self, body):
-        if self._keystore_binary is not None:
-            args = [self._keystore_binary]
-        else:
-            args = 'cargo run -p keystore --'.split()
-
         body = body.SerializeToString()
         m = hashlib.sha256()
         m.update(body)
-        hashed = m.digest()
-        data = base64.b64encode(hashed)
-        args += [
-            'sign',
-            '--data',
-            data,
-            '--keystore-path',
-            self._keystore_path,
-        ]
-
-        if self._public_key is not None:
-            args += ['--public-key', self._public_key]
-
-        null = open(os.devnull, 'w')
-        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
-        stdout = process.communicate()[0].decode('utf-8')
-        if process.returncode != 0:
-            sys.stdout.write(stdout)
-            exit(1)
-
-        return base64.b64decode(stdout)
+        data = m.digest()
+        return self._keystore.sign(data, self._public_key)
 
     def _submit_transaction(self, transaction):
         transaction = transaction.SerializeToString()
@@ -126,27 +97,8 @@ class NearLib(object):
 
     def _get_public_key(self):
         if self._public_key is None:
-            if self._keystore_binary is not None:
-                args = [self._keystore_binary]
-            else:
-                args = 'cargo run -p keystore --'.split()
+            self._public_key = self._keystore.get_only_public_key()
 
-            args += ['get_public_key', '--keystore-path', self._keystore_path]
-
-            null = open(os.devnull, 'w')
-            process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
-            stdout = process.communicate()[0]
-            if process.returncode != 0:
-                sys.stdout.write(stdout)
-
-                if process.returncode == 3:
-                    _help = "To create, run:\ncargo run -p keystore " \
-                            "-- keygen -p {keystore_path}"
-                    print(_help.format(keystore_path=self._keystore_path))
-
-                exit(1)
-
-            self._public_key = stdout.decode('utf-8')
         return self._public_key
 
     def deploy_contract(self, contract_name, wasm_file):

@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 
+from near.pynear.key_store import InMemoryKeyStore, FileKeyStore
 from near.pynear.lib import NearLib
 
 
@@ -83,16 +84,9 @@ get_beacon_block_by_hash  {}
             help='account_id of originator',
         )
         parser.add_argument(
-            '-b',
-            '--keystore-binary',
-            type=str,
-            help='location of keystore binary',
-        )
-        parser.add_argument(
             '-d',
             '--keystore-path',
             type=str,
-            default='keystore/',
             help='location of keystore for signing transactions',
         )
         parser.add_argument(
@@ -110,13 +104,17 @@ get_beacon_block_by_hash  {}
 
     @staticmethod
     def _get_rpc_client(command_args):
-        keystore_binary = getattr(command_args, 'keystore_binary', None)
         keystore_path = getattr(command_args, 'keystore_path', None)
+        if keystore_path is not None:
+            keystore = FileKeyStore()
+        else:
+            keystore = InMemoryKeyStore()
+            keystore.create_key_pair(seed='alice.near')
+
         public_key = getattr(command_args, 'public_key', None)
         return NearLib(
             command_args.server_url,
-            keystore_binary,
-            keystore_path,
+            keystore,
             public_key,
             command_args.debug,
         )
