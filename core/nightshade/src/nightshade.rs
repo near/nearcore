@@ -346,14 +346,32 @@ fn incompatible_states(state0: &State, state1: &State) -> bool {
 /// Each authority must have one Nightshade instance to compute its state, given updates from
 /// other authorities. It contains the logic of the consensus algorithm.
 pub struct Nightshade {
+    /// Id of the authority holding this Nightshade instance.
+    /// It is an integer from [0..num_authorities).
     owner_id: AuthorityId,
+    /// Number of authorities running consensus
     num_authorities: usize,
+    /// Current state (triplet) of each authority in the consensus from the point of view
+    /// of the authority holding this Nightshade instance.
     states: Vec<State>,
+    /// Bitmask informing if an authority has been marked as an adversary. All further updates
+    /// from it are ignored.
     is_adversary: Vec<bool>,
+    /// Number of authorities who have the same triplet as the owner of this Nightshade instance
+    /// from its current point of view. When this counter exceeds 2 / 3 * num_authorities
+    /// confidence can increase.
     best_state_counter: usize,
+    /// Triplets that have been already verified. Each different triplet is going to be verified
+    /// as correct at most one time. (If verification fails, the triplet is not stored, and need
+    /// to be verified again).
     seen_bare_states: HashSet<BareState>,
+    /// It is Some(outcome) when the authority holding this Nightshade instance has committed
+    /// to some proposal. Nightshade consensus "guarantees" that if an authority commits to some
+    /// value then every other honest authority will not commit to a different value.
     pub committed: Option<BlockHeader>,
+    /// BLS Public Keys of all authorities participating in consensus.
     bls_public_keys: Vec<BlsPublicKey>,
+    /// BLS secret key of the authority holding this Nightshade instance.
     bls_owner_secret_key: BlsSecretKey,
 }
 
