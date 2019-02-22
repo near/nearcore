@@ -52,15 +52,15 @@ class NearLib(object):
         # to check against the keystore
         self._public_key = public_key
 
-    def _get_nonce(self, sender):
-        if sender not in self._nonces:
-            view_result = self.view_account(sender)
-            self._nonces[sender] = view_result.get('nonce', 0) + 1
+    def _get_nonce(self, originator):
+        if originator not in self._nonces:
+            view_result = self.view_account(originator)
+            self._nonces[originator] = view_result.get('nonce', 0) + 1
 
-        return self._nonces[sender]
+        return self._nonces[originator]
 
-    def _update_nonce(self, sender):
-        self._nonces[sender] += 1
+    def _update_nonce(self, originator):
+        self._nonces[originator] += 1
 
     def _call_rpc(self, method_name, params=None):
         data = params
@@ -167,12 +167,12 @@ class NearLib(object):
         self._update_nonce(contract_name)
         return self._submit_transaction(signed_transaction)
 
-    def send_money(self, sender, receiver, amount):
-        nonce = self._get_nonce(sender)
+    def send_money(self, originator, receiver, amount):
+        nonce = self._get_nonce(originator)
 
         send_money = signed_transaction_pb2.SendMoneyTransaction()
         send_money.nonce = nonce
-        send_money.originator = sender
+        send_money.originator = originator
         send_money.receiver = receiver
         send_money.amount = amount
 
@@ -182,15 +182,15 @@ class NearLib(object):
         signed_transaction.send_money.CopyFrom(send_money)
         signed_transaction.signature = signature
 
-        self._update_nonce(sender)
+        self._update_nonce(originator)
         return self._submit_transaction(signed_transaction)
 
-    def stake(self, sender, amount):
-        nonce = self._get_nonce(sender)
+    def stake(self, originator, amount):
+        nonce = self._get_nonce(originator)
 
         stake = signed_transaction_pb2.StakeTransaction()
         stake.nonce = nonce
-        stake.originator = sender
+        stake.originator = originator
         stake.amount = amount
 
         signature = self._sign_transaction_body(stake)
@@ -199,12 +199,12 @@ class NearLib(object):
         signed_transaction.stake.CopyFrom(stake)
         signed_transaction.signature = signature
 
-        self._update_nonce(sender)
+        self._update_nonce(originator)
         return self._submit_transaction(signed_transaction)
 
     def schedule_function_call(
             self,
-            sender,
+            originator,
             contract_name,
             method_name,
             amount,
@@ -213,10 +213,10 @@ class NearLib(object):
         if args is None:
             args = "{}"
 
-        nonce = self._get_nonce(sender)
+        nonce = self._get_nonce(originator)
         function_call = signed_transaction_pb2.FunctionCallTransaction()
         function_call.nonce = nonce
-        function_call.originator = sender
+        function_call.originator = originator
         function_call.contract_id = contract_name
         function_call.method_name = method_name.encode('utf-8')
         function_call.args = args.encode('utf-8')
@@ -228,7 +228,7 @@ class NearLib(object):
         signed_transaction.function_call.CopyFrom(function_call)
         signed_transaction.signature = signature
 
-        self._update_nonce(sender)
+        self._update_nonce(originator)
         return self._submit_transaction(signed_transaction)
 
     def view_state(self, contract_name):
@@ -251,7 +251,7 @@ class NearLib(object):
 
     def create_account(
             self,
-            sender,
+            originator,
             account_alias,
             amount,
             account_public_key,
@@ -259,11 +259,11 @@ class NearLib(object):
         if not account_public_key:
             account_public_key = self._get_public_key()
 
-        nonce = self._get_nonce(sender)
+        nonce = self._get_nonce(originator)
 
         create_account = signed_transaction_pb2.CreateAccountTransaction()
         create_account.nonce = nonce
-        create_account.originator = sender
+        create_account.originator = originator
         create_account.new_account_id = account_alias
         create_account.amount = amount
         create_account.public_key = b58.b58decode(account_public_key)
@@ -274,7 +274,7 @@ class NearLib(object):
         signed_transaction.create_account.CopyFrom(create_account)
         signed_transaction.signature = signature
 
-        self._update_nonce(sender)
+        self._update_nonce(originator)
         return self._submit_transaction(signed_transaction)
 
     def swap_key(

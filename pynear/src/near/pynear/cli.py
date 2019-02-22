@@ -76,11 +76,11 @@ get_beacon_block_by_hash  {}
     @staticmethod
     def _add_transaction_args(parser):
         parser.add_argument(
-            '-s',
-            '--sender',
+            '-o',
+            '--originator',
             type=str,
             default='alice.near',
-            help='account alias of sender',
+            help='account alias of originator',
         )
         parser.add_argument(
             '-b',
@@ -141,7 +141,7 @@ get_beacon_block_by_hash  {}
         )
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
-        return client.send_money(args.sender, args.receiver, args.amount)
+        return client.send_money(args.originator, args.receiver, args.amount)
 
     def deploy(self):
         """Deploy a smart contract"""
@@ -166,7 +166,7 @@ get_beacon_block_by_hash  {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.create_account(
-            args.sender,
+            args.originator,
             args.account_alias,
             args.amount,
             args.account_public_key,
@@ -181,7 +181,7 @@ get_beacon_block_by_hash  {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.swap_key(
-            args.sender,
+            args.originator,
             args.current_key,
             args.new_key,
         )
@@ -203,7 +203,7 @@ get_beacon_block_by_hash  {}
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
         return client.schedule_function_call(
-            args.sender,
+            args.originator,
             args.contract_name,
             args.function_name,
             args.amount,
@@ -252,7 +252,7 @@ get_beacon_block_by_hash  {}
         )
         args = self._get_command_args(parser)
         client = self._get_rpc_client(args)
-        return client.stake(args.sender, args.amount)
+        return client.stake(args.originator, args.amount)
 
     def view_state(self):
         """View state of the contract."""
