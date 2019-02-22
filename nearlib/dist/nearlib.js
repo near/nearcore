@@ -121,7 +121,7 @@ module.exports = {
         return this.near;
     },
     getOrCreateDevUser: async function (deps = {}) {
-        const storage = deps.storage || window.storage;
+        const storage = deps.storage || window.localStorage;
         let tempUserAccountId = storage.getItem(storageAccountIdKey);
         const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
         const accountKey = await localKeyStore.getKey(tempUserAccountId);
@@ -149,7 +149,7 @@ module.exports = {
         return tempUserAccountId;
     },
     get myAccountId() {
-        return window.storage.getItem(storageAccountIdKey);
+        return window.localStorage.getItem(storageAccountIdKey);
     }
 };
 
