@@ -140,3 +140,19 @@ def test_create_account(make_devnet, tmpdir):
 def test_deploy_contract(make_devnet, tmpdir, hello_wasm_path):
     assert make_devnet(tmpdir)
     Helpers.deploy_contract(hello_wasm_path)
+
+
+def test_send_money(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    receiver = 'send_money_test.near'
+    Helpers.create_account(receiver)
+    command = "pynear send_money --receiver {} --amount 1".format(receiver)
+    process = delegator.run(command)
+    assert process.return_code == 0, process.err
+
+    @retry(stop_max_attempt_number=5, wait_fixed=1000)
+    def _wait_for_balance_change():
+        account = Helpers.view_account(receiver)
+        assert account['amount'] == 11
+
+    _wait_for_balance_change()
