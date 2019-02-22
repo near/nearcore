@@ -27,7 +27,7 @@ module.exports = {
             options.key = devKey;
         }
         const keyStore = (options.deps && options.deps.keyStore) || new nearlib.BrowserLocalStorageKeystore();
-        const nodeUrl = options.nodeUrl || this.getConfig().nodeUrl || 'http://localhost:3030';
+        const nodeUrl = options.nodeUrl || await this.getConfig().nodeUrl || 'http://localhost:3030';
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl));
         this.near = new nearlib.Near(nearClient);
@@ -60,7 +60,7 @@ module.exports = {
         const nearConfig = await this.getConfig();
         const createAccount = deps.createAccount ? deps.createAccount :
             async (accountId, newAccountPublicKey) =>
-                createAccountWithContractHelper(nearconfig, accountId, newAccountPublicKey);
+                createAccountWithContractHelper(nearConfig, accountId, newAccountPublicKey);
         await createAccount(tempUserAccountId, keypair.getPublicKey());
         localKeyStore.setKey(tempUserAccountId, keypair);
         localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
@@ -71,10 +71,10 @@ module.exports = {
     }
 };
 
-async function createAccountWithContractHelper(nearconfig, tempUserAccountId, newAccountPublicKey) {
+async function createAccountWithContractHelper(nearConfig, newAccountId, publicKey) {
     return await sendJson('POST', `${nearConfig.baseUrl}/account`, {
-        newAccountId: tempUserAccountId,
-        newAccountPublicKey: keypair.getPublicKey()
+        newAccountId: newAccountId,
+        newAccountPublicKey: publicKey
     });
 }
 
