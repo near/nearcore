@@ -36,6 +36,18 @@ pub trait Payload: Clone + Send + Hash + Debug + Encode + Decode + 'static {
     fn new() -> Self;
 }
 
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsensusBlockHeader {
+    pub body_hash: CryptoHash,
+    pub prev_block_body_hash: CryptoHash,
+}
+
+#[derive(Hash, Debug, PartialEq, Eq)]
+pub struct ConsensusBlockBody<P: Payload> {
+    pub payload: P,
+    pub beacon_block_index: u64,
+}
+
 pub trait TxFlow<P: Payload> {
     /// Tells TxFlow to process the given TxFlow message received from another peer. TxFlow signals
     /// when the message is processed.
@@ -58,7 +70,7 @@ pub trait TxFlow<P: Payload> {
     /// the shard.
     fn subscribe_to_consensus_blocks(
         &mut self,
-        subscriber: &Fn(types::ConsensusBlockBody<P>),
+        subscriber: &Fn(ConsensusBlockBody<P>),
     ) -> GenericResult;
 }
 

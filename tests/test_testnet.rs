@@ -140,7 +140,6 @@ fn test_two_nodes() {
             .arg("http://127.0.0.1:3031/")
             .output()
             .expect("view_account command failed to process");
-        print!("{:?}", res);
         check_result(res).is_ok()
     };
     wait(view_account, 500, 60000);

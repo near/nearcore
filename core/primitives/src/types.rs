@@ -211,18 +211,6 @@ impl<P> PartialEq for SignedMessageData<P> {
 
 impl<P> Eq for SignedMessageData<P> {}
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ConsensusBlockHeader {
-    pub body_hash: CryptoHash,
-    pub prev_block_body_hash: CryptoHash,
-}
-
-#[derive(Hash, Debug, PartialEq, Eq)]
-pub struct ConsensusBlockBody<P> {
-    pub payload: P,
-    pub beacon_block_index: u64,
-}
-
 // Gossip-specific structs.
 
 #[derive(Hash, Debug, PartialEq, Eq, Serialize, Deserialize)]

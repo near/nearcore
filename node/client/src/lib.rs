@@ -23,7 +23,8 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, BlockId, ConsensusBlockBody, UID};
+use primitives::traits::ConsensusBlockBody;
+use primitives::types::{AccountId, AuthorityStake, BlockId, UID};
 use shard::ShardBlockChain;
 use storage::create_storage;
 
