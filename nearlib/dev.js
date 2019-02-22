@@ -47,7 +47,7 @@ module.exports = {
             // Make sure the user actually exists with valid keys and recreate it if it doesn't
             const accountLib = new nearlib.Account(this.near.nearClient);
             try {
-                const result = await accountLib.viewAccount(tempUserAccountId);
+                await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
             } catch (e) {
                 console.log('Error looking up temp account', e);

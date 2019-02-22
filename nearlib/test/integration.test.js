@@ -3,7 +3,7 @@ const dev = require('../dev');
 const fs = require('fs');
 const aliceAccountName = 'alice.near';
 // every new account has this codehash
-const newAccountCodeHash = "GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn";
+const newAccountCodeHash = 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn';
 const storageAccountIdKey = 'dev_near_user';
 let nearjs;
 let account;
@@ -11,7 +11,7 @@ let keyStore;
 
 beforeAll(async () => {
     keyStore = new InMemoryKeyStore();
-    const storage = createFakestorage();
+    const storage = createFakeStorage();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
@@ -25,11 +25,11 @@ test('test creating default config', async () => {
     Near.createDefaultConfig();
 });
 
-describe("dev connect", () => {
+describe('dev connect', () => {
     let deps;
     beforeEach(async () => {
         const keyStore = new InMemoryKeyStore();
-        const storage = createFakestorage();   
+        const storage = createFakeStorage();   
         deps = {
             keyStore,
             storage,
@@ -60,7 +60,7 @@ describe("dev connect", () => {
 
     test('test dev connect with invalid account in storage creates a new account', async () => {
         // set up invalid account id in local storage
-        deps.storage.setItem(storageAccountIdKey, await generateUniqueString("invalid"));
+        deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
         await dev.connect({deps});
         expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
         const newAccountId = Object.keys(deps.keyStore.keys)[0];
@@ -80,8 +80,8 @@ describe("dev connect", () => {
 
     test('test dev connect with valid account but no keys', async () => {
         // setup: connect with dev, but rmemove keys afterwards!
-        deps.storage.setItem(storageAccountIdKey, await generateUniqueString("invalid"));
-        const nearNoAccount = await dev.connect({deps});
+        deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
+        await dev.connect({deps});
         expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
         const newAccountId = Object.keys(deps.keyStore.keys)[0];
         expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
@@ -242,20 +242,20 @@ const generateUniqueString = async (prefix) => {
     return prefix + viewAccountResponse.nonce;
 };
 
-const createFakestorage = function() {
+const createFakeStorage = function() {
     let store = {};
     return {
-      getItem: function(key) {
-        return store[key];
-      },
-      setItem: function(key, value) {
-        store[key] = value.toString();
-      },
-      clear: function() {
-        store = {};
-      },
-      removeItem: function(key) {
-        delete store[key];
-      }
+        getItem: function(key) {
+            return store[key];
+        },
+        setItem: function(key, value) {
+            store[key] = value.toString();
+        },
+        clear: function() {
+            store = {};
+        },
+        removeItem: function(key) {
+            delete store[key];
+        }
     };
-  };
+};
