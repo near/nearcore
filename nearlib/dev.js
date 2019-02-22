@@ -21,7 +21,7 @@ module.exports = {
      * @param {boolean} options.useDevAccount specify to use development account to create accounts / deploy contracts. Should be used only on TestNet.
      * @param {string} options.accountId account ID to use.
      */
-    connect: async function(options) {
+    connect: async function(options = {}) {
         if (options.useDevAccount) {
             options.accountId = devAccountName;
             options.key = devKey;
@@ -41,8 +41,10 @@ module.exports = {
     getOrCreateDevUser: async function (deps = {}) {
         const localStorage = deps.localStorage ? deps.localStorage : window.localStorage;
         let tempUserAccountId = localStorage.getItem(localStorageAccountIdKey);
-        if (tempUserAccountId) {
-            // Make sure the user actually exists and recreate it if it doesn't
+        const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
+        const accountKey = await localKeyStore.getKey(tempUserAccountId);
+        if (tempUserAccountId && accountKey) {
+            // Make sure the user actually exists with valid keys and recreate it if it doesn't
             const accountLib = new nearlib.Account(this.near.nearClient);
             try {
                 const result = await accountLib.viewAccount(tempUserAccountId);
@@ -60,7 +62,6 @@ module.exports = {
             async (accountId, newAccountPublicKey) =>
                 createAccountWithContractHelper(nearconfig, accountId, newAccountPublicKey);
         await createAccount(tempUserAccountId, keypair.getPublicKey());
-        const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
         localKeyStore.setKey(tempUserAccountId, keypair);
         localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;

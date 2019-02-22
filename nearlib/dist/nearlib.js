@@ -97,43 +97,39 @@ module.exports = {
         return JSON.parse(decodeURIComponent(getCookie('fiddleConfig')));
     },
     /**
-     * @param {String} nodeUrl
-     */
-    connect: async function(nodeUrl = 'http://localhost:3030') {
-        return await this.setupConnection({nodeUrl});
-    },
-    /**
      * Create a connection which can perform operations on behalf of a given account.
      * @param {object} options object to pass named parameters.
      * @param {Object} options.nodeUrl specifies node url. accountId specifies account id. key_pair is the key pair for account
      * @param {boolean} options.useDevAccount specify to use development account to create accounts / deploy contracts. Should be used only on TestNet.
      * @param {string} options.accountId account ID to use.
      */
-    setupConnection: async function(options) {
+    connect: async function(options = {}) {
         if (options.useDevAccount) {
             options.accountId = devAccountName;
             options.key = devKey;
         }
         const keyStore = (options.deps && options.deps.keyStore) || new nearlib.BrowserLocalStorageKeystore();
-        console.log(keyStore);
         const nodeUrl = options.nodeUrl || this.getConfig().nodeUrl || 'http://localhost:3030';
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl));
-        const near = new nearlib.Near(nearClient);
+        this.near = new nearlib.Near(nearClient);
         if (options.accountId) {
             keyStore.setKey(options.accountId, options.key);
         } else {
-            this.getOrCreateDevUser(near, keyStore);
+            await this.getOrCreateDevUser(options.deps);
         }
-        return near;
+        return this.near;
     },
-    getOrCreateDevUser: async function (near, keyStore = null) {
-        let tempUserAccountId = window.localStorage.getItem(localStorageAccountIdKey);
-        if (tempUserAccountId) {
-            // Make sure the user actually exists and recreate it if it doesn't
-            const accountLib = new nearlib.Account(near.nearClient);
+    getOrCreateDevUser: async function (deps = {}) {
+        const localStorage = deps.localStorage ? deps.localStorage : window.localStorage;
+        let tempUserAccountId = localStorage.getItem(localStorageAccountIdKey);
+        const localKeyStore = deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
+        const accountKey = await localKeyStore.getKey(tempUserAccountId);
+        if (tempUserAccountId && accountKey) {
+            // Make sure the user actually exists with valid keys and recreate it if it doesn't
+            const accountLib = new nearlib.Account(this.near.nearClient);
             try {
-                await accountLib.viewAccount(tempUserAccountId);
+                const result = await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
             } catch (e) {
                 console.log('Error looking up temp account', e);
@@ -144,19 +140,25 @@ module.exports = {
         }
         const keypair = await nearlib.KeyPair.fromRandomSeed();
         const nearConfig = await this.getConfig();
-        await sendJson('POST', `${nearConfig.baseUrl}/account`, {
-            newAccountId: tempUserAccountId,
-            newAccountPublicKey: keypair.getPublicKey()
-        });
-        const localKeyStore = keyStore || new nearlib.BrowserLocalStorageKeystore();
+        const createAccount = deps.createAccount ? deps.createAccount :
+            async (accountId, newAccountPublicKey) =>
+                createAccountWithContractHelper(nearconfig, accountId, newAccountPublicKey);
+        await createAccount(tempUserAccountId, keypair.getPublicKey());
         localKeyStore.setKey(tempUserAccountId, keypair);
-        window.localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
+        localStorage.setItem(localStorageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;
     },
     get myAccountId() {
         return window.localStorage.getItem(localStorageAccountIdKey);
     }
 };
+
+async function createAccountWithContractHelper(nearconfig, tempUserAccountId, newAccountPublicKey) {
+    return await sendJson('POST', `${nearConfig.baseUrl}/account`, {
+        newAccountId: tempUserAccountId,
+        newAccountPublicKey: keypair.getPublicKey()
+    });
+}
 
 function getCookie(name) {
     var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
@@ -11318,6 +11320,10 @@ class InMemoryKeyStore {
 
     async getKey(accountId) {
         return this.keys[accountId];
+    }
+
+    async clear() {
+        this.keys = {};
     }
 }
 

@@ -13,6 +13,10 @@ class InMemoryKeyStore {
     async getKey(accountId) {
         return this.keys[accountId];
     }
+
+    async clear() {
+        this.keys = {};
+    }
 }
 
 module.exports = InMemoryKeyStore;

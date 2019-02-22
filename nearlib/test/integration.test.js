@@ -85,6 +85,42 @@ describe("dev connect", () => {
             stake: 0,
         };
         expect(viewAccountResponse).toEqual(expectedAccount);
+        expect(localStorage.getItem(localStorageAccountIdKey)).toEqual(newAccountId);
+    });
+
+    test('test dev connect with valid account but no keys', async () => {
+        // setup: connect with dev, but rmemove keys afterwards!
+        const keyStoreNoAccount = new InMemoryKeyStore();
+        const localStorage = createMockLocalStorage();
+        localStorage.setItem(localStorageAccountIdKey, await generateUniqueString("invalid"));
+        const nearNoAccount = await dev.connect({
+            nodeUrl: 'http://localhost:3030',
+            deps: {
+                keyStore: keyStoreNoAccount,
+                localStorage: localStorage,
+                createAccount: (async (newAccountName, newAccountPublicKey) => {
+                    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                    await nearjs.waitForTransactionResult(createAccountResponse);
+                })
+            },
+        });
+        expect(Object.keys(keyStoreNoAccount.keys).length).toEqual(1);
+        const newAccountId = Object.keys(keyStoreNoAccount.keys)[0];
+        expect(localStorage.getItem(localStorageAccountIdKey)).toEqual(newAccountId);
+        await keyStoreNoAccount.clear();
+        const nearNoKey = await dev.connect({
+            nodeUrl: 'http://localhost:3030',
+            deps: {
+                keyStore: keyStoreNoAccount,
+                localStorage: localStorage,
+                createAccount: (async (newAccountName, newAccountPublicKey) => {
+                    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                    await nearjs.waitForTransactionResult(createAccountResponse);
+                })
+            },
+        });
+        // we are expecting account to be recreated!
+        expect(localStorage.getItem(localStorageAccountIdKey)).not.toEqual(newAccountId);
     });
 });
 
