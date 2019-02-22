@@ -44,34 +44,36 @@ def hello_wasm_path():
 
 class Helpers(object):
     @staticmethod
-    def get_latest_beacon_block():
-        command = 'pynear view_latest_beacon_block'
+    def run_command(command):
         process = delegator.run(command)
         assert process.return_code == 0, process.err
-        return json.loads(process.out)
+        return process.out
 
-    @staticmethod
-    def view_account(account_name=None):
+    @classmethod
+    def get_latest_beacon_block(cls):
+        command = 'pynear view_latest_beacon_block'
+        out = cls.run_command(command)
+        return json.loads(out)
+
+    @classmethod
+    def view_account(cls, account_name=None):
         command = 'pynear view_account'
         if account_name is not None:
             command = "{} --account {}".format(command, account_name)
 
-        process = delegator.run(command)
-        assert process.return_code == 0, process.err
-        return json.loads(process.out)
+        out = cls.run_command(command)
+        return json.loads(out)
 
-    @staticmethod
-    def get_latest_shard_block():
+    @classmethod
+    def get_latest_shard_block(cls):
         command = 'pynear view_latest_shard_block'
-        process = delegator.run(command)
-        assert process.return_code == 0, process.err
-        return json.loads(process.out)
+        out = cls.run_command(command)
+        return json.loads(out)
 
     @classmethod
     def create_account(cls, account_id):
         command = "pynear create_account {} 10".format(account_id)
-        process = delegator.run(command)
-        assert process.return_code == 0, process.err
+        cls.run_command(command)
 
         @retry(stop_max_attempt_number=5, wait_fixed=1000)
         def _wait_for_account():
@@ -86,8 +88,7 @@ class Helpers(object):
         cls.create_account(contract_name)
 
         command = "pynear deploy {} {}".format(contract_name, wasm_path)
-        process = delegator.run(command)
-        assert process.return_code == 0, process.err
+        cls.run_command(command)
 
         @retry(stop_max_attempt_number=5, wait_fixed=1000)
         def _wait_for_contract():
@@ -147,8 +148,7 @@ def test_send_money(make_devnet, tmpdir):
     receiver = 'send_money_test.near'
     Helpers.create_account(receiver)
     command = "pynear send_money --receiver {} --amount 1".format(receiver)
-    process = delegator.run(command)
-    assert process.return_code == 0, process.err
+    Helpers.run_command(command)
 
     @retry(stop_max_attempt_number=5, wait_fixed=1000)
     def _wait_for_balance_change():
