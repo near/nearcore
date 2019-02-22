@@ -109,7 +109,7 @@ module.exports = {
             options.key = devKey;
         }
         const keyStore = (options.deps && options.deps.keyStore) || new nearlib.BrowserLocalStorageKeystore();
-        const nodeUrl = options.nodeUrl || await this.getConfig().nodeUrl || 'http://localhost:3030';
+        const nodeUrl = options.nodeUrl || (await this.getConfig()).nodeUrl || 'http://localhost:3030';
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(keyStore), new nearlib.LocalNodeConnection(nodeUrl));
         this.near = new nearlib.Near(nearClient);
