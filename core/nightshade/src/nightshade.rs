@@ -13,11 +13,8 @@ pub type AuthorityId = usize;
 
 const COMMIT_THRESHOLD: i64 = 3;
 
-pub enum NSResult {
-    /// Use box because large size difference between variants
-    Updated(Box<Option<State>>),
-    Error(String),
-}
+/// Result of updating Nightshade instance with new triplet
+pub type NSResult = Result<Option<State>, String>;
 
 fn empty_cryptohash() -> CryptoHash {
     CryptoHash::new(&[0u8; 32])
@@ -113,7 +110,7 @@ impl BareState {
     }
 }
 
-/// `BLSProof` contains the evidence that we can have confidence `C` on some outcome `O` (and second higher confidence is `C'`)
+/// `Proof` contains the evidence that we can have confidence `C` on some outcome `O` (and second higher confidence is `C'`)
 /// It must have signatures from more than 2/3 authorities on triplets of the form `(C - 1, O, C')`
 ///
 /// This is a lazy data structure. Aggregated signature is computed after all BLS parts are supplied.
@@ -409,7 +406,7 @@ impl Nightshade {
         if self.is_adversary[authority_id] ||
             incompatible_states(&self.states[authority_id], &state) {
             self.is_adversary[authority_id] = true;
-            return NSResult::Error("Not processing adversaries updates".to_string());
+            return Err("Not processing adversaries updates".to_string());
         }
 
         // Verify this BareState only if it has not been successfully verified previously and ignore it forever
@@ -417,7 +414,7 @@ impl Nightshade {
             if state.verify(authority_id, &self.bls_public_keys) {
                 self.seen_bare_states.insert(state.bare_state.clone());
             } else {
-                return NSResult::Error("Not a valid state".to_string());
+                return Err("Not a valid state".to_string());
             }
         }
 
@@ -480,13 +477,13 @@ impl Nightshade {
                 }
             }
 
-            NSResult::Updated(Box::new(Some(self.states[self.owner_id].clone())))
+            Ok(Some(self.states[self.owner_id].clone()))
         } else {
             // It is not expected to receive a worst state than previously received,
             // unless there is an underlying gossiping mechanism that is not aware of which states
             // were previously delivered.
 
-            NSResult::Updated(Box::new(None))
+            Ok(None)
         }
     }
 
@@ -595,7 +592,8 @@ mod tests {
             for i in 0..num_authorities {
                 for j in 0..num_authorities {
                     if i != j {
-                        ns[i].update_state(j, states[j].clone());
+                        let result = ns[i].update_state(j, states[j].clone());
+                        assert_eq!(result.is_ok(), true);
                     }
                 }
             }
@@ -660,11 +658,10 @@ mod tests {
     #[test]
     fn test_nightshade_basics() {
         let mut ns = create_nightshades(2);
-
         let state0 = ns[0].state();
         assert_eq!(state0.endorses().author, 0);
         let state1 = ns[1].state();
-        ns[0].update_state(1, state1.clone());
+        assert_eq!(ns[0].update_state(1, state1.clone()).is_ok(), true);
         let state0 = ns[0].state();
         assert_eq!(state0.endorses().author, 1);
     }
@@ -676,11 +673,11 @@ mod tests {
 
         for i in 0..2 {
             let state2 = ns[2].state();
-            ns[i].update_state(2, state2);
+            assert_eq!(ns[i].update_state(2, state2).is_ok(), true);
             let state_i = ns[i].state();
             assert_eq!(state_i.endorses().author, 2);
 
-            ns[2].update_state(i, state_i);
+            assert_eq!(ns[2].update_state(i, state_i).is_ok(), true);
             let state2 = ns[2].state();
 
             // After update from authority 2 expected confidence is 0 since only authorities 1 and 2

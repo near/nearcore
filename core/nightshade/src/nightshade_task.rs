@@ -9,7 +9,7 @@ use futures::sink::Sink;
 use futures::Stream;
 use futures::sync::mpsc;
 use futures::try_ready;
-use log::{error, info};
+use log::{error, info, warn};
 use serde::Serialize;
 use tokio::timer::Delay;
 
@@ -215,7 +215,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         // Check we already have such payload and request it otherwise
         if let Some(signed_block) = &self.authority_blocks[author] {
             if signed_block.block.hash() == message.state.block_hash() {
-                self.nightshade_as_mut_ref().update_state(message.sender_id, message.state);
+                if let Err(e) = self.nightshade_as_mut_ref().update_state(message.sender_id, message.state) {
+                    warn!(target: "nightshade", "{}", e);
+                }
             } else {
                 self.nightshade_as_mut_ref().set_adversary(author);
             }
