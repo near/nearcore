@@ -45,19 +45,20 @@ def hello_wasm_path():
 class Helpers(object):
     @staticmethod
     def run_command(command):
+        command = "python -m near.pynear.cli {}".format(command)
         process = delegator.run(command)
         assert process.return_code == 0, process.err
         return process.out
 
     @classmethod
     def get_latest_beacon_block(cls):
-        command = 'pynear view_latest_beacon_block'
+        command = 'view_latest_beacon_block'
         out = cls.run_command(command)
         return json.loads(out)
 
     @classmethod
     def view_account(cls, account_name=None):
-        command = 'pynear view_account'
+        command = 'view_account'
         if account_name is not None:
             command = "{} --account {}".format(command, account_name)
 
@@ -66,13 +67,13 @@ class Helpers(object):
 
     @classmethod
     def get_latest_shard_block(cls):
-        command = 'pynear view_latest_shard_block'
+        command = 'view_latest_shard_block'
         out = cls.run_command(command)
         return json.loads(out)
 
     @classmethod
     def create_account(cls, account_id):
-        command = "pynear create_account {} 10".format(account_id)
+        command = "create_account {} 10".format(account_id)
         cls.run_command(command)
 
         @retry(stop_max_attempt_number=5, wait_fixed=1000)
@@ -87,7 +88,7 @@ class Helpers(object):
         contract_name = "test_contract_{}".format(buster)
         cls.create_account(contract_name)
 
-        command = "pynear deploy {} {}".format(contract_name, wasm_path)
+        command = "deploy {} {}".format(contract_name, wasm_path)
         cls.run_command(command)
 
         @retry(stop_max_attempt_number=5, wait_fixed=1000)
@@ -108,7 +109,7 @@ def test_get_beacon_block_by_hash(make_devnet, tmpdir):
     assert make_devnet(tmpdir)
     latest_block = Helpers.get_latest_beacon_block()
     hash_ = latest_block['hash']
-    command = "pynear get_beacon_block_by_hash {}".format(hash_)
+    command = "get_beacon_block_by_hash {}".format(hash_)
     process = delegator.run(command)
     assert latest_block == json.loads(process.out)
 
@@ -122,7 +123,7 @@ def test_get_shard_block_by_hash(make_devnet, tmpdir):
     assert make_devnet(tmpdir)
     latest_block = Helpers.get_latest_shard_block()
     hash_ = latest_block['hash']
-    command = "pynear get_shard_block_by_hash {}".format(hash_)
+    command = "get_shard_block_by_hash {}".format(hash_)
     process = delegator.run(command)
     assert latest_block == json.loads(process.out)
 
@@ -147,7 +148,7 @@ def test_send_money(make_devnet, tmpdir):
     assert make_devnet(tmpdir)
     receiver = 'send_money_test.near'
     Helpers.create_account(receiver)
-    command = "pynear send_money --receiver {} --amount 1".format(receiver)
+    command = "send_money --receiver {} --amount 1".format(receiver)
     Helpers.run_command(command)
 
     @retry(stop_max_attempt_number=5, wait_fixed=1000)
@@ -164,13 +165,13 @@ def test_set_get_values(make_devnet, tmpdir, hello_wasm_path):
     contract_name = contract['account_id']
     value = 'test'
     args = {'value': value}
-    command = "pynear schedule_function_call {} setValue --args '{}'" \
+    command = "schedule_function_call {} setValue --args '{}'" \
         .format(contract_name, json.dumps(args))
     Helpers.run_command(command)
 
     @retry(stop_max_attempt_number=5, wait_fixed=1000)
     def _wait_for_state_change():
-        command_ = "pynear call_view_function {} getValue --args {{}}" \
+        command_ = "call_view_function {} getValue --args {{}}" \
             .format(contract_name)
         out = Helpers.run_command(command_)
         data = json.loads(out)
@@ -183,7 +184,7 @@ def test_view_state(make_devnet, tmpdir, hello_wasm_path):
     assert make_devnet(tmpdir)
     contract = Helpers.deploy_contract(hello_wasm_path)
     contract_name = contract['account_id']
-    command = "pynear view_state {}".format(contract_name)
+    command = "view_state {}".format(contract_name)
     out = Helpers.run_command(command)
     data = json.loads(out)
     assert data['values'] == {}
@@ -192,5 +193,5 @@ def test_view_state(make_devnet, tmpdir, hello_wasm_path):
 def test_swap_key(make_devnet, tmpdir):
     assert make_devnet(tmpdir)
     public_key = nearlib.keystore.create_key_pair('alice.near')
-    command = "pynear swap_key {} {}".format(public_key, public_key)
+    command = "swap_key {} {}".format(public_key, public_key)
     Helpers.run_command(command)
