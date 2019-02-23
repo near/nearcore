@@ -10,6 +10,10 @@ class AmbiguousPublicKey(Exception):
         super(AmbiguousPublicKey, self).__init__(msg)
 
 
+class NoKeyPairs(Exception):
+    pass
+
+
 class KeyStore(object):
     @staticmethod
     def _create_key_pair(seed=None):
@@ -50,8 +54,10 @@ class InMemoryKeyStore(KeyStore):
         return secret_key.sign(data)
 
     def get_only_public_key(self):
-        if len(self._key_pairs) != 1:
+        if len(self._key_pairs) > 1:
             raise AmbiguousPublicKey
+        elif len(self._key_pairs) == 0:
+            raise NoKeyPairs
 
         return list(self._key_pairs.keys())[0]
 

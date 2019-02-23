@@ -58,3 +58,14 @@ test_nearlib:
     artifacts:
       paths:
       - target/release/devnet
+
+test_pynear:
+    stage: test
+    before_script:
+    - *setup_cache
+    - *setup_deps
+    script:
+    - cargo build --release --package=devnet
+    - NEAR_DEVNET_EXE=target/release/devnet (cd pynear && python setup.py test)
+    after_script:
+    - *cleanup_obsolete_cache

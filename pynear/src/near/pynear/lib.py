@@ -45,7 +45,7 @@ class NearLib(object):
         self._server_url = server_url
         if keystore is None:
             keystore = InMemoryKeyStore()
-        self._keystore = keystore
+        self.keystore = keystore
         self._public_key = public_key
         self._nonces = {}
         self._debug = debug
@@ -88,7 +88,7 @@ class NearLib(object):
         m = hashlib.sha256()
         m.update(body)
         data = m.digest()
-        return self._keystore.sign(data, self._public_key)
+        return self.keystore.sign(data, self._public_key)
 
     def _submit_transaction(self, transaction):
         transaction = transaction.SerializeToString()
@@ -98,7 +98,7 @@ class NearLib(object):
 
     def _get_public_key(self):
         if self._public_key is None:
-            self._public_key = self._keystore.get_only_public_key()
+            self._public_key = self.keystore.get_only_public_key()
 
         return self._public_key
 

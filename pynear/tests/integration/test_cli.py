@@ -156,3 +156,41 @@ def test_send_money(make_devnet, tmpdir):
         assert account['amount'] == 11
 
     _wait_for_balance_change()
+
+
+def test_set_get_values(make_devnet, tmpdir, hello_wasm_path):
+    assert make_devnet(tmpdir)
+    contract = Helpers.deploy_contract(hello_wasm_path)
+    contract_name = contract['account_id']
+    value = 'test'
+    args = {'value': value}
+    command = "pynear schedule_function_call {} setValue --args '{}'" \
+        .format(contract_name, json.dumps(args))
+    Helpers.run_command(command)
+
+    @retry(stop_max_attempt_number=5, wait_fixed=1000)
+    def _wait_for_state_change():
+        command_ = "pynear call_view_function {} getValue --args {{}}" \
+            .format(contract_name)
+        out = Helpers.run_command(command_)
+        data = json.loads(out)
+        assert data['result'] == value
+
+    _wait_for_state_change()
+
+
+def test_view_state(make_devnet, tmpdir, hello_wasm_path):
+    assert make_devnet(tmpdir)
+    contract = Helpers.deploy_contract(hello_wasm_path)
+    contract_name = contract['account_id']
+    command = "pynear view_state {}".format(contract_name)
+    out = Helpers.run_command(command)
+    data = json.loads(out)
+    assert data['values'] == {}
+
+
+def test_swap_key(make_devnet, tmpdir):
+    assert make_devnet(tmpdir)
+    public_key = nearlib.keystore.create_key_pair('alice.near')
+    command = "pynear swap_key {} {}".format(public_key, public_key)
+    Helpers.run_command(command)
