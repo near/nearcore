@@ -18,6 +18,9 @@ variables:
     unzip -p /tmp/protoc.zip bin/protoc | sudo tee /usr/local/bin/protoc 1> /dev/null &&
     sudo chmod 755 /usr/local/bin/protoc
 
+.setup_python: &setup_python
+    sudo apt-get install -y python-dev
+
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +2 -delete
 
@@ -33,6 +36,7 @@ test_cargo:
     before_script:
     - *setup_cache
     - *install_protos
+    - *setup_python
     - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
     - rustup component add clippy
     script:
@@ -73,6 +77,7 @@ test_pynear:
     stage: libs
     before_script:
         - *install_protos
+        - *setup_python
     dependencies:
         - release_build
     script:
