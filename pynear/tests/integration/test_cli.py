@@ -110,8 +110,8 @@ def test_get_beacon_block_by_hash(make_devnet, tmpdir):
     latest_block = Helpers.get_latest_beacon_block()
     hash_ = latest_block['hash']
     command = "get_beacon_block_by_hash {}".format(hash_)
-    process = delegator.run(command)
-    assert latest_block == json.loads(process.out)
+    out = Helpers.run_command(command)
+    assert latest_block == json.loads(out)
 
 
 def test_view_latest_shard_block(make_devnet, tmpdir):
@@ -124,8 +124,8 @@ def test_get_shard_block_by_hash(make_devnet, tmpdir):
     latest_block = Helpers.get_latest_shard_block()
     hash_ = latest_block['hash']
     command = "get_shard_block_by_hash {}".format(hash_)
-    process = delegator.run(command)
-    assert latest_block == json.loads(process.out)
+    out = Helpers.run_command(command)
+    assert latest_block == json.loads(out)
 
 
 def test_view_account(make_devnet, tmpdir):
