@@ -81,6 +81,5 @@ test_pynear:
     dependencies:
         - release_build
     script:
-    - NEAR_DEVNET_EXE=target/release/devnet (cd pynear && python setup.py test)
-    after_script:
-    - *cleanup_obsolete_cache
+    - export NEAR_DEVNET_EXE=target/release/devnet
+    - cd pynear && python setup.py test
