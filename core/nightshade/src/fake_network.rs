@@ -110,7 +110,7 @@ fn spawn_all(num_authorities: usize) {
                 }
             })
             .map_err(|e| {
-                panic!("Failed achieving consensus: {:?}", e)
+                panic!("Failed achieving consensus: {:?}", e);
             })
     });
 
@@ -124,6 +124,7 @@ mod tests {
     use super::spawn_all;
 
     #[test]
+    #[ignore]
     #[should_panic]
     /// One authority don't reach consensus by itself in the current implementation
     fn one_authority() {

@@ -5,6 +5,7 @@ use primitives::block_traits::SignedBlock;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Decode, Encode};
+use primitives::transaction::{TransactionAddress, TransactionResult};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
@@ -68,11 +69,12 @@ pub struct BlockChainStorage<H, B> {
     chain_id: ChainId,
     storage: Arc<KeyValueDB>,
     genesis_hash: Option<CryptoHash>,
-
     best_block_hash: HashMap<Vec<u8>, CryptoHash>,
     headers: HashMap<Vec<u8>, H>,
     blocks: HashMap<Vec<u8>, B>,
     block_indices: HashMap<Vec<u8>, CryptoHash>,
+    transaction_results: HashMap<Vec<u8>, TransactionResult>,
+    transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
 }
 
 /// Specific block chain storages like beacon chain storage and shard chain storage should implement
@@ -124,6 +126,8 @@ where
             headers: Default::default(),
             blocks: Default::default(),
             block_indices: Default::default(),
+            transaction_results: Default::default(),
+            transaction_addresses: Default::default(),
         }
     }
 
@@ -217,6 +221,30 @@ where
             &mut self.block_indices,
             &key,
             hash,
+        )
+    }
+
+    #[inline]
+    /// Get transaction address of the computed transaction from its hash.
+    pub fn transaction_address(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionAddress> {
+        let enc_hash = self.enc_hash(hash);
+        read_with_cache(
+            self.storage.as_ref(),
+            COL_TRANSACTION_ADDRESSES,
+            &mut self.transaction_addresses,
+            &enc_hash,
+        )
+    }
+
+    #[inline]
+    /// Get transaction hash of the computed transaction from its hash.
+    pub fn transaction_result(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionResult> {
+        let enc_hash = self.enc_hash(hash);
+        read_with_cache(
+            self.storage.as_ref(),
+            COL_TRANSACTION_RESULTS,
+            &mut self.transaction_results,
+            &enc_hash,
         )
     }
 }

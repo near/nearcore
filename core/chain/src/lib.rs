@@ -2,9 +2,12 @@ use std::sync::{Arc, RwLock};
 
 use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
-use storage::GenericStorage;
-
+use primitives::transaction::{
+    TransactionAddress, TransactionResult, TransactionLogs, TransactionStatus,
+    FinalTransactionResult, FinalTransactionStatus
+};
 use primitives::block_traits::{SignedBlock, SignedHeader};
+use storage::GenericStorage;
 use std::marker::PhantomData;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -121,5 +124,68 @@ where
             }
         }
         Ok(blocks)
+    }
+
+    pub fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .blockchain_storage_mut()
+            .transaction_result(hash)
+            .unwrap()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .blockchain_storage_mut()
+            .transaction_address(hash)
+            .unwrap()
+            .cloned()
+    }
+
+    fn collect_transaction_final_result(
+        &self,
+        transaction_result: &TransactionResult,
+        logs: &mut Vec<TransactionLogs>,
+    ) -> FinalTransactionStatus {
+        match transaction_result.status {
+            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
+            TransactionStatus::Failed => FinalTransactionStatus::Failed,
+            TransactionStatus::Completed => {
+                for r in transaction_result.receipts.iter() {
+                    let receipt_result = self.get_transaction_result(&r);
+                    logs.push(TransactionLogs {
+                        hash: *r,
+                        lines: receipt_result.logs.clone(),
+                        receipts: receipt_result.receipts.clone(),
+                    });
+                    match self.collect_transaction_final_result(&receipt_result, logs) {
+                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
+                        FinalTransactionStatus::Completed => {}
+                        _ => return FinalTransactionStatus::Started,
+                    };
+                }
+                FinalTransactionStatus::Completed
+            }
+        }
+    }
+
+    pub fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        let transaction_result = self.get_transaction_result(hash);
+        let mut result = FinalTransactionResult {
+            status: FinalTransactionStatus::Unknown,
+            logs: vec![TransactionLogs {
+                hash: *hash,
+                lines: transaction_result.logs.clone(),
+                receipts: transaction_result.receipts.clone(),
+            }],
+        };
+        result.status =
+            self.collect_transaction_final_result(&transaction_result, &mut result.logs);
+        result
     }
 }
