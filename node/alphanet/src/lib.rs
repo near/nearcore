@@ -6,7 +6,6 @@ extern crate serde_derive;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use std::thread;
 
 use futures::future::Future;
 use futures::sink::Sink;
@@ -20,8 +19,6 @@ use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use primitives::network::PeerInfo;
 use primitives::signature::{PublicKey, SecretKey};
 use primitives::types::AccountId;
-
-#[allow(dead_code)]
 
 // TODO: Explain this function and their arguments
 fn run_node(
@@ -40,16 +37,6 @@ fn run_node(
         // 1. Initialize peer manager
 
         let account_id = authorities[authority].clone();
-
-        let (pm, _out_msg_tx, inc_msg_rx) =
-            start_peer(authority, num_authorities, Some(account_id), boot_nodes);
-
-        // Wait for all channels become available
-        while pm.count_ready_channels() < num_authorities - 1 {
-            thread::sleep(Duration::from_millis(50));
-        }
-
-        info!(target: "alphanet", "node: {} ready channels: {:?}", authority, pm.count_ready_channels());
 
         // 2. Initialize NightshadeTask. Create proposals.
 

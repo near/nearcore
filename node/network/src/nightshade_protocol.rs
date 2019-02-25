@@ -20,17 +20,36 @@ use primitives::types::AccountId;
 
 use crate::peer::PeerMessage;
 use crate::peer_manager::PeerManager;
+use std::sync::Arc;
+use configs::NetworkConfig;
 
 /// Spawn network task that process incoming and outgoing gossips for nightshade consensus
 ///
 /// Args:
 pub fn spawn_consensus_network(
-    pm: PeerManager,
-    inc_msg_rx: Receiver<(CryptoHash, Vec<u8>)>,
+    account_id: Option<AccountId>,
+    network_cfg: NetworkConfig,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
     authority_map: HashMap<AuthorityId, AccountId>,
 ) {
+    let (inc_msg_tx, inc_msg_rx) = channel(1024);
+    let (out_msg_tx, out_msg_rx) = channel(1024);
+
+    let peer_manager = Arc::new(PeerManager::new(
+        network_cfg.reconnect_delay,
+        network_cfg.gossip_interval,
+        network_cfg.gossip_sample_size,
+        PeerInfo {
+            id: network_cfg.peer_id,
+            addr: network_cfg.listen_addr,
+            account_id,
+        },
+        &network_cfg.boot_nodes,
+        inc_msg_tx,
+        out_msg_rx,
+    ));
+
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let task = inc_msg_rx.for_each(move |(_, data)| {
         match Decode::decode(&data) {
