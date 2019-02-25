@@ -86,10 +86,15 @@ fn run_node(authority: usize,
         let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1024);
         let (consensus_tx, _consensus_rx) = mpsc::channel(1024);
 
-        let control_tx = spawn_nightshade_task(
+
+        // Create control channel and send kick-off reset signal.
+        // Nightshade task should end alone after more than 2/3 of authorities have committed.
+        let (control_tx, control_rx) = mpsc::channel(1024);
+        let start_task = control_tx.clone().send(Control::Reset(payload)).map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
+        tokio::spawn(start_task);
+        spawn_nightshade_task(
             authority,
             num_authorities,
-            payload,
             public_keys,
             secret_key,
             bls_public_keys,
@@ -97,6 +102,7 @@ fn run_node(authority: usize,
             inc_gossip_rx,
             out_gossip_tx,
             consensus_tx,
+            control_rx,
         );
 
         // 3. Start protocol. Connect consensus channels with network channels. Encode + Decode messages/gossips

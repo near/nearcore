@@ -2,22 +2,22 @@ use std::fmt::Debug;
 use std::time::Duration;
 use std::time::Instant;
 
-use futures::Async;
 use futures::future::Future;
-use futures::Poll;
 use futures::sink::Sink;
-use futures::Stream;
 use futures::sync::mpsc;
 use futures::try_ready;
+use futures::Async;
+use futures::Poll;
+use futures::Stream;
 use log::{error, info, warn};
 use serde::Serialize;
 use tokio::timer::Delay;
 
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::hash::CryptoHash;
 use primitives::hash::hash_struct;
-use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
+use primitives::hash::CryptoHash;
+use primitives::signature::{sign, verify, PublicKey, SecretKey, Signature};
 
 use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
 
@@ -52,19 +52,15 @@ pub struct Gossip<P> {
 }
 
 impl<P: Serialize> Gossip<P> {
-    fn new(sender_id: AuthorityId,
-           receiver_id: AuthorityId,
-           body: GossipBody<P>,
-           sk: &SecretKey,
+    fn new(
+        sender_id: AuthorityId,
+        receiver_id: AuthorityId,
+        body: GossipBody<P>,
+        sk: &SecretKey,
     ) -> Self {
         let hash = hash_struct(&(sender_id, receiver_id, &body));
 
-        Self {
-            sender_id,
-            receiver_id,
-            body,
-            signature: sign(hash.as_ref(), &sk),
-        }
+        Self { sender_id, receiver_id, body, signature: sign(hash.as_ref(), &sk) }
     }
 
     fn get_hash(&self) -> CryptoHash {
@@ -87,10 +83,7 @@ impl<P: Serialize> SignedBlock<P> {
         let block = Block::new(author, payload);
         let signature = sign(block.header.hash.as_ref(), &secret_key);
 
-        Self {
-            block,
-            signature,
-        }
+        Self { block, signature }
     }
 }
 
@@ -144,7 +137,6 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         control_receiver: mpsc::Receiver<Control<P>>,
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
-
         Self {
             owner_id,
             num_authorities,
@@ -174,14 +166,15 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
 
     fn init_nightshade(&mut self, payload: P) {
         self.authority_blocks = vec![None; self.num_authorities];
-        self.authority_blocks[self.owner_id] = Some(SignedBlock::new(self.owner_id, payload, &self.owner_secret_key));
-        self.nightshade = Some(
-            Nightshade::new(self.owner_id as AuthorityId,
-                            self.num_authorities as usize,
-                            self.authority_blocks[self.owner_id].clone().unwrap().block.header,
-                            self.bls_public_keys.clone(),
-                            self.bls_owner_secret_key.clone(),
-            ));
+        self.authority_blocks[self.owner_id] =
+            Some(SignedBlock::new(self.owner_id, payload, &self.owner_secret_key));
+        self.nightshade = Some(Nightshade::new(
+            self.owner_id as AuthorityId,
+            self.num_authorities as usize,
+            self.authority_blocks[self.owner_id].clone().unwrap().block.header,
+            self.bls_public_keys.clone(),
+            self.bls_owner_secret_key.clone(),
+        ));
     }
 
     fn state(&self) -> &State {
@@ -193,7 +186,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             self.owner_id,
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
-            &self.owner_secret_key));
+            &self.owner_secret_key,
+        ));
     }
 
     fn send_gossip(&self, message: Gossip<P>) {
@@ -215,7 +209,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         // Check we already have such payload and request it otherwise
         if let Some(signed_block) = &self.authority_blocks[author] {
             if signed_block.block.hash() == message.state.block_hash() {
-                if let Err(e) = self.nightshade_as_mut_ref().update_state(message.sender_id, message.state) {
+                if let Err(e) =
+                    self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
+                {
                     warn!(target: "nightshade", "{}", e);
                 }
             } else {
@@ -228,7 +224,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             let gossip = Gossip::new(
                 self.owner_id,
                 author,
-                GossipBody::PayloadRequest(vec!(author)),
+                GossipBody::PayloadRequest(vec![author]),
                 &self.owner_secret_key,
             );
             self.send_gossip(gossip);
@@ -242,7 +238,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
 
         match gossip.body {
             GossipBody::NightshadeStateUpdate(message) => self.process_message(*message),
-            GossipBody::PayloadRequest(authorities) => self.send_payloads(gossip.sender_id, authorities),
+            GossipBody::PayloadRequest(authorities) => {
+                self.send_payloads(gossip.sender_id, authorities)
+            }
             GossipBody::PayloadReply(payloads) => self.receive_payloads(gossip.sender_id, payloads),
         }
     }
@@ -291,11 +289,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
 
         for i in 0..self.num_authorities {
             if i != self.owner_id {
-                let message = Message {
-                    sender_id: self.owner_id,
-                    receiver_id: i,
-                    state: my_state.clone(),
-                };
+                let message =
+                    Message { sender_id: self.owner_id, receiver_id: i, state: my_state.clone() };
                 self.send_state(message);
             }
         }
@@ -309,7 +304,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
                 let gossip = Gossip::new(
                     self.owner_id,
                     authority,
-                    GossipBody::PayloadRequest(vec!(authority)),
+                    GossipBody::PayloadRequest(vec![authority]),
                     &self.owner_secret_key,
                 );
                 self.send_gossip(gossip);
@@ -356,7 +351,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                     // If there is a state then we do not care about the control.
                     break;
                 }
-                Err(err) => error!(target: "nightshade", "Failed to read from the control channel {:?}", err),
+                Err(err) => {
+                    error!(target: "nightshade", "Failed to read from the control channel {:?}", err)
+                }
             }
         }
 
@@ -374,9 +371,11 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
 
                             let consensus_sender1 = self.consensus_sender.clone();
 
-                            tokio::spawn(consensus_sender1.send(outcome)
-                                .map(|_| ())
-                                .map_err(|e| error!("Failed sending consensus: {:?}", e))
+                            tokio::spawn(
+                                consensus_sender1
+                                    .send(outcome)
+                                    .map(|_| ())
+                                    .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                             );
                         }
                     }
@@ -418,7 +417,6 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
 pub fn spawn_nightshade_task<P>(
     owner_id: AuthorityId,
     num_authorities: usize,
-    payload: P,
     public_keys: Vec<PublicKey>,
     owner_secret_key: SecretKey,
     bls_public_keys: Vec<BlsPublicKey>,
@@ -426,14 +424,10 @@ pub fn spawn_nightshade_task<P>(
     inc_gossips: mpsc::Receiver<Gossip<P>>,
     out_gossips: mpsc::Sender<Gossip<P>>,
     consensus_sender: mpsc::Sender<BlockHeader>,
-) -> mpsc::Sender<Control<P>> where P: Serialize + Send + Clone + Debug + 'static {
-    // Create control channel and send reset signal.
-    // Nightshade task should end alone after more than 2/3 of authorities have committed.
-    let (control_tx, control_rx) = mpsc::channel(1024);
-
-    let control_tx1 = control_tx.clone();
-    let start_task = control_tx1.send(Control::Reset(payload)).map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
-    tokio::spawn(start_task);
+    control_rx: mpsc::Receiver<Control<P>>,
+)
+    where P: Serialize + Send + Clone + Debug + 'static
+{
 
     let task = NightshadeTask::new(
         owner_id,
@@ -449,6 +443,4 @@ pub fn spawn_nightshade_task<P>(
     );
 
     tokio::spawn(task.for_each(|_| Ok(())));
-
-    control_tx
 }
