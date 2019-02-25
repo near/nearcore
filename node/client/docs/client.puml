@@ -11,18 +11,18 @@ component Client {
         [Authority]
         }
 
-   component ShardBlockChain {
+   component ShardClient {
      [Runtime]
      [Trie]
      [BlockChain<SignedShardBlock>] as ShardChain
    }
-   ShardBlockChain -- prepare_new_block
-   ShardBlockChain -- insert_block
-   ShardBlockChain -- apply_block
+   ShardClient -- prepare_new_block
+   ShardClient -- insert_block
+   ShardClient -- apply_block
 
    package RPCInterfaces {
    TrieUpdate -- Trie
-   TrieViewer -- ShardBlockChain
+   TrieViewer -- ShardClient
    }
 }
 
@@ -31,7 +31,7 @@ Client -- import_block
 
 Storage #-- ShardChain
 Storage #-- BeaconChain
-Storage #-- ShardBlockChain
+Storage #-- ShardClient
 
 
 package Coroutines {

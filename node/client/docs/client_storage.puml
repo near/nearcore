@@ -23,8 +23,8 @@ GenericStorage <|-- ShardChainStorage
 ShardChainStorage *-- BlockChainStorage
 
 
-class ShardBlockChain
-ShardBlockChain *-- BlockChain
+class ShardClient
+ShardClient *-- BlockChain
 }
 
 

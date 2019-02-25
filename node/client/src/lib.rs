@@ -25,7 +25,7 @@ use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::ShardBlockChain;
+use shard::ShardClient;
 use std::sync::RwLock;
 use storage::create_storage;
 
@@ -61,7 +61,7 @@ pub struct Client {
     pub account_id: AccountId,
     pub signer: InMemorySigner,
 
-    pub shard_chain: ShardBlockChain,
+    pub shard_client: ShardClient,
     pub beacon_chain: BeaconBlockChain,
 
     // TODO: The following logic might need to be hidden somewhere.
@@ -129,9 +129,9 @@ impl Client {
         let shard_storage = shard_storages.pop().unwrap();
 
         let chain_spec = &config.chain_spec;
-        let shard_chain = ShardBlockChain::new(chain_spec, shard_storage);
-        info!(target: "client", "Genesis root: {:?}", shard_chain.genesis_hash());
-        let genesis = SignedBeaconBlock::genesis(shard_chain.genesis_hash());
+        let shard_client = ShardClient::new(chain_spec, shard_storage);
+        info!(target: "client", "Genesis root: {:?}", shard_client.genesis_hash());
+        let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_chain = BeaconBlockChain::new(genesis, &chain_spec, beacon_storage);
 
         let mut key_file_path = config.base_path.to_path_buf();
@@ -147,7 +147,7 @@ impl Client {
         Self {
             account_id: config.account_id.clone(),
             signer,
-            shard_chain,
+            shard_client,
             beacon_chain,
             pending_beacon_blocks: RwLock::new(HashMap::new()),
             pending_shard_blocks: RwLock::new(HashMap::new()),
@@ -200,7 +200,7 @@ impl Client {
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
-            .shard_chain
+            .shard_client
             .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
@@ -223,14 +223,14 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
-        self.shard_chain.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
+        self.shard_client.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
         self.beacon_chain.chain.insert_block(block.clone());
         info!(target: "client",
                   "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
                   block.body.header.index, block.hash, shard_block.hash);
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
-        assert_eq!(self.shard_chain.chain.best_block().hash, shard_block.hash);
+        assert_eq!(self.shard_client.chain.best_block().hash, shard_block.hash);
         assert_eq!(self.beacon_chain.chain.best_block().hash, block.hash);
         // Update the authority.
         self.update_authority(&block.header());
@@ -244,7 +244,7 @@ impl Client {
         let mut part_pending = HashMap::default();
         for (hash, other) in self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).drain() {
             if self.beacon_chain.chain.is_known(&other.body.header.parent_hash)
-                && (self.shard_chain.chain.is_known(&other.body.header.shard_block_hash)
+                && (self.shard_client.chain.is_known(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
                         .read()
@@ -315,7 +315,7 @@ impl Client {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect("Expected to have shard block present when processing beacon block");
 
-            if self.shard_chain.apply_block(next_shard_block) {
+            if self.shard_client.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
             }
             // Update the authority.

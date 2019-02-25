@@ -55,7 +55,7 @@ pub fn spawn_block_producer(
                     .map(|_| ())
                     .map_err(|e| error!("Error sending control to TxFlow: {}", e));
                 if needs_receipt_rerouting {
-                    let receipt_block = client.shard_chain.get_receipt_block(
+                    let receipt_block = client.shard_client.get_receipt_block(
                         new_shard_block.index(),
                         new_shard_block.shard_id()
                     );

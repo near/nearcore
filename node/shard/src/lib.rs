@@ -41,7 +41,7 @@ type ShardBlockExtraInfo = (
 );
 
 #[allow(unused)]
-pub struct ShardBlockChain {
+pub struct ShardClient {
     pub chain: Arc<chain::BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
     pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
     pub trie: Arc<Trie>,
@@ -51,7 +51,7 @@ pub struct ShardBlockChain {
     pool: Pool,
 }
 
-impl ShardBlockChain {
+impl ShardClient {
     pub fn new(chain_spec: &ChainSpec, storage: Arc<RwLock<ShardChainStorage>>) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
@@ -236,10 +236,10 @@ mod tests {
 
     use super::*;
 
-    fn get_test_client() -> (ShardBlockChain, SecretKey) {
+    fn get_test_client() -> (ShardClient, SecretKey) {
         let (chain_spec, _, secret_key) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
-        let shard_client = ShardBlockChain::new(&chain_spec, shard_storage);
+        let shard_client = ShardClient::new(&chain_spec, shard_storage);
         (shard_client, secret_key)
     }
 
