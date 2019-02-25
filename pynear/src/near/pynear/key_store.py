@@ -1,3 +1,6 @@
+import json
+import os
+
 import ed25519
 
 from near.pynear import b58
@@ -17,8 +20,11 @@ class NoKeyPairs(Exception):
 class KeyStore(object):
     @staticmethod
     def _create_key_pair(seed=None):
-        if seed is not None and len(seed) > 32:
-            raise Exception('max seed length is 32')
+        if seed is not None:
+            if len(seed) > 32:
+                raise Exception('max seed length is 32')
+
+            seed = seed.encode('utf-8')
 
         kwargs = {}
         if seed is not None:
@@ -41,7 +47,7 @@ class InMemoryKeyStore(KeyStore):
         self._key_pairs = {}
 
     def create_key_pair(self, seed=None):
-        (secret_key, public_key) = self._create_key_pair(seed.encode('utf-8'))
+        (secret_key, public_key) = self._create_key_pair(seed)
         encoded = b58.b58encode(public_key.to_bytes()).decode('utf-8')
         self._key_pairs[encoded] = secret_key
         return encoded
@@ -63,11 +69,46 @@ class InMemoryKeyStore(KeyStore):
 
 
 class FileKeyStore(KeyStore):
+    def __init__(self, path):
+        self._path = path
+
     def create_key_pair(self, seed=None):
-        pass
+        if not os.path.exists(self._path):
+            os.makedirs(self._path)
+
+        (secret_key, public_key) = self._create_key_pair(seed)
+        encoded_pub = b58.b58encode(public_key.to_bytes()).decode('utf-8')
+        encoded_secret = b58.b58encode(public_key.to_bytes()).decode('utf-8')
+
+        with open(os.path.join(self._path, encoded_pub), 'w') as f:
+            key_file = {
+                'public_key': encoded_pub,
+                'secret_key': encoded_secret,
+            }
+            f.write(json.dumps(key_file))
+
+        return encoded_pub
 
     def sign(self, data, public_key=None):
-        pass
+        if public_key is None:
+            public_key = self.get_only_public_key()
+
+        with open(os.path.join(self._path, public_key)) as f:
+            key_file = json.loads(f.read())
+            encoded_secret = key_file['secret_key']
+
+        secret_key = b58.b58decode(encoded_secret)
+        secret_key = ed25519.SigningKey(secret_key)
+        return secret_key.sign(data)
 
     def get_only_public_key(self):
-        pass
+        if not os.path.exists(self._path):
+            raise NoKeyPairs
+
+        pub_keys = os.listdir(self._path)
+        if len(pub_keys) > 1:
+            raise AmbiguousPublicKey
+        elif len(pub_keys) == 0:
+            raise NoKeyPairs
+
+        return pub_keys[0]
