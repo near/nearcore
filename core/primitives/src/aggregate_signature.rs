@@ -185,7 +185,7 @@ impl<E: Engine> ToBytes for SecretKey<E> {
 }
 
 impl<E: Engine> FromBytes for SecretKey<E> {
-    fn from_bytes(v: Vec<u8>) -> Result<Self, Box<Error>> {
+    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<Error>> {
         let mut repr : <E::Fr as PrimeField>::Repr = Default::default();
         let buf = Cursor::new(v);
         repr.read_be(buf)?;
@@ -216,7 +216,7 @@ impl fmt::Display for LengthError {
 }
 
 impl<E: Engine> FromBytes for PublicKey<E> {
-    fn from_bytes(v: Vec<u8>) -> Result<Self, Box<Error>> {
+    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<Error>> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
             return Err(From::from(LengthError(expected, v.len())));
@@ -234,7 +234,7 @@ impl<E: Engine> ToBytes for Signature<E> {
 }
 
 impl<E: Engine> FromBytes for Signature<E> {
-    fn from_bytes(v: Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
             return Err(From::from(LengthError(expected, v.len())));

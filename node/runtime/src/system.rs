@@ -1,6 +1,7 @@
 use storage::TrieUpdate;
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::traits::Decode;
+use primitives::traits::{Decode, FromBytes};
+use primitives::aggregate_signature::{BlsPublicKey, BlsSignature};
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::utils::is_valid_account_id;
@@ -8,6 +9,7 @@ use primitives::transaction::{
     AsyncCall, ReceiptTransaction, SendMoneyTransaction,
     ReceiptBody, StakeTransaction, CreateAccountTransaction,
     SwapKeyTransaction, AddKeyTransaction, DeleteKeyTransaction,
+    AddBlsKeyTransaction,
 };
 use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
 use crate::{TxTotalStake, get_tx_stake_key};
@@ -232,6 +234,24 @@ pub fn delete_key(
     Ok(vec![])
 }
 
+pub fn add_bls_key(
+    state_update: &mut TrieUpdate,
+    body: &AddBlsKeyTransaction,
+    account: &mut Account,
+) -> Result<Vec<ReceiptTransaction>, String> {
+    let new_key = BlsPublicKey::from_bytes(&body.new_key).map_err(|e| e.to_string())?;
+    let proof = BlsSignature::from_bytes(&body.proof_of_possession).map_err(|e| e.to_string())?;
+    if !new_key.verify_proof_of_possession(&proof) {
+        return Err("Invalid proof of possession".to_string());
+    }
+    account.bls_public_key = new_key;
+    set(
+        state_update,
+        &account_id_to_bytes(COL_ACCOUNT, &body.originator),
+        &account
+    );
+    Ok(vec![])
+}
 
 
 pub fn system_create_account(
@@ -270,6 +290,7 @@ pub fn system_create_account(
 mod tests {
     use super::*;
     use crate::test_utils::*;
+    use primitives::aggregate_signature::{BlsSecretKey};
     use primitives::hash::hash;
     use primitives::signature::get_key_pair;
     use primitives::traits::Encode;
@@ -669,4 +690,21 @@ mod tests {
         assert_eq!(account.public_keys.len(), 1);
     }
 
+    #[test]
+    fn test_add_bls_key() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, mut root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+
+        // Change Alice's key
+        alice.bls_secret_key = BlsSecretKey::generate();
+
+        let (new_root, _) = alice.add_bls_key(root);
+        root = new_root;
+        let mut new_state_update = TrieUpdate::new(trie.clone(), root);
+        let account = get::<Account>(
+            &mut new_state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
+        ).unwrap();
+        assert_eq!(account.bls_public_key, alice.bls_secret_key.get_public_key());
+    }
 }
