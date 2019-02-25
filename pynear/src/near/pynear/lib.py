@@ -206,6 +206,13 @@ class NearLib(object):
         params = {'hash': _hash}
         return self._call_rpc('get_shard_block_by_hash', params)
 
+    def list_beacon_blocks(self, start=None, limit=None):
+        params = {
+            'start': start,
+            'limit': limit,
+        }
+        return self._call_rpc('get_beacon_blocks_by_index', params)
+
     def create_account(
             self,
             originator,

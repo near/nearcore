@@ -23,6 +23,6 @@ setup(
     setup_requires=['pytest-runner'],
     tests_require=tests_require,
     extras_require={
-        'test': tests_require,
+        'test_utils': tests_require,
     }
 )
