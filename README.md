@@ -84,11 +84,12 @@ cargo run --package=devnet
 
  ### Testing
 
-In order to run tests currently, you must setup the following:
+In order to run tests currently, you must setup `pynear`:
 
 ```bash
+cd pynear
 # sudo may be required if you are not testing with a python virtual environment
-pip install protobuf
+python setup.py develop
 ```
 
 ### Logging
