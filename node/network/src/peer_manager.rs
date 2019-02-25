@@ -188,7 +188,7 @@ mod tests {
     use std::time::Duration;
     use tokio::util::StreamExt;
     use std::ops::Deref;
-    use testing_utils::wait_all_peers_connected;
+    use crate::testing_utils::{wait_all_peers_connected, wait};
 
     #[test]
     fn test_two_peers_boot() {

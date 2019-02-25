@@ -53,7 +53,6 @@ fn spawn_all(num_authorities: usize) {
             let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
                 owner_id,
                 num_authorities,
-                payload,
                 public_keys.clone(),
                 secret_keys[owner_id].clone(),
                 bls_public_keys.clone(),
@@ -67,7 +66,7 @@ fn spawn_all(num_authorities: usize) {
             tokio::spawn(task.for_each(|_| Ok(())));
 
             // Start the task using control channels, and stop it after 1 second
-            let start_task = control_tx.clone().send(Control::Reset)
+            let start_task = control_tx.clone().send(Control::Reset(payload))
                 .map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
             tokio::spawn(start_task);
 

@@ -23,8 +23,8 @@ use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
 
 const COOLDOWN_MS: u64 = 50;
 
-pub enum Control {
-    Reset,
+pub enum Control<P> {
+    Reset(P),
     Stop,
 }
 
@@ -120,7 +120,7 @@ pub struct NightshadeTask<P> {
     out_gossips: mpsc::Sender<Gossip<P>>,
     /// Channel to start/reset consensus
     /// Important: Reset only works the first time it is sent.
-    control_receiver: mpsc::Receiver<Control>,
+    control_receiver: mpsc::Receiver<Control<P>>,
     consensus_sender: mpsc::Sender<BlockHeader>,
     /// None while not consensus have not been reached, and Some(outcome) after consensus is reached.
     consensus_reached: Option<BlockHeader>,
@@ -135,22 +135,20 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     pub fn new(
         owner_id: AuthorityId,
         num_authorities: usize,
-        payload: P,
         public_keys: Vec<PublicKey>,
         owner_secret_key: SecretKey,
         bls_public_keys: Vec<BlsPublicKey>,
         bls_owner_secret_key: BlsSecretKey,
         inc_gossips: mpsc::Receiver<Gossip<P>>,
         out_gossips: mpsc::Sender<Gossip<P>>,
-        control_receiver: mpsc::Receiver<Control>,
+        control_receiver: mpsc::Receiver<Control<P>>,
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
-        let mut authority_blocks = vec![None; num_authorities];
-        authority_blocks[owner_id] = Some(SignedBlock::new(owner_id, payload, &owner_secret_key));
+
         Self {
             owner_id,
             num_authorities,
-            authority_blocks,
+            authority_blocks: vec![],
             nightshade: None,
             public_keys,
             owner_secret_key,
@@ -174,7 +172,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         self.nightshade.as_mut().expect("Nightshade should be initialized")
     }
 
-    fn init_nightshade(&mut self) {
+    fn init_nightshade(&mut self, payload: P) {
+        self.authority_blocks = vec![None; self.num_authorities];
+        self.authority_blocks[self.owner_id] = Some(SignedBlock::new(self.owner_id, payload, &self.owner_secret_key));
         self.nightshade = Some(
             Nightshade::new(self.owner_id as AuthorityId,
                             self.num_authorities as usize,
@@ -326,9 +326,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
         // Control loop
         loop {
             match self.control_receiver.poll() {
-                Ok(Async::Ready(Some(Control::Reset))) => {
+                Ok(Async::Ready(Some(Control::Reset(payload)))) => {
                     info!(target: "nightshade", "Control channel received Reset");
-                    self.init_nightshade();
+                    self.init_nightshade(payload);
                     break;
                 }
                 Ok(Async::Ready(Some(Control::Stop))) => {
@@ -337,7 +337,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                         self.nightshade = None;
                         // On the next call of poll if we still don't have the state this task will be
                         // parked because we will return NotReady.
-                        return Ok(Async::Ready(Some(())));
+                        continue;
                     }
                     // Otherwise loop until we encounter Reset command in the stream. If the stream
                     // is NotReady this will automatically park the task.
@@ -426,19 +426,18 @@ pub fn spawn_nightshade_task<P>(
     inc_gossips: mpsc::Receiver<Gossip<P>>,
     out_gossips: mpsc::Sender<Gossip<P>>,
     consensus_sender: mpsc::Sender<BlockHeader>,
-) -> mpsc::Sender<Control> where P: Serialize + Send + Clone + Debug + 'static {
+) -> mpsc::Sender<Control<P>> where P: Serialize + Send + Clone + Debug + 'static {
     // Create control channel and send reset signal.
     // Nightshade task should end alone after more than 2/3 of authorities have committed.
     let (control_tx, control_rx) = mpsc::channel(1024);
 
     let control_tx1 = control_tx.clone();
-    let start_task = control_tx1.send(Control::Reset).map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
+    let start_task = control_tx1.send(Control::Reset(payload)).map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
     tokio::spawn(start_task);
 
     let task = NightshadeTask::new(
         owner_id,
         num_authorities,
-        payload,
         public_keys,
         owner_secret_key,
         bls_public_keys,

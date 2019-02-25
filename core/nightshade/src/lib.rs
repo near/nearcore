@@ -3,7 +3,7 @@ extern crate serde_derive;
 extern crate serde;
 extern crate bs58;
 
-mod nightshade;
+pub mod nightshade;
 mod verifier;
 pub mod nightshade_task;
 

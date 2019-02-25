@@ -23,7 +23,6 @@ impl PeerManager {
     }
 }
 
-#[allow(dead_code)]
 pub fn wait_all_peers_connected(
     check_interval_ms: u64,
     max_wait_ms: u64,
@@ -41,7 +40,7 @@ pub fn wait_all_peers_connected(
     );
 }
 
-fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
+pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
     where
         F: Fn() -> bool,
 {
