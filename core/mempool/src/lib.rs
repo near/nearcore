@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::sync::mpsc::{Receiver, Sender};
 
+mod tx_exchange;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned";
 const TOKIO_RECV_ERR: &str = "Implementation of tokio Receiver should not return an error";
 

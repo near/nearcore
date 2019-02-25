@@ -205,7 +205,7 @@ class NearRPC(object):
             process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=null)
             stdout = process.communicate()[0]
             if process.returncode != 0:
-                sys.stdout.write(stdout)
+                sys.stdout.write(str(stdout))
 
                 if process.returncode == 3:
                     _help = "To create, run:\ncargo run -p keystore " \
