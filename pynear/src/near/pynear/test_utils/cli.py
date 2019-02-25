@@ -43,9 +43,7 @@ class CliHelpers(object):
 
         return _wait_for_account()
 
-    def deploy_contract(self, wasm_path):
-        buster = random.randint(0, 10000)
-        contract_name = "test_contract_{}".format(buster)
+    def deploy_contract(self, contract_name, wasm_path):
         self.create_account(contract_name)
 
         command = "deploy {} {}".format(contract_name, wasm_path)

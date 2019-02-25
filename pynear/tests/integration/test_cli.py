@@ -53,9 +53,16 @@ def test_create_account(make_devnet, tmpdir):
     CliHelpers(port).create_account(account_id)
 
 
-def test_deploy_contract(make_devnet, tmpdir, hello_wasm_path):
+def test_deploy_contract(
+        make_devnet,
+        tmpdir,
+        get_incrementing_number,
+        hello_wasm_path,
+):
     port = make_devnet(tmpdir)
-    CliHelpers(port).deploy_contract(hello_wasm_path)
+    buster = get_incrementing_number()
+    contract_name = "test_contract_{}".format(buster)
+    CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
 
 
 def test_send_money(make_devnet, tmpdir):
@@ -73,9 +80,16 @@ def test_send_money(make_devnet, tmpdir):
     _wait_for_balance_change()
 
 
-def test_set_get_values(make_devnet, tmpdir, hello_wasm_path):
+def test_set_get_values(
+        make_devnet,
+        tmpdir,
+        get_incrementing_number,
+        hello_wasm_path,
+):
     port = make_devnet(tmpdir)
-    contract = CliHelpers(port).deploy_contract(hello_wasm_path)
+    buster = get_incrementing_number()
+    contract_name = "test_contract_{}".format(buster)
+    contract = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
     contract_name = contract['account_id']
     value = 'test'
     args = {'value': value}
@@ -94,9 +108,16 @@ def test_set_get_values(make_devnet, tmpdir, hello_wasm_path):
     _wait_for_state_change()
 
 
-def test_view_state(make_devnet, tmpdir, hello_wasm_path):
+def test_view_state(
+        make_devnet,
+        tmpdir,
+        get_incrementing_number,
+        hello_wasm_path,
+):
     port = make_devnet(tmpdir)
-    contract = CliHelpers(port).deploy_contract(hello_wasm_path)
+    buster = get_incrementing_number()
+    contract_name = "test_contract_{}".format(buster)
+    contract = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
     contract_name = contract['account_id']
     command = "view_state {}".format(contract_name)
     out = CliHelpers(port).run_command(command)
