@@ -171,7 +171,6 @@ impl PeerManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::peer::PeerState;
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
     use futures::future;
     use futures::future::Future;
@@ -187,7 +186,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use tokio::util::StreamExt;
-    use std::ops::Deref;
     use crate::testing_utils::{wait_all_peers_connected, wait};
 
     #[test]
