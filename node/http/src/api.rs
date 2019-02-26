@@ -60,7 +60,7 @@ impl HttpApi {
     ) -> Result<CallViewFunctionResponse, String> {
         debug!(
             target: "near-rpc",
-            "Call view function {}.{} with args {}",
+            "Call view function {}.{}({})",
             r.contract_account_id,
             r.method_name,
             pretty_utf8(&r.args),

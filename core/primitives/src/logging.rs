@@ -9,17 +9,17 @@ const STRING_SHORT_LEN: usize = 6;
 
 pub fn pretty_vec<T: Debug>(buf: &[T]) -> String {
     if buf.len() <= VECTOR_MAX_LENGTH {
-        format!("{:?}", buf)
+        format!("{:#?}", buf)
     } else {
-        format!("({})[{:?}, {:?}, … {:?}, {:?}]", buf.len(), buf[0], buf[1], buf[buf.len() - 2], buf[buf.len() - 1])
+        format!("({})[{:#?}, {:#?}, … {:#?}, {:#?}]", buf.len(), buf[0], buf[1], buf[buf.len() - 2], buf[buf.len() - 1])
     }
 }
 
 pub fn pretty_str(s: &str, short_len: usize, print_len: usize) -> String {
     if s.len() <= print_len {
-        format!("\"{}\"", s)
+        format!("`{}`", s)
     } else {
-        format!("({})\"{}…{}\"", s.len(), &s[..short_len], &s[s.len()-short_len..])
+        format!("({})`{}…{}`", s.len(), &s[..short_len], &s[s.len()-short_len..])
     }
 }
 
