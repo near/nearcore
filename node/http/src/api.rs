@@ -65,16 +65,10 @@ impl HttpApi {
             r.method_name,
             pretty_utf8(&r.args),
         );
-<<<<<<< HEAD
-        let state_update = self.client.shard_client.get_state_update();
-        let best_index = self.client.shard_client.chain.best_index();
-        match self.client.shard_client.trie_viewer.call_function(
-=======
         let state_update = self.client.shard_client.get_state_update();
         let best_index = self.client.shard_client.chain.best_index();
         let mut logs = vec![];
         match self.client.shard_client.trie_viewer.call_function(
->>>>>>> [WIP] Returning logs and printing them to console
             state_update,
             best_index, 
             &r.contract_account_id,

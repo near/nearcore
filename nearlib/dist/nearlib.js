@@ -271,6 +271,7 @@ class Near {
             method_name: methodName,
             args: serializedArgs
         });
+        printLogs(contractAccountId, response.logs);
         const json = JSON.parse(Buffer.from(response.result).toString());
         return json.result;
     }
@@ -379,10 +380,7 @@ class Near {
         for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
             await sleep(STATUS_POLL_PERIOD_MS);
             result = (await this.getTransactionStatus(transactionHash)).result;
-            const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
-            flatLog.forEach(line => {
-                console.log(`[${contractAccountId}]: ${line}`);
-            });
+            const flatLog = printLogs(contractAccountId, result.logs);
             if (result.status == 'Completed') {
                 return result;
             }
@@ -433,6 +431,14 @@ class Near {
         });
         return contract;
     }
+}
+
+function printLogs(contractAccountId, resLogs) {
+    const flatLog = resLogs.reduce((acc, it) => acc.concat(it.lines), []);
+    flatLog.forEach(line => {
+        console.log(`[${contractAccountId}]: ${line}`);
+    });
+    return flatLog;
 }
 
 function sleep(time) {
