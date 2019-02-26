@@ -17,7 +17,7 @@ use std::{cmp, env, fs};
 
 use env_logger::Builder;
 
-use beacon::beacon_chain::BeaconBlockChain;
+use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::SignedBlock;
@@ -62,7 +62,7 @@ pub struct Client {
     pub signer: InMemorySigner,
 
     pub shard_client: ShardClient,
-    pub beacon_chain: BeaconBlockChain,
+    pub beacon_chain: BeaconClient,
 
     // TODO: The following logic might need to be hidden somewhere.
     /// Stores blocks that cannot be added yet.
@@ -132,7 +132,7 @@ impl Client {
         let shard_client = ShardClient::new(chain_spec, shard_storage);
         info!(target: "client", "Genesis root: {:?}", shard_client.genesis_hash());
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
-        let beacon_chain = BeaconBlockChain::new(genesis, &chain_spec, beacon_storage);
+        let beacon_chain = BeaconClient::new(genesis, &chain_spec, beacon_storage);
 
         let mut key_file_path = config.base_path.to_path_buf();
         key_file_path.push(KEY_STORE_PATH);

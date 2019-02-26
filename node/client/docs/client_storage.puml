@@ -13,8 +13,8 @@ class BeaconChainStorage
 GenericStorage <|-- BeaconChainStorage
 BeaconChainStorage *-- BlockChainStorage
 
-class BeaconBlockChain
-BeaconBlockChain *-- BlockChain
+class BeaconClient
+BeaconClient *-- BlockChain
 }
 
 package SequentializedShard {
