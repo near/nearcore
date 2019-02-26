@@ -23,7 +23,7 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::traits::ConsensusBlockBody;
+use primitives::consensus::ConsensusBlockBody;
 use primitives::types::{AccountId, AuthorityStake, BlockId, UID};
 use shard::ShardBlockChain;
 use storage::create_storage;
@@ -318,7 +318,7 @@ impl Client {
     }
 
     /// Fetch transaction / receipts by hash from mempool.
-    pub fn fetch_payload(&self, transaction_hashes: Vec<CryptoHash>, receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
+    pub fn fetch_payload(&self, _transaction_hashes: Vec<CryptoHash>, _receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
         Ok(ChainPayload { transactions: vec![], receipts: vec![] })
     }
 }

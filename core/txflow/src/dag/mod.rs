@@ -2,7 +2,7 @@ mod message;
 mod reporter;
 
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::traits::{Payload, WitnessSelector, ConsensusBlockBody};
+use primitives::consensus::{Payload, WitnessSelector, ConsensusBlockBody};
 use primitives::types::*;
 
 use std::cell::RefCell;

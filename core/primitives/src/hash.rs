@@ -3,7 +3,7 @@ use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
 use std::fmt;
-use crate::traits::Encode;
+use crate::serialize::Encode;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
 pub struct CryptoHash(pub Digest);

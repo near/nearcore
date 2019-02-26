@@ -1,6 +1,6 @@
 use storage::TrieUpdate;
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::traits::Decode;
+use primitives::serialize::Decode;
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::utils::is_valid_account_id;

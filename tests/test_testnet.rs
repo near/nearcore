@@ -20,6 +20,9 @@ use primitives::network::PeerInfo;
 use primitives::signer::write_key_file;
 use primitives::test_utils::get_key_pair_from_seed;
 
+const TMP_DIR: &str = "./tmp/testnet";
+const KEY_STORE_PATH: &str = "./tmp/testnet/key_store";
+
 struct Node {
     pub client: Arc<Client>,
     pub node_info: PeerInfo,
@@ -96,8 +99,19 @@ fn check_result(output: Output) -> Result<String, String> {
     Ok(result.to_owned().to_string())
 }
 
-const TMP_DIR: &str = "./tmp/testnet";
-const KEY_STORE_PATH: &str = "./tmp/testnet/key_store";
+fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
+    where
+        F: Fn() -> bool,
+{
+    let mut ms_slept = 0;
+    while !f() {
+        thread::sleep(Duration::from_millis(check_interval_ms));
+        ms_slept += check_interval_ms;
+        if ms_slept > max_wait_ms {
+            panic!("Timed out waiting for the condition");
+        }
+    }
+}
 
 fn get_public_key() -> String {
     let key_store_path = Path::new(KEY_STORE_PATH);
@@ -145,20 +159,6 @@ fn test_two_nodes() {
     wait(view_account, 500, 60000);
 }
 
-fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-where
-    F: Fn() -> bool,
-{
-    let mut ms_slept = 0;
-    while !f() {
-        thread::sleep(Duration::from_millis(check_interval_ms));
-        ms_slept += check_interval_ms;
-        if ms_slept > max_wait_ms {
-            panic!("Timed out waiting for the condition");
-        }
-    }
-}
-
 #[test]
 fn test_two_nodes_sync() {
     let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![]);
@@ -171,5 +171,25 @@ fn test_two_nodes_sync() {
     alice.start();
     bob.start();
 
-    assert_eq!(bob.client.shard_chain.chain.best_block().index(), 1);
+    wait(|| {
+        bob.client.shard_chain.chain.best_block().index() == 1
+    }, 500, 10000);
 }
+
+//#[test]
+//fn test_three_nodes_tx_sync() {
+//    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![]);
+//    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()]);
+//    let john = Node::new("node_john", "john.near", 3, "127.0.0.1:3002", 3032, vec![bob.node_info.clone()]);
+//
+//    let tx = Transaction::new(..);
+//    alice.client.shard_chain.send_transaction(tx);
+//
+//    alice.start();
+//    bob.start();
+//    john.start();
+//
+//    wait(|| {
+//        bob.client.shard_chain.mempool.contains(tx.hash) && john.client.shard_chain.mempool.contains(tx.hash);
+//    }, 500, 10000);
+//}

@@ -9,7 +9,7 @@ use tokio::timer::Delay;
 
 use crate::dag::DAG;
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::traits::{Payload, WitnessSelector, ConsensusBlockBody};
+use primitives::consensus::{Payload, WitnessSelector, ConsensusBlockBody};
 use primitives::types::{
     Gossip, GossipBody, SignedMessageData, TxFlowHash, UID,
 };

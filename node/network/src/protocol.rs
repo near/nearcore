@@ -11,40 +11,65 @@ use log::warn;
 
 use client::Client;
 use configs::NetworkConfig;
+use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, Gossip, PeerId};
 
-use crate::message::{CoupledBlock, Message, RequestId};
-use crate::peer::PeerMessage;
+use crate::message::{ChainState, CoupledBlock, Message, RequestId};
+use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
+
+#[derive(Clone)]
+pub struct ClientChainStateRetriever {
+    client: Arc<Client>,
+}
+
+impl ClientChainStateRetriever {
+    fn new(client: Arc<Client>) -> Self {
+        ClientChainStateRetriever { client }
+    }
+}
+
+impl ChainStateRetriever for ClientChainStateRetriever {
+    #[inline]
+    fn get_chain_state(&self) -> ChainState {
+        ChainState {
+            genesis_hash: self.client.beacon_chain.chain.genesis_hash(),
+            last_index: self.client.beacon_chain.chain.best_block().index()
+        }
+    }
+}
 
 /// Protocol responsible for actual message processing from network and sending messages.
 struct Protocol {
     client: Arc<Client>,
-    peer_manager: Arc<PeerManager>,
+    peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     inc_block_tx: Sender<CoupledBlock>,
 }
 
 impl Protocol {
+
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
         match Decode::decode(&data) {
             Ok(m) => match m {
+                Message::Connected(_connected_info) => {
+                    // TODO: implement
+                },
                 Message::Gossip(gossip) => {
                     forward_msg(self.inc_gossip_tx.clone(), *gossip)
                 },
                 Message::BlockAnnounce(block) => {
-                    let unboxed = *block;
-                    forward_msg(self.inc_block_tx.clone(), (unboxed.0, unboxed.1));
+                    forward_msg(self.inc_block_tx.clone(), *block);
                 },
                 Message::BlockFetchRequest(request_id, hashes) => {
                     match self.client.fetch_blocks(hashes) {
                         Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
-                        Err(_) => {
+                        Err(err) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!("Failed to fetch blocks from {}. Possible grinding attack.", peer_id);
+                            warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
                         }
                     }
 
@@ -52,9 +77,9 @@ impl Protocol {
                 Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
                     match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
                         Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
-                        Err(_) => {
+                        Err(err) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!("Failed to fetch payload from {}. Possible grinding attack.", peer_id);
+                            warn!(target: "network", "Failed to fetch payload from {} with {}. Possible grinding attack.", peer_id, err);
                         }
                     }
                 }
@@ -73,15 +98,13 @@ impl Protocol {
         if let Some(ch) = out_channel {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "Channel for {} not found.", g.receiver_uid);
         }
     }
 
     fn send_block_announce(&self, b: CoupledBlock) {
-        let data = Encode::encode(&Message::BlockAnnounce(Box::new((
-            b.0.clone(),
-            b.1.clone(),
-        ))))
-            .unwrap();
+        let data = Encode::encode(&Message::BlockAnnounce(Box::new(b))).unwrap();
         for ch in self.peer_manager.get_ready_channels() {
             forward_msg(ch, PeerMessage::Message(data.to_vec()));
         }
@@ -91,6 +114,8 @@ impl Protocol {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data = Encode::encode(&Message::BlockFetchResponse(request_id, blocks)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "Channel for {} not found.", peer_id);
         }
     }
 
@@ -98,6 +123,8 @@ impl Protocol {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "Channel for {} not found.", peer_id);
         }
     }
 }
@@ -125,6 +152,7 @@ pub fn spawn_network(
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
 
+    let client_chain_state_retriever = ClientChainStateRetriever::new(client.clone());
     let peer_manager = Arc::new(PeerManager::new(
         network_cfg.reconnect_delay,
         network_cfg.gossip_interval,
@@ -137,6 +165,7 @@ pub fn spawn_network(
         &network_cfg.boot_nodes,
         inc_msg_tx,
         out_msg_rx,
+        client_chain_state_retriever,
     ));
 
     let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx });

@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use primitives::traits::{Payload, WitnessSelector};
+use primitives::consensus::{Payload, WitnessSelector};
 use primitives::types;
 
 use self::group::GroupsPerEpoch;

@@ -4,7 +4,7 @@ use crate::KeyValueDB;
 use primitives::block_traits::SignedBlock;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
-use primitives::traits::{Decode, Encode};
+use primitives::serialize::{Decode, Encode};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
