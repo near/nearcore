@@ -37,8 +37,8 @@ pub enum RPCError {
 impl HttpApi {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {:?}", r.account_id);
-        let mut state_update = self.client.shard_chain.get_state_update();
-        match self.client.shard_chain.trie_viewer.view_account(
+        let mut state_update = self.client.shard_client.get_state_update();
+        match self.client.shard_client.trie_viewer.view_account(
             &mut state_update,
             &r.account_id
         ) {
@@ -63,9 +63,9 @@ impl HttpApi {
             r.contract_account_id,
             r.method_name,
         );
-        let state_update = self.client.shard_chain.get_state_update();
-        let best_index = self.client.shard_chain.chain.best_index();
-        match self.client.shard_chain.trie_viewer.call_function(
+        let state_update = self.client.shard_client.get_state_update();
+        let best_index = self.client.shard_client.chain.best_index();
+        match self.client.shard_client.trie_viewer.call_function(
             state_update,
             best_index, 
             &r.contract_account_id,
@@ -84,8 +84,8 @@ impl HttpApi {
         let transaction: SignedTransaction = r.transaction.clone().into();
         debug!(target: "near-rpc", "Received transaction {:?}", transaction);
         let originator = transaction.body.get_originator();
-        let mut state_update = self.client.shard_chain.get_state_update();
-        let public_keys = self.client.shard_chain.trie_viewer
+        let mut state_update = self.client.shard_client.get_state_update();
+        let public_keys = self.client.shard_client.trie_viewer
             .get_public_keys_for_account(&mut state_update, &originator)
             .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&transaction, &public_keys) {
@@ -103,8 +103,8 @@ impl HttpApi {
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
-        let state_update = self.client.shard_chain.get_state_update();
-        let result = self.client.shard_chain.trie_viewer
+        let state_update = self.client.shard_client.get_state_update();
+        let result = self.client.shard_client.trie_viewer
             .view_state(&state_update, &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
@@ -128,14 +128,14 @@ impl HttpApi {
     }
 
     pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
-        Ok(self.client.shard_chain.chain.best_block().into())
+        Ok(self.client.shard_client.chain.best_block().into())
     }
 
     pub fn get_shard_block_by_hash(
         &self,
         r: &GetBlockByHashRequest,
     ) -> Result<SignedShardBlockResponse, &str> {
-        match self.client.shard_chain.chain.get_block(&BlockId::Hash(r.hash)) {
+        match self.client.shard_client.chain.get_block(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
@@ -145,9 +145,9 @@ impl HttpApi {
         &self,
         r: &GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String> {
-        let start = r.start.unwrap_or_else(|| self.client.shard_chain.chain.best_index());
+        let start = r.start.unwrap_or_else(|| self.client.shard_client.chain.best_index());
         let limit = r.limit.unwrap_or(25);
-        self.client.shard_chain.chain.get_blocks_by_index(start, limit).map(|blocks| {
+        self.client.shard_client.chain.get_blocks_by_index(start, limit).map(|blocks| {
             SignedShardBlocksResponse {
                 blocks: blocks.into_iter().map(|x| x.into()).collect(),
             }
@@ -171,7 +171,7 @@ impl HttpApi {
         &self,
         r: &GetTransactionRequest,
     ) -> Result<TransactionInfoResponse, RPCError> {
-        match self.client.shard_chain.get_transaction_info(&r.hash) {
+        match self.client.shard_client.get_transaction_info(&r.hash) {
             Some(info) => Ok(TransactionInfoResponse {
                 transaction: info.transaction.into(),
                 block_index: info.block_index,
@@ -186,7 +186,7 @@ impl HttpApi {
         &self,
         r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
-        let result = self.client.shard_chain.get_transaction_final_result(&r.hash);
+        let result = self.client.shard_client.get_transaction_final_result(&r.hash);
         Ok(TransactionResultResponse { result })
     }
 }

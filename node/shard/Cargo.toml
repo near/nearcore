@@ -17,3 +17,4 @@ storage = { path = "../../core/storage" }
 chain = { path = "../../core/chain" }
 node-runtime = { path = "../runtime" }
 configs = { path = "../configs" }
+mempool = { path = "../../core/mempool" }

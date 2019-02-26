@@ -6,9 +6,8 @@ use bencher::Bencher;
 
 extern crate storage;
 
-use std::sync::Arc;
 use storage::test_utils::create_trie;
-use storage::{KeyValueDB, Trie};
+use storage::Trie;
 
 use rand::random;
 
