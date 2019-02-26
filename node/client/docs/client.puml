@@ -6,7 +6,7 @@
 [Storage]
 
 component Client {
-   component BeaconBlockChain {
+   component BeaconClient {
         [BlockChain<SignedBeaconBlock>] as BeaconChain
         [Authority]
         }
