@@ -20,8 +20,6 @@ use primitives::chain::SignedShardBlock;
 pub fn spawn_block_producer(
     client: Arc<Client>,
     receiver: Receiver<(BlockHeader, u64)>,
-    _block_announce_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
-    _new_receipts_tx: Sender<ReceiptBlock>,
     control_tx: Sender<Control<ChainPayload>>,
 ) {
     let task = receiver
@@ -30,7 +28,7 @@ pub fn spawn_block_producer(
             // consensus.
             let body =
                 ChainConsensusBlockBody { messages: vec![], beacon_block_index: block_index };
-            if let BlockProductionResult::Success(new_beacon_block, new_shard_block) =
+            if let BlockProductionResult::Success(new_beacon_block, _new_shard_block) =
                 client.try_produce_block(body)
             {
                 let control = get_control(&*client, new_beacon_block.header().index() + 1);

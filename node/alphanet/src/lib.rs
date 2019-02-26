@@ -15,6 +15,7 @@ use network::nightshade_protocol::spawn_consensus_network;
 use nightshade::nightshade_task::{spawn_nightshade_task, Control};
 use std::sync::Arc;
 use coroutines::ns_control_builder::get_control;
+use coroutines::ns_producer::spawn_block_producer;
 
 pub fn start_from_configs(
     client_cfg: ClientConfig,
@@ -49,17 +50,7 @@ pub fn start_from_configs(
             out_gossip_rx,
         );
 
-        // Wait for consensus is achieved and send stop signal.
-        let commit_task = consensus_rx.for_each(move |_outcome| {
-            let stop_task = control_tx.clone()
-                .send(Control::Stop)
-                .map(|_| ())
-                .map_err(|e| error!("Error sending stop signal: {:?}", e));
-            tokio::spawn(stop_task);
-            Ok(())
-
-            // TODO: Add block (with the evidence) to the chain, broadcast action and move onto next block.
-        });
+        spawn_block_producer(client.clone(), consensus_rx, control_tx);
 
         tokio::spawn(commit_task);
 
