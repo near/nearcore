@@ -9,7 +9,10 @@ use primitives::signature::SecretKey;
 use rand::{SeedableRng, XorShiftRng};
 
 pub fn get_control(client: &Client, block_index: u64) -> Control<ChainPayload> {
-    let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(block_index);
+    // TODO: Get authorities for the correct block index. For now these are the same authorities
+    // that built the first block. In other words use `block_index` instead of `mock_block_index`.
+    let mock_block_index = 0;
+    let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(mock_block_index);
     if owner_uid.is_none() {
         return Control::Stop;
     }

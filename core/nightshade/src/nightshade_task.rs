@@ -58,6 +58,7 @@ pub struct Gossip<P> {
     pub receiver_id: AuthorityId,
     pub body: GossipBody<P>,
     signature: Signature,
+    block_index: u64,
 }
 
 impl<P: Serialize> Gossip<P> {
@@ -66,10 +67,11 @@ impl<P: Serialize> Gossip<P> {
         receiver_id: AuthorityId,
         body: GossipBody<P>,
         sk: &SecretKey,
+        block_index: u64,
     ) -> Self {
         let hash = hash_struct(&(sender_id, receiver_id, &body));
 
-        Self { sender_id, receiver_id, body, signature: sign(hash.as_ref(), &sk) }
+        Self { sender_id, receiver_id, body, signature: sign(hash.as_ref(), &sk), block_index }
     }
 
     fn get_hash(&self) -> CryptoHash {
@@ -108,6 +110,8 @@ pub struct NightshadeTask<P> {
     /// from other authority to have its block.
     authority_blocks: Vec<Option<SignedBlock<P>>>,
     nightshade: Option<Nightshade>,
+    /// Block index that we are currently working on.
+    block_index: Option<u64>,
     /// Standard public/secret keys are used to sign payloads and gossips
     public_keys: Vec<PublicKey>,
     owner_secret_key: Option<SecretKey>,
@@ -138,6 +142,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         Self {
             authority_blocks: vec![],
             nightshade: None,
+            block_index: None,
             public_keys: vec![],
             owner_secret_key: None,
             inc_gossips,
@@ -161,10 +166,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     fn init_nightshade(
         &mut self,
         owner_uid: u64,
-        // TODO: Use block index to tag gossip messages, so that
-        // we do not mix gossip messages coming from different blocks
-        // due to network delay.
-        _block_index: u64,
+        block_index: u64,
         payload: P,
         public_keys: Vec<PublicKey>,
         owner_secret_key: SecretKey,
@@ -174,6 +176,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         let num_authorities = public_keys.len();
         self.public_keys = public_keys;
         self.owner_secret_key = Some(owner_secret_key.clone());
+        self.block_index = Some(block_index);
         self.missing_payloads = num_authorities - 1;
         self.authority_blocks = vec![None; num_authorities];
         self.authority_blocks[owner_uid as usize] =
@@ -197,6 +200,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
             self.owner_secret_key.as_ref().unwrap(),
+            self.block_index.unwrap()
         ));
     }
 
@@ -236,12 +240,16 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
                 author,
                 GossipBody::PayloadRequest(vec![author]),
                 self.owner_secret_key.as_ref().unwrap(),
+                self.block_index.unwrap(),
             );
             self.send_gossip(gossip);
         }
     }
 
     fn process_gossip(&mut self, gossip: Gossip<P>) {
+        if Some(gossip.block_index) != self.block_index {
+            return;
+        }
         if !gossip.verify(&self.public_keys[gossip.sender_id]) {
             return;
         }
@@ -267,6 +275,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             receiver_id,
             GossipBody::PayloadReply(payloads),
             self.owner_secret_key.as_ref().unwrap(),
+            self.block_index.unwrap(),
         );
         self.send_gossip(gossip);
     }
@@ -316,6 +325,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
                     authority,
                     GossipBody::PayloadRequest(vec![authority]),
                     self.owner_secret_key.as_ref().unwrap(),
+                    self.block_index.unwrap(),
                 );
                 self.send_gossip(gossip);
             }
