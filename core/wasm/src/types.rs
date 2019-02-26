@@ -1,4 +1,7 @@
+use std::fmt;
+
 use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
+use primitives::logging;
 use wasmer_runtime::error as WasmerError;
 
 #[derive(Debug, Clone)]
@@ -182,7 +185,7 @@ impl From<RuntimeError> for Error {
 }
 
 /// Returned data from the method. 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum ReturnData {
     /// Method returned some value or data.
     Value(Vec<u8>),
@@ -193,6 +196,25 @@ pub enum ReturnData {
     /// Method hasn't returned any data or promise.
     None,
 }
+
+impl fmt::Debug for ReturnData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ReturnData::Value(v) => {
+                f.debug_tuple("Value")
+                    .field(&format_args!("{}", logging::pretty_utf8(&v)))
+                    .finish()
+            }
+            ReturnData::Promise(promise_id) => {
+                f.debug_tuple("Promise")
+                    .field(&promise_id)
+                    .finish()
+            }
+            ReturnData::None => write!(f, "None")
+        }
+    }
+}
+
 
 // TODO: Extract it to the root of the crate
 #[derive(Clone, Debug, Serialize)]

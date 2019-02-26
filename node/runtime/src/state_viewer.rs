@@ -142,7 +142,7 @@ impl TrieViewer {
         let time_str = format!("{:.*}ms", 2, time_ms);
         match wasm_res {
             Ok(res) => {
-                debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, res);
+                debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, res);
                 match res.return_data {
                     Ok(return_data) => {
                         let (root_after, _) = state_update.finalize();

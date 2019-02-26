@@ -16,6 +16,7 @@ use std::path::Path;
 use std::{cmp, env, fs};
 
 use env_logger::Builder;
+use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
@@ -25,7 +26,7 @@ use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
-use shard::ShardClient;
+use shard::{get_all_receipts, ShardClient};
 use std::sync::RwLock;
 use storage::create_storage;
 
@@ -223,11 +224,28 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
+        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}",
+            block.body.header.index,
+            block.hash,
+            shard_block.hash,
+        );
+        if log_enabled!(target: "client", Debug) {
+            let block_receipts = get_all_receipts(shard_block.body.receipts.iter());
+            let mut tx_with_results: Vec<String> = block_receipts
+                .iter()
+                .zip(&tx_results[..block_receipts.len()])
+                .map(|(receipt, result)| format!("{:#?} -> {:#?}", receipt, result))
+                .collect();
+            tx_with_results.extend(shard_block.body.transactions
+                .iter()
+                .zip(&tx_results[block_receipts.len()..])
+                .map(|(tx, result)| format!("{:#?} -> {:#?}", tx, result))
+            );
+            debug!(target: "client", "Input Transactions: [{}]", tx_with_results.join("\n"));
+            debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(new_receipts.values()));
+        }
         self.shard_client.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
         self.beacon_chain.chain.insert_block(block.clone());
-        info!(target: "client",
-                  "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
-                  block.body.header.index, block.hash, shard_block.hash);
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
         assert_eq!(self.shard_client.chain.best_block().hash, shard_block.hash);

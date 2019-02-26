@@ -5,6 +5,7 @@ use crate::types::{RuntimeError as Error, ReturnData, RuntimeContext};
 use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
 use primitives::hash::hash;
 use primitives::utils::is_valid_account_id;
+use primitives::logging::pretty_utf8;
 use std::collections::HashSet;
 use wasmer_runtime::{
     memory::Memory,
@@ -187,7 +188,7 @@ impl<'a> Runtime<'a> {
             Some(v) => v.len(),
             None => 0,
         };
-        debug!(target: "wasm", "storage_read_len('{}') => {}", format_buf(&key), len);
+        debug!(target: "wasm", "storage_read_len('{}') => {}", pretty_utf8(&key), len);
         Ok(len as u32)
     }
 
@@ -200,7 +201,7 @@ impl<'a> Runtime<'a> {
             .map_err(|_| Error::StorageUpdateError)?;
         if let Some(buf) = val {
             self.memory_set(val_ptr as usize, &buf)?;
-            debug!(target: "wasm", "storage_read_into('{}') => '{}'", format_buf(&key), format_buf(&buf));
+            debug!(target: "wasm", "storage_read_into('{}') => '{}'", pretty_utf8(&key), pretty_utf8(&buf));
         }
         Ok(())
     }
@@ -214,7 +215,7 @@ impl<'a> Runtime<'a> {
         self.ext
             .storage_set(&key, &val)
             .map_err(|_| Error::StorageUpdateError)?;
-        debug!(target: "wasm", "storage_write('{}', '{}')", format_buf(&key), format_buf(&val));
+        debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&val));
         Ok(())
     }
 
@@ -222,7 +223,7 @@ impl<'a> Runtime<'a> {
     fn storage_remove(&mut self, key_ptr: u32) -> Result<()> {
         let key = self.read_buffer(key_ptr as usize)?;
         self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
-        debug!(target: "wasm", "storage_remove('{}')", format_buf(&key));
+        debug!(target: "wasm", "storage_remove('{}')", pretty_utf8(&key));
         Ok(())
     }
 
@@ -233,7 +234,7 @@ impl<'a> Runtime<'a> {
             .ext
             .storage_iter(&prefix)
             .map_err(|_| Error::StorageUpdateError)?;
-        debug!(target: "wasm", "storage_iter('{}') -> {}", format_buf(&prefix), storage_id);
+        debug!(target: "wasm", "storage_iter('{}') -> {}", pretty_utf8(&prefix), storage_id);
         Ok(storage_id)
     }
 
@@ -243,7 +244,7 @@ impl<'a> Runtime<'a> {
             .ext
             .storage_iter_next(storage_id)
             .map_err(|_| Error::StorageUpdateError)?;
-        debug!(target: "wasm", "storage_iter_next({}) -> '{}'", storage_id, format_buf(&key.clone().unwrap_or_default()));
+        debug!(target: "wasm", "storage_iter_next({}) -> '{}'", storage_id, pretty_utf8(&key.clone().unwrap_or_default()));
         Ok(key.is_some() as u32)
     }
 
@@ -551,10 +552,6 @@ impl<'a> Runtime<'a> {
     fn block_index(&self) -> Result<u64> {
         Ok(self.context.block_index as u64)
     }
-}
-
-fn format_buf(buf: &[u8]) -> String {
-    std::str::from_utf8(&buf).unwrap_or(&format!("{:?}", buf)).to_string()
 }
 
 pub mod imports {

@@ -5,6 +5,7 @@ use futures::sync::mpsc::Sender;
 use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
+use primitives::logging::pretty_utf8;
 
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
@@ -36,7 +37,7 @@ pub enum RPCError {
 
 impl HttpApi {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
-        debug!(target: "near-rpc", "View account {:?}", r.account_id);
+        debug!(target: "near-rpc", "View account {}", r.account_id);
         let mut state_update = self.client.shard_client.get_state_update();
         match self.client.shard_client.trie_viewer.view_account(
             &mut state_update,
@@ -59,9 +60,10 @@ impl HttpApi {
     ) -> Result<CallViewFunctionResponse, String> {
         debug!(
             target: "near-rpc",
-            "Call view function {:?}{:?}",
+            "Call view function {}.{}({})",
             r.contract_account_id,
             r.method_name,
+            pretty_utf8(&r.args),
         );
         let state_update = self.client.shard_client.get_state_update();
         let best_index = self.client.shard_client.chain.best_index();
@@ -82,7 +84,7 @@ impl HttpApi {
         r: &SubmitTransactionRequest,
     ) -> Result<SubmitTransactionResponse, RPCError> {
         let transaction: SignedTransaction = r.transaction.clone().into();
-        debug!(target: "near-rpc", "Received transaction {:?}", transaction);
+        debug!(target: "near-rpc", "Received transaction {:#?}", transaction);
         let originator = transaction.body.get_originator();
         let mut state_update = self.client.shard_client.get_state_update();
         let public_keys = self.client.shard_client.trie_viewer
