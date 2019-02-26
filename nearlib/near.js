@@ -1,4 +1,3 @@
-const bs58 = require('bs58');
 const createError = require('http-errors');
 
 const NearClient = require('./nearclient');

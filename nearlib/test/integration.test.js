@@ -2,16 +2,20 @@ const { Account, KeyPair, Near, InMemoryKeyStore } = require('../');
 const dev = require('../dev');
 const fs = require('fs');
 const aliceAccountName = 'alice.near';
+// every new account has this codehash
+const newAccountCodeHash = 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn';
+const storageAccountIdKey = 'dev_near_user';
 let nearjs;
 let account;
 let keyStore;
 
 beforeAll(async () => {
     keyStore = new InMemoryKeyStore();
+    const storage = createFakeStorage();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
-        deps: { keyStore },
+        deps: { keyStore, storage },
     });
     account = new Account(nearjs.nearClient);
 });
@@ -19,6 +23,73 @@ beforeAll(async () => {
 test('test creating default config', async () => {
     // Make sure createDefaultConfig doesn't crash.
     Near.createDefaultConfig();
+});
+
+describe('dev connect', () => {
+    let deps;
+    beforeEach(async () => {
+        const keyStore = new InMemoryKeyStore();
+        const storage = createFakeStorage();   
+        deps = {
+            keyStore,
+            storage,
+            createAccount: (async (newAccountName, newAccountPublicKey) => {
+                const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                await nearjs.waitForTransactionResult(createAccountResponse);
+            })
+        };
+    });
+
+    test('test dev connect with no account creates a new account', async () => {
+        await dev.connect({deps});
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
+        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        const viewAccountResponse = await account.viewAccount(newAccountId);
+        const newAccountKeyPair = await deps.keyStore.getKey(newAccountId);
+        expect(newAccountKeyPair).toBeTruthy();
+        const expectedAccount = {
+            nonce: 0,
+            account_id: newAccountId,
+            amount: 1,
+            code_hash: newAccountCodeHash,
+            stake: 0,
+        };
+        expect(viewAccountResponse).toEqual(expectedAccount);
+        expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
+    });
+
+    test('test dev connect with invalid account in storage creates a new account', async () => {
+        // set up invalid account id in local storage
+        deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
+        await dev.connect({deps});
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
+        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        const viewAccountResponse = await account.viewAccount(newAccountId);
+        const newAccountKeyPair = await deps.keyStore.getKey(newAccountId);
+        expect(newAccountKeyPair).toBeTruthy();
+        const expectedAccount = {
+            nonce: 0,
+            account_id: newAccountId,
+            amount: 1,
+            code_hash: newAccountCodeHash,
+            stake: 0,
+        };
+        expect(viewAccountResponse).toEqual(expectedAccount);
+        expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
+    });
+
+    test('test dev connect with valid account but no keys', async () => {
+        // setup: connect with dev, but rmemove keys afterwards!
+        deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
+        await dev.connect({deps});
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
+        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
+        await deps.keyStore.clear();
+        await dev.connect({deps});
+        // we are expecting account to be recreated!
+        expect(deps.storage.getItem(storageAccountIdKey)).not.toEqual(newAccountId);
+    });
 });
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -37,7 +108,7 @@ test('create account and then view account returns the created account', async (
         nonce: 0,
         account_id: newAccountName,
         amount: 1,
-        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        code_hash: newAccountCodeHash,
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
@@ -58,7 +129,7 @@ test('create account with a new key and then view account returns the created ac
         nonce: 0,
         account_id: newAccountName,
         amount: amount,
-        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        code_hash: newAccountCodeHash,
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
@@ -174,4 +245,22 @@ describe('with deployed contract', () => {
 const generateUniqueString = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);
     return prefix + viewAccountResponse.nonce;
+};
+
+const createFakeStorage = function() {
+    let store = {};
+    return {
+        getItem: function(key) {
+            return store[key];
+        },
+        setItem: function(key, value) {
+            store[key] = value.toString();
+        },
+        clear: function() {
+            store = {};
+        },
+        removeItem: function(key) {
+            delete store[key];
+        }
+    };
 };
