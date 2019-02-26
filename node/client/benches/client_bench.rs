@@ -101,7 +101,7 @@ fn transaction_and_receipts_to_consensus(
 fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
     let mut prev_receipt_blocks = vec![];
     let mut transactions;
-    let mut next_block_idx = client.shard_chain.chain.best_index() + 1;
+    let mut next_block_idx = client.shard_client.chain.best_index() + 1;
     loop {
         if batches.is_empty() {
             if prev_receipt_blocks.is_empty() {
@@ -123,7 +123,7 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
             client.try_produce_block(consensus)
         {
             prev_receipt_blocks = client
-                .shard_chain
+                .shard_client
                 .get_receipt_block(shard_block.index(), shard_block.shard_id())
                 .map(|b| vec![b])
                 .unwrap_or(vec![]);
@@ -200,10 +200,10 @@ fn call_contract(
 fn verify_transaction_statuses(hashes: &Vec<CryptoHash>, client: &mut Client) {
     for h in hashes {
         assert_eq!(
-            client.shard_chain.get_transaction_final_result(h).status,
+            client.shard_client.get_transaction_final_result(h).status,
             FinalTransactionStatus::Completed,
             "Transaction was not completed {:?}",
-            client.shard_chain.get_transaction_final_result(h)
+            client.shard_client.get_transaction_final_result(h)
         );
     }
 }
@@ -337,10 +337,10 @@ fn set_get_values_blocks(bench: &mut Bencher) {
         // As a part of the benchmark get values from the storage and verify that they are correct.
 
         for (k, v) in expected_storage.iter() {
-            let state_update = client.shard_chain.get_state_update();
-            let best_index = client.shard_chain.chain.best_index();
+            let state_update = client.shard_client.get_state_update();
+            let best_index = client.shard_client.chain.best_index();
             let res = client
-                .shard_chain
+                .shard_client
                 .trie_viewer
                 .call_function(
                     state_update,

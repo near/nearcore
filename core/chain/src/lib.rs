@@ -2,9 +2,8 @@ use std::sync::{Arc, RwLock};
 
 use primitives::hash::CryptoHash;
 use primitives::types::BlockId;
-use storage::GenericStorage;
-
 use primitives::block_traits::{SignedBlock, SignedHeader};
+use storage::GenericStorage;
 use std::marker::PhantomData;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";

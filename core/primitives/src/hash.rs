@@ -4,6 +4,7 @@ use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
 use std::fmt;
 use crate::traits::Encode;
+use crate::logging::pretty_hash;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
 pub struct CryptoHash(pub Digest);
@@ -63,7 +64,7 @@ impl Into<Vec<u8>> for CryptoHash {
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", String::from(self))
+        write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 

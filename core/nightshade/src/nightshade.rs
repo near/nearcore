@@ -13,6 +13,9 @@ pub type AuthorityId = usize;
 
 const COMMIT_THRESHOLD: i64 = 3;
 
+// TODO: Move common types from nightshade to primitives and remove pub from nightshade.
+// Only exposed interface should be NightshadeTask
+
 /// Result of updating Nightshade instance with new triplet
 pub type NSResult = Result<Option<State>, String>;
 
@@ -22,7 +25,7 @@ fn empty_cryptohash() -> CryptoHash {
 
 /// Nightshade consensus run on top of outcomes proposed by each authority.
 /// Blocks represent authorities proposal.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block<P> {
     pub header: BlockHeader,
     payload: P,
@@ -53,7 +56,7 @@ impl<P: Serialize> Block<P> {
 /// BlockHeaders are used instead of Blocks as authorities proposal in the consensus.
 /// They are used to avoid receiving two different proposals from the same authority,
 /// and penalize such behavior.
-#[derive(Debug, Clone, Serialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BlockHeader {
     /// Authority proposing the block.
     pub author: AuthorityId,
@@ -68,7 +71,7 @@ pub struct BlockHeader {
 /// "outcome" will be used instead of "authority" to avoid confusion.
 ///
 /// The order of the fields are very important since lexicographical comparison is used derived from `PartialEq`.
-#[derive(Debug, Clone, Serialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BareState {
     /// How much confidence we have on `endorses`.
     pub primary_confidence: i64,
@@ -118,7 +121,7 @@ impl BareState {
 /// It must have signatures from more than 2/3 authorities on triplets of the form `(C - 1, O, C')`
 ///
 /// This is a lazy data structure. Aggregated signature is computed after all BLS parts are supplied.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proof {
     pub bare_state: BareState,
     mask: Vec<bool>,
@@ -184,7 +187,7 @@ pub enum NSVerifyErr {
 /// Proof for `primary_confidence` is a set of states of size greater than 2 / 3 * num_authorities signed
 /// by different authorities such that our current confidence (`primary_confidence`) on outcome `endorses`
 /// is consistent whit this set according to Nightshade rules.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
     /// Triplet that describe the state
     pub bare_state: BareState,
@@ -312,9 +315,9 @@ fn incompatible_states(state0: &State, state1: &State) -> bool {
 pub struct Nightshade {
     /// Id of the authority holding this Nightshade instance.
     /// It is an integer from [0..num_authorities).
-    owner_id: AuthorityId,
+    pub owner_id: AuthorityId,
     /// Number of authorities running consensus
-    num_authorities: usize,
+    pub num_authorities: usize,
     /// Current state (triplet) of each authority in the consensus from the point of view
     /// of the authority holding this Nightshade instance.
     states: Vec<State>,
@@ -396,11 +399,6 @@ impl Nightshade {
             match state.verify(authority_id, &self.bls_public_keys) {
                 Ok(_) => self.seen_bare_states.insert(state.bare_state.clone()),
                 Err(_e) => {
-                    // The authority sent an invalid state. Since we checked the gossip signature that contains this state,
-                    // we are sure that this authority is behaving maliciously. Verifying states is a slow
-                    // component of the algorithm and setting this authority as adversarial avoid the case
-                    // when a malicious actor try to spam an honest authority using invalid states.
-                    self.is_adversary[authority_id] = true;
                     // TODO: return more information about why verification fails
                     return Err("Not a valid state".to_string());
                 }

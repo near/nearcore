@@ -68,7 +68,6 @@ pub struct BlockChainStorage<H, B> {
     chain_id: ChainId,
     storage: Arc<KeyValueDB>,
     genesis_hash: Option<CryptoHash>,
-
     best_block_hash: HashMap<Vec<u8>, CryptoHash>,
     headers: HashMap<Vec<u8>, H>,
     blocks: HashMap<Vec<u8>, B>,
@@ -189,6 +188,12 @@ where
     pub fn set_block(&mut self, hash: &CryptoHash, block: B) -> io::Result<()> {
         let key = self.enc_hash(hash);
         write_with_cache(self.storage.as_ref(), COL_BLOCKS, &mut self.blocks, &key, block)
+    }
+
+    #[inline]
+    pub fn best_block(&mut self) -> StorageResult<&B> {
+        let best_hash = *self.best_block_hash().unwrap().unwrap();
+        self.block(&best_hash)
     }
 
     #[inline]

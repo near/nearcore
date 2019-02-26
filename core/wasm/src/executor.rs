@@ -1,10 +1,12 @@
 use crate::ext::External;
 
 use std::ffi::c_void;
+use std::fmt;
 
 use crate::runtime::{self, Runtime};
 use crate::types::{RuntimeContext, Config, ReturnData, Error};
 use primitives::types::{Balance, Mana, Gas};
+use primitives::logging;
 use crate::cache;
 
 use wasmer_runtime::{
@@ -16,7 +18,6 @@ use wasmer_runtime::{
 
 const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";
 
-#[derive(Debug)]
 pub struct ExecutionOutcome {
     pub gas_used: Gas,
     pub mana_used: Mana,
@@ -25,6 +26,20 @@ pub struct ExecutionOutcome {
     pub balance: Balance,
     pub random_seed: Vec<u8>,
     pub logs: Vec<String>,
+}
+
+impl fmt::Debug for ExecutionOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ExecutionOutcome")
+            .field("gas_used", &format_args!("{}", &self.gas_used))
+            .field("mana_used", &format_args!("{}", &self.mana_used))
+            .field("mana_left", &format_args!("{}", &self.mana_left))
+            .field("return_data", &self.return_data)
+            .field("balance", &format_args!("{}", &self.balance))
+            .field("random_seed", &format_args!("{}", logging::pretty_utf8(&self.random_seed)))
+            .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
+            .finish()
+    }
 }
 
 pub fn execute<'a>(

@@ -10,7 +10,7 @@ use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityMask, AuthorityStake, BlockId};
-use crate::beacon_chain::BeaconBlockChainCore;
+use crate::beacon_chain::BeaconBlockChain;
 
 type Epoch = u64;
 type Slot = u64;
@@ -80,7 +80,7 @@ impl Authority {
     }
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
-    pub fn new(authority_config: AuthorityConfig, blockchain: &BeaconBlockChainCore) -> Self {
+    pub fn new(authority_config: AuthorityConfig, blockchain: &BeaconBlockChain) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
             authority_config,
@@ -310,7 +310,7 @@ mod test {
     use super::*;
     use primitives::block_traits::SignedHeader;
     use configs::ChainSpec;
-    use crate::beacon_chain::BeaconBlockChain;
+    use crate::beacon_chain::BeaconClient;
 
     fn get_test_chainspec(
         num_authorities: u32,
@@ -336,11 +336,11 @@ mod test {
         }
     }
 
-    fn test_blockchain(num_blocks: u64, chain_spec: &ChainSpec) -> BeaconBlockChain {
+    fn test_blockchain(num_blocks: u64, chain_spec: &ChainSpec) -> BeaconClient {
         let storage = create_beacon_shard_storages().0;
         let mut last_block =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BeaconBlockChain::new(last_block.clone(), chain_spec, storage);
+        let bc = BeaconClient::new(last_block.clone(), chain_spec, storage);
         for i in 1..num_blocks {
             let block =
                 SignedBeaconBlock::new(i, last_block.block_hash(), vec![], CryptoHash::default());
