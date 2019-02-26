@@ -122,7 +122,8 @@ pub struct NightshadeTask<P> {
     /// Channel to start/reset consensus
     /// Important: Reset only works the first time it is sent.
     control_receiver: mpsc::Receiver<Control<P>>,
-    consensus_sender: mpsc::Sender<BlockHeader>,
+    /// Consensus header and block index on which the consensus was reached.
+    consensus_sender: mpsc::Sender<(BlockHeader, u64)>,
     /// None while not consensus have not been reached, and Some(outcome) after consensus is reached.
     consensus_reached: Option<BlockHeader>,
     /// Number of payloads from other authorities that we still don't have.
@@ -137,7 +138,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         inc_gossips: mpsc::Receiver<Gossip<P>>,
         out_gossips: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control<P>>,
-        consensus_sender: mpsc::Sender<BlockHeader>,
+        consensus_sender: mpsc::Sender<(BlockHeader, u64)>,
     ) -> Self {
         Self {
             authority_blocks: vec![],
@@ -181,6 +182,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         self.authority_blocks = vec![None; num_authorities];
         self.authority_blocks[owner_uid as usize] =
             Some(SignedBlock::new(owner_uid as usize, payload, &owner_secret_key));
+        self.consensus_reached = None;
         self.nightshade = Some(Nightshade::new(
             owner_uid as AuthorityId,
             num_authorities,
@@ -405,11 +407,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                         if let Some(outcome) = self.nightshade_as_ref().committed.clone() {
                             self.consensus_reached = Some(outcome.clone());
 
-                            let consensus_sender1 = self.consensus_sender.clone();
-
                             tokio::spawn(
-                                consensus_sender1
-                                    .send(outcome)
+                                self.consensus_sender.clone()
+                                    .send((outcome, self.block_index.unwrap()))
                                     .map(|_| ())
                                     .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                             );
@@ -453,7 +453,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
 pub fn spawn_nightshade_task<P>(
     inc_gossip_rx: mpsc::Receiver<Gossip<P>>,
     out_gossip_tx: mpsc::Sender<Gossip<P>>,
-    consensus_tx: mpsc::Sender<BlockHeader>,
+    consensus_tx: mpsc::Sender<(BlockHeader, u64)>,
     control_rx: mpsc::Receiver<Control<P>>,
 )
     where P: Serialize + Send + Clone + Debug + 'static

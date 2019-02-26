@@ -13,3 +13,4 @@ pub mod producer;
 pub mod importer;
 mod control_builder;
 pub mod ns_control_builder;
+pub mod ns_producer;
