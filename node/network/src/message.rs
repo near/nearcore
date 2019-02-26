@@ -20,7 +20,7 @@ pub struct ChainState {
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct ConnectedInfo {
-    pub chain_state: ChainState
+    pub chain_state: ChainState,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
@@ -31,10 +31,11 @@ pub enum Message {
     Receipt(Box<ReceiptBlock>),
 
     BlockAnnounce(Box<CoupledBlock>),
-    BlockFetchRequest(RequestId, Vec<CryptoHash>),
-    BlockFetchResponse(RequestId, Vec<CoupledBlock>),
+    BlockRequest(RequestId, Vec<CryptoHash>),
+    BlockResponse(RequestId, Vec<CoupledBlock>),
+    BlockFetchRequest(RequestId, u64, u64),
 
     Gossip(Box<Gossip<ChainPayload>>),
     PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
-    PayloadResponse(RequestId, ChainPayload)
+    PayloadResponse(RequestId, ChainPayload),
 }

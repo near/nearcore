@@ -52,7 +52,7 @@ impl Node {
             chain_spec: read_or_default_chain_spec(&Some(PathBuf::from(
                 "./node/configs/res/testnet_chain.json",
             ))),
-            log_level: log::LevelFilter::Off,
+            log_level: log::LevelFilter::Info,
         };
 
         let network_cfg = NetworkConfig {

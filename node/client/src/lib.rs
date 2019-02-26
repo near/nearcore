@@ -317,6 +317,21 @@ impl Client {
         Ok(result)
     }
 
+    /// Fetch "coupled" blocks by index range.
+    pub fn fetch_blocks_range(&self, from_index: u64, til_index: u64) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
+        let mut result = vec![];
+        for i in from_index..til_index {
+            match self.beacon_chain.chain.get_block(&BlockId::Number(i)) {
+                Some(beacon_block) => {
+                    let shard_block = self.shard_chain.chain.get_block(&BlockId::Hash(beacon_block.body.header.shard_block_hash)).expect(BEACON_SHARD_BLOCK_MATCH);
+                    result.push((beacon_block, shard_block));
+                },
+                None => return Err(format!("Missing index={:?} in beacon chain", i))
+            }
+        }
+        Ok(result)
+    }
+
     /// Fetch transaction / receipts by hash from mempool.
     pub fn fetch_payload(&self, _transaction_hashes: Vec<CryptoHash>, _receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
         Ok(ChainPayload { transactions: vec![], receipts: vec![] })

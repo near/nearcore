@@ -146,6 +146,11 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
         Self { all_peer_states, phantom: PhantomData }
     }
 
+    /// Ban this peer.
+    pub fn ban_peer(&self, _peer_id: &PeerId) {
+        // TODO(??): disconnect from this peer and don't accept connections.
+    }
+
     /// This should be called if peer has done something wrong.
     pub fn suspect_malicious(&self, _peer_id: &PeerId) {
         // TODO(??): add counter + banning (disconnect and don't connect again) flag here for given peers.
@@ -168,9 +173,7 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
             if info.account_id.as_ref() == Some(&account_id) {
                 match state.read().expect(POISONED_LOCK_ERR).deref() {
                     PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                    _ => {
-                        None
-                    },
+                    _ => None,
                 }
             } else {
                 None
@@ -209,7 +212,7 @@ mod tests {
     use futures::sync::mpsc::channel;
     use tokio::util::StreamExt;
 
-    use primitives::hash::{CryptoHash, hash_struct};
+    use primitives::hash::{hash_struct, CryptoHash};
     use primitives::network::PeerInfo;
 
     use crate::peer::{ChainState, ChainStateRetriever, PeerState};

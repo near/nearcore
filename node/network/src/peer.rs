@@ -2,13 +2,13 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
 use std::sync::RwLockWriteGuard;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use futures::{Async, Future, Poll, Sink, try_ready};
 use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Sender};
+use futures::{try_ready, Async, Future, Poll, Sink};
 use log::{info, warn};
 use serde_derive::{Deserialize, Serialize};
 use tokio::codec::Framed;
@@ -18,11 +18,11 @@ use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 use tokio_serde_cbor::Codec;
 
-use primitives::serialize::Encode;
 use primitives::network::PeerInfo;
+use primitives::serialize::Encode;
 use primitives::types::PeerId;
 
-use super::message::{PROTOCOL_VERSION, Message, ConnectedInfo, ChainState};
+use super::message::{ChainState, ConnectedInfo, Message, PROTOCOL_VERSION};
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -144,7 +144,14 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> Peer<T> {
             hand_timeout,
             evicted: false,
         }));
-        let peer = Self { node_info, state, all_peer_states, inc_msg_tx, reconnect_delay, chain_state_retriever };
+        let peer = Self {
+            node_info,
+            state,
+            all_peer_states,
+            inc_msg_tx,
+            reconnect_delay,
+            chain_state_retriever,
+        };
         peer.spawn_peer();
     }
 
@@ -194,12 +201,14 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> Peer<T> {
     fn on_peer_connected(&self, handshake: Handshake) {
         let inc_msg_tx = self.inc_msg_tx.clone();
         let data = Encode::encode(&Message::Connected(ConnectedInfo {
-            chain_state: handshake.chain_state
-        })).unwrap();
+            chain_state: handshake.chain_state,
+        }))
+        .unwrap();
         tokio::spawn(
-            inc_msg_tx.send((self.node_info.id, data))
+            inc_msg_tx
+                .send((self.node_info.id, data))
                 .map(|_| ())
-                .map_err(|err| warn!("Failed to send message: {}", err))
+                .map_err(|err| warn!("Failed to send message: {}", err)),
         );
     }
 }

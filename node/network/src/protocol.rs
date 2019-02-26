@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use futures::future;
-use futures::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use log::warn;
+use futures::Future;
+use log::{warn, info};
 
 use client::Client;
 use configs::NetworkConfig;
@@ -17,7 +17,7 @@ use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, Gossip, PeerId};
 
-use crate::message::{ChainState, CoupledBlock, Message, RequestId};
+use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 
@@ -37,7 +37,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
     fn get_chain_state(&self) -> ChainState {
         ChainState {
             genesis_hash: self.client.beacon_chain.chain.genesis_hash(),
-            last_index: self.client.beacon_chain.chain.best_block().index()
+            last_index: self.client.beacon_chain.chain.best_block().index(),
         }
     }
 }
@@ -51,20 +51,17 @@ struct Protocol {
 }
 
 impl Protocol {
-
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
         match Decode::decode(&data) {
             Ok(m) => match m {
-                Message::Connected(_connected_info) => {
-                    // TODO: implement
-                },
-                Message::Gossip(gossip) => {
-                    forward_msg(self.inc_gossip_tx.clone(), *gossip)
-                },
+                Message::Connected(connected_info) => {
+                    self.on_new_peer(peer_id, connected_info);
+                }
+                Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
                     forward_msg(self.inc_block_tx.clone(), *block);
-                },
-                Message::BlockFetchRequest(request_id, hashes) => {
+                }
+                Message::BlockRequest(request_id, hashes) => {
                     match self.client.fetch_blocks(hashes) {
                         Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
                         Err(err) => {
@@ -72,8 +69,21 @@ impl Protocol {
                             warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
                         }
                     }
-
-                },
+                }
+                Message::BlockFetchRequest(request_id, from_index, til_index) => {
+                    match self.client.fetch_blocks_range(from_index, til_index) {
+                        Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
+                        Err(err) => {
+                            self.peer_manager.suspect_malicious(&peer_id);
+                            warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
+                        }
+                    }
+                }
+                Message::BlockResponse(_request_id, blocks) => {
+                    for coupled_block in blocks {
+                        forward_msg(self.inc_block_tx.clone(), coupled_block);
+                    }
+                }
                 Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
                     match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
                         Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
@@ -87,6 +97,25 @@ impl Protocol {
             },
             Err(e) => warn!(target: "network", "{}", e),
         };
+    }
+
+    fn on_new_peer(&self, peer_id: PeerId, connected_info: ConnectedInfo) {
+        if connected_info.chain_state.genesis_hash != self.client.beacon_chain.chain.genesis_hash()
+        {
+            self.peer_manager.ban_peer(&peer_id);
+        }
+        // Make a separate Sync agent that constantly runs and is being called from here?
+        // as we really need one per shard we keeping track + beacon chain.
+        if connected_info.chain_state.last_index > self.client.beacon_chain.chain.best_index() {
+            info!(target: "network", "Fetching blocks {}..{} from {}",
+                  self.client.beacon_chain.chain.best_index(),
+                  connected_info.chain_state.last_index, peer_id);
+            self.send_block_fetch_request(
+                &peer_id,
+                self.client.beacon_chain.chain.best_index(),
+                connected_info.chain_state.last_index,
+            );
+        }
     }
 
     fn send_gossip(&self, g: Gossip<ChainPayload>) {
@@ -110,16 +139,38 @@ impl Protocol {
         }
     }
 
-    fn send_block_response(&self, peer_id: &PeerId, request_id: RequestId, blocks: Vec<CoupledBlock>) {
+    fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: u64, til_index: u64) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = Encode::encode(&Message::BlockFetchResponse(request_id, blocks)).unwrap();
+            let request_id = 1;
+            let data =
+                Encode::encode(&Message::BlockFetchRequest(request_id, from_index, til_index))
+                    .unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             warn!(target: "network", "Channel for {} not found.", peer_id);
         }
     }
 
-    fn send_payload_response(&self, peer_id: &PeerId, request_id: RequestId, payload: ChainPayload) {
+    fn send_block_response(
+        &self,
+        peer_id: &PeerId,
+        request_id: RequestId,
+        blocks: Vec<CoupledBlock>,
+    ) {
+        if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
+            let data = Encode::encode(&Message::BlockResponse(request_id, blocks)).unwrap();
+            forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "Channel for {} not found.", peer_id);
+        }
+    }
+
+    fn send_payload_response(
+        &self,
+        peer_id: &PeerId,
+        request_id: RequestId,
+        payload: ChainPayload,
+    ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
@@ -157,11 +208,7 @@ pub fn spawn_network(
         network_cfg.reconnect_delay,
         network_cfg.gossip_interval,
         network_cfg.gossip_sample_size,
-        PeerInfo {
-            id: network_cfg.peer_id,
-            addr: network_cfg.listen_addr,
-            account_id,
-        },
+        PeerInfo { id: network_cfg.peer_id, addr: network_cfg.listen_addr, account_id },
         &network_cfg.boot_nodes,
         inc_msg_tx,
         out_msg_rx,
