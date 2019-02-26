@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::time::Duration;
-
 use futures::future;
 use futures::future::Future;
 use futures::sink::Sink;
@@ -10,10 +6,7 @@ use futures::sync::mpsc::{channel, Receiver, Sender};
 use log::{warn, info, error};
 
 use chain::ChainPayload;
-use nightshade::nightshade::AuthorityId;
 use nightshade::nightshade_task::Gossip;
-use primitives::hash::CryptoHash;
-use primitives::hash::hash_struct;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::AccountId;

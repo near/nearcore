@@ -4,24 +4,15 @@ extern crate log;
 extern crate serde;
 extern crate serde_derive;
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc;
-use tokio::timer::Delay;
 
-use chain::ChainPayload;
 use client::Client;
-use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, NetworkConfig, RPCConfig};
 use network::nightshade_protocol::spawn_consensus_network;
 use nightshade::nightshade_task::{spawn_nightshade_task, Control};
-use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use primitives::network::PeerInfo;
-use primitives::signature::{PublicKey, SecretKey};
-use primitives::types::AccountId;
 use std::sync::Arc;
 
 mod control_builder;
@@ -29,7 +20,7 @@ mod control_builder;
 pub fn start_from_configs(
     client_cfg: ClientConfig,
     network_cfg: NetworkConfig,
-    rpc_cfg: RPCConfig,
+    _rpc_cfg: RPCConfig,
 ) {
     let client = Arc::new(Client::new(&client_cfg));
     let node_task = futures::lazy(move || {
@@ -51,8 +42,6 @@ pub fn start_from_configs(
         // Spawn the network tasks.
         // Note, that network and RPC are using the same channels
         // to send transactions and receipts for processing.
-        let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
-        let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1024);
         spawn_consensus_network(
             Some(client_cfg.account_id),
             network_cfg,
