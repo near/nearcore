@@ -31,7 +31,7 @@ fn test_node_ready(
         account_id: node_info.account_id.unwrap(),
         public_key: None,
         chain_spec: read_or_default_chain_spec(&Some(PathBuf::from(
-            "./node/configs/res/alphanet_chain.json",
+            "./node/configs/res/testnet_chain.json",
         ))),
         log_level: log::LevelFilter::Off,
     };
@@ -122,7 +122,6 @@ fn start_alphanet() {
     wait(view_account, 500, 60000);
 }
 
-#[test]
 fn test_two_nodes() {
     start_alphanet();
 }

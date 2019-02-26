@@ -125,6 +125,7 @@ mod tests {
     use super::spawn_all;
 
     #[test]
+    #[ignore]
     #[should_panic]
     /// One authority don't reach consensus by itself in the current implementation
     fn one_authority() {
