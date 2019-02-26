@@ -14,8 +14,7 @@ use configs::{ClientConfig, NetworkConfig, RPCConfig};
 use network::nightshade_protocol::spawn_consensus_network;
 use nightshade::nightshade_task::{spawn_nightshade_task, Control};
 use std::sync::Arc;
-
-mod control_builder;
+use coroutines::ns_control_builder::get_control;
 
 pub fn start_from_configs(
     client_cfg: ClientConfig,
@@ -28,7 +27,7 @@ pub fn start_from_configs(
         let (control_tx, control_rx) = mpsc::channel(1024);
         let start_task = control_tx
             .clone()
-            .send(control_builder::get_control(&client, 0))
+            .send(get_control(&client, 0))
             .map(|_| ())
             .map_err(|e| error!("Error sending control {:?}", e));
         tokio::spawn(start_task);
