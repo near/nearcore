@@ -1,9 +1,9 @@
 //! Constructs control for Nightshade using the current Client state.
-use chain::ChainPayload;
 use client::Client;
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
+use primitives::chain::ChainPayload;
 use primitives::signature::PublicKey;
 use primitives::signature::SecretKey;
 use rand::{SeedableRng, XorShiftRng};

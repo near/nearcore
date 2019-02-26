@@ -6,10 +6,8 @@ use bencher::Bencher;
 
 extern crate storage;
 
-use std::sync::Arc;
-use storage::test_utils::create_memory_db;
-use storage::trie::{apply_changes, Trie};
-use storage::KeyValueDB;
+use storage::test_utils::create_trie;
+use storage::Trie;
 
 use rand::random;
 
@@ -18,8 +16,7 @@ fn rand_bytes() -> Vec<u8> {
 }
 
 fn trie_lookup(bench: &mut Bencher) {
-    let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-    let trie = Trie::new(storage.clone(), Some(0));
+    let trie = create_trie();
     let root = Trie::empty_root();
     let mut changes = vec![];
     for _ in 0..100 {
@@ -27,7 +24,7 @@ fn trie_lookup(bench: &mut Bencher) {
     }
     let other_changes = changes.clone();
     let (db_changes, root) = trie.update(&root, changes.drain(..));
-    apply_changes(&storage, Some(0), db_changes).expect("Failed to commit");
+    trie.apply_changes(db_changes).expect("Failed to commit");
 
     bench.iter(|| {
         for _ in 0..1 {
@@ -39,8 +36,7 @@ fn trie_lookup(bench: &mut Bencher) {
 }
 
 fn trie_update(bench: &mut Bencher) {
-    let storage: Arc<KeyValueDB> = Arc::new(create_memory_db());
-    let trie = Trie::new(storage.clone(), Some(0));
+    let trie = create_trie();
     let root = Trie::empty_root();
     let mut changes = vec![];
     for _ in 0..100 {

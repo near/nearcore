@@ -27,14 +27,12 @@ spec:
       - name: node
         image: {{ image_tag }}
         ports:
-        # jank until https://github.com/kubernetes/kubernetes/pull/68719
         command:
-        - "/bin/ash"
+        - "/bin/bash"
         - "-c"
         - |
           NODE_ID=${HOSTNAME##*-}
-          apk add --no-cache wget
-          wget -O /tmp/chain_spec.json {{ chain_spec_url }}
+          ./docker_command -b {{ boot_node }} --test-network-key-seed ${NODE_ID}
 
 ---
 
@@ -45,8 +43,8 @@ metadata:
   namespace: {{ namespace }}
 spec:
   ports:
-  - port: 30334
-    targetPort: 30334
+  - port: 3000
+    targetPort: 3000
     protocol: TCP
   selector:
     app: node

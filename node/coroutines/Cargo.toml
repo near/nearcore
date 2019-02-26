@@ -11,7 +11,6 @@ shard = { path = "../../node/shard" }
 chain = { path = "../../core/chain" }
 client = { path = "../../node/client" }
 primitives = { path = "../../core/primitives" }
-transaction = { path = "../../core/transaction" }
 futures = "0.1.25"
 tokio = "0.1.11"
 txflow = { path = "../../core/txflow" }

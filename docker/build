@@ -4,7 +4,7 @@ import os
 import subprocess
 
 
-def build(package, tag, is_release=True):
+def build(package, tag, is_release=True, use_buildkit=True):
     package_arg = "--build-arg PACKAGE={}".format(package)
 
     profile = 'release' if is_release else 'debug'
@@ -25,7 +25,9 @@ def build(package, tag, is_release=True):
         path=repo_root,
     )
     env = os.environ.copy()
-    env['DOCKER_BUILDKIT'] = '1'
+    if use_buildkit:
+        env['DOCKER_BUILDKIT'] = '1'
+
     return subprocess.Popen(command.split(), env=env)
 
 
@@ -39,9 +41,20 @@ if __name__ == '__main__':
         default=False,
         help='specify cargo to run with debug profile',
     )
+    parser.add_argument(
+        '--no-buildkit',
+        action='store_true',
+        default=False,
+        help='specify cargo to run with debug profile',
+    )
     args = parser.parse_args()
 
-    process = build(args.package, args.tag, not args.debug_profile)
+    process = build(
+        args.package,
+        args.tag,
+        not args.debug_profile,
+        not args.no_buildkit
+    )
     try:
         process.wait()
     except KeyboardInterrupt:

@@ -1,7 +1,7 @@
 use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
 use wasmer_runtime::error as WasmerError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Error that can occur while preparing or executing wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -46,6 +46,8 @@ pub enum RuntimeError {
     StorageReadError,
     /// Storage update error
     StorageUpdateError,
+    /// Storage remove error
+    StorageRemoveError,
     /// Memory access violation
     MemoryAccessViolation,
     /// Native code returned incorrect value
@@ -112,6 +114,7 @@ impl ::std::fmt::Display for RuntimeError {
         match *self {
             RuntimeError::StorageReadError => write!(f, "Storage read error"),
             RuntimeError::StorageUpdateError => write!(f, "Storage update error"),
+            RuntimeError::StorageRemoveError => write!(f, "Storage remove error"),
             RuntimeError::MemoryAccessViolation => write!(f, "Memory access violation"),
             RuntimeError::InvalidGasState => write!(f, "Invalid gas state"),
             RuntimeError::BalanceQueryError => write!(f, "Balance query resulted in an error"),
@@ -146,7 +149,7 @@ impl ::std::fmt::Display for RuntimeError {
 }
 
 /// Wrapped error
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     /// Method name can't be decoded to UTF8.
     BadUtf8,
@@ -163,7 +166,7 @@ pub enum Error {
 
     Prepare(PrepareError),
 
-    Cache(WasmerError::CacheError),
+    Cache(String),
 }
 
 impl From<WasmerError::Error> for Error {

@@ -1,3 +1,19 @@
+// Copyright 2015-2017 Parity Technologies (UK) Ltd.
+// This file is part of Parity.
+
+// Parity is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Parity is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with Parity.  If not, see <http://www.gnu.org/licenses/>.
+
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
 use elastic_array::ElasticArray36;
@@ -174,7 +190,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
             match self.at(i).partial_cmp(&them.at(i)).unwrap() {
                 Ordering::Less => return Some(Ordering::Less),
                 Ordering::Greater => return Some(Ordering::Greater),
-                _ => {},
+                _ => {}
             }
         }
         self.len().partial_cmp(&them.len())
@@ -184,7 +200,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
 impl<'a> fmt::Debug for NibbleSlice<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_empty() {
-            return Ok(())
+            return Ok(());
         }
         write!(f, "{:01x}", self.at(0))?;
         for i in 1..self.len() {

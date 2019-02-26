@@ -6,11 +6,15 @@ use futures::sync::mpsc::{Receiver, Sender};
 use futures::{future, Future, Sink, Stream};
 
 use crate::control_builder::get_control;
-use beacon::types::SignedBeaconBlock;
-use chain::{SignedBlock, SignedHeader, SignedShardBlock, ReceiptBlock};
 use client::{ChainConsensusBlockBody, Client};
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::SignedShardBlock;
+use primitives::chain::ReceiptBlock;
+use primitives::block_traits::SignedBlock;
+use primitives::block_traits::SignedHeader;
+use client::BlockProductionResult;
 
 pub fn spawn_block_producer(
     client: Arc<Client>,
@@ -28,7 +32,7 @@ pub fn spawn_block_producer(
 
     let task = receiver
         .for_each(move |body| {
-            if let Some((new_beacon_block, new_shard_block)) = client.produce_block(body) {
+            if let BlockProductionResult::Success(new_beacon_block, new_shard_block) = client.try_produce_block(body) {
                 // Send beacon block to network
                 tokio::spawn({
                     block_announce_tx
@@ -51,7 +55,7 @@ pub fn spawn_block_producer(
                     .map(|_| ())
                     .map_err(|e| error!("Error sending control to TxFlow: {}", e));
                 if needs_receipt_rerouting {
-                    let receipt_block = client.shard_chain.get_receipt_block(
+                    let receipt_block = client.shard_client.get_receipt_block(
                         new_shard_block.index(),
                         new_shard_block.shard_id()
                     );

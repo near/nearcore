@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::str;
+use std::time::Instant;
 
 use primitives::hash::CryptoHash;
 use primitives::utils::is_valid_account_id;
 use primitives::types::{AccountId, Balance, AccountingInfo};
-use storage::{StateDbUpdate};
+use storage::{TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
@@ -18,7 +19,7 @@ pub struct ViewStateResult {
     pub values: HashMap<Vec<u8>, Vec<u8>>
 }
 
-pub struct StateDbViewer {}
+pub struct TrieViewer {}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
@@ -29,11 +30,11 @@ pub struct AccountViewCallResult {
     pub code_hash: CryptoHash,
 }
 
-impl StateDbViewer {
+impl TrieViewer {
 
     pub fn view_account(
         &self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         account_id: &AccountId,
     ) -> Result<AccountViewCallResult, String> {
         if !is_valid_account_id(account_id) {
@@ -56,7 +57,7 @@ impl StateDbViewer {
 
     pub fn get_public_keys_for_account(
         &self,
-        state_update: &mut StateDbUpdate,
+        state_update: &mut TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
         if !is_valid_account_id(account_id) {
@@ -70,7 +71,7 @@ impl StateDbViewer {
 
     pub fn view_state(
         &self,
-        state_update: &StateDbUpdate,
+        state_update: &TrieUpdate,
         account_id: &AccountId
     ) -> Result<ViewStateResult, String> {
         if !is_valid_account_id(account_id) {
@@ -91,12 +92,13 @@ impl StateDbViewer {
 
     pub fn call_function(
         &self,
-        mut state_update: StateDbUpdate,
+        mut state_update: TrieUpdate,
         block_index: u64,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
     ) -> Result<Vec<u8>, String> {
+        let now = Instant::now();
         if !is_valid_account_id(contract_id) {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
@@ -135,9 +137,12 @@ impl StateDbViewer {
             }
             None => return Err(format!("contract {} does not exist", contract_id))
         };
+        let elapsed = now.elapsed();
+        let time_ms = (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
+        let time_str = format!("{:.*}ms", 2, time_ms);
         match wasm_res {
             Ok(res) => {
-                debug!(target: "runtime", "result of execution: {:?}", res);
+                debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, res);
                 match res.return_data {
                     Ok(return_data) => {
                         let (root_after, _) = state_update.finalize();
@@ -159,7 +164,7 @@ impl StateDbViewer {
             }
             Err(e) => {
                 let message = format!("wasm execution failed with error: {:?}", e);
-                debug!(target: "runtime", "{}", message);
+                debug!(target: "runtime", "(exec time {}) {}", time_str, message);
                 Err(message)
             }
         }
@@ -178,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_view_call() {
-        let (viewer, root) = get_test_state_db_viewer();
+        let (viewer, root) = get_test_trie_viewer();
 
         let result = viewer.call_function(
             root, 1,
@@ -192,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_view_call_bad_contract_id() {
-        let (viewer, root) = get_test_state_db_viewer();
+        let (viewer, root) = get_test_trie_viewer();
 
         let result = viewer.call_function(
             root, 1,
@@ -206,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_view_call_try_changing_storage() {
-        let (viewer, root) = get_test_state_db_viewer();
+        let (viewer, root) = get_test_trie_viewer();
 
         let result = viewer.call_function(
             root, 1,
@@ -220,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_view_call_with_args() {
-        let (viewer, root) = get_test_state_db_viewer();
+        let (viewer, root) = get_test_trie_viewer();
         let args = (1..3).into_iter()
             .flat_map(|x| encode_int(x).to_vec())
             .collect::<Vec<_>>();
@@ -235,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_view_state() {
-        let (viewer, state_update) = get_test_state_db_viewer();
+        let (viewer, state_update) = get_test_trie_viewer();
         let result = viewer.view_state(&state_update, &alice_account()).unwrap();
         assert_eq!(result.values, HashMap::default());
         // TODO: make this test actually do stuff.

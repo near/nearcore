@@ -8,8 +8,8 @@ use futures::sync::mpsc::{channel, Sender};
 use client::Client;
 use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
-use chain::ChainPayload;
-use transaction::SignedTransaction;
+use primitives::chain::ChainPayload;
+use primitives::transaction::SignedTransaction;
 use txflow::txflow_task;
 
 pub fn start() {

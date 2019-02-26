@@ -33,6 +33,7 @@ extern "C" {
     fn storage_write(key: *const u8, value: *const u8);
     fn storage_read_len(key: *const u8) -> u32;
     fn storage_read_into(key: *const u8, value: *mut u8);
+    fn storage_remove(key: *const u8);
 
     fn input_read_len() -> u32;
     fn input_read_into(value: *mut u8);
@@ -204,6 +205,13 @@ unsafe {
 }
 
 #[no_mangle]
+pub fn remove_int(key: u32) {
+unsafe {
+    storage_remove(key_to_str(key).as_ptr());
+}
+}
+
+#[no_mangle]
 pub fn near_func_log_something() {
     my_log(b"hello");
 }
@@ -217,6 +225,7 @@ pub fn near_func_run_test() {
 pub fn near_func_run_test_with_storage_change() {
     put_int(10, 20);
     put_int(50, 150);
+    remove_int(50);
     let res = get_int(10);
     return_i32(res)
 }

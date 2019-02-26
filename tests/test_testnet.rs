@@ -1,18 +1,15 @@
 use std::panic;
-use std::path::Path;
 use std::process::{Command, Output};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
 use configs::chain_spec::read_or_default_chain_spec;
+use configs::network::get_peer_id_from_seed;
 use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
-use primitives::hash::hash_struct;
 use primitives::network::PeerInfo;
-use primitives::signer::write_key_file;
-use primitives::test_utils::get_key_pair_from_seed;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -64,13 +61,6 @@ fn check_result(output: Output) -> Result<String, String> {
 }
 
 const TMP_DIR: &str = "./tmp/testnet";
-const KEY_STORE_PATH: &str = "./tmp/testnet/key_store";
-
-fn get_public_key() -> String {
-    let key_store_path = Path::new(KEY_STORE_PATH);
-    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
-    write_key_file(key_store_path, public_key, secret_key)
-}
 
 fn start_testnet() {
     // Start boot node.
@@ -78,7 +68,7 @@ fn start_testnet() {
     base_path.push("node_alice");
     let alice_info = PeerInfo {
         account_id: Some(String::from("alice.near")),
-        id: hash_struct(&1),
+        id: get_peer_id_from_seed(1),
         addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
     };
     test_node_ready(base_path, alice_info.clone(), 3030, vec![]);
@@ -88,20 +78,16 @@ fn start_testnet() {
     base_path.push("node_bob");
     let bob_info = PeerInfo {
         account_id: Some(String::from("bob.near")),
-        id: hash_struct(&2),
+        id: get_peer_id_from_seed(2),
         addr: SocketAddr::from_str("127.0.0.1:3001").unwrap(),
     };
     test_node_ready(base_path, bob_info.clone(), 3031, vec![alice_info]);
 
     // Create an account on alice node.
-    Command::new("./scripts/rpc.py")
+    Command::new("pynear")
         .arg("create_account")
         .arg("jason")
         .arg("1")
-        .arg("-d")
-        .arg(KEY_STORE_PATH)
-        .arg("-k")
-        .arg(get_public_key())
         .arg("-u")
         .arg("http://127.0.0.1:3030/")
         .output()
@@ -109,7 +95,7 @@ fn start_testnet() {
 
     // Wait until this account is present on the bob.near node.
     let view_account = || -> bool {
-        let res = Command::new("./scripts/rpc.py")
+        let res = Command::new("pynear")
             .arg("view_account")
             .arg("-a")
             .arg("jason")

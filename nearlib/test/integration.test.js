@@ -1,22 +1,95 @@
-const { Account, SimpleKeyStoreSigner, InMemoryKeyStore, KeyPair, LocalNodeConnection, NearClient, Near } = require('../');
+const { Account, KeyPair, Near, InMemoryKeyStore } = require('../');
+const dev = require('../dev');
 const fs = require('fs');
-
 const aliceAccountName = 'alice.near';
-const aliceKey = new KeyPair(
-    '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
-    '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
-);
-const test_key_store = new InMemoryKeyStore();
-const simple_key_store_signer = new SimpleKeyStoreSigner(test_key_store);
-test_key_store.setKey(aliceAccountName, aliceKey);
-const localNodeConnection = new LocalNodeConnection('http://localhost:3030');
-const nearClient = new NearClient(simple_key_store_signer, localNodeConnection);
-const account = new Account(nearClient);
-const nearjs = new Near(nearClient);
+// every new account has this codehash
+const newAccountCodeHash = 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn';
+const storageAccountIdKey = 'dev_near_user';
+let nearjs;
+let account;
+let keyStore;
+
+beforeAll(async () => {
+    keyStore = new InMemoryKeyStore();
+    const storage = createFakeStorage();
+    nearjs = await dev.connect({
+        nodeUrl: 'http://localhost:3030',
+        useDevAccount: true,
+        deps: { keyStore, storage },
+    });
+    account = new Account(nearjs.nearClient);
+});
 
 test('test creating default config', async () => {
     // Make sure createDefaultConfig doesn't crash.
     Near.createDefaultConfig();
+});
+
+describe('dev connect', () => {
+    let deps;
+    beforeEach(async () => {
+        const keyStore = new InMemoryKeyStore();
+        const storage = createFakeStorage();   
+        deps = {
+            keyStore,
+            storage,
+            createAccount: (async (newAccountName, newAccountPublicKey) => {
+                const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+                await nearjs.waitForTransactionResult(createAccountResponse);
+            })
+        };
+    });
+
+    test('test dev connect with no account creates a new account', async () => {
+        await dev.connect({deps});
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
+        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        const viewAccountResponse = await account.viewAccount(newAccountId);
+        const newAccountKeyPair = await deps.keyStore.getKey(newAccountId);
+        expect(newAccountKeyPair).toBeTruthy();
+        const expectedAccount = {
+            nonce: 0,
+            account_id: newAccountId,
+            amount: 1,
+            code_hash: newAccountCodeHash,
+            stake: 0,
+        };
+        expect(viewAccountResponse).toEqual(expectedAccount);
+        expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
+    });
+
+    test('test dev connect with invalid account in storage creates a new account', async () => {
+        // set up invalid account id in local storage
+        deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
+        await dev.connect({deps});
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
+        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        const viewAccountResponse = await account.viewAccount(newAccountId);
+        const newAccountKeyPair = await deps.keyStore.getKey(newAccountId);
+        expect(newAccountKeyPair).toBeTruthy();
+        const expectedAccount = {
+            nonce: 0,
+            account_id: newAccountId,
+            amount: 1,
+            code_hash: newAccountCodeHash,
+            stake: 0,
+        };
+        expect(viewAccountResponse).toEqual(expectedAccount);
+        expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
+    });
+
+    test('test dev connect with valid account but no keys', async () => {
+        // setup: connect with dev, but rmemove keys afterwards!
+        deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
+        await dev.connect({deps});
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
+        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
+        await deps.keyStore.clear();
+        await dev.connect({deps});
+        // we are expecting account to be recreated!
+        expect(deps.storage.getItem(storageAccountIdKey)).not.toEqual(newAccountId);
+    });
 });
 
 test('view pre-defined account works and returns correct name', async () => {
@@ -35,7 +108,7 @@ test('create account and then view account returns the created account', async (
         nonce: 0,
         account_id: newAccountName,
         amount: 1,
-        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        code_hash: newAccountCodeHash,
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
@@ -56,7 +129,7 @@ test('create account with a new key and then view account returns the created ac
         nonce: 0,
         account_id: newAccountName,
         amount: amount,
-        code_hash: 'GKot5hBsd81kMupNCXHaqbhv3huEbxAFMLnpcX2hniwn',
+        code_hash: newAccountCodeHash,
         stake: 0,
     };
     const result = await account.viewAccount(newAccountName);
@@ -80,14 +153,14 @@ describe('with deployed contract', () => {
             10,
             aliceAccountName);
         await nearjs.waitForTransactionResult(createAccountResponse);
-        test_key_store.setKey(contractName, keyWithRandomSeed);
+        keyStore.setKey(contractName, keyWithRandomSeed);
         const data = [...fs.readFileSync('../tests/hello.wasm')];
         await nearjs.waitForTransactionResult(
             await nearjs.deployContract(contractName, data));
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
             viewMethods: ['getAllKeys'],
-            changeMethods: ['generateLogs', 'triggerAssert']
+            changeMethods: ['generateLogs', 'triggerAssert', 'testSetRemove']
         });
     });
 
@@ -132,12 +205,11 @@ describe('with deployed contract', () => {
         expect(getValueResult).toEqual(setCallValue);
 
         // test that load contract works and we can make calls afterwards
-        const options = {
+        const contract = await nearjs.loadContract(contractName, {
             viewMethods: ['hello', 'getValue'],
             changeMethods: ['setValue'],
-            sender: aliceAccountName
-        };
-        const contract = await nearjs.loadContract(contractName, options);
+            sender: aliceAccountName,
+        });
         const helloResult = await contract.hello(args);
         expect(helloResult).toEqual('hello trex');
         var setCallValue2 = await generateUniqueString('setCallPrefix');
@@ -162,10 +234,33 @@ describe('with deployed contract', () => {
         expect(logs[1]).toMatch(new RegExp(`^\\[${contractName}\\]: ABORT: "expected to fail" filename: "main.ts" line: \\d+ col: \\d+$`));
         expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer(CallError(Runtime(User { msg: "Error: AssertFailed" })))`);
     });
+
+    test('test set/remove', async () => {
+        const result = await contract.testSetRemove({value: "123"});
+        expect(result.status).toBe('Completed');
+    })
 });
 
 // Generate some unique string with a given prefix using the alice nonce. 
 const generateUniqueString = async (prefix) => {
     const viewAccountResponse = await account.viewAccount(aliceAccountName);
     return prefix + viewAccountResponse.nonce;
+};
+
+const createFakeStorage = function() {
+    let store = {};
+    return {
+        getItem: function(key) {
+            return store[key];
+        },
+        setItem: function(key, value) {
+            store[key] = value.toString();
+        },
+        clear: function() {
+            store = {};
+        },
+        removeItem: function(key) {
+            delete store[key];
+        }
+    };
 };

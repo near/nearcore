@@ -1,0 +1,14 @@
+[package]
+name = "mempool"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+serde = "1.0"
+serde_derive = "1.0"
+
+primitives = { path = "../primitives" }
+chain = { path = "../../core/chain" }
+storage = { path = "../../core/storage"}
+node-runtime = { path = "../../node/runtime" }

@@ -9,8 +9,8 @@ use crate::types::{Config, Error};
 /// Cache size in number of cached modules to hold.
 const CACHE_SIZE: usize = 1024;
 
-cached_key_result! {
-    MODULES: SizedCache<String, wasmer_runtime::Cache> = SizedCache::with_size(CACHE_SIZE);
+cached_key! {
+    MODULES: SizedCache<String, Result<wasmer_runtime::Cache, Error>> = SizedCache::with_size(CACHE_SIZE);
     Key = {
         format!("{}:{}",
             hash(code),

@@ -176,7 +176,7 @@ impl<'a> ContractModule<'a> {
 /// - all imported functions from the external environment matches defined by `env` module,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
-pub(super) fn prepare_contract(
+pub fn prepare_contract(
     original_code: &[u8],
     config: &Config,
 ) -> Result<Vec<u8>, Error> {

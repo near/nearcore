@@ -14,4 +14,3 @@ log = "0.4"
 near-protos = { path = "../protos" }
 primitives = { path = "../primitives" }
 storage = { path = "../storage" }
-transaction = { path = "../transaction" }

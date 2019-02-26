@@ -1,9 +1,6 @@
 use crate::message::Message;
 use crate::peer::PeerMessage;
 use crate::peer_manager::PeerManager;
-use beacon::types::SignedBeaconBlock;
-use chain::ChainPayload;
-use chain::SignedShardBlock;
 use client::Client;
 use configs::NetworkConfig;
 use futures::future;
@@ -13,12 +10,15 @@ use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use futures::Future;
-use log::warn;
+use log::{warn, error};
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::AccountId;
 use primitives::types::Gossip;
 use std::sync::Arc;
+use primitives::chain::ChainPayload;
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::SignedShardBlock;
 
 /// Spawn network tasks that process incoming and outgoing messages of various kind.
 /// Args:
@@ -58,6 +58,7 @@ pub fn spawn_network(
     ));
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
+    let client1 = client.clone();
     let task = inc_msg_rx.for_each(move |(_, data)| {
         match Decode::decode(&data) {
             Ok(m) => match m {
@@ -67,6 +68,16 @@ pub fn spawn_network(
                 Message::BlockAnnounce(block) => {
                     let unboxed = *block;
                     forward_msg(inc_block_tx.clone(), (unboxed.0, unboxed.1));
+                }
+                Message::Transaction(tx) => {
+                    if let Err(e) = client1.shard_client.pool.add_transaction(*tx) {
+                        error!(target: "network", "{}", e);
+                    }
+                }
+                Message::Receipt(receipt) => {
+                    if let Err(e) = client1.shard_client.pool.add_receipt(*receipt) {
+                        error!(target: "network", "{}", e);
+                    }
                 }
                 _ => (),
             },
