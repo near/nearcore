@@ -339,6 +339,7 @@ fn set_get_values_blocks(bench: &mut Bencher) {
         for (k, v) in expected_storage.iter() {
             let state_update = client.shard_client.get_state_update();
             let best_index = client.shard_client.chain.best_index();
+            let mut logs = vec![];
             let res = client
                 .shard_client
                 .trie_viewer
@@ -348,6 +349,7 @@ fn set_get_values_blocks(bench: &mut Bencher) {
                     &CONTRACT_ID.to_string(),
                     &"getValueByKey".to_string(),
                     format!("{{\"key\":\"{}\"}}", k).as_bytes(),
+                    &mut logs,
                 )
                 .unwrap();
             let res = std::str::from_utf8(&res).unwrap();

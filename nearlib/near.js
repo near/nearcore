@@ -51,6 +51,7 @@ class Near {
             method_name: methodName,
             args: serializedArgs
         });
+        print_logs(response.logs);
         const json = JSON.parse(Buffer.from(response.result).toString());
         return json.result;
     }
@@ -159,10 +160,7 @@ class Near {
         for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
             await sleep(STATUS_POLL_PERIOD_MS);
             result = (await this.getTransactionStatus(transactionHash)).result;
-            const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
-            flatLog.forEach(line => {
-                console.log(`[${contractAccountId}]: ${line}`);
-            });
+            print_logs(result.logs);
             if (result.status == 'Completed') {
                 return result;
             }
@@ -213,6 +211,14 @@ class Near {
         });
         return contract;
     }
+}
+
+function print_logs(logs) {
+    const flatLog = logs.reduce((acc, it) => acc.concat(it.lines), []);
+    flatLog.forEach(line => {
+        console.log(`[${contractAccountId}]: ${line}`);
+    });
+
 }
 
 function sleep(time) {
