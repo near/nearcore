@@ -11,8 +11,8 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
-    transactions: HashSet<SignedTransaction>,
-    receipts: HashSet<ReceiptBlock>,
+    transactions: RwLock<HashSet<SignedTransaction>>,
+    receipts: RwLock<HashSet<ReceiptBlock>>,
     storage: Arc<RwLock<ShardChainStorage>>,
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
@@ -21,8 +21,8 @@ pub struct Pool {
 impl Pool {
     pub fn new(storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
         Pool { 
-            transactions: HashSet::new(),
-            receipts: HashSet::new(),
+            transactions: RwLock::new(HashSet::new()),
+            receipts: RwLock::new(HashSet::new()),
             storage,
             trie,
             state_viewer: TrieViewer {}
@@ -41,7 +41,7 @@ impl Pool {
         TrieUpdate::new(self.trie.clone(), root)
     }
 
-    pub fn add_transaction(&mut self, transaction: SignedTransaction) -> Result<(), String> {
+    pub fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         if let Ok(Some(_)) = self.storage
             .write()
             .expect(POISONED_LOCK_ERR)
@@ -58,11 +58,11 @@ impl Pool {
                 originator
             ));
         }
-        self.transactions.insert(transaction);
+        self.transactions.write().expect(POISONED_LOCK_ERR).insert(transaction);
         Ok(())
     }
 
-    pub fn add_receipt(&mut self, receipt: ReceiptBlock) -> Result<(), String> {
+    pub fn add_receipt(&self, receipt: ReceiptBlock) -> Result<(), String> {
         // TODO: cache hash of receipt
         if let Ok(Some(_)) = self.storage
             .write()
@@ -73,22 +73,30 @@ impl Pool {
         if !verify_path(receipt.header.body.receipt_merkle_root, &receipt.path, &receipt.receipts) {
             return Err("Invalid receipt block".to_string());
         }
-        self.receipts.insert(receipt);
+        self.receipts.write().expect(POISONED_LOCK_ERR).insert(receipt);
         Ok(())
     }
 
-    pub fn produce_payload(&mut self) -> ChainPayload {
-        let transactions: Vec<_> = self.transactions.drain().collect();
-        let receipts: Vec<_> = self.receipts.drain().collect();
+    pub fn produce_payload(&self) -> ChainPayload {
+        let transactions: Vec<_> = self.transactions
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .drain()
+            .collect();
+        let receipts: Vec<_> = self.receipts
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .drain()
+            .collect();
         ChainPayload { transactions, receipts }
     }
 
-    pub fn import_block(&mut self, block: &SignedShardBlock) {
+    pub fn import_block(&self, block: &SignedShardBlock) {
         for transaction in block.body.transactions.iter() {
-            self.transactions.remove(transaction);
+            self.transactions.write().expect(POISONED_LOCK_ERR).remove(transaction);
         }
         for receipt in block.body.receipts.iter() {
-            self.receipts.remove(receipt);
+            self.receipts.write().expect(POISONED_LOCK_ERR).remove(receipt);
         }
     }
 }
@@ -139,7 +147,7 @@ mod tests {
         let signature = sign(hash.as_ref(), &secret_key);
         let transaction = SignedTransaction::new(signature, tx_body);
         pool.add_transaction(transaction.clone()).unwrap();
-        assert_eq!(pool.transactions.len(), 1);
+        assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         let block = SignedShardBlock::new(
             0,
             0,
@@ -150,6 +158,6 @@ mod tests {
             CryptoHash::default(),
         );
         pool.import_block(&block);
-        assert_eq!(pool.transactions.len(), 0);
+        assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 0);
     }
 }

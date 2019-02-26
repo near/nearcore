@@ -5,7 +5,6 @@ use primitives::block_traits::SignedBlock;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 use primitives::traits::{Decode, Encode};
-use primitives::transaction::{TransactionAddress, TransactionResult};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
