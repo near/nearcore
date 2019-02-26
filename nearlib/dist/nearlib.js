@@ -75,11 +75,12 @@ class Account {
 }
 module.exports = Account;
 
-},{"./protos":45,"./signing/key_pair":48,"bs58":20}],2:[function(require,module,exports){
+},{"./protos":67,"./signing/key_pair":70,"bs58":20}],2:[function(require,module,exports){
+require('error-polyfill');
 window.nearlib = require('./index');
 window.nearlib.dev = require('./dev');
 
-},{"./dev":3,"./index":4}],3:[function(require,module,exports){
+},{"./dev":3,"./index":4,"error-polyfill":28}],3:[function(require,module,exports){
 const nearlib = require('./');
 const sendJson = require('./internal/send-json');
 
@@ -180,7 +181,7 @@ module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyS
 
 
 
-},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":46,"./signing/in_memory_key_store":47,"./signing/key_pair":48,"./signing/simple_key_store_signer":49,"./wallet-account":50}],5:[function(require,module,exports){
+},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":68,"./signing/in_memory_key_store":69,"./signing/key_pair":70,"./signing/simple_key_store_signer":71,"./wallet-account":72}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 
 const createError = require('http-errors');
@@ -201,7 +202,7 @@ module.exports = async function sendJson(method, url, json) {
     return await response.json();
 };
 
-},{"http-errors":23,"node-fetch":19}],6:[function(require,module,exports){
+},{"http-errors":37,"node-fetch":19}],6:[function(require,module,exports){
 const sendJson = require('./internal/send-json');
 
 class LocalNodeConnection {
@@ -448,7 +449,7 @@ module.exports = Near;
 
 
 }).call(this,require("buffer").Buffer)
-},{"./local_node_connection":6,"./nearclient":8,"./protos":45,"./signing/browser_local_storage_key_store":46,"./signing/simple_key_store_signer":49,"buffer":21,"http-errors":23}],8:[function(require,module,exports){
+},{"./local_node_connection":6,"./nearclient":8,"./protos":67,"./signing/browser_local_storage_key_store":68,"./signing/simple_key_store_signer":71,"buffer":21,"http-errors":37}],8:[function(require,module,exports){
 (function (Buffer){
 const { SignedTransaction } = require('./protos');
 
@@ -499,7 +500,7 @@ class NearClient {
 module.exports = NearClient;
 
 }).call(this,require("buffer").Buffer)
-},{"./protos":45,"buffer":21}],9:[function(require,module,exports){
+},{"./protos":67,"buffer":21}],9:[function(require,module,exports){
 "use strict";
 module.exports = asPromise;
 
@@ -1437,7 +1438,7 @@ module.exports = function base (ALPHABET) {
   }
 }
 
-},{"safe-buffer":39}],17:[function(require,module,exports){
+},{"safe-buffer":57}],17:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -3379,7 +3380,129 @@ function numberIsNaN (obj) {
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":17,"ieee754":24}],22:[function(require,module,exports){
+},{"base64-js":17,"ieee754":38}],22:[function(require,module,exports){
+require(".").check("es5");
+},{".":23}],23:[function(require,module,exports){
+require("./lib/definitions");
+module.exports = require("./lib");
+
+},{"./lib":26,"./lib/definitions":25}],24:[function(require,module,exports){
+var CapabilityDetector = function () {
+    this.tests = {};
+    this.cache = {};
+};
+CapabilityDetector.prototype = {
+    constructor: CapabilityDetector,
+    define: function (name, test) {
+        if (typeof (name) != "string" || !(test instanceof Function))
+            throw new Error("Invalid capability definition.");
+        if (this.tests[name])
+            throw new Error('Duplicated capability definition by "' + name + '".');
+        this.tests[name] = test;
+    },
+    check: function (name) {
+        if (!this.test(name))
+            throw new Error('The current environment does not support "' + name + '", therefore we cannot continue.');
+    },
+    test: function (name) {
+        if (this.cache[name] !== undefined)
+            return this.cache[name];
+        if (!this.tests[name])
+            throw new Error('Unknown capability with name "' + name + '".');
+        var test = this.tests[name];
+        this.cache[name] = !!test();
+        return this.cache[name];
+    }
+};
+
+module.exports = CapabilityDetector;
+},{}],25:[function(require,module,exports){
+var capability = require("."),
+    define = capability.define,
+    test = capability.test;
+
+define("strict mode", function () {
+    return (this === undefined);
+});
+
+define("arguments.callee.caller", function () {
+    try {
+        return (function () {
+                return arguments.callee.caller;
+            })() === arguments.callee;
+    } catch (strictModeIsEnforced) {
+        return false;
+    }
+});
+
+define("es5", function () {
+    return test("Array.prototype.forEach") &&
+        test("Array.prototype.map") &&
+        test("Function.prototype.bind") &&
+        test("Object.create") &&
+        test("Object.defineProperties") &&
+        test("Object.defineProperty") &&
+        test("Object.prototype.hasOwnProperty");
+});
+
+define("Array.prototype.forEach", function () {
+    return Array.prototype.forEach;
+});
+
+define("Array.prototype.map", function () {
+    return Array.prototype.map;
+});
+
+define("Function.prototype.bind", function () {
+    return Function.prototype.bind;
+});
+
+define("Object.create", function () {
+    return Object.create;
+});
+
+define("Object.defineProperties", function () {
+    return Object.defineProperties;
+});
+
+define("Object.defineProperty", function () {
+    return Object.defineProperty;
+});
+
+define("Object.prototype.hasOwnProperty", function () {
+    return Object.prototype.hasOwnProperty;
+});
+
+define("Error.captureStackTrace", function () {
+    return Error.captureStackTrace;
+});
+
+define("Error.prototype.stack", function () {
+    try {
+        throw new Error();
+    }
+    catch (e) {
+        return e.stack || e.stacktrace;
+    }
+});
+},{".":26}],26:[function(require,module,exports){
+var CapabilityDetector = require("./CapabilityDetector");
+
+var detector = new CapabilityDetector();
+
+var capability = function (name) {
+    return detector.test(name);
+};
+capability.define = function (name, test) {
+    detector.define(name, test);
+};
+capability.check = function (name) {
+    detector.check(name);
+};
+capability.test = capability;
+
+module.exports = capability;
+},{"./CapabilityDetector":24}],27:[function(require,module,exports){
 /*!
  * depd
  * Copyright(c) 2015 Douglas Christopher Wilson
@@ -3458,7 +3581,382 @@ function wrapproperty (obj, prop, message) {
   }
 }
 
-},{}],23:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
+module.exports = require("./lib");
+},{"./lib":29}],29:[function(require,module,exports){
+require("capability/es5");
+
+var capability = require("capability");
+
+var polyfill;
+if (capability("Error.captureStackTrace"))
+    polyfill = require("./v8");
+else if (capability("Error.prototype.stack"))
+    polyfill = require("./non-v8/index");
+else
+    polyfill = require("./unsupported");
+
+module.exports = polyfill();
+},{"./non-v8/index":33,"./unsupported":35,"./v8":36,"capability":23,"capability/es5":22}],30:[function(require,module,exports){
+var Class = require("o3").Class,
+    abstractMethod = require("o3").abstractMethod;
+
+var Frame = Class(Object, {
+    prototype: {
+        init: Class.prototype.merge,
+        frameString: undefined,
+        toString: function () {
+            return this.frameString;
+        },
+        functionValue: undefined,
+        getThis: abstractMethod,
+        getTypeName: abstractMethod,
+        getFunction: function () {
+            return this.functionValue;
+        },
+        getFunctionName: abstractMethod,
+        getMethodName: abstractMethod,
+        getFileName: abstractMethod,
+        getLineNumber: abstractMethod,
+        getColumnNumber: abstractMethod,
+        getEvalOrigin: abstractMethod,
+        isTopLevel: abstractMethod,
+        isEval: abstractMethod,
+        isNative: abstractMethod,
+        isConstructor: abstractMethod
+    }
+});
+
+module.exports = Frame;
+},{"o3":41}],31:[function(require,module,exports){
+var Class = require("o3").Class,
+    Frame = require("./Frame"),
+    cache = require("u3").cache;
+
+var FrameStringParser = Class(Object, {
+    prototype: {
+        stackParser: null,
+        frameParser: null,
+        locationParsers: null,
+        constructor: function (options) {
+            Class.prototype.merge.call(this, options);
+        },
+        getFrames: function (frameStrings, functionValues) {
+            var frames = [];
+            for (var index = 0, length = frameStrings.length; index < length; ++index)
+                frames[index] = this.getFrame(frameStrings[index], functionValues[index]);
+            return frames;
+        },
+        getFrame: function (frameString, functionValue) {
+            var config = {
+                frameString: frameString,
+                functionValue: functionValue
+            };
+            return new Frame(config);
+        }
+    }
+});
+
+module.exports = {
+    getClass: cache(function () {
+        return FrameStringParser;
+    }),
+    getInstance: cache(function () {
+        var FrameStringParser = this.getClass();
+        var instance = new FrameStringParser();
+        return instance;
+    })
+};
+},{"./Frame":30,"o3":41,"u3":63}],32:[function(require,module,exports){
+var Class = require("o3").Class,
+    abstractMethod = require("o3").abstractMethod,
+    eachCombination = require("u3").eachCombination,
+    cache = require("u3").cache,
+    capability = require("capability");
+
+var AbstractFrameStringSource = Class(Object, {
+    prototype: {
+        captureFrameStrings: function (frameShifts) {
+            var error = this.createError();
+            frameShifts.unshift(this.captureFrameStrings);
+            frameShifts.unshift(this.createError);
+            var capturedFrameStrings = this.getFrameStrings(error);
+
+            var frameStrings = capturedFrameStrings.slice(frameShifts.length),
+                functionValues = [];
+
+            if (capability("arguments.callee.caller")) {
+                var capturedFunctionValues = [
+                    this.createError,
+                    this.captureFrameStrings
+                ];
+                try {
+                    var aCaller = arguments.callee;
+                    while (aCaller = aCaller.caller)
+                        capturedFunctionValues.push(aCaller);
+                }
+                catch (useStrictError) {
+                }
+                functionValues = capturedFunctionValues.slice(frameShifts.length);
+            }
+            return {
+                frameStrings: frameStrings,
+                functionValues: functionValues
+            };
+        },
+        getFrameStrings: function (error) {
+            var message = error.message || "";
+            var name = error.name || "";
+            var stackString = this.getStackString(error);
+            if (stackString === undefined)
+                return;
+            var stackStringChunks = stackString.split("\n");
+            var fromPosition = 0;
+            var toPosition = stackStringChunks.length;
+            if (this.hasHeader)
+                fromPosition += name.split("\n").length + message.split("\n").length - 1;
+            if (this.hasFooter)
+                toPosition -= 1;
+            return stackStringChunks.slice(fromPosition, toPosition);
+        },
+        createError: abstractMethod,
+        getStackString: abstractMethod,
+        hasHeader: undefined,
+        hasFooter: undefined
+    }
+});
+
+var FrameStringSourceCalibrator = Class(Object, {
+    prototype: {
+        calibrateClass: function (FrameStringSource) {
+            return this.calibrateMethods(FrameStringSource) && this.calibrateEnvelope(FrameStringSource);
+        },
+        calibrateMethods: function (FrameStringSource) {
+            try {
+                eachCombination([[
+                    function (message) {
+                        return new Error(message);
+                    },
+                    function (message) {
+                        try {
+                            throw new Error(message);
+                        }
+                        catch (error) {
+                            return error;
+                        }
+                    }
+                ], [
+                    function (error) {
+                        return error.stack;
+                    },
+                    function (error) {
+                        return error.stacktrace;
+                    }
+                ]], function (createError, getStackString) {
+                    if (getStackString(createError()))
+                        throw {
+                            getStackString: getStackString,
+                            createError: createError
+                        };
+                });
+            } catch (workingImplementation) {
+                Class.merge.call(FrameStringSource, {
+                    prototype: workingImplementation
+                });
+                return true;
+            }
+            return false;
+        },
+        calibrateEnvelope: function (FrameStringSource) {
+            var getStackString = FrameStringSource.prototype.getStackString;
+            var createError = FrameStringSource.prototype.createError;
+            var calibratorStackString = getStackString(createError("marker"));
+            var calibratorFrameStrings = calibratorStackString.split("\n");
+            Class.merge.call(FrameStringSource, {
+                prototype: {
+                    hasHeader: /marker/.test(calibratorFrameStrings[0]),
+                    hasFooter: calibratorFrameStrings[calibratorFrameStrings.length - 1] === ""
+                }
+            });
+            return true;
+        }
+    }
+});
+
+
+module.exports = {
+    getClass: cache(function () {
+        var FrameStringSource;
+        if (FrameStringSource)
+            return FrameStringSource;
+        FrameStringSource = Class(AbstractFrameStringSource, {});
+        var calibrator = new FrameStringSourceCalibrator();
+        if (!calibrator.calibrateClass(FrameStringSource))
+            throw new Error("Cannot read Error.prototype.stack in this environment.");
+        return FrameStringSource;
+    }),
+    getInstance: cache(function () {
+        var FrameStringSource = this.getClass();
+        var instance = new FrameStringSource();
+        return instance;
+    })
+};
+},{"capability":23,"o3":41,"u3":63}],33:[function(require,module,exports){
+var FrameStringSource = require("./FrameStringSource"),
+    FrameStringParser = require("./FrameStringParser"),
+    cache = require("u3").cache,
+    prepareStackTrace = require("../prepareStackTrace");
+
+module.exports = function () {
+
+    Error.captureStackTrace = function captureStackTrace(throwable, terminator) {
+        var warnings;
+        var frameShifts = [
+            captureStackTrace
+        ];
+        if (terminator) {
+            // additional frames can come here if arguments.callee.caller is supported
+            // otherwise it is hard to identify the terminator
+            frameShifts.push(terminator);
+        }
+        var captured = FrameStringSource.getInstance().captureFrameStrings(frameShifts);
+        Object.defineProperties(throwable, {
+            stack: {
+                configurable: true,
+                get: cache(function () {
+                    var frames = FrameStringParser.getInstance().getFrames(captured.frameStrings, captured.functionValues);
+                    return (Error.prepareStackTrace || prepareStackTrace)(throwable, frames, warnings);
+                })
+            },
+            cachedStack: {
+                configurable: true,
+                writable: true,
+                enumerable: false,
+                value: true
+            }
+        });
+    };
+
+    Error.getStackTrace = function (throwable) {
+        if (throwable.cachedStack)
+            return throwable.stack;
+        var frameStrings = FrameStringSource.getInstance().getFrameStrings(throwable),
+            frames = [],
+            warnings;
+        if (frameStrings)
+            frames = FrameStringParser.getInstance().getFrames(frameStrings, []);
+        else
+            warnings = [
+                "The stack is not readable by unthrown errors in this environment."
+            ];
+        var stack = (Error.prepareStackTrace || prepareStackTrace)(throwable, frames, warnings);
+        if (frameStrings)
+            try {
+                Object.defineProperties(throwable, {
+                    stack: {
+                        configurable: true,
+                        writable: true,
+                        enumerable: false,
+                        value: stack
+                    },
+                    cachedStack: {
+                        configurable: true,
+                        writable: true,
+                        enumerable: false,
+                        value: true
+                    }
+                });
+            } catch (nonConfigurableError) {
+            }
+        return stack;
+    };
+
+    return {
+        prepareStackTrace: prepareStackTrace
+    };
+};
+},{"../prepareStackTrace":34,"./FrameStringParser":31,"./FrameStringSource":32,"u3":63}],34:[function(require,module,exports){
+var prepareStackTrace = function (throwable, frames, warnings) {
+    var string = "";
+    string += throwable.name || "Error";
+    string += ": " + (throwable.message || "");
+    if (warnings instanceof Array)
+        for (var warningIndex in warnings) {
+            var warning = warnings[warningIndex];
+            string += "\n   # " + warning;
+        }
+    for (var frameIndex in frames) {
+        var frame = frames[frameIndex];
+        string += "\n   at " + frame.toString();
+    }
+    return string;
+};
+
+module.exports = prepareStackTrace;
+},{}],35:[function(require,module,exports){
+var cache = require("u3").cache,
+    prepareStackTrace = require("./prepareStackTrace");
+
+module.exports = function () {
+
+    Error.captureStackTrace = function (throwable, terminator) {
+        Object.defineProperties(throwable, {
+            stack: {
+                configurable: true,
+                get: cache(function () {
+                    return (Error.prepareStackTrace || prepareStackTrace)(throwable, []);
+                })
+            },
+            cachedStack: {
+                configurable: true,
+                writable: true,
+                enumerable: false,
+                value: true
+            }
+        });
+    };
+
+    Error.getStackTrace = function (throwable) {
+        if (throwable.cachedStack)
+            return throwable.stack;
+        var stack = (Error.prepareStackTrace || prepareStackTrace)(throwable, []);
+        try {
+            Object.defineProperties(throwable, {
+                stack: {
+                    configurable: true,
+                    writable: true,
+                    enumerable: false,
+                    value: stack
+                },
+                cachedStack: {
+                    configurable: true,
+                    writable: true,
+                    enumerable: false,
+                    value: true
+                }
+            });
+        } catch (nonConfigurableError) {
+        }
+        return stack;
+    };
+
+    return {
+        prepareStackTrace: prepareStackTrace
+    };
+};
+},{"./prepareStackTrace":34,"u3":63}],36:[function(require,module,exports){
+var prepareStackTrace = require("./prepareStackTrace");
+
+module.exports = function () {
+    Error.getStackTrace = function (throwable) {
+        return throwable.stack;
+    };
+
+    return {
+        prepareStackTrace: prepareStackTrace
+    };
+};
+},{"./prepareStackTrace":34}],37:[function(require,module,exports){
 /*!
  * http-errors
  * Copyright(c) 2014 Jonathan Ong
@@ -3726,7 +4224,7 @@ function populateConstructorExports (exports, codes, HttpError) {
     '"I\'mateapot"; use "ImATeapot" instead')
 }
 
-},{"depd":22,"inherits":25,"setprototypeof":40,"statuses":42,"toidentifier":43}],24:[function(require,module,exports){
+},{"depd":27,"inherits":39,"setprototypeof":58,"statuses":60,"toidentifier":61}],38:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = (nBytes * 8) - mLen - 1
@@ -3812,7 +4310,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],25:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -3837,7 +4335,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],26:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 (function (process,global){
 /**
  * [js-sha256]{@link https://github.com/emn178/js-sha256}
@@ -4359,7 +4857,155 @@ if (typeof Object.create === 'function') {
 })();
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":27}],27:[function(require,module,exports){
+},{"_process":45}],41:[function(require,module,exports){
+require("capability/es5");
+
+module.exports = require("./lib");
+},{"./lib":44,"capability/es5":22}],42:[function(require,module,exports){
+var Class = function () {
+    var options = Object.create({
+        Source: Object,
+        config: {},
+        buildArgs: []
+    });
+
+    function checkOption(option) {
+        var key = "config";
+        if (option instanceof Function)
+            key = "Source";
+        else if (option instanceof Array)
+            key = "buildArgs";
+        else if (option instanceof Object)
+            key = "config";
+        else
+            throw new Error("Invalid configuration option.");
+        if (options.hasOwnProperty(key))
+            throw new Error("Duplicated configuration option: " + key + ".");
+        options[key] = option;
+    }
+
+    for (var index = 0, length = arguments.length; index < length; ++index)
+        checkOption(arguments[index]);
+
+    var Source = options.Source,
+        config = options.config,
+        buildArgs = options.buildArgs;
+
+    return (Source.extend || Class.extend).call(Source, config, buildArgs);
+};
+
+Class.factory = function () {
+    var Source = this;
+    return function () {
+        var instance = this;
+        if (instance.build instanceof Function)
+            instance.build.apply(instance, arguments);
+        if (instance.init instanceof Function)
+            instance.init.apply(instance, arguments);
+    };
+};
+
+Class.extend = function (config, buildArgs) {
+    var Source = this;
+    if (!config)
+        config = {};
+    var Subject;
+    if ((config.prototype instanceof Object) && config.prototype.constructor !== Object)
+        Subject = config.prototype.constructor;
+    else if (config.factory instanceof Function)
+        Subject = config.factory.call(Source);
+    Subject = (Source.clone || Class.clone).call(Source, Subject, buildArgs);
+    (Subject.merge || Class.merge).call(Subject, config);
+    return Subject;
+};
+
+Class.prototype.extend = function (config, buildArgs) {
+    var subject = this;
+    var instance = (subject.clone || Class.prototype.clone).apply(subject, buildArgs);
+    (instance.merge || Class.prototype.merge).call(instance, config);
+    return instance;
+};
+
+Class.clone = function (Subject, buildArgs) {
+    var Source = this;
+    if (!(Subject instanceof Function))
+        Subject = (Source.factory || Class.factory).call(Source);
+    Subject.prototype = (Source.prototype.clone || Class.prototype.clone).apply(Source.prototype, buildArgs || []);
+    Subject.prototype.constructor = Subject;
+    for (var staticProperty in Source)
+        if (staticProperty !== "prototype")
+            Subject[staticProperty] = Source[staticProperty];
+    return Subject;
+};
+
+Class.prototype.clone = function () {
+    var subject = this;
+    var instance = Object.create(subject);
+    if (instance.build instanceof Function)
+        instance.build.apply(instance, arguments);
+    return instance;
+};
+
+Class.merge = function (config) {
+    var Subject = this;
+    for (var staticProperty in config)
+        if (staticProperty !== "prototype")
+            Subject[staticProperty] = config[staticProperty];
+    if (config.prototype instanceof Object)
+        (Subject.prototype.merge || Class.prototype.merge).call(Subject.prototype, config.prototype);
+    return Subject;
+};
+
+Class.prototype.merge = function (config) {
+    var subject = this;
+    for (var property in config)
+        if (property !== "constructor")
+            subject[property] = config[property];
+    return subject;
+};
+
+Class.absorb = function (config) {
+    var Subject = this;
+    for (var staticProperty in config)
+        if (staticProperty !== "prototype" && (Subject[staticProperty] === undefined || Subject[staticProperty] === Function.prototype[staticProperty]))
+            Subject[staticProperty] = config[staticProperty];
+    if (config.prototype instanceof Object)
+        (Subject.prototype.absorb || Class.prototype.absorb).call(Subject.prototype, config.prototype);
+    return Subject;
+};
+
+Class.prototype.absorb = function (config) {
+    var subject = this;
+    for (var property in config)
+        if (property !== "constructor" && (subject[property] === undefined || subject[property] === Object.prototype[property]))
+            subject[property] = config[property];
+    return subject;
+};
+
+Class.getAncestor = function () {
+    var Source = this;
+    if (Source !== Source.prototype.constructor)
+        return Source.prototype.constructor;
+};
+
+Class.newInstance = function () {
+    var Subject = this;
+    var instance = Object.create(this.prototype);
+    Subject.apply(instance, arguments);
+    return instance;
+};
+
+module.exports = Class;
+},{}],43:[function(require,module,exports){
+module.exports = function () {
+    throw new Error("Not implemented.");
+};
+},{}],44:[function(require,module,exports){
+module.exports = {
+    Class: require("./Class"),
+    abstractMethod: require("./abstractMethod")
+};
+},{"./Class":42,"./abstractMethod":43}],45:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -4545,13 +5191,13 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],28:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 // minimal library entry point.
 
 "use strict";
 module.exports = require("./src/index-minimal");
 
-},{"./src/index-minimal":29}],29:[function(require,module,exports){
+},{"./src/index-minimal":47}],47:[function(require,module,exports){
 "use strict";
 var protobuf = exports;
 
@@ -4589,7 +5235,7 @@ function configure() {
 protobuf.Writer._configure(protobuf.BufferWriter);
 configure();
 
-},{"./reader":30,"./reader_buffer":31,"./roots":32,"./rpc":33,"./util/minimal":36,"./writer":37,"./writer_buffer":38}],30:[function(require,module,exports){
+},{"./reader":48,"./reader_buffer":49,"./roots":50,"./rpc":51,"./util/minimal":54,"./writer":55,"./writer_buffer":56}],48:[function(require,module,exports){
 "use strict";
 module.exports = Reader;
 
@@ -4996,7 +5642,7 @@ Reader._configure = function(BufferReader_) {
     });
 };
 
-},{"./util/minimal":36}],31:[function(require,module,exports){
+},{"./util/minimal":54}],49:[function(require,module,exports){
 "use strict";
 module.exports = BufferReader;
 
@@ -5042,7 +5688,7 @@ BufferReader.prototype.string = function read_string_buffer() {
  * @returns {Buffer} Value read
  */
 
-},{"./reader":30,"./util/minimal":36}],32:[function(require,module,exports){
+},{"./reader":48,"./util/minimal":54}],50:[function(require,module,exports){
 "use strict";
 module.exports = {};
 
@@ -5062,7 +5708,7 @@ module.exports = {};
  * var root = protobuf.roots["myroot"];
  */
 
-},{}],33:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 "use strict";
 
 /**
@@ -5100,7 +5746,7 @@ var rpc = exports;
 
 rpc.Service = require("./rpc/service");
 
-},{"./rpc/service":34}],34:[function(require,module,exports){
+},{"./rpc/service":52}],52:[function(require,module,exports){
 "use strict";
 module.exports = Service;
 
@@ -5244,7 +5890,7 @@ Service.prototype.end = function end(endedByRPC) {
     return this;
 };
 
-},{"../util/minimal":36}],35:[function(require,module,exports){
+},{"../util/minimal":54}],53:[function(require,module,exports){
 "use strict";
 module.exports = LongBits;
 
@@ -5446,7 +6092,7 @@ LongBits.prototype.length = function length() {
          : part2 < 128 ? 9 : 10;
 };
 
-},{"../util/minimal":36}],36:[function(require,module,exports){
+},{"../util/minimal":54}],54:[function(require,module,exports){
 (function (global){
 "use strict";
 var util = exports;
@@ -5864,7 +6510,7 @@ util._configure = function() {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./longbits":35,"@protobufjs/aspromise":9,"@protobufjs/base64":10,"@protobufjs/eventemitter":11,"@protobufjs/float":12,"@protobufjs/inquire":13,"@protobufjs/pool":14,"@protobufjs/utf8":15}],37:[function(require,module,exports){
+},{"./longbits":53,"@protobufjs/aspromise":9,"@protobufjs/base64":10,"@protobufjs/eventemitter":11,"@protobufjs/float":12,"@protobufjs/inquire":13,"@protobufjs/pool":14,"@protobufjs/utf8":15}],55:[function(require,module,exports){
 "use strict";
 module.exports = Writer;
 
@@ -6325,7 +6971,7 @@ Writer._configure = function(BufferWriter_) {
     BufferWriter = BufferWriter_;
 };
 
-},{"./util/minimal":36}],38:[function(require,module,exports){
+},{"./util/minimal":54}],56:[function(require,module,exports){
 "use strict";
 module.exports = BufferWriter;
 
@@ -6408,7 +7054,7 @@ BufferWriter.prototype.string = function write_string_buffer(value) {
  * @returns {Buffer} Finished buffer
  */
 
-},{"./util/minimal":36,"./writer":37}],39:[function(require,module,exports){
+},{"./util/minimal":54,"./writer":55}],57:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -6472,7 +7118,7 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-},{"buffer":21}],40:[function(require,module,exports){
+},{"buffer":21}],58:[function(require,module,exports){
 module.exports = Object.setPrototypeOf || ({__proto__:[]} instanceof Array ? setProtoOf : mixinProperties);
 
 function setProtoOf(obj, proto) {
@@ -6489,7 +7135,7 @@ function mixinProperties(obj, proto) {
 	return obj;
 }
 
-},{}],41:[function(require,module,exports){
+},{}],59:[function(require,module,exports){
 module.exports={
   "100": "Continue",
   "101": "Switching Protocols",
@@ -6557,7 +7203,7 @@ module.exports={
   "511": "Network Authentication Required"
 }
 
-},{}],42:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 /*!
  * statuses
  * Copyright(c) 2014 Jonathan Ong
@@ -6672,7 +7318,7 @@ function status (code) {
   return n
 }
 
-},{"./codes.json":41}],43:[function(require,module,exports){
+},{"./codes.json":59}],61:[function(require,module,exports){
 /*!
  * toidentifier
  * Copyright(c) 2016 Douglas Christopher Wilson
@@ -6704,7 +7350,7 @@ function toIdentifier (str) {
     .replace(/[^ _0-9a-z]/gi, '')
 }
 
-},{}],44:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 (function(nacl) {
 'use strict';
 
@@ -9083,7 +9729,51 @@ nacl.setPRNG = function(fn) {
 
 })(typeof module !== 'undefined' && module.exports ? module.exports : (self.nacl = self.nacl || {}));
 
-},{"crypto":18}],45:[function(require,module,exports){
+},{"crypto":18}],63:[function(require,module,exports){
+arguments[4][28][0].apply(exports,arguments)
+},{"./lib":66,"dup":28}],64:[function(require,module,exports){
+var cache = function (fn) {
+    var called = false,
+        store;
+
+    if (!(fn instanceof Function)) {
+        called = true;
+        store = fn;
+        delete(fn);
+    }
+
+    return function () {
+        if (!called) {
+            called = true;
+            store = fn.apply(this, arguments);
+            delete(fn);
+        }
+        return store;
+    };
+};
+
+module.exports = cache;
+},{}],65:[function(require,module,exports){
+module.exports = function eachCombination(alternativesByDimension, callback, combination) {
+    if (!combination)
+        combination = [];
+    if (combination.length < alternativesByDimension.length) {
+        var alternatives = alternativesByDimension[combination.length];
+        for (var index in alternatives) {
+            combination[combination.length] = alternatives[index];
+            eachCombination(alternativesByDimension, callback, combination);
+            --combination.length;
+        }
+    }
+    else
+        callback.apply(null, combination);
+};
+},{}],66:[function(require,module,exports){
+module.exports = {
+    cache: require("./cache"),
+    eachCombination: require("./eachCombination")
+};
+},{"./cache":64,"./eachCombination":65}],67:[function(require,module,exports){
 /*eslint-disable block-scoped-var, id-length, no-control-regex, no-magic-numbers, no-prototype-builtins, no-redeclare, no-shadow, no-var, sort-vars*/
 "use strict";
 
@@ -11250,7 +11940,7 @@ $root.SignedTransaction = (function() {
 
 module.exports = $root;
 
-},{"protobufjs/minimal":28}],46:[function(require,module,exports){
+},{"protobufjs/minimal":46}],68:[function(require,module,exports){
 /**
  * Stores keys in the browser local storage. This allows to retain keys between
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
@@ -11307,7 +11997,7 @@ class BrowserLocalStorageKeystore {
 }
 
 module.exports = BrowserLocalStorageKeystore;
-},{"./key_pair":48}],47:[function(require,module,exports){
+},{"./key_pair":70}],69:[function(require,module,exports){
 /**
  * Simple in-memory keystore for testing purposes.
  */
@@ -11330,7 +12020,7 @@ class InMemoryKeyStore {
 }
 
 module.exports = InMemoryKeyStore;
-},{}],48:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 (function (Buffer){
 
 const bs58 = require('bs58');
@@ -11388,7 +12078,7 @@ class KeyPair {
 }
 module.exports = KeyPair;
 }).call(this,require("buffer").Buffer)
-},{"bs58":20,"buffer":21,"tweetnacl":44}],49:[function(require,module,exports){
+},{"bs58":20,"buffer":21,"tweetnacl":62}],71:[function(require,module,exports){
 /**
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
@@ -11424,7 +12114,7 @@ class SimpleKeyStoreSigner {
 
 module.exports = SimpleKeyStoreSigner;
 
-},{"bs58":20,"js-sha256":26,"tweetnacl":44}],50:[function(require,module,exports){
+},{"bs58":20,"js-sha256":40,"tweetnacl":62}],72:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
@@ -11583,4 +12273,4 @@ class WalletAccount {
 module.exports = WalletAccount;
 
 }).call(this,require("buffer").Buffer)
-},{"./protos":45,"buffer":21,"js-sha256":26}]},{},[2]);
+},{"./protos":67,"buffer":21,"js-sha256":40}]},{},[2]);
