@@ -67,14 +67,19 @@ impl HttpApi {
         );
         let state_update = self.client.shard_client.get_state_update();
         let best_index = self.client.shard_client.chain.best_index();
+        let mut logs = vec![];
         match self.client.shard_client.trie_viewer.call_function(
             state_update,
             best_index, 
             &r.contract_account_id,
             &r.method_name,
-            &r.args
+            &r.args,
+            &mut logs,
         ) {
-            Ok(result) => Ok(CallViewFunctionResponse { result }),
+            Ok(result) => Ok(CallViewFunctionResponse {
+                result,
+                logs,
+            }),
             Err(e) => Err(e.to_string()),
         }
     }

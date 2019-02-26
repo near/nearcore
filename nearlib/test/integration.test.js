@@ -159,7 +159,7 @@ describe('with deployed contract', () => {
             await nearjs.deployContract(contractName, data));
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
-            viewMethods: ['getAllKeys'],
+            viewMethods: ['getAllKeys', "returnHiWithLogs"],
             changeMethods: ['generateLogs', 'triggerAssert', 'testSetRemove']
         });
     });
@@ -225,6 +225,12 @@ describe('with deployed contract', () => {
     test('can get logs from method result', async () => {
         await contract.generateLogs();
         expect(logs).toEqual([`[${contractName}]: LOG: log1`, `[${contractName}]: LOG: log2`]);
+    });
+
+    test('can get logs from view call', async () => {
+        let result = await contract.returnHiWithLogs();
+        expect(result).toEqual('Hi');
+        expect(logs).toEqual([`[${contractName}]: LOG: loooog1`, `[${contractName}]: LOG: loooog2`]);
     });
 
     test('can get assert message from method result', async () => {

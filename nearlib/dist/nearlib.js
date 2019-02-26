@@ -271,6 +271,9 @@ class Near {
             method_name: methodName,
             args: serializedArgs
         });
+        response.logs.forEach(line => {
+            console.log(`[${contractAccountId}]: ${line}`);
+        });
         const json = JSON.parse(Buffer.from(response.result).toString());
         return json.result;
     }

@@ -97,6 +97,7 @@ impl TrieViewer {
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
+        logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, String> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
@@ -143,6 +144,7 @@ impl TrieViewer {
         match wasm_res {
             Ok(res) => {
                 debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, res);
+                logs.extend(res.logs);
                 match res.return_data {
                     Ok(return_data) => {
                         let (root_after, _) = state_update.finalize();
@@ -185,11 +187,13 @@ mod tests {
     fn test_view_call() {
         let (viewer, root) = get_test_trie_viewer();
 
+        let mut logs = vec![];
         let result = viewer.call_function(
             root, 1,
             &alice_account(),
             "run_test",
-            &vec![]
+            &vec![],
+            &mut logs,
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
@@ -199,11 +203,13 @@ mod tests {
     fn test_view_call_bad_contract_id() {
         let (viewer, root) = get_test_trie_viewer();
 
+        let mut logs = vec![];
         let result = viewer.call_function(
             root, 1,
             &"bad!contract".to_string(),
             "run_test",
-            &vec![]
+            &vec![],
+            &mut logs,
         );
 
         assert!(result.is_err());
@@ -213,11 +219,13 @@ mod tests {
     fn test_view_call_try_changing_storage() {
         let (viewer, root) = get_test_trie_viewer();
 
+        let mut logs = vec![];
         let result = viewer.call_function(
             root, 1,
             &alice_account(),
             "run_test_with_storage_change",
-            &vec![]
+            &vec![],
+            &mut logs,
         );
         // run_test tries to change storage, so it should fail
         assert!(result.is_err());
@@ -229,11 +237,13 @@ mod tests {
         let args = (1..3).into_iter()
             .flat_map(|x| encode_int(x).to_vec())
             .collect::<Vec<_>>();
+        let mut logs = vec![];
         let view_call_result = viewer.call_function(
             root, 1,
             &alice_account(),
             "sum_with_input",
             &args,
+            &mut logs,
         );
         assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
     }
