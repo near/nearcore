@@ -16,6 +16,7 @@ use std::path::Path;
 use std::{cmp, env, fs};
 
 use env_logger::Builder;
+use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
@@ -228,19 +229,21 @@ impl Client {
             block.hash,
             shard_block.hash,
         );
-        let block_receipts = get_all_receipts(shard_block.body.receipts.iter());
-        let mut tx_with_results: Vec<String> = block_receipts
-            .iter()
-            .zip(&tx_results[..block_receipts.len()])
-            .map(|(receipt, result)| format!("{:#?} -> {:#?}", receipt, result))
-            .collect();
-        tx_with_results.extend(shard_block.body.transactions
-            .iter()
-            .zip(&tx_results[block_receipts.len()..])
-            .map(|(tx, result)| format!("{:#?} -> {:#?}", tx, result))
-        );
-        debug!(target: "client", "Input Transactions: [{}]", tx_with_results.join("\n"));
-        debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(new_receipts.values()));
+        if log_enabled!(target: "client", Debug) {
+            let block_receipts = get_all_receipts(shard_block.body.receipts.iter());
+            let mut tx_with_results: Vec<String> = block_receipts
+                .iter()
+                .zip(&tx_results[..block_receipts.len()])
+                .map(|(receipt, result)| format!("{:#?} -> {:#?}", receipt, result))
+                .collect();
+            tx_with_results.extend(shard_block.body.transactions
+                .iter()
+                .zip(&tx_results[block_receipts.len()..])
+                .map(|(tx, result)| format!("{:#?} -> {:#?}", tx, result))
+            );
+            debug!(target: "client", "Input Transactions: [{}]", tx_with_results.join("\n"));
+            debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(new_receipts.values()));
+        }
         self.shard_client.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
         self.beacon_chain.chain.insert_block(block.clone());
         io::stdout().flush().expect("Could not flush stdout");
