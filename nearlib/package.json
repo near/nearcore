@@ -20,7 +20,7 @@
     "browserify": "^16.2.3",
     "documentation": "^9.1.1",
     "eslint": "^5.14.0",
-    "jest": "^23.6.0",
+    "jest": "^24.1.0",
     "uglifyify": "^5.0.1"
   },
   "keywords": [],
