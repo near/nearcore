@@ -36,7 +36,6 @@ pub enum Control<P> {
     Stop,
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
     pub sender_id: AuthorityId,
@@ -202,7 +201,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
             self.owner_secret_key.as_ref().unwrap(),
-            self.block_index.unwrap()
+            self.block_index.unwrap(),
         ));
     }
 
@@ -310,8 +309,11 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
 
         for i in 0..self.nightshade.as_ref().unwrap().num_authorities {
             if i != self.nightshade.as_ref().unwrap().owner_id {
-                let message =
-                    Message { sender_id: self.nightshade.as_ref().unwrap().owner_id, receiver_id: i, state: my_state.clone() };
+                let message = Message {
+                    sender_id: self.nightshade.as_ref().unwrap().owner_id,
+                    receiver_id: i,
+                    state: my_state.clone(),
+                };
                 self.send_state(message);
             }
         }
@@ -343,15 +345,15 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
         // Control loop
         loop {
             match self.control_receiver.poll() {
-                Ok(Async::Ready(Some(Control::Reset{
-                                         owner_uid,
-                                         block_index,
-                                         payload,
-                                         public_keys,
-                                         owner_secret_key,
-                                         bls_public_keys,
-                                         bls_owner_secret_key,
-                                     }))) => {
+                Ok(Async::Ready(Some(Control::Reset {
+                    owner_uid,
+                    block_index,
+                    payload,
+                    public_keys,
+                    owner_secret_key,
+                    bls_public_keys,
+                    bls_owner_secret_key,
+                }))) => {
                     info!(target: "nightshade", "Control channel received Reset");
                     self.init_nightshade(
                         owner_uid,
@@ -360,7 +362,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                         public_keys,
                         owner_secret_key,
                         bls_public_keys,
-                        bls_owner_secret_key
+                        bls_owner_secret_key,
                     );
                     break;
                 }
@@ -408,7 +410,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                             self.consensus_reached = Some(outcome.clone());
 
                             tokio::spawn(
-                                self.consensus_sender.clone()
+                                self.consensus_sender
+                                    .clone()
                                     .send((outcome, self.block_index.unwrap()))
                                     .map(|_| ())
                                     .map_err(|e| error!("Failed sending consensus: {:?}", e)),
@@ -455,15 +458,10 @@ pub fn spawn_nightshade_task<P>(
     out_gossip_tx: mpsc::Sender<Gossip<P>>,
     consensus_tx: mpsc::Sender<(BlockHeader, u64)>,
     control_rx: mpsc::Receiver<Control<P>>,
-)
-    where P: Serialize + Send + Clone + Debug + 'static
+) where
+    P: Serialize + Send + Clone + Debug + 'static,
 {
-    let task = NightshadeTask::new(
-        inc_gossip_rx,
-        out_gossip_tx,
-        control_rx,
-        consensus_tx,
-    );
+    let task = NightshadeTask::new(inc_gossip_rx, out_gossip_tx, control_rx, consensus_tx);
 
     tokio::spawn(task.for_each(|_| Ok(())));
 }

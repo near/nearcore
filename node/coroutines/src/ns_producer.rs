@@ -24,6 +24,7 @@ pub fn spawn_block_producer(
 ) {
     let task = receiver
         .for_each(move |(body, block_index)| {
+            println!("Block produced for index {}", block_index);
             // TODO: Modify `try_produce_block` method to accept NS consensus, instead of TxFlow
             // consensus.
             let body =
