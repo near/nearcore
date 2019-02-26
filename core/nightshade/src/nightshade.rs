@@ -315,9 +315,9 @@ fn incompatible_states(state0: &State, state1: &State) -> bool {
 pub struct Nightshade {
     /// Id of the authority holding this Nightshade instance.
     /// It is an integer from [0..num_authorities).
-    owner_id: AuthorityId,
+    pub owner_id: AuthorityId,
     /// Number of authorities running consensus
-    num_authorities: usize,
+    pub num_authorities: usize,
     /// Current state (triplet) of each authority in the consensus from the point of view
     /// of the authority holding this Nightshade instance.
     states: Vec<State>,

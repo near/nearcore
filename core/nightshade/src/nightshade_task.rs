@@ -24,9 +24,18 @@ use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
 const COOLDOWN_MS: u64 = 50;
 
 pub enum Control<P> {
-    Reset(P),
+    Reset {
+        owner_uid: u64,
+        block_index: u64,
+        payload: P,
+        public_keys: Vec<PublicKey>,
+        owner_secret_key: SecretKey,
+        bls_public_keys: Vec<BlsPublicKey>,
+        bls_owner_secret_key: BlsSecretKey,
+    },
     Stop,
 }
+
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
@@ -94,8 +103,6 @@ impl<P: Serialize> SignedBlock<P> {
 }
 
 pub struct NightshadeTask<P> {
-    owner_id: AuthorityId,
-    num_authorities: usize,
     /// Blocks from other authorities containing payloads. At the beginning of the consensus
     /// authorities only have their own block. It is required for an authority to endorse a block
     /// from other authority to have its block.
@@ -103,10 +110,7 @@ pub struct NightshadeTask<P> {
     nightshade: Option<Nightshade>,
     /// Standard public/secret keys are used to sign payloads and gossips
     public_keys: Vec<PublicKey>,
-    owner_secret_key: SecretKey,
-    /// BLS public/secret keys are used to sign state and aggregate signatures for proofs
-    bls_public_keys: Vec<BlsPublicKey>,
-    bls_owner_secret_key: BlsSecretKey,
+    owner_secret_key: Option<SecretKey>,
     /// Channel to receive gossips from other authorities.
     inc_gossips: mpsc::Receiver<Gossip<P>>,
     /// Channel to send gossips to other authorities
@@ -126,32 +130,22 @@ pub struct NightshadeTask<P> {
 
 impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     pub fn new(
-        owner_id: AuthorityId,
-        num_authorities: usize,
-        public_keys: Vec<PublicKey>,
-        owner_secret_key: SecretKey,
-        bls_public_keys: Vec<BlsPublicKey>,
-        bls_owner_secret_key: BlsSecretKey,
         inc_gossips: mpsc::Receiver<Gossip<P>>,
         out_gossips: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control<P>>,
         consensus_sender: mpsc::Sender<BlockHeader>,
     ) -> Self {
         Self {
-            owner_id,
-            num_authorities,
             authority_blocks: vec![],
             nightshade: None,
-            public_keys,
-            owner_secret_key,
-            bls_public_keys,
-            bls_owner_secret_key,
+            public_keys: vec![],
+            owner_secret_key: None,
             inc_gossips,
             out_gossips,
             control_receiver,
             consensus_sender,
             consensus_reached: None,
-            missing_payloads: num_authorities - 1,
+            missing_payloads: 0,
             cooldown_delay: None,
         }
     }
@@ -164,16 +158,32 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         self.nightshade.as_mut().expect("Nightshade should be initialized")
     }
 
-    fn init_nightshade(&mut self, payload: P) {
-        self.authority_blocks = vec![None; self.num_authorities];
-        self.authority_blocks[self.owner_id] =
-            Some(SignedBlock::new(self.owner_id, payload, &self.owner_secret_key));
+    fn init_nightshade(
+        &mut self,
+        owner_uid: u64,
+        // TODO: Use block index to tag gossip messages, so that
+        // we do not mix gossip messages coming from different blocks
+        // due to network delay.
+        _block_index: u64,
+        payload: P,
+        public_keys: Vec<PublicKey>,
+        owner_secret_key: SecretKey,
+        bls_public_keys: Vec<BlsPublicKey>,
+        bls_owner_secret_key: BlsSecretKey,
+    ) {
+        let num_authorities = public_keys.len();
+        self.public_keys = public_keys;
+        self.owner_secret_key = Some(owner_secret_key.clone());
+        self.missing_payloads = num_authorities - 1;
+        self.authority_blocks = vec![None; num_authorities];
+        self.authority_blocks[owner_uid as usize] =
+            Some(SignedBlock::new(owner_uid as usize, payload, &owner_secret_key));
         self.nightshade = Some(Nightshade::new(
-            self.owner_id as AuthorityId,
-            self.num_authorities as usize,
-            self.authority_blocks[self.owner_id].clone().unwrap().block.header,
-            self.bls_public_keys.clone(),
-            self.bls_owner_secret_key.clone(),
+            owner_uid as AuthorityId,
+            num_authorities,
+            self.authority_blocks[owner_uid as usize].clone().unwrap().block.header,
+            bls_public_keys,
+            bls_owner_secret_key,
         ));
     }
 
@@ -183,10 +193,10 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
 
     fn send_state(&self, message: Message) {
         self.send_gossip(Gossip::new(
-            self.owner_id,
+            self.nightshade.as_ref().unwrap().owner_id,
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
-            &self.owner_secret_key,
+            self.owner_secret_key.as_ref().unwrap(),
         ));
     }
 
@@ -222,10 +232,10 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             // in a queue instead, and process it after we have the payload.
 
             let gossip = Gossip::new(
-                self.owner_id,
+                self.nightshade.as_ref().unwrap().owner_id,
                 author,
                 GossipBody::PayloadRequest(vec![author]),
-                &self.owner_secret_key,
+                self.owner_secret_key.as_ref().unwrap(),
             );
             self.send_gossip(gossip);
         }
@@ -253,10 +263,10 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             }
         }
         let gossip = Gossip::new(
-            self.owner_id,
+            self.nightshade.as_ref().unwrap().owner_id,
             receiver_id,
             GossipBody::PayloadReply(payloads),
-            &self.owner_secret_key,
+            self.owner_secret_key.as_ref().unwrap(),
         );
         self.send_gossip(gossip);
     }
@@ -287,10 +297,10 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     fn gossip_state(&self) {
         let my_state = self.state();
 
-        for i in 0..self.num_authorities {
-            if i != self.owner_id {
+        for i in 0..self.nightshade.as_ref().unwrap().num_authorities {
+            if i != self.nightshade.as_ref().unwrap().owner_id {
                 let message =
-                    Message { sender_id: self.owner_id, receiver_id: i, state: my_state.clone() };
+                    Message { sender_id: self.nightshade.as_ref().unwrap().owner_id, receiver_id: i, state: my_state.clone() };
                 self.send_state(message);
             }
         }
@@ -299,13 +309,13 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     /// We need to have the payload for anything we want to endorse
     /// TODO do it in a smarter way
     fn collect_missing_payloads(&self) {
-        for authority in 0..self.num_authorities {
+        for authority in 0..self.nightshade.as_ref().unwrap().num_authorities {
             if self.authority_blocks[authority].is_none() {
                 let gossip = Gossip::new(
-                    self.owner_id,
+                    self.nightshade.as_ref().unwrap().owner_id,
                     authority,
                     GossipBody::PayloadRequest(vec![authority]),
-                    &self.owner_secret_key,
+                    self.owner_secret_key.as_ref().unwrap(),
                 );
                 self.send_gossip(gossip);
             }
@@ -321,9 +331,25 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
         // Control loop
         loop {
             match self.control_receiver.poll() {
-                Ok(Async::Ready(Some(Control::Reset(payload)))) => {
+                Ok(Async::Ready(Some(Control::Reset{
+                                         owner_uid,
+                                         block_index,
+                                         payload,
+                                         public_keys,
+                                         owner_secret_key,
+                                         bls_public_keys,
+                                         bls_owner_secret_key,
+                                     }))) => {
                     info!(target: "nightshade", "Control channel received Reset");
-                    self.init_nightshade(payload);
+                    self.init_nightshade(
+                        owner_uid,
+                        block_index,
+                        payload,
+                        public_keys,
+                        owner_secret_key,
+                        bls_public_keys,
+                        bls_owner_secret_key
+                    );
                     break;
                 }
                 Ok(Async::Ready(Some(Control::Stop))) => {
@@ -422,19 +448,12 @@ pub fn spawn_nightshade_task<P>(
 )
     where P: Serialize + Send + Clone + Debug + 'static
 {
+    let task = NightshadeTask::new(
+        inc_gossip_rx,
+        out_gossip_tx,
+        control_rx,
+        consensus_tx,
+    );
 
-//    let task = NightshadeTask::new(
-//        owner_id,
-//        num_authorities,
-//        public_keys,
-//        owner_secret_key,
-//        bls_public_keys,
-//        bls_owner_secret_key,
-//        inc_gossips,
-//        out_gossips,
-//        control_rx,
-//        consensus_sender,
-//    );
-//
-//    tokio::spawn(task.for_each(|_| Ok(())));
+    tokio::spawn(task.for_each(|_| Ok(())));
 }

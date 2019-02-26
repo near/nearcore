@@ -22,6 +22,7 @@ use crate::peer::PeerMessage;
 use crate::peer_manager::PeerManager;
 use std::sync::Arc;
 use configs::NetworkConfig;
+use client::Client;
 
 /// Spawn network task that process incoming and outgoing gossips for nightshade consensus
 ///
@@ -29,9 +30,9 @@ use configs::NetworkConfig;
 pub fn spawn_consensus_network(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
+    client: Arc<Client>,
     inc_gossip_tx: Sender<Gossip<ChainPayload>>,
     out_gossip_rx: Receiver<Gossip<ChainPayload>>,
-    authority_map: HashMap<AuthorityId, AccountId>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_out_msg_tx, out_msg_rx) = channel(1024);
@@ -61,10 +62,12 @@ pub fn spawn_consensus_network(
     tokio::spawn(task);
 
     // Spawn a task that encodes and route outgoing gossips to receiver.
+    let client1 = client.clone();
     let task = out_gossip_rx.for_each(move |g| {
+        let authority_map = client1.get_recent_uid_to_authority_map();
         info!("Sending gossip: {} -> {}", g.sender_id, g.receiver_id);
-        let receiver_channel = authority_map.get(&g.receiver_id).and_then(|acc_id| {
-            peer_manager.get_account_channel(acc_id.clone())
+        let receiver_channel = authority_map.get(&(g.receiver_id as u64)).and_then(|acc_id| {
+            peer_manager.get_account_channel(acc_id.account_id.clone())
         });
 
         if let Some(ch) = receiver_channel {
@@ -84,33 +87,4 @@ fn forward_msg<T>(ch: Sender<T>, el: T)
     let task =
         ch.send(el).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
     tokio::spawn(task);
-}
-
-// TODO: Document this function
-pub fn start_peer(
-    authority: usize,
-    num_authorities: usize,
-    account_id: Option<AccountId>,
-    boot_nodes: Vec<PeerInfo>,
-)
-    -> (PeerManager, Sender<(CryptoHash, Vec<u8>)>, Receiver<(CryptoHash, Vec<u8>)>)
-{
-    let (out_msg_tx, out_msg_rx) = channel(1024);
-    let (inc_msg_tx, inc_msg_rx) = channel(1024);
-
-    let pm = PeerManager::new(
-        Duration::from_millis(50),
-        Duration::from_millis(100),
-        if authority == 0 { num_authorities - 1 } else { 1 },
-        PeerInfo {
-            id: hash_struct(&authority),
-            addr: SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + authority as u16),
-            account_id,
-        },
-        &boot_nodes,
-        inc_msg_tx,
-        out_msg_rx,
-    );
-
-    (pm, out_msg_tx, inc_msg_rx)
 }
