@@ -26,7 +26,7 @@ pub enum TransactionBody {
     DeleteKey(DeleteKeyTransaction),
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct CreateAccountTransaction {
     pub nonce: u64,
     pub originator: AccountId,
@@ -61,6 +61,19 @@ impl Into<transaction_proto::CreateAccountTransaction> for CreateAccountTransact
     }
 }
 
+impl fmt::Debug for CreateAccountTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("CreateAccountTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("originator", &format_args!("{}", &self.originator))
+            .field("new_account_id", &format_args!("{}", &self.new_account_id))
+            .field("amount", &format_args!("{}", &self.amount))
+            .field("public_key", &format_args!("{}", logging::pretty_utf8(&self.public_key)))
+            .finish()
+    }
+}
+
+
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
     pub nonce: u64,
@@ -70,11 +83,11 @@ pub struct DeployContractTransaction {
 
 impl fmt::Debug for DeployContractTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DeployContractTransaction {{ nonce: {}, contract_id: {}, wasm_byte_array: {} }}",
-            self.nonce,
-            self.contract_id,
-            logging::pretty_vec(&self.wasm_byte_array),
-        )
+        f.debug_struct("DeployContractTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("contract_id", &format_args!("{}", &self.contract_id))
+            .field("wasm_byte_array", &format_args!("{}", logging::pretty_utf8(&self.wasm_byte_array)))
+            .finish()
     }
 }
 
@@ -140,13 +153,14 @@ impl Into<transaction_proto::FunctionCallTransaction> for FunctionCallTransactio
 
 impl fmt::Debug for FunctionCallTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FunctionCallTransaction {{ nonce: {}, originator: {}, contract_id: {}, method_name: {}, args: {} amount: {} }}",
-            self.nonce,
-            self.originator,
-            self.contract_id,
-            logging::pretty_utf8(&self.method_name),
-            logging::pretty_utf8(&self.args),
-            self.amount)
+        f.debug_struct("FunctionCallTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("originator", &format_args!("{}", &self.originator))
+            .field("contract_id", &format_args!("{}", &self.contract_id))
+            .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
+            .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
+            .field("amount", &format_args!("{}", &self.amount))
+            .finish()
     }
 }
 
@@ -246,12 +260,12 @@ impl Into<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
 
 impl fmt::Debug for SwapKeyTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SwapKeyTransaction {{ nonce: {}, originator: {}, cur_key: {}, new_key: {} }}",
-            self.nonce,
-            self.originator,
-            logging::pretty_utf8(&self.cur_key),
-            logging::pretty_utf8(&self.new_key),
-        )
+        f.debug_struct("SwapKeyTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("originator", &format_args!("{}", &self.originator))
+            .field("cur_key", &format_args!("{}", logging::pretty_utf8(&self.cur_key)))
+            .field("new_key", &format_args!("{}", logging::pretty_utf8(&self.new_key)))
+            .finish()
     }
 }
 
@@ -287,11 +301,11 @@ impl Into<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
 
 impl fmt::Debug for AddKeyTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AddKeyTransaction {{ nonce: {}, originator: {}, new_key: {} }}",
-            self.nonce,
-            self.originator,
-            logging::pretty_utf8(&self.new_key),
-        )
+        f.debug_struct("AddKeyTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("originator", &format_args!("{}", &self.originator))
+            .field("new_key", &format_args!("{}", logging::pretty_utf8(&self.new_key)))
+            .finish()
     }
 }
 
@@ -327,11 +341,11 @@ impl Into<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
 
 impl fmt::Debug for DeleteKeyTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AddKeyTransaction {{ nonce: {}, originator: {}, cur_key: {} }}",
-            self.nonce,
-            self.originator,
-            logging::pretty_utf8(&self.cur_key),
-        )
+        f.debug_struct("DeleteKeyTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("originator", &format_args!("{}", &self.originator))
+            .field("cur_key", &format_args!("{}", logging::pretty_utf8(&self.cur_key)))
+            .finish()
     }
 }
 
@@ -600,14 +614,14 @@ impl AsyncCall {
 
 impl fmt::Debug for AsyncCall {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AsyncCall {{ amount: {}, mana: {}, method_name: {}, args: {} callback: {:?}, accounting_info: {:?} }}",
-            self.amount,
-            self.mana,
-            logging::pretty_utf8(&self.method_name),
-            logging::pretty_utf8(&self.args),
-            self.callback,
-            self.accounting_info,
-        )
+        f.debug_struct("AsyncCall")
+            .field("amount", &format_args!("{}", &self.amount))
+            .field("mana", &format_args!("{}", &self.mana))
+            .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
+            .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
+            .field("callback", &self.callback)
+            .field("accounting_info", &self.accounting_info)
+            .finish()
     }
 }
 
@@ -638,15 +652,15 @@ impl Callback {
 
 impl fmt::Debug for Callback {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Callback {{ method_name: {}, args: {}, results: {}, mana: {}, callback: {:?}, result_counter: {}, accounting_info: {:?} }}",
-            logging::pretty_utf8(&self.method_name),
-            logging::pretty_utf8(&self.args),
-            logging::pretty_results(&self.results),
-            self.mana,
-            self.callback,
-            self.result_counter,
-            self.accounting_info,
-        )
+        f.debug_struct("Callback")
+            .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
+            .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
+            .field("results", &format_args!("{}", logging::pretty_results(&self.results)))
+            .field("mana", &format_args!("{}", &self.mana))
+            .field("callback", &self.callback)
+            .field("result_counter", &format_args!("{}", &self.result_counter))
+            .field("accounting_info", &self.accounting_info)
+            .finish()
     }
 }
 
@@ -668,11 +682,11 @@ impl CallbackInfo {
 
 impl fmt::Debug for CallbackInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CallbackInfo {{ id: {}, result_index: {}, receiver: {} }}",
-            logging::pretty_vec(&self.id),
-            self.result_index,
-            self.receiver,
-        )
+        f.debug_struct("CallbackInfo")
+            .field("id", &format_args!("{}", logging::pretty_utf8(&self.id)))
+            .field("result_index", &format_args!("{}", self.result_index))
+            .field("receiver", &format_args!("{}", self.receiver))
+            .finish()
     }
 }
 
@@ -693,10 +707,10 @@ impl CallbackResult {
 
 impl fmt::Debug for CallbackResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CallbackResult {{ info: {:?}, result: {} }}",
-            self.info,
-            logging::pretty_result(&self.result),
-        )
+        f.debug_struct("CallbackResult")
+            .field("info", &self.info)
+            .field("result", &format_args!("{}", logging::pretty_result(&self.result)))
+            .finish()
     }
 }
 
@@ -763,11 +777,11 @@ pub struct TransactionResult {
 
 impl fmt::Debug for TransactionResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TransactionResult {{ status: {:?}, logs: {}, receipts: {} }}",
-            self.status,
-            logging::pretty_vec(&self.logs),
-            logging::pretty_vec(&self.receipts),
-        )
+        f.debug_struct("TransactionResult")
+            .field("status", &self.status)
+            .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
+            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
+            .finish()
     }
 }
 
@@ -782,11 +796,11 @@ pub struct TransactionLogs {
 
 impl fmt::Debug for TransactionLogs {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TransactionLogs {{ hash: {:?}, lines: {}, receipts: {} }}",
-            self.hash,
-            logging::pretty_vec(&self.lines),
-            logging::pretty_vec(&self.receipts),
-        )
+        f.debug_struct("TransactionLogs")
+            .field("hash", &self.hash)
+            .field("lines", &format_args!("{}", logging::pretty_vec(&self.lines)))
+            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
+            .finish()
     }
 }
 
@@ -802,10 +816,10 @@ pub struct FinalTransactionResult {
 
 impl fmt::Debug for FinalTransactionResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FinalTransactionResult {{ status: {:?}, logs: {} }}",
-            self.status,
-            logging::pretty_vec(&self.logs),
-        )
+        f.debug_struct("FinalTransactionResult")
+            .field("status", &self.status)
+            .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
+            .finish()
     }
 }
 

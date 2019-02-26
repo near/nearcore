@@ -42,6 +42,13 @@ type ShardBlockExtraInfo = (
     HashMap<ShardId, ReceiptBlock>,
 );
 
+pub fn get_all_receipts<'a, I>(receipt_blocks_iter: I) -> Vec<&'a ReceiptTransaction>
+where
+    I: Iterator<Item = &'a ReceiptBlock>
+{
+    receipt_blocks_iter.flat_map(|rb| &rb.receipts).collect()
+}
+
 #[allow(unused)]
 pub struct ShardClient {
     pub chain: Arc<chain::BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
