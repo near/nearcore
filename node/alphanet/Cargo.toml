@@ -16,3 +16,6 @@ network = { path = "../network" }
 primitives = { path = "../../core/primitives" }
 nightshade = { path = "../../core/nightshade" }
 chain = { path = "../../core/chain" }
+configs = { path = "../configs" }
+client = { path = "../client" }
+coroutines = { path = "../coroutines" }

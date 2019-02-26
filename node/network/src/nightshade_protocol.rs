@@ -34,7 +34,7 @@ pub fn spawn_consensus_network(
     authority_map: HashMap<AuthorityId, AccountId>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
-    let (out_msg_tx, out_msg_rx) = channel(1024);
+    let (_out_msg_tx, out_msg_rx) = channel(1024);
 
     let peer_manager = Arc::new(PeerManager::new(
         network_cfg.reconnect_delay,
@@ -64,7 +64,7 @@ pub fn spawn_consensus_network(
     let task = out_gossip_rx.for_each(move |g| {
         info!("Sending gossip: {} -> {}", g.sender_id, g.receiver_id);
         let receiver_channel = authority_map.get(&g.receiver_id).and_then(|acc_id| {
-            pm.get_account_channel(acc_id.clone())
+            peer_manager.get_account_channel(acc_id.clone())
         });
 
         if let Some(ch) = receiver_channel {

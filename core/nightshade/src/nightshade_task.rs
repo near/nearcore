@@ -415,32 +415,26 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
 }
 
 pub fn spawn_nightshade_task<P>(
-    owner_id: AuthorityId,
-    num_authorities: usize,
-    public_keys: Vec<PublicKey>,
-    owner_secret_key: SecretKey,
-    bls_public_keys: Vec<BlsPublicKey>,
-    bls_owner_secret_key: BlsSecretKey,
-    inc_gossips: mpsc::Receiver<Gossip<P>>,
-    out_gossips: mpsc::Sender<Gossip<P>>,
-    consensus_sender: mpsc::Sender<BlockHeader>,
+    inc_gossip_rx: mpsc::Receiver<Gossip<P>>,
+    out_gossip_tx: mpsc::Sender<Gossip<P>>,
+    consensus_tx: mpsc::Sender<BlockHeader>,
     control_rx: mpsc::Receiver<Control<P>>,
 )
     where P: Serialize + Send + Clone + Debug + 'static
 {
 
-    let task = NightshadeTask::new(
-        owner_id,
-        num_authorities,
-        public_keys,
-        owner_secret_key,
-        bls_public_keys,
-        bls_owner_secret_key,
-        inc_gossips,
-        out_gossips,
-        control_rx,
-        consensus_sender,
-    );
-
-    tokio::spawn(task.for_each(|_| Ok(())));
+//    let task = NightshadeTask::new(
+//        owner_id,
+//        num_authorities,
+//        public_keys,
+//        owner_secret_key,
+//        bls_public_keys,
+//        bls_owner_secret_key,
+//        inc_gossips,
+//        out_gossips,
+//        control_rx,
+//        consensus_sender,
+//    );
+//
+//    tokio::spawn(task.for_each(|_| Ok(())));
 }
