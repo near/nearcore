@@ -200,10 +200,10 @@ fn call_contract(
 fn verify_transaction_statuses(hashes: &Vec<CryptoHash>, client: &mut Client) {
     for h in hashes {
         assert_eq!(
-            client.shard_client.chain.get_transaction_final_result(h).status,
+            client.shard_client.get_transaction_final_result(h).status,
             FinalTransactionStatus::Completed,
             "Transaction was not completed {:?}",
-            client.shard_client.chain.get_transaction_final_result(h)
+            client.shard_client.get_transaction_final_result(h)
         );
     }
 }

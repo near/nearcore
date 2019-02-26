@@ -129,14 +129,14 @@ mod tests {
         );
         trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
-        let chain = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
+        let _ = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
         (shard_storage, trie, secret_key)
     }
 
     #[test]
     fn test_import_block() {
         let (storage, trie, secret_key) = get_test_chain();
-        let mut pool = Pool::new(storage, trie);
+        let pool = Pool::new(storage, trie);
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
             originator: "alice.near".to_string(),
