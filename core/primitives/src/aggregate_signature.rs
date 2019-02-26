@@ -10,6 +10,12 @@ use crate::traits::{Base58Encoded, FromBytes, ToBytes};
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
 
+pub fn get_bls_key_pair() -> (BlsPublicKey, BlsSecretKey) {
+    let secret_key = BlsSecretKey::generate();
+    let public_key = secret_key.get_public_key();
+    (public_key, secret_key)
+}
+
 #[derive(Clone, Debug)]
 pub struct SecretKey<E: Engine> {
     scalar: E::Fr,

@@ -37,7 +37,7 @@ fn spawn_all(num_authorities: usize) {
         let (public_keys, secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_key_pair()).unzip();
         let (bls_public_keys, bls_secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_bls_key_pair()).unzip();
 
-        for owner_id in 0..num_authorities {
+        for owner_uid in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
             let (inc_gossips_tx, inc_gossips_rx) = mpsc::channel(1024);
             let (out_gossips_tx, out_gossips_rx) = mpsc::channel(1024);
@@ -48,16 +48,9 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let payload = DummyPayload { dummy: owner_id as u64 };
+            let payload = DummyPayload { dummy: owner_uid as u64 };
 
             let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
-                owner_id,
-                num_authorities,
-                payload,
-                public_keys.clone(),
-                secret_keys[owner_id].clone(),
-                bls_public_keys.clone(),
-                bls_secret_keys[owner_id].clone(),
                 inc_gossips_rx,
                 out_gossips_tx,
                 control_rx,
@@ -67,7 +60,15 @@ fn spawn_all(num_authorities: usize) {
             tokio::spawn(task.for_each(|_| Ok(())));
 
             // Start the task using control channels, and stop it after 1 second
-            let start_task = control_tx.clone().send(Control::Reset)
+            let start_task = control_tx.clone().send(Control::Reset{
+                owner_uid: owner_uid as u64,
+                block_index: 0,
+                payload,
+                public_keys: public_keys.clone(),
+                owner_secret_key: secret_keys[owner_uid].clone(),
+                bls_public_keys: bls_public_keys.clone(),
+                bls_owner_secret_key: bls_secret_keys[owner_uid].clone(),
+            })
                 .map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
             tokio::spawn(start_task);
 
@@ -110,7 +111,7 @@ fn spawn_all(num_authorities: usize) {
                 }
             })
             .map_err(|e| {
-                panic!("Failed achieving consensus: {:?}", e);
+                panic!("Failed achieving consensus: {:?}", e)
             })
     });
 

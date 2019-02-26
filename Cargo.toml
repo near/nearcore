@@ -24,6 +24,7 @@ members = [
     "core/nightshade",
     "core/wasm",
     "core/wasm/runtest",
+    "node/alphanet",
     "node/beacon",
     "node/client",
     "node/configs",
@@ -49,6 +50,7 @@ rand = "0.6.1"
 serde_json = "1.0.0"
 
 devnet = { path = "./node/devnet" }
+alphanet = { path = "./node/alphanet" }
 keystore = { path = "./test-utils/keygen" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }

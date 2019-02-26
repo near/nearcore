@@ -1,0 +1,23 @@
+[package]
+name = "alphanet"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "0.6.0"
+futures="0.1"
+log = "0.4"
+rand = "0.4"
+serde = "1.0"
+serde_derive = "1.0"
+tokio="0.1"
+exonum_sodiumoxide = "0.0.20"
+
+network = { path = "../network" }
+primitives = { path = "../../core/primitives" }
+nightshade = { path = "../../core/nightshade" }
+chain = { path = "../../core/chain" }
+configs = { path = "../configs" }
+client = { path = "../client" }
+coroutines = { path = "../coroutines" }

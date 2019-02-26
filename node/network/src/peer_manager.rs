@@ -27,13 +27,14 @@ use tokio::timer::Interval;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub struct PeerManager {
-    all_peer_states: AllPeerStates,
+    pub all_peer_states: AllPeerStates,
 }
 
 impl PeerManager {
     /// Args:
     /// * `reconnect_delay`: How long should we wait before connecting a newly discovered peer or
     ///   reconnecting the old one;
+    ///    TODO: Use smarter strategy to gossip peer info. More frequent while not synced, and decaying with time
     /// * `gossip_interval`: Frequency of gossiping the peers info;
     /// * `gossip_sample_size`: How many peers should we gossip info to;
     /// * `node_info`: Information about the current node;
@@ -132,13 +133,13 @@ impl PeerManager {
                 future::ok(())
             })
             .map(|_| ())
-            .map_err(|e| warn!(target: "network", "Error processing incomming connection {}", e));
+            .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
         tokio::spawn(task);
 
         Self { all_peer_states }
     }
 
-    /// Get channel for the given `account_id`, if the corrresponding peer is `Ready`.
+    /// Get channel for the given `account_id`, if the corresponding peer is `Ready`.
     pub fn get_account_channel(&self, account_id: AccountId) -> Option<Sender<PeerMessage>> {
         self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
             if info.account_id.as_ref() == Some(&account_id) {
@@ -146,7 +147,7 @@ impl PeerManager {
                     PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
                     _ => {
                         None
-                    },
+                    }
                 }
             } else {
                 None
@@ -170,7 +171,6 @@ impl PeerManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::peer::PeerState;
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
     use futures::future;
     use futures::future::Future;
@@ -186,38 +186,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use tokio::util::StreamExt;
-    use std::ops::Deref;
-
-    impl PeerManager {
-        fn count_ready_channels(&self) -> usize {
-            self.all_peer_states
-                .read()
-                .expect(POISONED_LOCK_ERR)
-                .values()
-                .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
-                    PeerState::Ready { .. } => Some(1 as usize),
-                    _ => None,
-                })
-                .sum()
-        }
-    }
-
-    fn wait_all_peers_connected(
-        check_interval_ms: u64,
-        max_wait_ms: u64,
-        peer_managers: &Arc<RwLock<Vec<PeerManager>>>,
-        expected_num_managers: usize,
-    ) {
-        wait(
-            || {
-                let guard = peer_managers.read().expect(POISONED_LOCK_ERR);
-                guard.len() == expected_num_managers
-                    && guard.iter().all(|pm| pm.count_ready_channels() == expected_num_managers - 1)
-            },
-            check_interval_ms,
-            max_wait_ms,
-        );
-    }
+    use crate::testing_utils::{wait_all_peers_connected, wait};
 
     #[test]
     fn test_two_peers_boot() {
@@ -388,19 +357,5 @@ mod tests {
             50,
             10000,
         );
-    }
-
-    fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
-    {
-        let mut ms_slept = 0;
-        while !f() {
-            thread::sleep(Duration::from_millis(check_interval_ms));
-            ms_slept += check_interval_ms;
-            if ms_slept > max_wait_ms {
-                panic!("Timed out waiting for the condition");
-            }
-        }
     }
 }
