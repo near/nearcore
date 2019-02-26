@@ -73,8 +73,6 @@ pub struct BlockChainStorage<H, B> {
     headers: HashMap<Vec<u8>, H>,
     blocks: HashMap<Vec<u8>, B>,
     block_indices: HashMap<Vec<u8>, CryptoHash>,
-    transaction_results: HashMap<Vec<u8>, TransactionResult>,
-    transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
 }
 
 /// Specific block chain storages like beacon chain storage and shard chain storage should implement
@@ -126,8 +124,6 @@ where
             headers: Default::default(),
             blocks: Default::default(),
             block_indices: Default::default(),
-            transaction_results: Default::default(),
-            transaction_addresses: Default::default(),
         }
     }
 
@@ -196,6 +192,12 @@ where
     }
 
     #[inline]
+    pub fn best_block(&mut self) -> StorageResult<&B> {
+        let best_hash = *self.best_block_hash().unwrap().unwrap();
+        self.block(&best_hash)
+    }
+
+    #[inline]
     pub fn hash_by_index(&mut self, index: u64) -> StorageResult<&CryptoHash> {
         // Check to make sure the requested index is not larger than the index of the best block.
         let best_block_index = match self.best_block_hash()?.cloned() {
@@ -221,30 +223,6 @@ where
             &mut self.block_indices,
             &key,
             hash,
-        )
-    }
-
-    #[inline]
-    /// Get transaction address of the computed transaction from its hash.
-    pub fn transaction_address(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionAddress> {
-        let enc_hash = self.enc_hash(hash);
-        read_with_cache(
-            self.storage.as_ref(),
-            COL_TRANSACTION_ADDRESSES,
-            &mut self.transaction_addresses,
-            &enc_hash,
-        )
-    }
-
-    #[inline]
-    /// Get transaction hash of the computed transaction from its hash.
-    pub fn transaction_result(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionResult> {
-        let enc_hash = self.enc_hash(hash);
-        read_with_cache(
-            self.storage.as_ref(),
-            COL_TRANSACTION_RESULTS,
-            &mut self.transaction_results,
-            &enc_hash,
         )
     }
 }

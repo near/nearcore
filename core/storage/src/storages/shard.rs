@@ -1,4 +1,4 @@
-use super::{extend_with_cache, StorageResult};
+use super::{extend_with_cache, read_with_cache, StorageResult};
 use super::{BlockChainStorage, GenericStorage};
 use super::{ChainId, KeyValueDB};
 use super::{COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS};
@@ -14,6 +14,8 @@ use std::sync::Arc;
 /// Shard chain
 pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
+    transaction_results: HashMap<Vec<u8>, TransactionResult>,
+    transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -29,6 +31,8 @@ impl ShardChainStorage {
     pub fn new(storage: Arc<KeyValueDB>, shard_id: u32) -> Self {
         Self {
             generic_storage: BlockChainStorage::new(storage, ChainId::ShardChain(shard_id)),
+            transaction_results: Default::default(),
+            transaction_addresses: Default::default(),
         }
     }
 
@@ -62,7 +66,7 @@ impl ShardChainStorage {
         extend_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TRANSACTION_ADDRESSES,
-            &mut self.generic_storage.transaction_addresses,
+            &mut self.transaction_addresses,
             updates,
         )?;
 
@@ -71,8 +75,30 @@ impl ShardChainStorage {
         extend_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TRANSACTION_RESULTS,
-            &mut self.generic_storage.transaction_results,
+            &mut self.transaction_results,
             updates,
+        )
+    }
+
+    #[inline]
+    /// Get transaction address of the computed transaction from its hash.
+    pub fn transaction_address(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionAddress> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TRANSACTION_ADDRESSES,
+            &mut self.transaction_addresses,
+            &self.generic_storage.enc_hash(hash),
+        )
+    }
+
+    #[inline]
+    /// Get transaction hash of the computed transaction from its hash.
+    pub fn transaction_result(&mut self, hash: &CryptoHash) -> StorageResult<&TransactionResult> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TRANSACTION_RESULTS,
+            &mut self.transaction_results,
+            &self.generic_storage.enc_hash(hash),
         )
     }
 

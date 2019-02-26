@@ -68,6 +68,13 @@ pub fn spawn_network(
                     let unboxed = *block;
                     forward_msg(inc_block_tx.clone(), (unboxed.0, unboxed.1));
                 }
+                //Message::Transaction(tx) => {
+                //    let transaction = *tx;
+                //    client1.shard_client.pool.add_transaction(transaction);
+                //}
+                //Message::Receipt(receipt) => {
+                //    client1.shard_client.pool.add_receipt(*receipt);
+                //}
                 _ => (),
             },
             Err(e) => warn!(target: "network", "{}", e),

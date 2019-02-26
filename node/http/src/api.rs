@@ -186,7 +186,7 @@ impl HttpApi {
         &self,
         r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
-        let result = self.client.shard_client.chain.get_transaction_final_result(&r.hash);
+        let result = self.client.shard_client.get_transaction_final_result(&r.hash);
         Ok(TransactionResultResponse { result })
     }
 }

@@ -15,10 +15,12 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
-use primitives::transaction::TransactionResult;
 use primitives::hash::CryptoHash;
 use primitives::merkle::{merklize, MerklePath};
-use primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use primitives::transaction::{
+    FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
+    TransactionLogs, TransactionResult, TransactionStatus, TransactionAddress
+};
 use primitives::types::{AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
 use storage::ShardChainStorage;
 use storage::{Trie, TrieUpdate};
@@ -48,7 +50,7 @@ pub struct ShardClient {
     storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
     pub trie_viewer: TrieViewer,
-    pool: Pool,
+    pub pool: Pool,
 }
 
 impl ShardClient {
@@ -67,7 +69,7 @@ impl ShardClient {
 
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
-        let pool = Pool::new(chain.clone(), trie.clone());
+        let pool = Pool::new(storage.clone(), trie.clone());
         Self { 
             chain,
             receipts: RwLock::new(HashMap::new()),
@@ -188,8 +190,27 @@ impl ShardClient {
         }
     }
 
+    pub fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .transaction_result(hash)
+            .unwrap()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .transaction_address(hash)
+            .unwrap()
+            .cloned()
+    }
+
     pub fn get_transaction_info(&self, hash: &CryptoHash) -> Option<SignedTransactionInfo> {
-        self.chain.get_transaction_address(&hash).map(|address| {
+        self.get_transaction_address(hash).map(|address| {
             let block_id = BlockId::Hash(address.block_hash);
             let block = self
                 .chain
@@ -200,13 +221,55 @@ impl ShardClient {
                 .transactions
                 .get(address.index)
                 .expect("transaction address points to invalid index inside block");
-            let result = self.chain.get_transaction_result(&hash);
+            let result = self.get_transaction_result(&hash);
             SignedTransactionInfo {
                 transaction: transaction.clone(),
                 block_index: block.header().index(),
                 result,
             }
         })
+    }
+
+    fn collect_transaction_final_result(
+        &self,
+        transaction_result: &TransactionResult,
+        logs: &mut Vec<TransactionLogs>,
+    ) -> FinalTransactionStatus {
+        match transaction_result.status {
+            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
+            TransactionStatus::Failed => FinalTransactionStatus::Failed,
+            TransactionStatus::Completed => {
+                for r in transaction_result.receipts.iter() {
+                    let receipt_result = self.get_transaction_result(&r);
+                    logs.push(TransactionLogs {
+                        hash: *r,
+                        lines: receipt_result.logs.clone(),
+                        receipts: receipt_result.receipts.clone(),
+                    });
+                    match self.collect_transaction_final_result(&receipt_result, logs) {
+                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
+                        FinalTransactionStatus::Completed => {}
+                        _ => return FinalTransactionStatus::Started,
+                    };
+                }
+                FinalTransactionStatus::Completed
+            }
+        }
+    }
+
+    pub fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        let transaction_result = self.get_transaction_result(hash);
+        let mut result = FinalTransactionResult {
+            status: FinalTransactionStatus::Unknown,
+            logs: vec![TransactionLogs {
+                hash: *hash,
+                lines: transaction_result.logs.clone(),
+                receipts: transaction_result.receipts.clone(),
+            }],
+        };
+        result.status =
+            self.collect_transaction_final_result(&transaction_result, &mut result.logs);
+        result
     }
 
     pub fn get_receipt_block(
@@ -263,7 +326,7 @@ mod tests {
     #[test]
     fn test_get_transaction_status_unknown() {
         let (client, _) = get_test_client();
-        let result = client.chain.get_transaction_result(&CryptoHash::default());
+        let result = client.get_transaction_result(&CryptoHash::default());
         assert_eq!(result.status, TransactionStatus::Unknown);
     }
 
@@ -275,7 +338,7 @@ mod tests {
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(&block, db_changes, tx_status, receipts);
 
-        let result = client.chain.get_transaction_result(&tx.get_hash());
+        let result = client.get_transaction_result(&tx.get_hash());
         assert_eq!(result.status, TransactionStatus::Failed);
     }
 
@@ -287,11 +350,11 @@ mod tests {
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(&block, db_changes, tx_status, new_receipts);
 
-        let result = client.chain.get_transaction_result(&tx.get_hash());
+        let result = client.get_transaction_result(&tx.get_hash());
         assert_eq!(result.status, TransactionStatus::Completed);
         assert_eq!(result.receipts.len(), 1);
         assert_ne!(result.receipts[0], tx.get_hash());
-        let final_result = client.chain.get_transaction_final_result(&tx.get_hash());
+        let final_result = client.get_transaction_final_result(&tx.get_hash());
         assert_eq!(final_result.status, FinalTransactionStatus::Started);
         assert_eq!(final_result.logs.len(), 2);
         assert_eq!(final_result.logs[0].hash, tx.get_hash());
@@ -303,9 +366,9 @@ mod tests {
             client.prepare_new_block(block.hash, vec![receipt_block], vec![]);
         client.insert_block(&block2, db_changes2, tx_status2, receipts);
 
-        let result2 = client.chain.get_transaction_result(&result.receipts[0]);
+        let result2 = client.get_transaction_result(&result.receipts[0]);
         assert_eq!(result2.status, TransactionStatus::Completed);
-        let final_result2 = client.chain.get_transaction_final_result(&tx.get_hash());
+        let final_result2 = client.get_transaction_final_result(&tx.get_hash());
         assert_eq!(final_result2.status, FinalTransactionStatus::Completed);
         assert_eq!(final_result2.logs.len(), 2);
         assert_eq!(final_result2.logs[0].hash, tx.get_hash());
@@ -329,7 +392,7 @@ mod tests {
         );
         let db_changes = HashMap::default();
         client.insert_block(&block, db_changes, vec![TransactionResult::default()], HashMap::new());
-        let address = client.chain.get_transaction_address(&hash);
+        let address = client.get_transaction_address(&hash);
         let expected = TransactionAddress { block_hash: block.hash, index: 0 };
         assert_eq!(address, Some(expected.clone()));
     }

@@ -1,44 +1,51 @@
-use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
+use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::merkle::verify_path;
 use primitives::transaction::{verify_transaction_signature, SignedTransaction};
 use primitives::hash::hash_struct;
-use chain::BlockChain;
-use storage::{ShardChainStorage, Trie, TrieUpdate};
+use storage::{ShardChainStorage, Trie, TrieUpdate, GenericStorage};
 use node_runtime::state_viewer::TrieViewer;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
     transactions: HashSet<SignedTransaction>,
     receipts: HashSet<ReceiptBlock>,
-    // TODO: make it work for beacon chain as well
-    chain: Arc<BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
+    storage: Arc<RwLock<ShardChainStorage>>,
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
 }
 
 impl Pool {
-    pub fn new(
-        chain: Arc<BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
-        trie: Arc<Trie>
-    ) -> Self {
+    pub fn new(storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
         Pool { 
             transactions: HashSet::new(),
             receipts: HashSet::new(),
-            chain,
+            storage,
             trie,
             state_viewer: TrieViewer {}
         }
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
-        let root = self.chain.best_block().merkle_root_state();
+        let root = self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .blockchain_storage_mut()
+            .best_block()
+            .unwrap()
+            .unwrap()
+            .merkle_root_state();
         TrieUpdate::new(self.trie.clone(), root)
     }
 
     pub fn add_transaction(&mut self, transaction: SignedTransaction) -> Result<(), String> {
-        if self.chain.get_transaction_address(&transaction.get_hash()).is_some() {
+        if let Ok(Some(_)) = self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .transaction_address(&transaction.get_hash()) {
             return Ok(());
         }
         let mut state_update = self.get_state_update();
@@ -57,7 +64,10 @@ impl Pool {
 
     pub fn add_receipt(&mut self, receipt: ReceiptBlock) -> Result<(), String> {
         // TODO: cache hash of receipt
-        if self.chain.get_transaction_address(&hash_struct(&receipt)).is_some() {
+        if let Ok(Some(_)) = self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .transaction_address(&hash_struct(&receipt)) {
             return Ok(());
         }
         if !verify_path(receipt.header.body.receipt_merkle_root, &receipt.path, &receipt.receipts) {
@@ -94,7 +104,7 @@ mod tests {
     use storage::test_utils::create_beacon_shard_storages;
 
     fn get_test_chain() -> (
-        Arc<BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
+        Arc<RwLock<ShardChainStorage>>,
         Arc<Trie>,
         SecretKey,
     ) {
@@ -112,13 +122,13 @@ mod tests {
         trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
         let chain = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
-        (chain, trie, secret_key)
+        (shard_storage, trie, secret_key)
     }
 
     #[test]
     fn test_import_block() {
-        let (chain, trie, secret_key) = get_test_chain();
-        let mut pool = Pool::new(chain, trie);
+        let (storage, trie, secret_key) = get_test_chain();
+        let mut pool = Pool::new(storage, trie);
         let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
             originator: "alice.near".to_string(),
