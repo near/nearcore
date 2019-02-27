@@ -128,7 +128,10 @@ impl Protocol {
     }
 
     fn send_gossip(&self, g: Gossip<ChainPayload>) {
-        let auth_map = self.client.get_recent_uid_to_authority_map();
+        // TODO: Currently it gets the same authority map for all block indices.
+        // Update authority map, once block production and block importing is in place.
+//        let auth_map = self.client.get_recent_uid_to_authority_map();
+        let (_, auth_map) = self.client.get_uid_to_authority_map(1);
         let out_channel = auth_map
             .get(&(g.receiver_id as u64))
             .map(|auth| auth.account_id.clone())
