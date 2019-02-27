@@ -98,8 +98,7 @@ impl HttpApi {
             return Err(RPCError::BadRequest(msg));
         }
         let hash = transaction.get_hash();
-        self.client.shard_client.pool.add_transaction(transaction)
-            .map_err(|e| RPCError::BadRequest(e))?;
+        self.client.shard_client.pool.add_transaction(transaction).map_err(RPCError::BadRequest)?;
         Ok(SubmitTransactionResponse { hash })
     }
 
