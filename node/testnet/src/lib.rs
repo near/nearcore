@@ -3,13 +3,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use futures::future;
-use futures::sync::mpsc::{channel, Sender};
+use futures::sync::mpsc::{channel};
 
 use client::Client;
 use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
 use primitives::chain::ChainPayload;
-use primitives::transaction::SignedTransaction;
 use primitives::types::AccountId;
 use txflow::txflow_task;
 
@@ -26,9 +25,9 @@ pub fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, 
 pub fn start_from_client(client: Arc<Client>, account_id: AccountId, network_cfg: NetworkConfig, rpc_cfg: RPCConfig) {
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
-        let (transactions_tx, transactions_rx) = channel(1024);
+        let (_transactions_tx, transactions_rx) = channel(1024);
         let (receipts_tx, receipts_rx) = channel(1024);
-        spawn_rpc_server_task(transactions_tx, &rpc_cfg, client.clone());
+        spawn_rpc_server_task(&rpc_cfg, client.clone());
 
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
 
@@ -89,11 +88,10 @@ pub fn start_from_client(client: Arc<Client>, account_id: AccountId, network_cfg
 }
 
 fn spawn_rpc_server_task(
-    transactions_tx: Sender<SignedTransaction>,
     rpc_config: &RPCConfig,
     client: Arc<Client>,
 ) {
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
-    let http_api = node_http::api::HttpApi::new(client, transactions_tx);
+    let http_api = node_http::api::HttpApi::new(client);
     node_http::server::spawn_server(http_api, http_addr);
 }

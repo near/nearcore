@@ -124,6 +124,7 @@ fn get_public_key() -> String {
 }
 
 #[test]
+#[ignore]
 fn test_two_nodes() {
     let chain_spec = configure_chain_spec();
     // Create boot node.
@@ -161,6 +162,7 @@ fn test_two_nodes() {
 }
 
 #[test]
+#[ignore]
 fn test_two_nodes_sync() {
     let chain_spec = configure_chain_spec();
     let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3002", 3032, vec![], chain_spec.clone());
