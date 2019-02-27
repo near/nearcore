@@ -2,16 +2,16 @@
 //! state, signs it and puts in on the BeaconChain.
 use std::sync::Arc;
 
-use futures::{future, Future, Sink, Stream};
 use futures::sync::mpsc::{Receiver, Sender};
+use futures::{future, Future, Sink, Stream};
 
-use client::Client;
 use client::BlockProductionResult;
+use client::Client;
 use nightshade::nightshade::ConsensusBlockHeader;
 use nightshade::nightshade_task::Control;
-use primitives::hash::CryptoHash;
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::ReceiptBlock;
+use primitives::hash::CryptoHash;
 
 use crate::ns_control_builder::get_control;
 

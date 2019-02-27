@@ -105,8 +105,13 @@ mod tests {
         });
 
         let alice = get_key_pair_from_seed("alice.near");
-        client.shard_client.pool.add_transaction(
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.1)).unwrap();
+        client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.1),
+            )
+            .unwrap();
         wait(|| client.shard_client.chain.best_block().index() == 2, 50, 10000);
 
         // Check that transaction and it's receipt were included.

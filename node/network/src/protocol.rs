@@ -260,8 +260,10 @@ fn forward_msg<T>(ch: Sender<T>, el: T)
 where
     T: Send + 'static,
 {
-    let task =
-        ch.send(el).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
+    let task = ch
+        .send(el)
+        .map(|_| ())
+        .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
     tokio::spawn(task);
 }
 
@@ -272,6 +274,6 @@ where
     let task = ch
         .send_all(stream::iter_ok(els))
         .map(|_| ())
-        .map_err(|e| warn!(target: "network", "Error forwarding {}", e));
+        .map_err(|e| warn!(target: "network", "Error forwarding messages: {}", e));
     tokio::spawn(task);
 }

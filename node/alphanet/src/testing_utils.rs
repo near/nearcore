@@ -8,9 +8,9 @@ use std::thread;
 use std::time::Duration;
 
 use client::Client;
-use configs::chain_spec::{ChainSpec, read_or_default_chain_spec};
-use configs::ClientConfig;
+use configs::chain_spec::{read_or_default_chain_spec, ChainSpec};
 use configs::network::get_peer_id_from_seed;
+use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use primitives::network::PeerInfo;
