@@ -3,13 +3,12 @@ use std::sync::Arc;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use futures::sync::mpsc::{channel, Receiver};
-use futures::future;
-use futures::{Stream, Future};
+use futures::{future, Stream, Future};
 
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use client::Client;
 use consensus::passthrough::spawn_consensus;
-use primitives::chain::{ReceiptBlock};
+use primitives::chain::ReceiptBlock;
 use log::error;
 
 pub fn start() {

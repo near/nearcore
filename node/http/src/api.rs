@@ -180,7 +180,6 @@ impl HttpApi {
             }),
             None => Err(RPCError::NotFound),
         }
-
     }
 
     pub fn get_transaction_result(
