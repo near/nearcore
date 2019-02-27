@@ -19,6 +19,9 @@ use primitives::types::AccountId;
 use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
 
+#[cfg(test)]
+pub mod testing_utils;
+
 pub fn start_from_client(
     client: Arc<Client>,
     account_id: Option<AccountId>,
@@ -80,77 +83,18 @@ pub fn start() {
 
 #[cfg(test)]
 mod tests {
-    use configs::chain_spec::read_or_default_chain_spec;
-    use configs::network::get_peer_id_from_seed;
-    use configs::ClientConfig;
-    use configs::NetworkConfig;
-    use configs::RPCConfig;
-    use primitives::network::PeerInfo;
-    use std::net::SocketAddr;
-    use std::path::PathBuf;
-    use std::thread;
-    use std::time::Duration;
-    use std::str::FromStr;
-    use crate::start_from_configs;
+    use crate::testing_utils::{Node, configure_chain_spec};
 
-    const TMP_DIR: &str = "./tmp/alphanet";
-
-    fn test_node_ready(
-        base_path: PathBuf,
-        node_info: PeerInfo,
-        rpc_port: u16,
-        boot_nodes: Vec<PeerInfo>,
-    ) {
-        if base_path.exists() {
-            std::fs::remove_dir_all(base_path.clone()).unwrap();
-        }
-
-        let client_cfg = ClientConfig {
-            base_path,
-            account_id: node_info.account_id.unwrap(),
-            public_key: None,
-            chain_spec: read_or_default_chain_spec(&Some(PathBuf::from(
-                "./node/configs/res/testnet_chain.json",
-            ))),
-            log_level: log::LevelFilter::Off,
-        };
-
-        let network_cfg = NetworkConfig {
-            listen_addr: node_info.addr,
-            peer_id: node_info.id,
-            boot_nodes,
-            reconnect_delay: Duration::from_millis(50),
-            gossip_interval: Duration::from_millis(50),
-            gossip_sample_size: 10,
-        };
-
-        let rpc_cfg = RPCConfig { rpc_port };
-        thread::spawn(|| {
-            start_from_configs(client_cfg, network_cfg, rpc_cfg);
-        });
-        thread::sleep(Duration::from_secs(1));
-    }
-
+    /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
     #[test]
     fn two_nodes() {
-        let mut base_path = PathBuf::from(TMP_DIR);
-        base_path.push("node_alice");
-        let alice_info = PeerInfo {
-            account_id: Some(String::from("alice.near")),
-            id: get_peer_id_from_seed(1),
-            addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
-        };
-        test_node_ready(base_path, alice_info.clone(), 3030, vec![]);
+        let chain_spec = configure_chain_spec();
+        // Create boot node.
+        let alice = Node::new("t1_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
+        // Create secondary node that boots from the alice node.
+        let bob = Node::new("t1_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
 
-        // Start secondary node that boots from the alice node.
-        let mut base_path = PathBuf::from(TMP_DIR);
-        base_path.push("node_bob");
-        let bob_info = PeerInfo {
-            account_id: Some(String::from("bob.near")),
-            id: get_peer_id_from_seed(2),
-            addr: SocketAddr::from_str("127.0.0.1:3001").unwrap(),
-        };
-        test_node_ready(base_path, bob_info.clone(), 3031, vec![alice_info]);
-        thread::sleep(Duration::from_secs(60));
+        alice.start();
+        bob.start();
     }
 }

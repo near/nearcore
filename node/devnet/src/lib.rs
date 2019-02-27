@@ -31,14 +31,11 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
 
         // Create a task that consumes the consensuses
         // and produces the beacon chain blocks.
-        let (beacon_block_consensus_body_tx, beacon_block_consensus_body_rx) = channel(1024);
         let (outgoing_block_tx, _) = channel(1024);
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
-        coroutines::producer::spawn_block_producer(
+        coroutines::ns_producer::spawn_block_producer(
             client.clone(),
-            beacon_block_consensus_body_rx,
-            outgoing_block_tx,
             receipts_tx.clone(),
             consensus_control_tx,
         );
