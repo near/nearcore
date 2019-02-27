@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures::future;
 use futures::sink::Sink;
-use futures::stream::Stream;
+use futures::{stream, stream::Stream};
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
@@ -91,9 +91,7 @@ impl Protocol {
                     }
                 }
                 Message::BlockResponse(_request_id, blocks) => {
-                    for coupled_block in blocks {
-                        forward_msg(self.inc_block_tx.clone(), coupled_block);
-                    }
+                    forward_msgs(self.inc_block_tx.clone(), blocks);
                 }
                 Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
                     match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
@@ -259,5 +257,13 @@ where
 {
     let task =
         ch.send(el).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
+    tokio::spawn(task);
+}
+
+fn forward_msgs<T>(ch: Sender<T>, els: Vec<T>)
+where
+    T: Send + 'static,
+{
+    let task = ch.send_all(stream::iter_ok(els)).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
     tokio::spawn(task);
 }

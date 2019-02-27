@@ -43,8 +43,8 @@ pub struct Handshake {
     pub info: PeerInfo,
     /// Sender's information about known peers.
     pub peers_info: PeersInfo,
-    /// Chain state.
-    pub chain_state: ChainState,
+    /// Connected info message that peer receives.
+    pub connected_info: ConnectedInfo,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
@@ -97,11 +97,11 @@ pub enum PeerState {
 pub type LockedPeerState = Arc<RwLock<PeerState>>;
 pub type AllPeerStates = Arc<RwLock<HashMap<PeerInfo, LockedPeerState>>>;
 
-pub trait ChainStateRetriever {
+pub trait ChainStateRetriever: Sized + Send + Clone + 'static {
     fn get_chain_state(&self) -> ChainState;
 }
 
-pub struct Peer<T: ChainStateRetriever + Sized + Send + 'static> {
+pub struct Peer<T> {
     /// Info of the current node.
     node_info: PeerInfo,
     /// `Peer` object is a state machine. This is its state.
@@ -116,7 +116,7 @@ pub struct Peer<T: ChainStateRetriever + Sized + Send + 'static> {
     chain_state_retriever: T,
 }
 
-impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> Peer<T> {
+impl<T: ChainStateRetriever> Peer<T> {
     fn spawn_peer(self) {
         let inc_msg_tx = self.inc_msg_tx.clone();
         tokio::spawn(
@@ -199,13 +199,10 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> Peer<T> {
     }
 
     fn on_peer_connected(&self, handshake: Handshake) {
-        let inc_msg_tx = self.inc_msg_tx.clone();
-        let data = Encode::encode(&Message::Connected(ConnectedInfo {
-            chain_state: handshake.chain_state,
-        }))
+        let data = Encode::encode(&Message::Connected(handshake.connected_info))
         .unwrap();
         tokio::spawn(
-            inc_msg_tx
+            self.inc_msg_tx.clone()
                 .send((handshake.info.id, data))
                 .map(|_| ())
                 .map_err(|err| warn!("Failed to send message: {}", err)),
@@ -227,7 +224,9 @@ fn framed_stream_to_channel_with_handshake(
         version: PROTOCOL_VERSION,
         info: node_info.clone(),
         peers_info,
-        chain_state,
+        connected_info: ConnectedInfo {
+            chain_state
+        },
     });
     // Create the task that places the handshake down the channel.
     let hand_task = out_msg_tx
@@ -273,7 +272,7 @@ fn get_evicted_flag(state: &mut PeerState) -> &mut bool {
     }
 }
 
-impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> Stream for Peer<T> {
+impl<T: ChainStateRetriever> Stream for Peer<T> {
     type Item = (PeerId, Vec<u8>);
     type Error = Error;
 

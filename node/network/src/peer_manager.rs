@@ -33,9 +33,8 @@ pub struct PeerManager<T> {
     phantom: PhantomData<T>,
 }
 
-impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
+impl<T: ChainStateRetriever> PeerManager<T> {
     /// Args:
-    /// * `client`: Client to retrieve information relevant to handshake exchange;
     /// * `reconnect_delay`: How long should we wait before connecting a newly discovered peer or
     ///   reconnecting the old one;
     ///    TODO: Use smarter strategy to gossip peer info. More frequent while not synced, and decaying with time
@@ -43,9 +42,9 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
     /// * `gossip_sample_size`: How many peers should we gossip info to;
     /// * `node_info`: Information about the current node;
     /// * `boot_nodes`: list of verified info about boot nodes from which we can join the network;
-    /// * `connected_tx`: where `PeerManager` should be sending connected peers;
     /// * `inc_msg_tx`: where `PeerManager` should be sending incoming messages;
     /// * `out_msg_rx`: where from `PeerManager` should be getting outgoing messages.
+    /// * `chain_state_retriever`: adapter to retrieve `ChainState`.
     pub fn new(
         reconnect_delay: Duration,
         gossip_interval: Duration,
