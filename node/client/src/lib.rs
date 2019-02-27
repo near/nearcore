@@ -122,6 +122,8 @@ pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
     pub fn new(config: &ClientConfig) -> Self {
+        configure_logging(config.log_level);
+
         let storage_path = get_storage_path(&config.base_path);
         // For now, use only one shard.
         let num_shards = 1;
@@ -142,8 +144,6 @@ impl Client {
             key_file_path.as_path(),
             config.public_key.clone(),
         );
-
-        configure_logging(config.log_level);
 
         Self {
             account_id: config.account_id.clone(),
