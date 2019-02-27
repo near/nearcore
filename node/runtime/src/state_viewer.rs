@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str;
+use std::time::Instant;
 
 use primitives::hash::CryptoHash;
 use primitives::utils::is_valid_account_id;
@@ -97,6 +98,7 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
     ) -> Result<Vec<u8>, String> {
+        let now = Instant::now();
         if !is_valid_account_id(contract_id) {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
@@ -135,9 +137,12 @@ impl TrieViewer {
             }
             None => return Err(format!("contract {} does not exist", contract_id))
         };
+        let elapsed = now.elapsed();
+        let time_ms = (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
+        let time_str = format!("{:.*}ms", 2, time_ms);
         match wasm_res {
             Ok(res) => {
-                debug!(target: "runtime", "result of execution: {:?}", res);
+                debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, res);
                 match res.return_data {
                     Ok(return_data) => {
                         let (root_after, _) = state_update.finalize();
@@ -159,7 +164,7 @@ impl TrieViewer {
             }
             Err(e) => {
                 let message = format!("wasm execution failed with error: {:?}", e);
-                debug!(target: "runtime", "{}", message);
+                debug!(target: "runtime", "(exec time {}) {}", time_str, message);
                 Err(message)
             }
         }

@@ -12,12 +12,14 @@ variables:
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
 
-.setup_deps: &setup_deps
+.install_protos: &install_protos
     sudo apt-get install -y unzip &&
     wget -O /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
     unzip -p /tmp/protoc.zip bin/protoc | sudo tee /usr/local/bin/protoc 1> /dev/null &&
-    sudo chmod 755 /usr/local/bin/protoc &&
-    sudo pip install protobuf
+    sudo chmod 755 /usr/local/bin/protoc
+
+.setup_python: &setup_python
+    sudo apt-get install -y python-dev
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +2 -delete
@@ -25,11 +27,17 @@ variables:
 .build_wasm: &build_wasm
     cd tests/hello && npm install && npm run build && cd ../..
 
+stages:
+    - rust
+    - libs
+
 test_cargo:
-    stage: test
+    stage: rust
     before_script:
     - *setup_cache
-    - *setup_deps
+    - *install_protos
+    - *setup_python
+    - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
     - rustup component add clippy
     script:
     - rustc --version && cargo --version
@@ -40,21 +48,38 @@ test_cargo:
     after_script:
     - *cleanup_obsolete_cache
 
-test_nearlib:
-    stage: test
+release_build:
+    stage: rust
     before_script:
     - *setup_cache
-    - *setup_deps
+    - *install_protos
     script:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet
-    - cargo run --release --package=devnet &
+    after_script:
+        - *cleanup_obsolete_cache
+    artifacts:
+        paths:
+            - target/release/devnet
+
+test_nearlib:
+    stage: libs
+    dependencies:
+        - release_build
+    script:
+    - ./target/release/devnet &
     - ./scripts/waitonserver.sh
     - *build_wasm
     - cd nearlib && npm install && npm run build && npm run doc && npm test && cd ..
     - ./scripts/kill_devnet.sh
-    after_script:
-    - *cleanup_obsolete_cache
-    artifacts:
-      paths:
-      - target/release/devnet
+
+test_pynear:
+    stage: libs
+    before_script:
+        - *install_protos
+        - *setup_python
+    dependencies:
+        - release_build
+    script:
+    - export NEAR_DEVNET_EXE=../target/release/devnet
+    - cd pynear && python setup.py test

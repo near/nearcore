@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
+      import {hello as wrapped_hello, setKeyValue as wrapped_setKeyValue, getValueByKey as wrapped_getValueByKey, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -62,6 +62,130 @@ export function near_func_hello(): void {
       handler.decoder.deserialize(json);
 let result = wrapped_hello(
 handler.__near_param_name
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+            encoder.setString("result", result);
+          } else {
+            encoder.setNull("result");
+          }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_setKeyValue extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_setKeyValue>;
+        handledRoot: boolean = false;
+      
+__near_param_key: String;
+__near_param_value: String;
+setString(name: string, value: String): void {
+if (name == "key") {
+            this.__near_param_key = value;
+            return;
+          }
+if (name == "value") {
+            this.__near_param_value = value;
+            return;
+          }
+
+          super.setString(name, value);
+        }
+setNull(name: string): void {
+if (name == "key") {
+        this.__near_param_key = <String>null;
+        return;
+      }
+if (name == "value") {
+        this.__near_param_value = <String>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_setKeyValue(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_setKeyValue();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_setKeyValue>(handler);
+      handler.decoder.deserialize(json);
+wrapped_setKeyValue(
+handler.__near_param_key,handler.__near_param_value
+);
+}
+export class __near_ArgsParser_getValueByKey extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_getValueByKey>;
+        handledRoot: boolean = false;
+      
+__near_param_key: String;
+setString(name: string, value: String): void {
+if (name == "key") {
+            this.__near_param_key = value;
+            return;
+          }
+
+          super.setString(name, value);
+        }
+setNull(name: string): void {
+if (name == "key") {
+        this.__near_param_key = <String>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_getValueByKey(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_getValueByKey();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_getValueByKey>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_getValueByKey(
+handler.__near_param_key
 );
 
         let encoder = new JSONEncoder();

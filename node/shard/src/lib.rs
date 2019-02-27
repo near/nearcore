@@ -14,18 +14,17 @@ use configs::chain_spec::ChainSpec;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::SignedShardBlockHeader;
-use primitives::chain::{ReceiptBlock, SignedShardBlock};
+use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::hash::CryptoHash;
 use primitives::merkle::{merklize, MerklePath};
-use primitives::transaction::TransactionAddress;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus,
+    TransactionLogs, TransactionResult, TransactionStatus, TransactionAddress
 };
 use primitives::types::{AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
 use storage::ShardChainStorage;
 use storage::{Trie, TrieUpdate};
+use mempool::Pool;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -43,16 +42,18 @@ type ShardBlockExtraInfo = (
     HashMap<ShardId, ReceiptBlock>,
 );
 
-pub struct ShardBlockChain {
+#[allow(unused)]
+pub struct ShardClient {
     pub chain: Arc<chain::BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
     pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
     pub trie: Arc<Trie>,
     storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
     pub trie_viewer: TrieViewer,
+    pub pool: Pool,
 }
 
-impl ShardBlockChain {
+impl ShardClient {
     pub fn new(chain_spec: &ChainSpec, storage: Arc<RwLock<ShardChainStorage>>) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
@@ -68,7 +69,16 @@ impl ShardBlockChain {
 
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
-        Self { chain, receipts: RwLock::new(HashMap::new()), trie, storage, runtime, trie_viewer }
+        let pool = Pool::new(storage.clone(), trie.clone());
+        Self { 
+            chain,
+            receipts: RwLock::new(HashMap::new()),
+            trie,
+            storage,
+            runtime,
+            trie_viewer,
+            pool
+        }
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
@@ -191,11 +201,16 @@ impl ShardBlockChain {
     }
 
     pub fn get_transaction_address(&self, hash: &CryptoHash) -> Option<TransactionAddress> {
-        self.storage.write().expect(POISONED_LOCK_ERR).transaction_address(hash).unwrap().cloned()
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .transaction_address(hash)
+            .unwrap()
+            .cloned()
     }
 
     pub fn get_transaction_info(&self, hash: &CryptoHash) -> Option<SignedTransactionInfo> {
-        self.get_transaction_address(&hash).map(|address| {
+        self.get_transaction_address(hash).map(|address| {
             let block_id = BlockId::Hash(address.block_hash);
             let block = self
                 .chain
@@ -262,7 +277,12 @@ impl ShardBlockChain {
         block_index: BlockIndex,
         shard_id: ShardId,
     ) -> Option<ReceiptBlock> {
-        self.receipts.read().expect(POISONED_LOCK_ERR).get(&block_index).and_then(|m| m.get(&shard_id)).cloned()
+        self.receipts
+            .read()
+            .expect(POISONED_LOCK_ERR)
+            .get(&block_index)
+            .and_then(|m| m.get(&shard_id))
+            .cloned()
     }
 }
 
@@ -272,17 +292,18 @@ mod tests {
     use primitives::signature::{sign, SecretKey};
     use primitives::transaction::{
         SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus,
+        FinalTransactionStatus, TransactionAddress
     };
     use primitives::types::Balance;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
-    fn get_test_chain() -> (ShardBlockChain, SecretKey) {
+    fn get_test_client() -> (ShardClient, SecretKey) {
         let (chain_spec, _, secret_key) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
-        let chain = ShardBlockChain::new(&chain_spec, shard_storage);
-        (chain, secret_key)
+        let shard_client = ShardClient::new(&chain_spec, shard_storage);
+        (shard_client, secret_key)
     }
 
     fn send_money_tx(
@@ -304,50 +325,50 @@ mod tests {
 
     #[test]
     fn test_get_transaction_status_unknown() {
-        let (chain, _) = get_test_chain();
-        let result = chain.get_transaction_result(&CryptoHash::default());
+        let (client, _) = get_test_client();
+        let result = client.get_transaction_result(&CryptoHash::default());
         assert_eq!(result.status, TransactionStatus::Unknown);
     }
 
     #[test]
     fn test_transaction_failed() {
-        let (chain, secret_key) = get_test_chain();
+        let (client, secret_key) = get_test_client();
         let tx = send_money_tx("xyz.near", "bob.near", 100, secret_key);
         let (block, (db_changes, _, tx_status, receipts)) =
-            chain.prepare_new_block(chain.genesis_hash(), vec![], vec![tx.clone()]);
-        chain.insert_block(&block, db_changes, tx_status, receipts);
+            client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
+        client.insert_block(&block, db_changes, tx_status, receipts);
 
-        let result = chain.get_transaction_result(&tx.get_hash());
+        let result = client.get_transaction_result(&tx.get_hash());
         assert_eq!(result.status, TransactionStatus::Failed);
     }
 
     #[test]
     fn test_get_transaction_status_complete() {
-        let (chain, secret_key) = get_test_chain();
+        let (client, secret_key) = get_test_client();
         let tx = send_money_tx("alice.near", "bob.near", 10, secret_key);
         let (block, (db_changes, _, tx_status, new_receipts)) =
-            chain.prepare_new_block(chain.genesis_hash(), vec![], vec![tx.clone()]);
-        chain.insert_block(&block, db_changes, tx_status, new_receipts);
+            client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
+        client.insert_block(&block, db_changes, tx_status, new_receipts);
 
-        let result = chain.get_transaction_result(&tx.get_hash());
+        let result = client.get_transaction_result(&tx.get_hash());
         assert_eq!(result.status, TransactionStatus::Completed);
         assert_eq!(result.receipts.len(), 1);
         assert_ne!(result.receipts[0], tx.get_hash());
-        let final_result = chain.get_transaction_final_result(&tx.get_hash());
+        let final_result = client.get_transaction_final_result(&tx.get_hash());
         assert_eq!(final_result.status, FinalTransactionStatus::Started);
         assert_eq!(final_result.logs.len(), 2);
         assert_eq!(final_result.logs[0].hash, tx.get_hash());
         assert_eq!(final_result.logs[0].lines.len(), 0);
         assert_eq!(final_result.logs[0].receipts.len(), 1);
 
-        let receipt_block = chain.get_receipt_block(block.index(), block.shard_id()).unwrap();
+        let receipt_block = client.get_receipt_block(block.index(), block.shard_id()).unwrap();
         let (block2, (db_changes2, _, tx_status2, receipts)) =
-            chain.prepare_new_block(block.hash, vec![receipt_block], vec![]);
-        chain.insert_block(&block2, db_changes2, tx_status2, receipts);
+            client.prepare_new_block(block.hash, vec![receipt_block], vec![]);
+        client.insert_block(&block2, db_changes2, tx_status2, receipts);
 
-        let result2 = chain.get_transaction_result(&result.receipts[0]);
+        let result2 = client.get_transaction_result(&result.receipts[0]);
         assert_eq!(result2.status, TransactionStatus::Completed);
-        let final_result2 = chain.get_transaction_final_result(&tx.get_hash());
+        let final_result2 = client.get_transaction_final_result(&tx.get_hash());
         assert_eq!(final_result2.status, FinalTransactionStatus::Completed);
         assert_eq!(final_result2.logs.len(), 2);
         assert_eq!(final_result2.logs[0].hash, tx.get_hash());
@@ -357,9 +378,9 @@ mod tests {
 
     #[test]
     fn test_get_transaction_address() {
-        let (chain, _) = get_test_chain();
-        let t = SignedTransaction::empty();
+        let (client, _) = get_test_client();
         let transaction = SignedTransaction::empty();
+        let hash = transaction.get_hash();
         let block = SignedShardBlock::new(
             0,
             0,
@@ -370,14 +391,10 @@ mod tests {
             CryptoHash::default(),
         );
         let db_changes = HashMap::default();
-        chain.insert_block(&block, db_changes, vec![TransactionResult::default()], HashMap::new());
-        let address = chain.get_transaction_address(&t.get_hash());
+        client.insert_block(&block, db_changes, vec![TransactionResult::default()], HashMap::new());
+        let address = client.get_transaction_address(&hash);
         let expected = TransactionAddress { block_hash: block.hash, index: 0 };
         assert_eq!(address, Some(expected.clone()));
-
-        let v = chain.storage.write().expect(POISONED_LOCK_ERR).transaction_address(&t.get_hash())
-            .unwrap().unwrap().clone();
-        assert_eq!(v, expected);
     }
 
     // TODO(472): Add extensive testing for ShardBlockChain.

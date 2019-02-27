@@ -29,7 +29,7 @@ use crate::peer::{AllPeerStates, ChainStateRetriever, Peer, PeerMessage, PeerSta
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub struct PeerManager<T> {
-    all_peer_states: AllPeerStates,
+    pub all_peer_states: AllPeerStates,
     phantom: PhantomData<T>,
 }
 
@@ -38,6 +38,7 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
     /// * `client`: Client to retrieve information relevant to handshake exchange;
     /// * `reconnect_delay`: How long should we wait before connecting a newly discovered peer or
     ///   reconnecting the old one;
+    ///    TODO: Use smarter strategy to gossip peer info. More frequent while not synced, and decaying with time
     /// * `gossip_interval`: Frequency of gossiping the peers info;
     /// * `gossip_sample_size`: How many peers should we gossip info to;
     /// * `node_info`: Information about the current node;
@@ -140,7 +141,7 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
                 future::ok(())
             })
             .map(|_| ())
-            .map_err(|e| warn!(target: "network", "Error processing incomming connection {}", e));
+            .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
         tokio::spawn(task);
 
         Self { all_peer_states, phantom: PhantomData }
@@ -202,7 +203,6 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
 mod tests {
     use std::collections::HashSet;
     use std::net::SocketAddr;
-    use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, RwLock};
     use std::thread;
@@ -215,51 +215,11 @@ mod tests {
     use futures::sync::mpsc::channel;
     use tokio::util::StreamExt;
 
-    use primitives::hash::{CryptoHash, hash_struct};
+    use primitives::hash::hash_struct;
     use primitives::network::PeerInfo;
 
-    use crate::message::ChainState;
-    use crate::peer::{ChainStateRetriever, PeerState};
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
-
-    #[derive(Clone)]
-    struct MockChainStateRetriever {}
-    impl ChainStateRetriever for MockChainStateRetriever {
-        fn get_chain_state(&self) -> ChainState {
-            ChainState { genesis_hash: CryptoHash::default(), last_index: 0 }
-        }
-    }
-
-    impl PeerManager<MockChainStateRetriever> {
-        fn count_ready_channels(&self) -> usize {
-            self.all_peer_states
-                .read()
-                .expect(POISONED_LOCK_ERR)
-                .values()
-                .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
-                    PeerState::Ready { .. } => Some(1 as usize),
-                    _ => None,
-                })
-                .sum()
-        }
-    }
-
-    fn wait_all_peers_connected(
-        check_interval_ms: u64,
-        max_wait_ms: u64,
-        peer_managers: &Arc<RwLock<Vec<PeerManager<MockChainStateRetriever>>>>,
-        expected_num_managers: usize,
-    ) {
-        wait(
-            || {
-                let guard = peer_managers.read().expect(POISONED_LOCK_ERR);
-                guard.len() == expected_num_managers
-                    && guard.iter().all(|pm| pm.count_ready_channels() == expected_num_managers - 1)
-            },
-            check_interval_ms,
-            max_wait_ms,
-        );
-    }
+    use crate::testing_utils::{wait, wait_all_peers_connected, MockChainStateRetriever};
 
     #[test]
     fn test_two_peers_boot() {
@@ -439,19 +399,5 @@ mod tests {
             50,
             10000,
         );
-    }
-
-    fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
-    {
-        let mut ms_slept = 0;
-        while !f() {
-            thread::sleep(Duration::from_millis(check_interval_ms));
-            ms_slept += check_interval_ms;
-            if ms_slept > max_wait_ms {
-                panic!("Timed out waiting for the condition");
-            }
-        }
     }
 }

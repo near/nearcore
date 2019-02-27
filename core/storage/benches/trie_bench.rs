@@ -6,8 +6,8 @@ extern crate storage;
 use bencher::Bencher;
 use rand::random;
 
-use storage::Trie;
 use storage::test_utils::create_trie;
+use storage::Trie;
 
 
 fn rand_bytes() -> Vec<u8> {

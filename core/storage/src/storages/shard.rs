@@ -14,7 +14,6 @@ use std::sync::Arc;
 /// Shard chain
 pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
-
     transaction_results: HashMap<Vec<u8>, TransactionResult>,
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
 }

@@ -7,7 +7,7 @@ use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use futures::Future;
-use log::{warn, info};
+use log::{warn, info, error};
 
 use client::Client;
 use configs::NetworkConfig;
@@ -27,7 +27,7 @@ pub struct ClientChainStateRetriever {
 }
 
 impl ClientChainStateRetriever {
-    fn new(client: Arc<Client>) -> Self {
+    pub fn new(client: Arc<Client>) -> Self {
         ClientChainStateRetriever { client }
     }
 }
@@ -56,11 +56,21 @@ impl Protocol {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
                     self.on_new_peer(peer_id, connected_info);
-                }
+                },
+                Message::Transaction(tx) => {
+                    if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
+                        error!(target: "network", "{}", e);
+                    }
+                },
+                Message::Receipt(receipt) => {
+                    if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
+                        error!(target: "network", "{}", e);
+                    }
+                },
                 Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
                     forward_msg(self.inc_block_tx.clone(), *block);
-                }
+                },
                 Message::BlockRequest(request_id, hashes) => {
                     match self.client.fetch_blocks(hashes) {
                         Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),

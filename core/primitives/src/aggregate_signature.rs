@@ -10,6 +10,12 @@ use crate::traits::{Base58Encoded, FromBytes, ToBytes};
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
 
+pub fn get_bls_key_pair() -> (BlsPublicKey, BlsSecretKey) {
+    let secret_key = BlsSecretKey::generate();
+    let public_key = secret_key.get_public_key();
+    (public_key, secret_key)
+}
+
 #[derive(Clone, Debug)]
 pub struct SecretKey<E: Engine> {
     scalar: E::Fr,
@@ -301,13 +307,13 @@ impl<E: Engine> AsMut<[u8]> for CompressedSignature<E> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AggregatePublicKey<E: Engine> {
     // This is the same as a public key, but stored in projective coordinates instead of affine.
     point: E::G1,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AggregateSignature<E: Engine> {
     // This is the same as a signature, but stored in projective coordinates instead of affine.
     point: E::G2,

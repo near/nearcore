@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use client::{ChainConsensusBlockBody, Client};
-use configs::chain_spec::{read_or_default_chain_spec, ChainSpec};
+use client::{ChainConsensusBlockBody, Client, BlockProductionResult};
+use configs::chain_spec::{ChainSpec, read_or_default_chain_spec};
 use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
@@ -127,23 +127,19 @@ fn get_public_key() -> String {
 fn test_two_nodes() {
     let chain_spec = configure_chain_spec();
     // Create boot node.
-    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
+    let alice = Node::new("t1_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
     // Create secondary node that boots from the alice node.
-    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
+    let bob = Node::new("t1_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
 
     // Start both nodes.
     alice.start();
     bob.start();
 
     // Create an account on alice node.
-    Command::new("./scripts/rpc.py")
+    Command::new("pynear")
         .arg("create_account")
         .arg("jason")
         .arg("1")
-        .arg("-d")
-        .arg(KEY_STORE_PATH)
-        .arg("-k")
-        .arg(get_public_key())
         .arg("-u")
         .arg("http://127.0.0.1:3030/")
         .output()
@@ -151,7 +147,7 @@ fn test_two_nodes() {
 
     // Wait until this account is present on the bob.near node.
     let view_account = || -> bool {
-        let res = Command::new("./scripts/rpc.py")
+        let res = Command::new("pynear")
             .arg("view_account")
             .arg("-a")
             .arg("jason")
@@ -167,35 +163,20 @@ fn test_two_nodes() {
 #[test]
 fn test_two_nodes_sync() {
     let chain_spec = configure_chain_spec();
-    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
-    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
+    let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
+    let bob = Node::new("t2_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
 
     let payload = ChainConsensusBlockBody { payload: ChainPayload { transactions: vec![], receipts: vec![] }, beacon_block_index: 1 };
-    let (beacon_block, shard_block) = alice.client.produce_block(payload).unwrap();
-    alice.client.import_blocks(beacon_block, shard_block);
+    let (beacon_block, shard_block) = match alice.client.try_produce_block(payload) {
+        BlockProductionResult::Success(beacon_block, shard_block) => (beacon_block, shard_block),
+        _ => panic!("Should produce block"),
+    };
+    alice.client.try_import_blocks(beacon_block, shard_block);
 
     alice.start();
     bob.start();
 
     wait(|| {
-        bob.client.shard_chain.chain.best_block().index() == 1
+        bob.client.shard_client.chain.best_block().index() == 1
     }, 500, 10000);
 }
-
-//#[test]
-//fn test_three_nodes_tx_sync() {
-//    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![]);
-//    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()]);
-//    let john = Node::new("node_john", "john.near", 3, "127.0.0.1:3002", 3032, vec![bob.node_info.clone()]);
-//
-//    let tx = Transaction::new(..);
-//    alice.client.shard_chain.send_transaction(tx);
-//
-//    alice.start();
-//    bob.start();
-//    john.start();
-//
-//    wait(|| {
-//        bob.client.shard_chain.mempool.contains(tx.hash) && john.client.shard_chain.mempool.contains(tx.hash);
-//    }, 500, 10000);
-//}

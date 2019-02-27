@@ -1,10 +1,10 @@
-use primitives::beacon::SignedBeaconBlock;
-use primitives::chain::ChainPayload;
-use primitives::chain::ReceiptBlock;
-use primitives::chain::SignedShardBlock;
-use primitives::hash::CryptoHash;
-use primitives::types::Gossip;
 use serde_derive::{Deserialize, Serialize};
+
+use primitives::beacon::SignedBeaconBlock;
+use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
+use primitives::hash::CryptoHash;
+use primitives::transaction::SignedTransaction;
+use primitives::types::Gossip;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
@@ -23,11 +23,12 @@ pub struct ConnectedInfo {
     pub chain_state: ChainState,
 }
 
+/// Message passed over the network from peer to peer.
+/// Box's are used when message is significantly larger than other enum members.
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub enum Message {
     Connected(ConnectedInfo),
-    // Box is used here because SignedTransaction
-    // is significantly larger than other enum members
+    Transaction(Box<SignedTransaction>),
     Receipt(Box<ReceiptBlock>),
 
     BlockAnnounce(Box<CoupledBlock>),
