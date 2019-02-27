@@ -4,6 +4,8 @@ extern crate log;
 extern crate serde;
 extern crate serde_derive;
 
+use std::sync::Arc;
+
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
@@ -11,9 +13,8 @@ use futures::sync::mpsc;
 
 use client::Client;
 use configs::{ClientConfig, NetworkConfig, RPCConfig};
-use network::nightshade_protocol::spawn_consensus_network;
-use nightshade::nightshade_task::{spawn_nightshade_task, Control};
-use std::sync::Arc;
+use network::spawn_network;
+use nightshade::nightshade_task::{Control, spawn_nightshade_task};
 
 mod control_builder;
 
@@ -33,21 +34,26 @@ pub fn start_from_configs(
             .map_err(|e| error!("Error sending control {:?}", e));
         tokio::spawn(start_task);
 
+        // Launch block syncing / importing.
+        let (inc_block_tx, _inc_block_rx) = mpsc::channel(1024);
+        let (_out_block_tx, out_block_rx) = mpsc::channel(1024);
+
         // Launch Nightshade task
         let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
         let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1024);
         let (consensus_tx, consensus_rx) = mpsc::channel(1024);
 
         spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx);
+
         // Spawn the network tasks.
-        // Note, that network and RPC are using the same channels
-        // to send transactions and receipts for processing.
-        spawn_consensus_network(
+        spawn_network(
             Some(client_cfg.account_id),
             network_cfg,
             client.clone(),
             inc_gossip_tx,
             out_gossip_rx,
+            inc_block_tx,
+            out_block_rx,
         );
 
         // Wait for consensus is achieved and send stop signal.

@@ -15,7 +15,8 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
-use primitives::types::{AccountId, Gossip, PeerId};
+use primitives::types::{AccountId, PeerId};
+use nightshade::nightshade_task::Gossip;
 
 use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
@@ -131,14 +132,14 @@ impl Protocol {
     fn send_gossip(&self, g: Gossip<ChainPayload>) {
         let auth_map = self.client.get_recent_uid_to_authority_map();
         let out_channel = auth_map
-            .get(&g.receiver_uid)
+            .get(&(g.receiver_id as u64))
             .map(|auth| auth.account_id.clone())
             .and_then(|account_id| self.peer_manager.get_account_channel(account_id));
         if let Some(ch) = out_channel {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND GSP] Channel for {} not found.", g.receiver_uid);
+            warn!(target: "network", "[SND GSP] Channel for {} not found.", g.receiver_id);
         }
     }
 

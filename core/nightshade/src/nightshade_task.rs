@@ -37,14 +37,14 @@ pub enum Control<P> {
 }
 
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Message {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub state: State,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum GossipBody<P> {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -52,7 +52,7 @@ pub enum GossipBody<P> {
     PayloadReply(Vec<SignedBlock<P>>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Gossip<P> {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
@@ -81,7 +81,7 @@ impl<P: Serialize> Gossip<P> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedBlock<P> {
     block: Block<P>,
     signature: Signature,

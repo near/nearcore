@@ -25,7 +25,7 @@ fn empty_cryptohash() -> CryptoHash {
 
 /// Nightshade consensus run on top of outcomes proposed by each authority.
 /// Blocks represent authorities proposal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Block<P> {
     pub header: BlockHeader,
     payload: P,
