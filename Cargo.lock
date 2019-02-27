@@ -317,12 +317,12 @@ dependencies = [
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "network 0.0.1",
+ "nightshade 0.1.0",
  "primitives 0.1.0",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
- "txflow 0.0.1",
  "typed-arena 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -340,10 +340,10 @@ dependencies = [
  "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nightshade 0.1.0",
  "primitives 0.1.0",
  "shard 0.0.1",
  "tokio 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
- "txflow 0.0.1",
 ]
 
 [[package]]
@@ -2213,21 +2213,6 @@ dependencies = [
 name = "try-lock"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "txflow"
-version = "0.0.1"
-dependencies = [
- "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "primitives 0.1.0",
- "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
- "typed-arena 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "typed-arena"

@@ -20,7 +20,6 @@ members = [
     "core/mempool",
     "core/primitives",
     "core/storage",
-    "core/txflow",
     "core/nightshade",
     "core/wasm",
     "core/wasm/runtest",

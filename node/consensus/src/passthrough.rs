@@ -8,12 +8,11 @@ use tokio::{self, timer::Interval};
 use client::ChainConsensusBlockBody;
 use primitives::chain::ChainPayload;
 use primitives::consensus::Payload;
-use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
-use txflow::txflow_task::Control;
+use nightshade::nightshade_task::Control;
 
 pub fn spawn_consensus(
     payload_rx: Receiver<ChainPayload>,
-    control_rx: Receiver<Control<BeaconWitnessSelector>>,
+    control_rx: Receiver<Control<ChainPayload>>,
     consensus_tx: Sender<ChainConsensusBlockBody>,
     initial_beacon_block_index: u64,
     block_period: Duration,
