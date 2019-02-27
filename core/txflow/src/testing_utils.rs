@@ -3,7 +3,7 @@ use primitives::traits::Payload;
 use primitives::types::UID;
 use std::hash::{Hash, Hasher};
 
-#[derive(Hash, Serialize, Deserialize, Clone, Debug)]
+#[derive(Hash, Serialize, Deserialize, Clone, Debug, Default)]
 pub struct FakePayload {}
 
 impl Payload for FakePayload {

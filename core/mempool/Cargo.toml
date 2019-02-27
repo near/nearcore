@@ -12,6 +12,7 @@ log = "0.4"
 tokio = "0.1"
 bit-set = "0.4.0"
 
+client = { path = "../../node/client" }
 near-protos = { path = "../protos" }
 primitives = { path = "../primitives" }
 shard = { path = "../../node/shard" }

@@ -11,7 +11,7 @@ use consensus::adapters::transaction_to_payload;
 use primitives::chain::ChainPayload;
 use primitives::transaction::SignedTransaction;
 use primitives::types::AccountId;
-use txflow::txflow_task;
+use mempool::tx_exchange;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
@@ -77,13 +77,16 @@ pub fn start_from_client(client: Arc<Client>, account_id: AccountId, network_cfg
             |r| ChainPayload { transactions: vec![], receipts: vec![r] },
             payload_tx.clone()
         );
-        txflow_task::spawn_task(
+
+        tx_exchange::spawn_task(client.clone(), payload_rx, inc_gossip_rx, out_gossip_tx);
+
+        /*txflow_task::spawn_task(
             inc_gossip_rx,
             payload_rx,
             out_gossip_tx,
             consensus_control_rx,
             beacon_block_consensus_body_tx,
-        );
+        );*/
         Ok(())
     }));
 }

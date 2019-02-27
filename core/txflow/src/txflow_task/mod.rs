@@ -385,6 +385,7 @@ impl<'a, P: Payload + Default, W: WitnessSelector> Stream for TxFlowTask<'a, P, 
         loop {
             match self.payload_receiver.poll() {
                 Ok(Async::Ready(Some(payload))) => {
+                    error!("Payload!");
                     self.pending_payload.union_update(payload)
                 },
                 Ok(Async::NotReady) => break,

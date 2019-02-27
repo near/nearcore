@@ -18,3 +18,4 @@ node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
 txflow = { path = "../../core/txflow" }
+mempool = { path = "../../core/mempool" }

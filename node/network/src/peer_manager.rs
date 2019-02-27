@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
-
 use futures::future;
 use futures::future::Future;
 use futures::sink::Sink;

@@ -7,7 +7,7 @@ use primitives::chain::ChainPayload;
 pub fn spawn_task<T: Send + 'static>(
     receiver: Receiver<T>,
     f: fn(T) -> ChainPayload,
-    sender: Sender<ChainPayload>
+    sender: Sender<ChainPayload>,
 ) {
     let task = receiver
         .map(f)

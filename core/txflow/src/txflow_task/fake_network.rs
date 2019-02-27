@@ -50,7 +50,7 @@ impl WitnessSelector for FakeWitnessSelector {
 }
 
 /// Fake payload that only stores one number.
-#[derive(Debug, Serialize, Deserialize, Hash, Clone)]
+#[derive(Debug, Serialize, Deserialize, Hash, Clone, Default)]
 struct FakePayload {
     content: u64,
 }

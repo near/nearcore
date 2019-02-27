@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use log::error;
 
 use futures::future;
 use futures::sink::Sink;
@@ -52,6 +53,7 @@ struct Protocol {
 
 impl Protocol {
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
+        error!("Received a message");
         match Decode::decode(&data) {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
@@ -123,8 +125,9 @@ impl Protocol {
         let out_channel = auth_map
             .get(&g.receiver_uid)
             .map(|auth| auth.account_id.clone())
-            .and_then(|account_id| self.peer_manager.get_account_channel(account_id));
+            .and_then(|account_id| { error!("Sending to {:?}", account_id); self.peer_manager.get_account_channel(account_id) });
         if let Some(ch) = out_channel {
+            error!("Actually sending");
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
@@ -228,6 +231,7 @@ pub fn spawn_network(
     // Spawn a task that encodes and sends outgoing gossips.
     let protocol2 = protocol.clone();
     let task = out_gossip_rx.for_each(move |g| {
+        error!("Sendign a gossip from {:?} to {:?}!", g.sender_uid, g.receiver_uid);
         protocol2.send_gossip(g);
         future::ok(())
     });
