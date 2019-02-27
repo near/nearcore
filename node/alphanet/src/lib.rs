@@ -12,18 +12,19 @@ use futures::stream::Stream;
 use futures::sync::mpsc;
 
 use client::Client;
-use configs::{ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, NetworkConfig, RPCConfig, get_testnet_configs};
 use network::spawn_network;
 use nightshade::nightshade_task::{Control, spawn_nightshade_task};
+use primitives::types::AccountId;
 
 mod control_builder;
 
-pub fn start_from_configs(
-    client_cfg: ClientConfig,
+pub fn start_from_client(
+    client: Arc<Client>,
+    account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     _rpc_cfg: RPCConfig,
 ) {
-    let client = Arc::new(Client::new(&client_cfg));
     let node_task = futures::lazy(move || {
         // Create control channel and send kick-off reset signal.
         let (control_tx, control_rx) = mpsc::channel(1024);
@@ -47,7 +48,7 @@ pub fn start_from_configs(
 
         // Spawn the network tasks.
         spawn_network(
-            Some(client_cfg.account_id),
+            account_id,
             network_cfg,
             client.clone(),
             inc_gossip_tx,
@@ -74,4 +75,18 @@ pub fn start_from_configs(
     });
 
     tokio::run(node_task);
+}
+
+pub fn start_from_configs(
+    client_cfg: ClientConfig,
+    network_cfg: NetworkConfig,
+    rpc_cfg: RPCConfig
+) {
+    let client = Arc::new(Client::new(&client_cfg));
+    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg)
+}
+
+pub fn start() {
+    let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
+    start_from_configs(client_cfg, network_cfg, rpc_cfg);
 }

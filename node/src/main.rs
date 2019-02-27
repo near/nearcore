@@ -1,3 +1,3 @@
 fn main() {
-    testnet::start();
+    alphanet::start();
 }

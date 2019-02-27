@@ -1,3 +1,7 @@
+/// This module does end-to-end testing of the testnet by spinning up multiple nodes and
+/// exercising them in different scenarios.
+/// Note: tests get executed in parallel, so use different ports / names.
+
 use std::net::SocketAddr;
 use std::panic;
 use std::path::Path;
@@ -86,7 +90,7 @@ impl Node {
         let network_cfg = self.network_cfg.clone();
         let rpc_cfg = self.rpc_cfg.clone();
         thread::spawn(|| {
-            testnet::start_from_client(client, account_id, network_cfg, rpc_cfg);
+            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
         });
         thread::sleep(Duration::from_secs(1));
     }
@@ -124,6 +128,7 @@ fn get_public_key() -> String {
 }
 
 #[test]
+#[ignore]
 fn test_two_nodes() {
     let chain_spec = configure_chain_spec();
     // Create boot node.
@@ -161,6 +166,7 @@ fn test_two_nodes() {
 }
 
 #[test]
+#[ignore]
 fn test_two_nodes_sync() {
     let chain_spec = configure_chain_spec();
     let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3002", 3032, vec![], chain_spec.clone());
