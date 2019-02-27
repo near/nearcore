@@ -42,6 +42,7 @@ impl Pool {
     }
 
     pub fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+        println!("adding transaction, hash: {}", transaction.get_hash());
         if let Ok(Some(_)) = self.storage
             .write()
             .expect(POISONED_LOCK_ERR)

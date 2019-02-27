@@ -21,9 +21,10 @@ pub fn spawn_consensus(
 ) {
     let initial_beacon_block_index = client.beacon_chain.chain.best_index();
     let task = Interval::new_interval(block_period)
-        .fold((control_rx, initial_beacon_block_index), move |(control_rx, beacon_block_index), _| {
+        .fold((control_rx, initial_beacon_block_index), move |(control_rx, mut beacon_block_index), _| {
             let payload = client.shard_client.pool.produce_payload();
             if !payload.is_empty() {
+                beacon_block_index += 1;
                 let message: SignedMessageData<ChainPayload> = SignedMessageData {
                     owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
                     hash: 0,                      // Compute real hash
@@ -43,7 +44,7 @@ pub fn spawn_consensus(
                 tokio::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {
                     error!("Failure sending pass-through consensus {}", e);
                 }));
-                future::ok((control_rx, beacon_block_index + 1))
+                future::ok((control_rx, beacon_block_index))
             } else {
                 future::ok((control_rx, beacon_block_index))
             }
