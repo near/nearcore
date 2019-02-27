@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use futures::sync::mpsc::Sender;
-
 use client::Client;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
@@ -20,12 +18,11 @@ use primitives::transaction::verify_transaction_signature;
 
 pub struct HttpApi {
     client: Arc<Client>,
-    submit_txn_sender: Sender<SignedTransaction>,
 }
 
 impl HttpApi {
-    pub fn new(client: Arc<Client>, submit_txn_sender: Sender<SignedTransaction>) -> HttpApi {
-        HttpApi { client, submit_txn_sender }
+    pub fn new(client: Arc<Client>) -> HttpApi {
+        HttpApi { client }
     }
 }
 
@@ -100,12 +97,10 @@ impl HttpApi {
                 format!("transaction not signed with a public key of originator {:?}", originator,);
             return Err(RPCError::BadRequest(msg));
         }
-
-        self.submit_txn_sender
-            .clone()
-            .try_send(transaction.clone())
-            .map_err(|_| RPCError::ServiceUnavailable("transaction channel is full".to_string()))?;
-        Ok(SubmitTransactionResponse { hash: transaction.get_hash() })
+        let hash = transaction.get_hash();
+        self.client.shard_client.pool.add_transaction(transaction)
+            .map_err(|e| RPCError::BadRequest(e))?;
+        Ok(SubmitTransactionResponse { hash })
     }
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {

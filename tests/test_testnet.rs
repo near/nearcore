@@ -109,6 +109,7 @@ fn start_testnet() {
 }
 
 #[test]
+#[ignore]
 fn test_two_nodes() {
     start_testnet();
 }
