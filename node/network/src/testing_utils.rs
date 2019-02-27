@@ -7,7 +7,7 @@ use std::time::Duration;
 use primitives::hash::CryptoHash;
 
 use crate::message::ChainState;
-use crate::peer::{PeerState, ChainStateRetriever};
+use crate::peer::{ChainStateRetriever, PeerState};
 use crate::peer_manager::PeerManager;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -44,8 +44,8 @@ pub fn wait_all_peers_connected<T>(
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
+where
+    F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {

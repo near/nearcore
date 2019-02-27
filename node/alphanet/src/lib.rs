@@ -10,14 +10,14 @@ use std::sync::Arc;
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
-use futures::sync::mpsc::{Receiver, channel};
+use futures::sync::mpsc::{channel, Receiver};
 
 use client::Client;
-use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
+use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
 use network::spawn_network;
-use nightshade::nightshade_task::{Control, spawn_nightshade_task};
+use nightshade::nightshade_task::{spawn_nightshade_task, Control};
 use primitives::chain::ReceiptBlock;
 use primitives::types::AccountId;
 
@@ -31,7 +31,7 @@ pub fn start() {
 pub fn start_from_configs(
     client_cfg: ClientConfig,
     network_cfg: NetworkConfig,
-    rpc_cfg: RPCConfig
+    rpc_cfg: RPCConfig,
 ) {
     let client = Arc::new(Client::new(&client_cfg));
     start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg)
@@ -87,25 +87,21 @@ pub fn start_from_client(
     tokio::run(node_task);
 }
 
-fn spawn_rpc_server_task(
-    client: Arc<Client>,
-    rpc_config: &RPCConfig,
-) {
+fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
     let http_api = node_http::api::HttpApi::new(client);
     node_http::server::spawn_server(http_api, http_addr);
 }
 
-fn spawn_receipt_task(
-    client: Arc<Client>,
-    receipt_rx: Receiver<ReceiptBlock>,
-) {
-    let task = receipt_rx.for_each(move |receipt| {
-        if let Err(e) = client.shard_client.pool.add_receipt(receipt) {
-            error!("Failed to add receipt: {}", e);
-        }
-        Ok(())
-    }).map_err(|e| error!("Error receiving receipts: {:?}", e));
+fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
+    let task = receipt_rx
+        .for_each(move |receipt| {
+            if let Err(e) = client.shard_client.pool.add_receipt(receipt) {
+                error!("Failed to add receipt: {}", e);
+            }
+            Ok(())
+        })
+        .map_err(|e| error!("Error receiving receipts: {:?}", e));
 
     tokio::spawn(task);
 }
@@ -114,22 +110,42 @@ fn spawn_receipt_task(
 mod tests {
     use primitives::block_traits::SignedBlock;
 
-    use crate::testing_utils::{configure_chain_spec, Node, wait};
+    use crate::testing_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
     #[test]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();
-        let alice = Node::new("t1_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
-        let bob = Node::new("t1_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
+        let alice = Node::new(
+            "t1_alice",
+            "alice.near",
+            1,
+            "127.0.0.1:3000",
+            3030,
+            vec![],
+            chain_spec.clone(),
+        );
+        let bob = Node::new(
+            "t1_bob",
+            "bob.near",
+            2,
+            "127.0.0.1:3001",
+            3031,
+            vec![alice.node_info.clone()],
+            chain_spec,
+        );
 
         alice.start();
         bob.start();
 
         // Wait until alice and bob produce at least one block.
-        wait(|| {
-            alice.client.shard_client.chain.best_block().index() >= 1 &&
-                bob.client.shard_client.chain.best_block().index() >= 1
-        }, 500, 10000);
+        wait(
+            || {
+                alice.client.shard_client.chain.best_block().index() >= 1
+                    && bob.client.shard_client.chain.best_block().index() >= 1
+            },
+            500,
+            10000,
+        );
     }
 }

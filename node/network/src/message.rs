@@ -1,10 +1,10 @@
 use serde_derive::{Deserialize, Serialize};
 
+use nightshade::nightshade_task::Gossip;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use nightshade::nightshade_task::Gossip;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);

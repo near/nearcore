@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use futures::{stream, stream::Stream};
 use futures::future;
-use futures::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+use futures::Future;
+use futures::{stream, stream::Stream};
 use log::{error, info, warn};
 
 use client::Client;
@@ -58,21 +58,21 @@ impl Protocol {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
                     self.on_new_peer(peer_id, connected_info);
-                },
+                }
                 Message::Transaction(tx) => {
                     if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
                         error!(target: "network", "{}", e);
                     }
-                },
+                }
                 Message::Receipt(receipt) => {
                     if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
                         error!(target: "network", "{}", e);
                     }
-                },
+                }
                 Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
                     forward_msg(self.inc_block_tx.clone(), *block);
-                },
+                }
                 Message::BlockRequest(request_id, hashes) => {
                     match self.client.fetch_blocks(hashes) {
                         Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
@@ -131,7 +131,7 @@ impl Protocol {
     fn send_gossip(&self, g: Gossip<CryptoHash>) {
         // TODO: Currently it gets the same authority map for all block indices.
         // Update authority map, once block production and block importing is in place.
-//        let auth_map = self.client.get_recent_uid_to_authority_map();
+        //        let auth_map = self.client.get_recent_uid_to_authority_map();
         let (_, auth_map) = self.client.get_uid_to_authority_map(1);
         let out_channel = auth_map
             .get(&(g.receiver_id as u64))
@@ -268,6 +268,9 @@ fn forward_msgs<T>(ch: Sender<T>, els: Vec<T>)
 where
     T: Send + 'static,
 {
-    let task = ch.send_all(stream::iter_ok(els)).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
+    let task = ch
+        .send_all(stream::iter_ok(els))
+        .map(|_| ())
+        .map_err(|e| warn!(target: "network", "Error forwarding {}", e));
     tokio::spawn(task);
 }

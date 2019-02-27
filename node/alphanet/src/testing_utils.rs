@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::panic;
 use std::path::Path;
@@ -9,10 +8,10 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use client::{ChainConsensusBlockBody, Client, BlockProductionResult};
-use configs::chain_spec::{ChainSpec, read_or_default_chain_spec};
-use configs::ClientConfig;
+use client::{BlockProductionResult, ChainConsensusBlockBody, Client};
+use configs::chain_spec::{read_or_default_chain_spec, ChainSpec};
 use configs::network::get_peer_id_from_seed;
+use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use primitives::block_traits::SignedBlock;
@@ -41,7 +40,15 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(name: &str, account_id: &str, peer_id_seed: u32, addr: &str, rpc_port: u16, boot_nodes: Vec<PeerInfo>, chain_spec: ChainSpec) -> Self {
+    pub fn new(
+        name: &str,
+        account_id: &str,
+        peer_id_seed: u32,
+        addr: &str,
+        rpc_port: u16,
+        boot_nodes: Vec<PeerInfo>,
+        chain_spec: ChainSpec,
+    ) -> Self {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
             id: get_peer_id_from_seed(peer_id_seed),
@@ -75,13 +82,7 @@ impl Node {
         let rpc_cfg = RPCConfig { rpc_port };
 
         let client = Arc::new(Client::new(&client_cfg));
-        Node {
-            client,
-            node_info,
-            client_cfg,
-            network_cfg,
-            rpc_cfg
-        }
+        Node { client, node_info, client_cfg, network_cfg, rpc_cfg }
     }
 
     pub fn start(&self) {
@@ -108,8 +109,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
+where
+    F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {

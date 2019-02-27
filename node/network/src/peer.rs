@@ -199,10 +199,10 @@ impl<T: ChainStateRetriever> Peer<T> {
     }
 
     fn on_peer_connected(&self, handshake: Handshake) {
-        let data = Encode::encode(&Message::Connected(handshake.connected_info))
-        .unwrap();
+        let data = Encode::encode(&Message::Connected(handshake.connected_info)).unwrap();
         tokio::spawn(
-            self.inc_msg_tx.clone()
+            self.inc_msg_tx
+                .clone()
                 .send((handshake.info.id, data))
                 .map(|_| ())
                 .map_err(|err| warn!("Failed to send message: {}", err)),
@@ -224,9 +224,7 @@ fn framed_stream_to_channel_with_handshake(
         version: PROTOCOL_VERSION,
         info: node_info.clone(),
         peers_info,
-        connected_info: ConnectedInfo {
-            chain_state
-        },
+        connected_info: ConnectedInfo { chain_state },
     });
     // Create the task that places the handshake down the channel.
     let hand_task = out_msg_tx
