@@ -9,6 +9,7 @@ use client::Client;
 use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
 use primitives::chain::ChainPayload;
+use primitives::types::AccountId;
 use txflow::txflow_task;
 
 pub fn start() {

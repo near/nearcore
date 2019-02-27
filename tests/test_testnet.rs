@@ -124,6 +124,7 @@ fn get_public_key() -> String {
 }
 
 #[test]
+#[ignore]
 fn test_two_nodes() {
     let chain_spec = configure_chain_spec();
     // Create boot node.

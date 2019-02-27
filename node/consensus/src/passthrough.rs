@@ -1,13 +1,10 @@
-use client::ChainConsensusBlockBody;
 use std::time::Duration;
 
 use futures::{future, Future, Sink, Stream};
-use futures::future::Either;
 use futures::sync::mpsc::{Receiver, Sender};
 use tokio::{self, timer::Interval};
 
 use client::ChainConsensusBlockBody;
-use primitives::chain::ChainPayload;
 use primitives::consensus::Payload;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
@@ -26,20 +23,8 @@ pub fn spawn_consensus(
             let payload = client.shard_client.pool.produce_payload();
             if !payload.is_empty() {
                 beacon_block_index += 1;
-                let message: SignedMessageData<ChainPayload> = SignedMessageData {
-                    owner_sig: DEFAULT_SIGNATURE, // TODO: Sign it.
-                    hash: 0,                      // Compute real hash
-                    body: MessageDataBody {
-                        owner_uid: 0,
-                        parents: HashSet::new(),
-                        epoch: 0,
-                        payload,
-                        endorsements: vec![],
-                    },
-                    beacon_block_index: 0,  // Not used by the DevNet.
-                };
                 let c = ChainConsensusBlockBody {
-                    messages: vec![message],
+                    payload,
                     beacon_block_index,
                 };
                 tokio::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {
