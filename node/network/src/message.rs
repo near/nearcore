@@ -1,57 +1,42 @@
+use serde_derive::{Deserialize, Serialize};
+
 use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, BlockId, Gossip};
 use primitives::transaction::SignedTransaction;
-use serde_derive::{Deserialize, Serialize};
+use primitives::types::Gossip;
 
 pub type RequestId = u64;
+pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
 
+/// Current latest version of the protocol
+pub const PROTOCOL_VERSION: u32 = 1;
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
+pub struct ChainState {
+    pub genesis_hash: CryptoHash,
+    pub last_index: u64,
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
+pub struct ConnectedInfo {
+    pub chain_state: ChainState,
+}
+
+/// Message passed over the network from peer to peer.
+/// Box's are used when message is significantly larger than other enum members.
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub enum Message {
-    // Box is used here because SignedTransaction
-    // is significantly larger than other enum members
+    Connected(ConnectedInfo),
     Transaction(Box<SignedTransaction>),
     Receipt(Box<ReceiptBlock>),
-    Status(Status),
-    BlockAnnounce(Box<(SignedBeaconBlock, SignedShardBlock)>),
+
+    BlockAnnounce(Box<CoupledBlock>),
+    BlockRequest(RequestId, Vec<CryptoHash>),
+    BlockResponse(RequestId, Vec<CoupledBlock>),
+    BlockFetchRequest(RequestId, u64, u64),
+
     Gossip(Box<Gossip<ChainPayload>>),
+    PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
+    PayloadResponse(RequestId, ChainPayload),
 }
-
-/// status sent on connection
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Status {
-    /// Protocol version.
-    pub version: u32,
-    /// Best block index.
-    pub best_index: u64,
-    /// Best block hash.
-    pub best_hash: CryptoHash,
-    /// Genesis hash.
-    pub genesis_hash: CryptoHash,
-    /// Account id.
-    pub account_id: Option<AccountId>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub struct BlockRequest {
-    /// request id
-    pub id: RequestId,
-    /// starting from this id
-    pub from: BlockId,
-    /// ending at this id,
-    pub to: Option<BlockId>,
-    /// max number of blocks requested
-    pub max: Option<u64>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockResponse {
-    // request id that the response is responding to
-    pub id: RequestId,
-    // block data
-    pub blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockAnnounce(pub SignedBeaconBlock, pub SignedShardBlock);

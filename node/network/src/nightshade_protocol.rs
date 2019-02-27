@@ -13,6 +13,7 @@ use primitives::types::AccountId;
 
 use crate::peer::PeerMessage;
 use crate::peer_manager::PeerManager;
+use crate::protocol::ClientChainStateRetriever;
 use client::Client;
 use configs::NetworkConfig;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ pub fn spawn_consensus_network(
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_out_msg_tx, out_msg_rx) = channel(1024);
 
+    let chain_state_retriever = ClientChainStateRetriever::new(client.clone());
     let peer_manager = Arc::new(PeerManager::new(
         network_cfg.reconnect_delay,
         network_cfg.gossip_interval,
@@ -38,6 +40,7 @@ pub fn spawn_consensus_network(
         &network_cfg.boot_nodes,
         inc_msg_tx,
         out_msg_rx,
+        chain_state_retriever
     ));
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.

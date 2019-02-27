@@ -8,6 +8,7 @@ use primitives::types::{AccountId, Balance, ReadablePublicKey, ReadableBlsPublic
 use primitives::network::PeerInfo;
 
 /// Specification of the blockchain in general.
+#[derive(Clone)]
 pub struct ChainSpec {
     /// Genesis state accounts: (AccountId, PK, Initial Balance, Initial TX Stake)
     pub accounts: Vec<(AccountId, ReadablePublicKey, Balance, Balance)>,

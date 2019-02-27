@@ -1,7 +1,7 @@
 use cached::SizedCache;
 use wasmer_runtime;
 
-use primitives::traits::Encode;
+use primitives::serialize::Encode;
 use primitives::hash::hash;
 use crate::prepare;
 use crate::types::{Config, Error};

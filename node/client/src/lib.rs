@@ -1,19 +1,18 @@
-#[macro_use]
-extern crate log;
 extern crate beacon;
 extern crate chain;
+#[macro_use]
+extern crate log;
 extern crate node_runtime;
 extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
-pub mod test_utils;
-
+use std::{cmp, env, fs};
 use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-use std::{cmp, env, fs};
+use std::sync::RwLock;
 
 use env_logger::Builder;
 use log::Level::Debug;
@@ -23,16 +22,17 @@ use configs::ClientConfig;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
+use primitives::consensus::ConsensusBlockBody;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, ConsensusBlockBody, UID};
+use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, UID};
 use shard::{get_all_receipts, ShardClient};
-use std::sync::RwLock;
 use storage::create_storage;
 
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+pub mod test_utils;
 
-type BlockIdx = u64;
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const BEACON_SHARD_BLOCK_MATCH: &str = "Expected to have shard block present when processing beacon block";
 
 /// Result of client trying to produce a block from a given consensus.
 #[allow(clippy::large_enum_variant)]  // This enum is no different from `Option`.
@@ -41,7 +41,7 @@ pub enum BlockProductionResult {
     Success(SignedBeaconBlock, SignedShardBlock),
     /// The consensus was achieved after the block with the given index was already imported.
     /// The beacon and the shard chains are currently at index `current_index`.
-    LateConsensus { current_index: BlockIdx },
+    LateConsensus { current_index: BlockIndex },
 }
 
 /// Result of client trying to import a block.
@@ -49,11 +49,11 @@ pub enum BlockImportingResult {
     /// The block was successfully imported, and `new_index` is the new index. Note, the `new_index`
     /// can be greater by any amount than the index of the imported block, if it was a pending
     /// parent of some pending block.
-    Success { new_index: BlockIdx },
+    Success { new_index: BlockIndex },
     /// The block was not imported, because its parent is missing. Blocks with indices
     /// `missing_indices` should be fetched. This block might and might not have been already
     /// recorded as pending.
-    MissingParent { parent_hash: CryptoHash, missing_indices: Vec<BlockIdx> },
+    MissingParent { parent_hash: CryptoHash, missing_indices: Vec<BlockIndex> },
     /// The block was not imported, because it is already in the blockchain.
     AlreadyImported,
 }
@@ -156,7 +156,7 @@ impl Client {
     }
 
     /// Get indices of the blocks that we are missing.
-    fn get_missing_indices(&self) -> Vec<BlockIdx> {
+    fn get_missing_indices(&self) -> Vec<BlockIndex> {
         // Use `pending_beacon_blocks` because currently beacon blocks and shard blocks are tied
         // 1 to 1.
         let guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
@@ -184,13 +184,6 @@ impl Client {
             // The consensus is too late, the block was already imported.
             return BlockProductionResult::LateConsensus { current_index };
         }
-        // TODO: verify signature
-        let mut transactions = vec![];
-        let mut receipts = vec![];
-        for message in body.messages {
-            transactions.extend(message.body.payload.transactions);
-            receipts.extend(message.body.payload.receipts);
-        }
 
         let last_block = self.beacon_chain.chain.best_block();
         let authorities = self
@@ -202,7 +195,7 @@ impl Client {
             .expect("Authorities should be present for given block to produce it");
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
             .shard_client
-            .prepare_new_block(last_block.body.header.shard_block_hash, receipts, transactions);
+            .prepare_new_block(last_block.body.header.shard_block_hash, body.payload.receipts, body.payload.transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
@@ -331,7 +324,7 @@ impl Client {
                 .write()
                 .expect(POISONED_LOCK_ERR)
                 .remove(&next_beacon_block.body.header.shard_block_hash)
-                .expect("Expected to have shard block present when processing beacon block");
+                .expect(BEACON_SHARD_BLOCK_MATCH);
 
             if self.shard_client.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
@@ -390,5 +383,40 @@ impl Client {
     pub fn get_recent_uid_to_authority_map(&self) -> HashMap<UID, AuthorityStake> {
         let index = self.beacon_chain.chain.best_block().index() + 1;
         self.get_uid_to_authority_map(index).1
+    }
+
+    /// Fetch "coupled" blocks by hash.
+    pub fn fetch_blocks(&self, hashes: Vec<CryptoHash>) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
+        let mut result = vec![];
+        for hash in hashes.iter() {
+            match self.beacon_chain.chain.get_block(&BlockId::Hash(*hash)) {
+                Some(beacon_block) => {
+                    let shard_block = self.shard_client.chain.get_block(&BlockId::Hash(beacon_block.body.header.shard_block_hash)).expect(BEACON_SHARD_BLOCK_MATCH);
+                    result.push((beacon_block, shard_block));
+                },
+                None => return Err(format!("Missing {:?} in beacon chain", hash))
+            }
+        }
+        Ok(result)
+    }
+
+    /// Fetch "coupled" blocks by index range.
+    pub fn fetch_blocks_range(&self, from_index: u64, til_index: u64) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
+        let mut result = vec![];
+        for i in from_index..=til_index {
+            match self.beacon_chain.chain.get_block(&BlockId::Number(i)) {
+                Some(beacon_block) => {
+                    let shard_block = self.shard_client.chain.get_block(&BlockId::Hash(beacon_block.body.header.shard_block_hash)).expect(BEACON_SHARD_BLOCK_MATCH);
+                    result.push((beacon_block, shard_block));
+                },
+                None => return Err(format!("Missing index={:?} in beacon chain", i))
+            }
+        }
+        Ok(result)
+    }
+
+    /// Fetch transaction / receipts by hash from mempool.
+    pub fn fetch_payload(&self, _transaction_hashes: Vec<CryptoHash>, _receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
+        Ok(ChainPayload { transactions: vec![], receipts: vec![] })
     }
 }

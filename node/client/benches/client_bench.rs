@@ -6,15 +6,14 @@ use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock};
 use primitives::hash::CryptoHash;
-use primitives::signature::{sign, SecretKey as SK, DEFAULT_SIGNATURE};
+use primitives::signature::{sign, SecretKey as SK};
 use primitives::test_utils::get_key_pair_from_seed;
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
-use primitives::types::{MessageDataBody, SignedMessageData};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 const TMP_DIR: &str = "./tmp_bench/";
@@ -81,18 +80,7 @@ fn transaction_and_receipts_to_consensus(
     beacon_block_index: u64,
 ) -> ChainConsensusBlockBody {
     ChainConsensusBlockBody {
-        messages: vec![SignedMessageData {
-            owner_sig: DEFAULT_SIGNATURE,
-            hash: 0,
-            body: MessageDataBody {
-                owner_uid: 0,
-                parents: HashSet::new(),
-                epoch: 0,
-                payload: ChainPayload { transactions, receipts },
-                endorsements: vec![],
-            },
-            beacon_block_index,
-        }],
+        payload: ChainPayload { transactions, receipts },
         beacon_block_index,
     }
 }
