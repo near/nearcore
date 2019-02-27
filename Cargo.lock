@@ -523,6 +523,7 @@ dependencies = [
 name = "devnet"
 version = "0.1.0"
 dependencies = [
+ "alphanet 0.1.0",
  "chain 0.0.1",
  "client 0.1.0",
  "configs 0.1.0",

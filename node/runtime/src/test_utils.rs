@@ -2,28 +2,28 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+use configs::ChainSpec;
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::types::{MerkleHash, GroupSignature, AccountingInfo, AccountId};
+use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
+use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{get_key_pair, PublicKey, SecretKey, sign};
 use primitives::signer::InMemorySigner;
-use primitives::hash::{hash, CryptoHash};
 use primitives::test_utils::get_key_pair_from_seed;
+use primitives::transaction::{
+    AddKeyTransaction, AsyncCall, Callback,
+    CallbackInfo, CallbackResult, CreateAccountTransaction,
+    DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody, ReceiptTransaction,
+    SendMoneyTransaction, SignedTransaction, TransactionBody
+};
+use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash};
 use storage::{Trie, TrieUpdate};
 use storage::test_utils::create_trie;
-use primitives::transaction::{
-    SignedTransaction, ReceiptTransaction, TransactionBody,
-    SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction,
-    CreateAccountTransaction, ReceiptBody, Callback, AsyncCall, CallbackInfo,
-    CallbackResult, AddKeyTransaction, DeleteKeyTransaction
-};
-use primitives::chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
-use configs::ChainSpec;
 use crate::state_viewer::TrieViewer;
 
 use super::{
-    ApplyResult, ApplyState, Runtime, set, callback_id_to_bytes, get, account_id_to_bytes,
-    COL_ACCOUNT, Account
+    Account, account_id_to_bytes, ApplyResult, ApplyState, callback_id_to_bytes, COL_ACCOUNT, get,
+    Runtime, set
 };
 
 pub fn alice_account() -> AccountId {

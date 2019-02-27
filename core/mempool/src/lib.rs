@@ -2,6 +2,7 @@ use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, RwLock};
 
 use node_runtime::state_viewer::TrieViewer;
+use primitives::consensus::Payload;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::merkle::verify_path;
@@ -92,6 +93,9 @@ impl Pool {
             .drain()
             .collect();
         let snapshot = ChainPayload { transactions, receipts };
+        if snapshot.is_empty() {
+            return CryptoHash::default();
+        }
         let h = hash_struct(&snapshot);
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h

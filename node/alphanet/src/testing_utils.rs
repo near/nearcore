@@ -50,9 +50,6 @@ impl Node {
         let mut base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         base_path.push(TMP_DIR);
         base_path.push(name);
-        println!("{:?}", env!("CARGO_MANIFEST_DIR"));
-        println!("{:?}", base_path);
-        println!("{}", base_path.exists());
 
         if base_path.exists() {
             std::fs::remove_dir_all(base_path.clone()).unwrap();

@@ -4,21 +4,22 @@ extern crate log;
 extern crate serde;
 extern crate serde_derive;
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
-use futures::sync::mpsc;
+use futures::sync::mpsc::{Receiver, channel};
 
 use client::Client;
-use configs::{ClientConfig, NetworkConfig, RPCConfig, get_testnet_configs};
-use network::spawn_network;
-use nightshade::nightshade_task::{Control, spawn_nightshade_task};
-use primitives::types::AccountId;
+use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use network::spawn_network;
+use nightshade::nightshade_task::{Control, spawn_nightshade_task};
+use primitives::chain::ReceiptBlock;
+use primitives::types::AccountId;
 
 pub mod testing_utils;
 
@@ -43,19 +44,22 @@ pub fn start_from_client(
     rpc_cfg: RPCConfig,
 ) {
     let node_task = futures::lazy(move || {
-        spawn_rpc_server_task(&rpc_cfg, client.clone());
+        spawn_rpc_server_task(client.clone(), &rpc_cfg);
 
+        // Receipts from previous blocks.
+        let (receipts_tx, receipts_rx) = channel(1024);
+        spawn_receipt_task(client.clone(), receipts_rx);
 
         // Launch block syncing / importing.
-        let (inc_block_tx, _inc_block_rx) = mpsc::channel(1024);
-        let (_out_block_tx, out_block_rx) = mpsc::channel(1024);
+        let (inc_block_tx, _inc_block_rx) = channel(1024);
+        let (_out_block_tx, out_block_rx) = channel(1024);
 
         // Launch Nightshade task
-        let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
-        let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1024);
-        let (consensus_tx, consensus_rx) = mpsc::channel(1024);
+        let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
+        let (out_gossip_tx, out_gossip_rx) = channel(1024);
+        let (consensus_tx, consensus_rx) = channel(1024);
         // Create control channel and send kick-off reset signal.
-        let (control_tx, control_rx) = mpsc::channel(1024);
+        let (control_tx, control_rx) = channel(1024);
 
         spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx);
         let start_task = control_tx
@@ -64,7 +68,7 @@ pub fn start_from_client(
             .map(|_| ())
             .map_err(|e| error!("Error sending control {:?}", e));
         tokio::spawn(start_task);
-        spawn_block_producer(client.clone(), consensus_rx, control_tx);
+        spawn_block_producer(client.clone(), consensus_rx, control_tx, receipts_tx);
 
         // Launch Network task.
         spawn_network(
@@ -84,28 +88,48 @@ pub fn start_from_client(
 }
 
 fn spawn_rpc_server_task(
-    rpc_config: &RPCConfig,
     client: Arc<Client>,
+    rpc_config: &RPCConfig,
 ) {
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
     let http_api = node_http::api::HttpApi::new(client);
     node_http::server::spawn_server(http_api, http_addr);
 }
 
+fn spawn_receipt_task(
+    client: Arc<Client>,
+    receipt_rx: Receiver<ReceiptBlock>,
+) {
+    let task = receipt_rx.for_each(move |receipt| {
+        if let Err(e) = client.shard_client.pool.add_receipt(receipt) {
+            error!("Failed to add receipt: {}", e);
+        }
+        Ok(())
+    }).map_err(|e| error!("Error receiving receipts: {:?}", e));
+
+    tokio::spawn(task);
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::testing_utils::{Node, configure_chain_spec};
+    use primitives::block_traits::SignedBlock;
+
+    use crate::testing_utils::{configure_chain_spec, Node, wait};
 
     /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
     #[test]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();
-        // Create boot node.
         let alice = Node::new("t1_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
-        // Create secondary node that boots from the alice node.
         let bob = Node::new("t1_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
 
         alice.start();
         bob.start();
+
+        // Wait until alice and bob produce at least one block.
+        wait(|| {
+            alice.client.shard_client.chain.best_block().index() >= 1 &&
+                bob.client.shard_client.chain.best_block().index() >= 1
+        }, 500, 10000);
     }
 }
