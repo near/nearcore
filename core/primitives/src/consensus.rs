@@ -36,7 +36,7 @@ pub struct ConsensusBlockHeader {
 #[derive(Hash, Debug, PartialEq, Eq)]
 pub struct ConsensusBlockBody<P: Payload> {
     pub payload: P,
-    pub beacon_block_index: u64,
+    pub beacon_block_index: types::BlockIndex,
 }
 
 pub trait TxFlow<P: Payload> {
