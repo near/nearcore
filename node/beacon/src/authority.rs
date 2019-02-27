@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::iter;
 use std::mem;
+use log::Level::Debug;
 
 use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
@@ -108,7 +109,16 @@ impl Authority {
         // are iterating.
         // TODO: Take care of the fork being changed while we are iterating.
         let mut index = 1;
+        let mut last_progress = 101;
         while index <= blockchain.best_block().header().body.index {
+            if log_enabled!(target: "client", Debug) {
+                let best_block_index = blockchain.best_block().header().body.index;
+                let progress = index * 100 / best_block_index;
+                if progress != last_progress {
+                    debug!(target: "client", "Processing blocks {} out of {}", index, best_block_index);
+                    last_progress = progress;
+                }
+            }
             let header = blockchain
                 .get_header(&BlockId::Number(index))
                 .expect("Blockchain missing past block");
