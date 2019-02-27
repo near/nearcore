@@ -75,15 +75,13 @@ class NearLib(object):
             return json.loads(raw)
         except HTTPError as e:
             if e.code == 400:
-                print(e.fp.read())
-                exit(1)
+                raise Exception(e.fp.read())
             raise
         except URLError:
             error = "Connection to {} refused. " \
                     "To start RPC server at http://127.0.0.1:3030, run:\n" \
                     "cargo run -p devnet"
-            print(error.format(self._server_url), file=sys.stderr)
-            exit(1)
+            raise Exception(error.format(self._server_url))
 
     def _sign_transaction_body(self, body):
         body = body.SerializeToString()
