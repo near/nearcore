@@ -178,9 +178,9 @@ impl Client {
     }
 
     // Block producer code.
-    pub fn try_produce_block(&self, body: ChainConsensusBlockBody) -> BlockProductionResult {
+    pub fn try_produce_block(&self, block_index: BlockIndex, payload: ChainPayload) -> BlockProductionResult {
         let current_index = self.beacon_chain.chain.best_block().index();
-        if body.beacon_block_index < current_index + 1 {
+        if block_index < current_index + 1 {
             // The consensus is too late, the block was already imported.
             return BlockProductionResult::LateConsensus { current_index };
         }
@@ -195,7 +195,7 @@ impl Client {
             .expect("Authorities should be present for given block to produce it");
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
             .shard_client
-            .prepare_new_block(last_block.body.header.shard_block_hash, body.payload.receipts, body.payload.transactions);
+            .prepare_new_block(last_block.body.header.shard_block_hash, payload.receipts, payload.transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),

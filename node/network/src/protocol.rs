@@ -1,22 +1,23 @@
 use std::sync::Arc;
 
-use futures::future;
-use futures::sink::Sink;
 use futures::{stream, stream::Stream};
+use futures::future;
+use futures::Future;
+use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use futures::Future;
-use log::{warn, info, error};
+use log::{error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
+use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
+use primitives::hash::CryptoHash;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, PeerId};
-use nightshade::nightshade_task::Gossip;
 
 use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
@@ -47,7 +48,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
-    inc_gossip_tx: Sender<Gossip<ChainPayload>>,
+    inc_gossip_tx: Sender<Gossip<CryptoHash>>,
     inc_block_tx: Sender<CoupledBlock>,
 }
 
@@ -127,7 +128,7 @@ impl Protocol {
         }
     }
 
-    fn send_gossip(&self, g: Gossip<ChainPayload>) {
+    fn send_gossip(&self, g: Gossip<CryptoHash>) {
         // TODO: Currently it gets the same authority map for all block indices.
         // Update authority map, once block production and block importing is in place.
 //        let auth_map = self.client.get_recent_uid_to_authority_map();
@@ -207,8 +208,8 @@ pub fn spawn_network(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     client: Arc<Client>,
-    inc_gossip_tx: Sender<Gossip<ChainPayload>>,
-    out_gossip_rx: Receiver<Gossip<ChainPayload>>,
+    inc_gossip_tx: Sender<Gossip<CryptoHash>>,
+    out_gossip_rx: Receiver<Gossip<CryptoHash>>,
     inc_block_tx: Sender<CoupledBlock>,
     out_block_rx: Receiver<CoupledBlock>,
 ) {

@@ -19,7 +19,7 @@ use primitives::hash::hash_struct;
 use primitives::hash::CryptoHash;
 use primitives::signature::{sign, verify, PublicKey, SecretKey, Signature};
 
-use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State};
+use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State, ConsensusBlockHeader};
 
 const COOLDOWN_MS: u64 = 50;
 
@@ -122,7 +122,7 @@ pub struct NightshadeTask<P> {
     /// Important: Reset only works the first time it is sent.
     control_receiver: mpsc::Receiver<Control<P>>,
     /// Consensus header and block index on which the consensus was reached.
-    consensus_sender: mpsc::Sender<(BlockHeader, u64)>,
+    consensus_sender: mpsc::Sender<ConsensusBlockHeader>,
     /// None while not consensus have not been reached, and Some(outcome) after consensus is reached.
     consensus_reached: Option<BlockHeader>,
     /// Number of payloads from other authorities that we still don't have.
@@ -137,7 +137,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         inc_gossips: mpsc::Receiver<Gossip<P>>,
         out_gossips: mpsc::Sender<Gossip<P>>,
         control_receiver: mpsc::Receiver<Control<P>>,
-        consensus_sender: mpsc::Sender<(BlockHeader, u64)>,
+        consensus_sender: mpsc::Sender<ConsensusBlockHeader>,
     ) -> Self {
         Self {
             authority_blocks: vec![],
@@ -412,7 +412,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                             tokio::spawn(
                                 self.consensus_sender
                                     .clone()
-                                    .send((outcome, self.block_index.unwrap()))
+                                    .send(ConsensusBlockHeader { header: outcome, index: self.block_index.unwrap() })
                                     .map(|_| ())
                                     .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                             );
@@ -456,7 +456,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
 pub fn spawn_nightshade_task<P>(
     inc_gossip_rx: mpsc::Receiver<Gossip<P>>,
     out_gossip_tx: mpsc::Sender<Gossip<P>>,
-    consensus_tx: mpsc::Sender<(BlockHeader, u64)>,
+    consensus_tx: mpsc::Sender<ConsensusBlockHeader>,
     control_rx: mpsc::Receiver<Control<P>>,
 ) where
     P: Serialize + Send + Clone + Debug + 'static,

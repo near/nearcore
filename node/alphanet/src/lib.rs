@@ -18,19 +18,34 @@ use nightshade::nightshade_task::{Control, spawn_nightshade_task};
 use primitives::types::AccountId;
 use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[cfg(test)]
 pub mod testing_utils;
+
+pub fn start() {
+    let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
+    start_from_configs(client_cfg, network_cfg, rpc_cfg);
+}
+
+pub fn start_from_configs(
+    client_cfg: ClientConfig,
+    network_cfg: NetworkConfig,
+    rpc_cfg: RPCConfig
+) {
+    let client = Arc::new(Client::new(&client_cfg));
+    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg)
+}
 
 pub fn start_from_client(
     client: Arc<Client>,
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
-    _rpc_cfg: RPCConfig,
+    rpc_cfg: RPCConfig,
 ) {
     let node_task = futures::lazy(move || {
-        // Create control channel and send kick-off reset signal.
-        let (control_tx, control_rx) = mpsc::channel(1024);
+        spawn_rpc_server_task(&rpc_cfg, client.clone());
+
 
         // Launch block syncing / importing.
         let (inc_block_tx, _inc_block_rx) = mpsc::channel(1024);
@@ -40,6 +55,8 @@ pub fn start_from_client(
         let (inc_gossip_tx, inc_gossip_rx) = mpsc::channel(1024);
         let (out_gossip_tx, out_gossip_rx) = mpsc::channel(1024);
         let (consensus_tx, consensus_rx) = mpsc::channel(1024);
+        // Create control channel and send kick-off reset signal.
+        let (control_tx, control_rx) = mpsc::channel(1024);
 
         spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx);
         let start_task = control_tx
@@ -67,18 +84,13 @@ pub fn start_from_client(
     tokio::run(node_task);
 }
 
-pub fn start_from_configs(
-    client_cfg: ClientConfig,
-    network_cfg: NetworkConfig,
-    rpc_cfg: RPCConfig
+fn spawn_rpc_server_task(
+    rpc_config: &RPCConfig,
+    client: Arc<Client>,
 ) {
-    let client = Arc::new(Client::new(&client_cfg));
-    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg)
-}
-
-pub fn start() {
-    let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
-    start_from_configs(client_cfg, network_cfg, rpc_cfg);
+    let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
+    let http_api = node_http::api::HttpApi::new(client);
+    node_http::server::spawn_server(http_api, http_addr);
 }
 
 #[cfg(test)]

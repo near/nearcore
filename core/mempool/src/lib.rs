@@ -1,11 +1,12 @@
-use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
-use primitives::merkle::verify_path;
-use primitives::transaction::{verify_transaction_signature, SignedTransaction};
-use primitives::hash::hash_struct;
-use storage::{ShardChainStorage, Trie, TrieUpdate, GenericStorage};
-use node_runtime::state_viewer::TrieViewer;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, RwLock};
+
+use node_runtime::state_viewer::TrieViewer;
+use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
+use primitives::hash::{CryptoHash, hash_struct};
+use primitives::merkle::verify_path;
+use primitives::transaction::{SignedTransaction, verify_transaction_signature};
+use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -16,6 +17,7 @@ pub struct Pool {
     storage: Arc<RwLock<ShardChainStorage>>,
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
+    snapshots: RwLock<HashMap<CryptoHash, ChainPayload>>,
 }
 
 impl Pool {
@@ -25,7 +27,8 @@ impl Pool {
             receipts: RwLock::new(HashSet::new()),
             storage,
             trie,
-            state_viewer: TrieViewer {}
+            state_viewer: TrieViewer {},
+            snapshots: RwLock::new(HashMap::new()),
         }
     }
 
@@ -77,7 +80,7 @@ impl Pool {
         Ok(())
     }
 
-    pub fn produce_payload(&self) -> ChainPayload {
+    pub fn snapshot_payload(&self) -> CryptoHash {
         let transactions: Vec<_> = self.transactions
             .write()
             .expect(POISONED_LOCK_ERR)
@@ -88,7 +91,14 @@ impl Pool {
             .expect(POISONED_LOCK_ERR)
             .drain()
             .collect();
-        ChainPayload { transactions, receipts }
+        let snapshot = ChainPayload { transactions, receipts };
+        let h = hash_struct(&snapshot);
+        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
+        h
+    }
+
+    pub fn pop_payload_snapshot(&self, hash: &CryptoHash) -> Option<ChainPayload> {
+        self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash)
     }
 
     pub fn import_block(&self, block: &SignedShardBlock) {
@@ -103,13 +113,14 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use node_runtime::{test_utils::generate_test_chain_spec, Runtime};
+    use node_runtime::{Runtime, test_utils::generate_test_chain_spec};
     use primitives::hash::CryptoHash;
-    use primitives::types::MerkleHash;
-    use primitives::signature::{sign, SecretKey};
+    use primitives::signature::{SecretKey, sign};
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
+    use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;
+
+    use super::*;
 
     fn get_test_chain() -> (
         Arc<RwLock<ShardChainStorage>>,

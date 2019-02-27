@@ -44,7 +44,7 @@ pub enum Message {
     BlockResponse(RequestId, Vec<CoupledBlock>),
 
     /// Nightshade gossip.
-    Gossip(Box<Gossip<ChainPayload>>),
+    Gossip(Box<Gossip<CryptoHash>>),
     /// Announce of tx/receipts between authorities.
     PayloadGossip(ChainPayload),
     /// Request specific tx/receipts.

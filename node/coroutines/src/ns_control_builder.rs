@@ -5,11 +5,11 @@ use client::Client;
 use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
 use primitives::chain::ChainPayload;
-use primitives::signature::PublicKey;
-use primitives::signature::SecretKey;
+use primitives::hash::CryptoHash;
+use primitives::signature::{PublicKey, SecretKey};
 use primitives::test_utils::get_key_pair_from_seed;
 
-pub fn get_control(client: &Client, block_index: u64) -> Control<ChainPayload> {
+pub fn get_control(client: &Client, block_index: u64) -> Control<CryptoHash> {
     // TODO: Get authorities for the correct block index. For now these are the same authorities
     // that built the first block. In other words use `block_index` instead of `mock_block_index`.
     let mock_block_index = 2;
@@ -19,8 +19,8 @@ pub fn get_control(client: &Client, block_index: u64) -> Control<ChainPayload> {
     }
     let owner_uid = owner_uid.unwrap();
     let num_authorities = uid_to_authority_map.len();
-    // TODO: Each participant should propose different chain payloads.
-    let payload: ChainPayload = ChainPayload { transactions: vec![], receipts: vec![] };
+    // Each participant proposes hash of their payloads.
+    let payload_hash = client.shard_client.pool.snapshot_payload();
 
     // TODO: This is a temporary hack that generates public and secret keys
     // for all participants inside each participant.
@@ -48,7 +48,7 @@ pub fn get_control(client: &Client, block_index: u64) -> Control<ChainPayload> {
     Control::Reset {
         owner_uid,
         block_index,
-        payload,
+        payload: payload_hash,
         public_keys,
         owner_secret_key,
         bls_public_keys,

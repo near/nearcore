@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use serde::Serialize;
 
+use primitives::types::BlockIndex;
 use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::serialize::Encode;
@@ -62,6 +63,11 @@ pub struct BlockHeader {
     pub author: AuthorityId,
     /// Hash of the payload contained in the block.
     pub hash: CryptoHash,
+}
+
+pub struct ConsensusBlockHeader {
+    pub header: BlockHeader,
+    pub index: BlockIndex,
 }
 
 /// Triplet that describe the state of each authority in the consensus.
