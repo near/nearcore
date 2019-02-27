@@ -112,7 +112,6 @@ fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
 mod tests {
     use client::BlockProductionResult;
     use primitives::block_traits::SignedBlock;
-    use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
@@ -143,7 +142,7 @@ mod tests {
 
         alice.client.shard_client.pool.add_transaction(
             TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.secret_key),
-        );
+        ).unwrap();
 
         alice.start();
         bob.start();
