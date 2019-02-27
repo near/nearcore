@@ -57,6 +57,7 @@ impl Protocol {
         match Decode::decode(&data) {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
+                    info!("Peer {} connected.", peer_id);
                     self.on_new_peer(peer_id, connected_info);
                 }
                 Message::Transaction(tx) => {

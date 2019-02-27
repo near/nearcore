@@ -27,6 +27,12 @@ pub enum TransactionBody {
 }
 
 impl TransactionBody {
+    pub fn send_money(nonce: u64, originator: &str, receiver: &str, amount: u64) -> Self {
+        TransactionBody::SendMoney(SendMoneyTransaction {
+            nonce, originator: originator.to_string(), receiver: receiver.to_string(), amount
+        })
+    }
+
     pub fn sign(self, secret_key: &SecretKey) -> SignedTransaction {
         let signature = sign(self.get_hash().as_ref(), secret_key);
         SignedTransaction::new(signature, self)

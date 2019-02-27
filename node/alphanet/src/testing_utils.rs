@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::panic;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Output;
 use std::str::FromStr;
@@ -15,13 +14,12 @@ use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use primitives::network::PeerInfo;
-use primitives::signer::write_key_file;
+use primitives::signature::SecretKey;
 use primitives::test_utils::get_key_pair_from_seed;
 
 use crate::start_from_client;
 
 const TMP_DIR: &str = "../../tmp/testnet";
-const KEY_STORE_PATH: &str = "../../tmp/testnet/key_store";
 
 pub fn configure_chain_spec() -> ChainSpec {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -35,6 +33,7 @@ pub struct Node {
     pub client_cfg: ClientConfig,
     pub network_cfg: NetworkConfig,
     pub rpc_cfg: RPCConfig,
+    pub secret_key: SecretKey,
 }
 
 impl Node {
@@ -80,7 +79,8 @@ impl Node {
         let rpc_cfg = RPCConfig { rpc_port };
 
         let client = Arc::new(Client::new(&client_cfg));
-        Node { client, node_info, client_cfg, network_cfg, rpc_cfg }
+        let (_, secret_key) = get_key_pair_from_seed(account_id);
+        Node { client, node_info, client_cfg, network_cfg, rpc_cfg, secret_key }
     }
 
     pub fn start(&self) {
@@ -118,10 +118,4 @@ where
             panic!("Timed out waiting for the condition");
         }
     }
-}
-
-pub fn get_public_key() -> String {
-    let key_store_path = Path::new(KEY_STORE_PATH);
-    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
-    write_key_file(key_store_path, public_key, secret_key)
 }

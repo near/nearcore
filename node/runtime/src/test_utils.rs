@@ -13,7 +13,7 @@ use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback,
     CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody, ReceiptTransaction,
-    SendMoneyTransaction, SignedTransaction, TransactionBody
+    SignedTransaction, TransactionBody
 };
 use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash};
 use storage::{Trie, TrieUpdate};
@@ -231,12 +231,7 @@ impl User {
         destination: &str,
         amount: u64
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: self.nonce,
-            originator: self.account_id.clone(),
-            receiver: destination.to_string(),
-            amount,
-        });
+        let tx_body = TransactionBody::send_money(self.nonce, &self.account_id.clone(), destination, amount);
         self.nonce += 1;
         self.send_tx(root, tx_body)
     }

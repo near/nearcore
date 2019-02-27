@@ -48,7 +48,8 @@ pub fn spawn_block_producer(
                         tokio::spawn(ns_control_task);
                     }
             } else {
-                warn!(target: "consensus", "Failed to find payload for {} from {} authority", consensus_block_header.header.hash, consensus_block_header.header.author);
+                warn!(target: "consensus", "Failed to find payload for {} from authority {}",
+                      consensus_block_header.header.hash, consensus_block_header.header.author);
             }
             future::ok(())
         })

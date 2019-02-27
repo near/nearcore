@@ -108,6 +108,7 @@ fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
 
 #[cfg(test)]
 mod tests {
+    use primitives::transaction::TransactionBody;
     use primitives::block_traits::SignedBlock;
 
     use crate::testing_utils::{configure_chain_spec, Node, wait};
@@ -134,6 +135,9 @@ mod tests {
             vec![alice.node_info.clone()],
             chain_spec,
         );
+
+        alice.client.shard_client.pool.add_transaction(
+            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.secret_key));
 
         alice.start();
         bob.start();
