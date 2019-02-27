@@ -4,6 +4,7 @@ use bs58;
 use crate::hash;
 use std::fmt;
 
+use crate::logging::pretty_hash;
 use crate::types::ReadablePublicKey;
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 
@@ -104,7 +105,7 @@ impl<'a> From<&'a PublicKey> for String {
 
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", String::from(self))
+        write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 
@@ -134,7 +135,7 @@ impl std::convert::AsRef<[u8]> for Signature {
 
 impl fmt::Debug for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", String::from(self))
+        write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 
@@ -152,7 +153,7 @@ impl<'a> From<&'a Signature> for String {
 
 impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", String::from(self))
+        write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 

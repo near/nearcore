@@ -1,6 +1,8 @@
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::fmt;
+use crate::logging;
 
 use crate::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature};
 use crate::hash::CryptoHash;
@@ -39,11 +41,17 @@ pub type ShardId = u32;
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
     #[serde(with = "bs58_serializer")]
     pub signature: BlsSignature,
     pub authority_mask: AuthorityMask,
+}
+
+impl fmt::Debug for GroupSignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", logging::pretty_serializable(&self))
+    }
 }
 
 impl GroupSignature {

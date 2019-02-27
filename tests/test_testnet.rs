@@ -163,8 +163,8 @@ fn test_two_nodes() {
 #[test]
 fn test_two_nodes_sync() {
     let chain_spec = configure_chain_spec();
-    let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
-    let bob = Node::new("t2_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
+    let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3002", 3032, vec![], chain_spec.clone());
+    let bob = Node::new("t2_bob", "bob.near", 2, "127.0.0.1:3003", 3033, vec![alice.node_info.clone()], chain_spec);
 
     let payload = ChainConsensusBlockBody { payload: ChainPayload { transactions: vec![], receipts: vec![] }, beacon_block_index: 1 };
     let (beacon_block, shard_block) = match alice.client.try_produce_block(payload) {

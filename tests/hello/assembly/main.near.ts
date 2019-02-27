@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setKeyValue as wrapped_setKeyValue, getValueByKey as wrapped_getValueByKey, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
+      import {hello as wrapped_hello, setKeyValue as wrapped_setKeyValue, getValueByKey as wrapped_getValueByKey, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, returnHiWithLogs as wrapped_returnHiWithLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -598,6 +598,57 @@ export function near_func_generateLogs(): void {
 wrapped_generateLogs(
 
 );
+}
+export class __near_ArgsParser_returnHiWithLogs extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_returnHiWithLogs>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_returnHiWithLogs(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_returnHiWithLogs();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_returnHiWithLogs>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_returnHiWithLogs(
+
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+            encoder.setString("result", result);
+          } else {
+            encoder.setNull("result");
+          }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
 }
 export class __near_ArgsParser_triggerAssert extends ThrowingJSONHandler {
         buffer: Uint8Array;

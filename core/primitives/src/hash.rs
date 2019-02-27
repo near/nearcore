@@ -1,8 +1,11 @@
+use std::fmt;
+
 use bs58;
 use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
-use std::fmt;
+
+use crate::logging::pretty_hash;
 use crate::serialize::Encode;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
@@ -63,7 +66,7 @@ impl Into<Vec<u8>> for CryptoHash {
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", String::from(self))
+        write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 
@@ -74,9 +77,10 @@ impl fmt::Display for CryptoHash {
 }
 
 pub mod bs58_format {
-    use super::{bs58, CryptoHash};
-    use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
+    use serde::de;
+
+    use super::{bs58, CryptoHash};
 
     pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
     where

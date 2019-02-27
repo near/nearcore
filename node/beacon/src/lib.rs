@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate log;
 extern crate rand;
 extern crate serde_derive;
 extern crate parking_lot;

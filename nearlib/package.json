@@ -1,7 +1,7 @@
 {
   "name": "nearlib",
   "description": "Javascript library to interact with near blockchain",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "repository": {
     "type": "git",
     "url": "git@:nearprotocol/nearcore.git"
@@ -10,6 +10,7 @@
   "main": "index.js",
   "dependencies": {
     "bs58": "^4.0.1",
+    "error-polyfill": "^0.1.2",
     "http-errors": "^1.7.1",
     "js-sha256": "^0.9.0",
     "node-fetch": "^2.3.0",
@@ -20,7 +21,7 @@
     "browserify": "^16.2.3",
     "documentation": "^9.1.1",
     "eslint": "^5.14.0",
-    "jest": "^23.6.0",
+    "jest": "^24.1.0",
     "uglifyify": "^5.0.1"
   },
   "keywords": [],

@@ -27,3 +27,4 @@ pub mod traits;
 pub mod transaction;
 pub mod types;
 pub mod utils;
+pub mod logging;

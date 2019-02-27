@@ -15,6 +15,7 @@ use std::path::Path;
 use std::sync::RwLock;
 
 use env_logger::Builder;
+use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
@@ -24,16 +25,14 @@ use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::consensus::ConsensusBlockBody;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, BlockId, UID};
-use shard::ShardClient;
+use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, UID};
+use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 
 pub mod test_utils;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const BEACON_SHARD_BLOCK_MATCH: &str = "Expected to have shard block present when processing beacon block";
-
-type BlockIdx = u64;
 
 /// Result of client trying to produce a block from a given consensus.
 #[allow(clippy::large_enum_variant)]  // This enum is no different from `Option`.
@@ -42,7 +41,7 @@ pub enum BlockProductionResult {
     Success(SignedBeaconBlock, SignedShardBlock),
     /// The consensus was achieved after the block with the given index was already imported.
     /// The beacon and the shard chains are currently at index `current_index`.
-    LateConsensus { current_index: BlockIdx },
+    LateConsensus { current_index: BlockIndex },
 }
 
 /// Result of client trying to import a block.
@@ -50,11 +49,11 @@ pub enum BlockImportingResult {
     /// The block was successfully imported, and `new_index` is the new index. Note, the `new_index`
     /// can be greater by any amount than the index of the imported block, if it was a pending
     /// parent of some pending block.
-    Success { new_index: BlockIdx },
+    Success { new_index: BlockIndex },
     /// The block was not imported, because its parent is missing. Blocks with indices
     /// `missing_indices` should be fetched. This block might and might not have been already
     /// recorded as pending.
-    MissingParent { parent_hash: CryptoHash, missing_indices: Vec<BlockIdx> },
+    MissingParent { parent_hash: CryptoHash, missing_indices: Vec<BlockIndex> },
     /// The block was not imported, because it is already in the blockchain.
     AlreadyImported,
 }
@@ -123,6 +122,8 @@ pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
     pub fn new(config: &ClientConfig) -> Self {
+        configure_logging(config.log_level);
+
         let storage_path = get_storage_path(&config.base_path);
         // For now, use only one shard.
         let num_shards = 1;
@@ -144,8 +145,6 @@ impl Client {
             config.public_key.clone(),
         );
 
-        configure_logging(config.log_level);
-
         Self {
             account_id: config.account_id.clone(),
             signer,
@@ -157,7 +156,7 @@ impl Client {
     }
 
     /// Get indices of the blocks that we are missing.
-    fn get_missing_indices(&self) -> Vec<BlockIdx> {
+    fn get_missing_indices(&self) -> Vec<BlockIndex> {
         // Use `pending_beacon_blocks` because currently beacon blocks and shard blocks are tied
         // 1 to 1.
         let guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
@@ -218,11 +217,28 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
+        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}",
+            block.body.header.index,
+            block.hash,
+            shard_block.hash,
+        );
+        if log_enabled!(target: "client", Debug) {
+            let block_receipts = get_all_receipts(shard_block.body.receipts.iter());
+            let mut tx_with_results: Vec<String> = block_receipts
+                .iter()
+                .zip(&tx_results[..block_receipts.len()])
+                .map(|(receipt, result)| format!("{:#?} -> {:#?}", receipt, result))
+                .collect();
+            tx_with_results.extend(shard_block.body.transactions
+                .iter()
+                .zip(&tx_results[block_receipts.len()..])
+                .map(|(tx, result)| format!("{:#?} -> {:#?}", tx, result))
+            );
+            debug!(target: "client", "Input Transactions: [{}]", tx_with_results.join("\n"));
+            debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(new_receipts.values()));
+        }
         self.shard_client.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
         self.beacon_chain.chain.insert_block(block.clone());
-        info!(target: "client",
-                  "Producing block index: {:?}, beacon = {:?}, shard = {:?}",
-                  block.body.header.index, block.hash, shard_block.hash);
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
         assert_eq!(self.shard_client.chain.best_block().hash, shard_block.hash);
