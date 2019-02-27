@@ -293,3 +293,11 @@ class NearLib(object):
         url = "{}healthz".format(self._server_url)
         response = requests.get(url)
         return response.status_code == 200
+
+    def get_transaction_result(self, hash_):
+        params = {'hash': hash_}
+        return self._call_rpc('get_transaction_result', params)
+
+    def get_contract_info(self, contract_account_id):
+        params = {'contract_account_id': contract_account_id}
+        return self._call_rpc('view_state', params)
