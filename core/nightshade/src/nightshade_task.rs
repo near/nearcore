@@ -9,7 +9,7 @@ use futures::try_ready;
 use futures::Async;
 use futures::Poll;
 use futures::Stream;
-use log::{error, info, warn};
+use log::*;
 use serde::Serialize;
 use tokio::timer::Delay;
 
@@ -191,10 +191,6 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         ));
     }
 
-    fn state(&self) -> &State {
-        self.nightshade_as_ref().state()
-    }
-
     fn send_state(&self, message: Message) {
         self.send_gossip(Gossip::new(
             self.nightshade.as_ref().unwrap().owner_id,
@@ -248,6 +244,8 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
     }
 
     fn process_gossip(&mut self, gossip: Gossip<P>) {
+        debug!(target: "nightshade", "Node: {} Processing gossip on block index {}", self.owner_id(), gossip.block_index);
+
         if Some(gossip.block_index) != self.block_index {
             return;
         }
@@ -335,6 +333,19 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             }
         }
     }
+
+    /// Helper functions to access values in `nightshade`. Used mostly to debug.
+
+    fn state(&self) -> &State {
+        self.nightshade_as_ref().state()
+    }
+
+    fn owner_id(&self) -> AuthorityId { self.nightshade_as_ref().owner_id }
+
+    fn state_as_triplet(&self) -> (i64, AuthorityId, i64) {
+        let state= self.state();
+        (state.bare_state.primary_confidence, state.bare_state.endorses.author, state.bare_state.secondary_confidence)
+    }
 }
 
 impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P> {
@@ -403,9 +414,10 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
             match self.inc_gossips.poll() {
                 Ok(Async::Ready(Some(gossip))) => {
                     self.process_gossip(gossip);
+                    debug!(target: "nightshade", "Node: {} Current state: {:?}", self.owner_id(), self.state_as_triplet());
 
                     // Report as soon as possible when an authority reach consensus on some outcome
-                    if self.consensus_reported {
+                    if !self.consensus_reported {
                         if let Some(outcome) = self.nightshade_as_ref().committed.clone() {
                             self.consensus_reported = true;
 

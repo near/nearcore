@@ -159,6 +159,7 @@ mod tests {
     }
 
 
+    /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
     #[test]
     fn test_two_nodes_sync() {
         let chain_spec = configure_chain_spec();

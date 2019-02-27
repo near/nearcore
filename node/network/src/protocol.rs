@@ -200,7 +200,7 @@ impl Protocol {
 /// * `network_cfg`: `NetworkConfig` object;
 /// * `client`: Shared Client object which we use to get the list of authorities, and use for
 ///   exporting, importing blocks;
-/// * `inc_gossip_tx`: Channel where protocol places incoming TxFlow gossip;
+/// * `inc_gossip_tx`: Channel where protocol places incoming Nightshade gossip;
 /// * `out_gossip_rx`: Channel where from protocol reads gossip that should be sent to other peers;
 /// * `inc_block_tx`: Channel where protocol places incoming blocks;
 /// * `out_blocks_rx`: Channel where from protocol reads blocks that should be sent for
