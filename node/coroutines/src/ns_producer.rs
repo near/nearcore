@@ -5,14 +5,13 @@ use std::sync::Arc;
 use futures::{future, Future, Sink, Stream};
 use futures::sync::mpsc::{Receiver, Sender};
 
-use client::{ChainConsensusBlockBody, Client};
+use client::Client;
 use client::BlockProductionResult;
 use nightshade::nightshade::ConsensusBlockHeader;
 use nightshade::nightshade_task::Control;
 use primitives::hash::CryptoHash;
-use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
+use primitives::chain::ReceiptBlock;
 
 use crate::ns_control_builder::get_control;
 

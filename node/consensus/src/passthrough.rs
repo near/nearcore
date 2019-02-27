@@ -5,13 +5,10 @@ use futures::{future, Future, Sink, Stream};
 use futures::sync::mpsc::{Receiver, Sender};
 use tokio::{self, timer::Interval};
 
-use client::ChainConsensusBlockBody;
 use client::Client;
 use nightshade::nightshade::{BlockHeader, ConsensusBlockHeader};
 use nightshade::nightshade_task::Control;
 use primitives::hash::CryptoHash;
-use primitives::chain::ChainPayload;
-use primitives::consensus::Payload;
 
 pub fn spawn_consensus(
     client: Arc<Client>,

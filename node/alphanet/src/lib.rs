@@ -13,11 +13,11 @@ use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Receiver};
 
 use client::Client;
-use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
 use network::spawn_network;
-use nightshade::nightshade_task::{spawn_nightshade_task, Control};
+use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::chain::ReceiptBlock;
 use primitives::types::AccountId;
 
@@ -110,7 +110,7 @@ fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
 mod tests {
     use primitives::block_traits::SignedBlock;
 
-    use crate::testing_utils::{configure_chain_spec, wait, Node};
+    use crate::testing_utils::{configure_chain_spec, Node, wait};
 
     /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
     #[test]

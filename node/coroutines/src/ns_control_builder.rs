@@ -4,9 +4,7 @@ use rand::{SeedableRng, XorShiftRng};
 use client::Client;
 use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
-use primitives::signature::{PublicKey, SecretKey};
 use primitives::test_utils::get_key_pair_from_seed;
 
 pub fn get_control(client: &Client, block_index: u64) -> Control<CryptoHash> {
