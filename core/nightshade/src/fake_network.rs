@@ -10,7 +10,7 @@ use primitives::aggregate_signature::BlsPublicKey;
 use primitives::aggregate_signature::BlsSecretKey;
 use primitives::signature::get_key_pair;
 
-use crate::nightshade::BlockHeader;
+use crate::nightshade::ConsensusBlockHeader;
 
 use super::nightshade_task::{Control, NightshadeTask};
 
@@ -108,11 +108,11 @@ fn spawn_all(num_authorities: usize) {
         let futures: Vec<_> = v.into_iter().map(|rx| rx.into_future()).collect();
 
         join_all(futures)
-            .map(|v: Vec<(Option<(BlockHeader, u64)>, _)>| {
+            .map(|v: Vec<(Option<ConsensusBlockHeader>, _)>| {
                 // Check every authority committed to the same outcome
                 let headers: Vec<_> = v
                     .iter()
-                    .map(|(el, _)| el.clone().expect("Authority not committed").0)
+                    .map(|(el, _)| el.clone().expect("Authority not committed").header)
                     .collect();
                 if !headers.iter().all(|h| h == &headers[0]) {
                     panic!("Authorities committed to different outcomes.");

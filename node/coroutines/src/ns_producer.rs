@@ -23,9 +23,7 @@ pub fn spawn_block_producer(
 ) {
     let task = consensus_rx
         .for_each(move |consensus_block_header| {
-            println!("Block produced for index {}", consensus_block_header.index);
-            // TODO: Modify `try_produce_block` method to accept NS consensus, instead of TxFlow
-            // consensus.
+            info!(target: "consensus", "Producing block for index {}", consensus_block_header.index);
             if let Some(payload) = client.shard_client.pool.pop_payload_snapshot(&consensus_block_header.header.hash) {
                 if let BlockProductionResult::Success(new_beacon_block, _new_shard_block) =
                 client.try_produce_block(consensus_block_header.index, payload)
@@ -38,6 +36,8 @@ pub fn spawn_block_producer(
                             .map_err(|e| error!("Error sending control to NightShade: {}", e));
                         tokio::spawn(ns_control_task);
                     }
+            } else {
+                warn!(target: "consensus", "Failed to find payload for {} from {} authority", consensus_block_header.header.hash, consensus_block_header.header.author);
             }
             future::ok(())
         })

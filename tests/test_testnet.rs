@@ -2,29 +2,13 @@
 /// exercising them in different scenarios.
 /// Note: tests get executed in parallel, so use different ports / names.
 
-use std::net::SocketAddr;
 use std::panic;
-use std::path::Path;
-use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
-use client::{ChainConsensusBlockBody, Client, BlockProductionResult};
-use configs::chain_spec::{ChainSpec, read_or_default_chain_spec};
-use configs::ClientConfig;
-use configs::network::get_peer_id_from_seed;
-use configs::NetworkConfig;
-use configs::RPCConfig;
-use primitives::block_traits::SignedBlock;
+use alphanet::testing_utils::{check_result, configure_chain_spec, Node, wait};
+use client::BlockProductionResult;
 use primitives::chain::ChainPayload;
-use primitives::network::PeerInfo;
-use primitives::signer::write_key_file;
-use primitives::test_utils::get_key_pair_from_seed;
-
-use alphanet::testing_utils::{Node, configure_chain_spec, wait, check_result};
+use primitives::block_traits::SignedBlock;
 
 #[test]
 #[ignore]
@@ -71,8 +55,8 @@ fn test_two_nodes_sync() {
     let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3002", 3032, vec![], chain_spec.clone());
     let bob = Node::new("t2_bob", "bob.near", 2, "127.0.0.1:3003", 3033, vec![alice.node_info.clone()], chain_spec);
 
-    let payload = ChainConsensusBlockBody { payload: ChainPayload { transactions: vec![], receipts: vec![] }, beacon_block_index: 1 };
-    let (beacon_block, shard_block) = match alice.client.try_produce_block(payload) {
+    let payload = ChainPayload { transactions: vec![], receipts: vec![] };
+    let (beacon_block, shard_block) = match alice.client.try_produce_block(1, payload) {
         BlockProductionResult::Success(beacon_block, shard_block) => (beacon_block, shard_block),
         _ => panic!("Should produce block"),
     };

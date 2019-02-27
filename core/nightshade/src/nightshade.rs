@@ -65,6 +65,7 @@ pub struct BlockHeader {
     pub hash: CryptoHash,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ConsensusBlockHeader {
     pub header: BlockHeader,
     pub index: BlockIndex,

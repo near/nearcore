@@ -20,7 +20,6 @@ use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-#[cfg(test)]
 pub mod testing_utils;
 
 pub fn start() {

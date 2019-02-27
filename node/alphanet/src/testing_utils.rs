@@ -23,13 +23,13 @@ use primitives::test_utils::get_key_pair_from_seed;
 
 use crate::start_from_client;
 
-const TMP_DIR: &str = "./tmp/testnet";
-const KEY_STORE_PATH: &str = "./tmp/testnet/key_store";
+const TMP_DIR: &str = "../../tmp/testnet";
+const KEY_STORE_PATH: &str = "../../tmp/testnet/key_store";
 
 pub fn configure_chain_spec() -> ChainSpec {
-    read_or_default_chain_spec(&Some(PathBuf::from(
-        "./node/configs/res/testnet_chain.json",
-    )))
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    d.push("../configs/res/testnet_chain.json");
+    read_or_default_chain_spec(&Some(d))
 }
 
 pub struct Node {
@@ -47,8 +47,12 @@ impl Node {
             id: get_peer_id_from_seed(peer_id_seed),
             addr: SocketAddr::from_str(addr).unwrap(),
         };
-        let mut base_path = PathBuf::from(TMP_DIR);
+        let mut base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        base_path.push(TMP_DIR);
         base_path.push(name);
+        println!("{:?}", env!("CARGO_MANIFEST_DIR"));
+        println!("{:?}", base_path);
+        println!("{}", base_path.exists());
 
         if base_path.exists() {
             std::fs::remove_dir_all(base_path.clone()).unwrap();
