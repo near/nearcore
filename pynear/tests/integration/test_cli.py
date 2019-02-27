@@ -89,7 +89,7 @@ def test_set_get_values(
     port = make_devnet(tmpdir)
     buster = get_incrementing_number()
     contract_name = "test_contract_{}".format(buster)
-    contract = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
+    contract, _ = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
     contract_name = contract['account_id']
     value = 'test'
     args = {'value': value}
@@ -117,7 +117,7 @@ def test_view_state(
     port = make_devnet(tmpdir)
     buster = get_incrementing_number()
     contract_name = "test_contract_{}".format(buster)
-    contract = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
+    contract, _ = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
     contract_name = contract['account_id']
     command = "view_state {}".format(contract_name)
     out = CliHelpers(port).run_command(command)
