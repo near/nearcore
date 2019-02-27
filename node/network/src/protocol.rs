@@ -112,7 +112,7 @@ impl Protocol {
                   connected_info.chain_state.last_index, peer_id);
             self.send_block_fetch_request(
                 &peer_id,
-                self.client.beacon_chain.chain.best_index(),
+                self.client.beacon_chain.chain.best_index() + 1,
                 connected_info.chain_state.last_index,
             );
         }
@@ -128,7 +128,7 @@ impl Protocol {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "Channel for {} not found.", g.receiver_uid);
+            warn!(target: "network", "[SND GSP] Channel for {} not found.", g.receiver_uid);
         }
     }
 
@@ -147,7 +147,7 @@ impl Protocol {
                     .unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "Channel for {} not found.", peer_id);
+            warn!(target: "network", "[SND BLK FTCH] Channel for {} not found.", peer_id);
         }
     }
 
@@ -161,7 +161,7 @@ impl Protocol {
             let data = Encode::encode(&Message::BlockResponse(request_id, blocks)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "Channel for {} not found.", peer_id);
+            warn!(target: "network", "[SND BLOCK RQ] Channel for {} not found.", peer_id);
         }
     }
 
@@ -175,7 +175,7 @@ impl Protocol {
             let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "Channel for {} not found.", peer_id);
+            warn!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found.", peer_id);
         }
     }
 }

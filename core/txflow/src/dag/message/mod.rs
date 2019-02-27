@@ -530,7 +530,7 @@ mod nightly_generated_test;
 
 #[cfg(test)]
 mod tests {
-    use primitives::traits::WitnessSelector;
+    use primitives::consensus::WitnessSelector;
     use primitives::types::UID;
     use std::collections::{HashMap, HashSet};
     use typed_arena::Arena;

@@ -272,7 +272,7 @@ mod tests {
     use crate::test_utils::*;
     use primitives::hash::hash;
     use primitives::signature::get_key_pair;
-    use primitives::traits::Encode;
+    use primitives::serialize::Encode;
     use primitives::transaction::{TransactionBody, TransactionStatus};
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::get;

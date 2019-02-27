@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use client::{ChainConsensusBlockBody, Client};
-use configs::chain_spec::read_or_default_chain_spec;
+use configs::chain_spec::{read_or_default_chain_spec, ChainSpec};
 use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
@@ -23,6 +23,12 @@ use primitives::test_utils::get_key_pair_from_seed;
 const TMP_DIR: &str = "./tmp/testnet";
 const KEY_STORE_PATH: &str = "./tmp/testnet/key_store";
 
+fn configure_chain_spec() -> ChainSpec {
+    read_or_default_chain_spec(&Some(PathBuf::from(
+        "./node/configs/res/testnet_chain.json",
+    )))
+}
+
 struct Node {
     pub client: Arc<Client>,
     pub node_info: PeerInfo,
@@ -32,7 +38,7 @@ struct Node {
 }
 
 impl Node {
-    pub fn new(name: &str, account_id: &str, peer_id_seed: u32, addr: &str, rpc_port: u16, boot_nodes: Vec<PeerInfo>) -> Self {
+    pub fn new(name: &str, account_id: &str, peer_id_seed: u32, addr: &str, rpc_port: u16, boot_nodes: Vec<PeerInfo>, chain_spec: ChainSpec) -> Self {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
             id: get_peer_id_from_seed(peer_id_seed),
@@ -49,9 +55,7 @@ impl Node {
             base_path,
             account_id: String::from(account_id),
             public_key: None,
-            chain_spec: read_or_default_chain_spec(&Some(PathBuf::from(
-                "./node/configs/res/testnet_chain.json",
-            ))),
+            chain_spec,
             log_level: log::LevelFilter::Info,
         };
 
@@ -121,10 +125,11 @@ fn get_public_key() -> String {
 
 #[test]
 fn test_two_nodes() {
+    let chain_spec = configure_chain_spec();
     // Create boot node.
-    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![]);
+    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
     // Create secondary node that boots from the alice node.
-    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()]);
+    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
 
     // Start both nodes.
     alice.start();
@@ -161,8 +166,9 @@ fn test_two_nodes() {
 
 #[test]
 fn test_two_nodes_sync() {
-    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![]);
-    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()]);
+    let chain_spec = configure_chain_spec();
+    let alice = Node::new("node_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
+    let bob = Node::new("node_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
 
     let payload = ChainConsensusBlockBody { payload: ChainPayload { transactions: vec![], receipts: vec![] }, beacon_block_index: 1 };
     let (beacon_block, shard_block) = alice.client.produce_block(payload).unwrap();

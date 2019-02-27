@@ -158,13 +158,16 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> PeerManager<T> {
 
     /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.
     pub fn get_peer_channel(&self, peer_id: &PeerId) -> Option<Sender<PeerMessage>> {
-        match self.all_peer_states.read().expect(POISONED_LOCK_ERR).get(peer_id) {
-            Some(state) => match state.read().expect(POISONED_LOCK_ERR).deref() {
-                PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                _ => None,
-            },
-            _ => None,
-        }
+        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
+            if info.id == *peer_id {
+                match state.read().expect(POISONED_LOCK_ERR).deref() {
+                    PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
     }
 
     /// Get channel for the given `account_id`, if the corresponding peer is `Ready`.
@@ -212,20 +215,22 @@ mod tests {
     use futures::sync::mpsc::channel;
     use tokio::util::StreamExt;
 
-    use primitives::hash::{hash_struct, CryptoHash};
+    use primitives::hash::{CryptoHash, hash_struct};
     use primitives::network::PeerInfo;
 
-    use crate::peer::{ChainState, ChainStateRetriever, PeerState};
+    use crate::message::ChainState;
+    use crate::peer::{ChainStateRetriever, PeerState};
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
 
-    struct MockStateStateRetriever {}
-    impl ChainStateRetriever for MockStateStateRetriever {
+    #[derive(Clone)]
+    struct MockChainStateRetriever {}
+    impl ChainStateRetriever for MockChainStateRetriever {
         fn get_chain_state(&self) -> ChainState {
-            (CryptoHash::default(), 0)
+            ChainState { genesis_hash: CryptoHash::default(), last_index: 0 }
         }
     }
 
-    impl PeerManager {
+    impl PeerManager<MockChainStateRetriever> {
         fn count_ready_channels(&self) -> usize {
             self.all_peer_states
                 .read()
@@ -242,7 +247,7 @@ mod tests {
     fn wait_all_peers_connected(
         check_interval_ms: u64,
         max_wait_ms: u64,
-        peer_managers: &Arc<RwLock<Vec<PeerManager>>>,
+        peer_managers: &Arc<RwLock<Vec<PeerManager<MockChainStateRetriever>>>>,
         expected_num_managers: usize,
     ) {
         wait(
@@ -409,12 +414,15 @@ mod tests {
                 let task = inc_msg_rx
                     .for_each(move |msg| {
                         let (id, data) = msg;
-                        let sender = data[0] as usize;
-                        let receiver = data[1] as usize;
-                        if hash_struct(&sender) == id && receiver == i {
-                            acc.write().expect(POISONED_LOCK_ERR).insert(data);
-                        } else {
-                            panic!("Should not happen");
+                        // Skip peer connected messages.
+                        if data.len() == 2 {
+                            let sender = data[0] as usize;
+                            let receiver = data[1] as usize;
+                            if hash_struct(&sender) == id && receiver == i {
+                                acc.write().expect(POISONED_LOCK_ERR).insert(data);
+                            } else {
+                                panic!("Should not happen");
+                            }
                         }
                         future::ok(())
                     })

@@ -514,7 +514,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::testing_utils::FakePayload;
-    use primitives::traits::WitnessSelector;
+    use primitives::consensus::WitnessSelector;
     use primitives::types::UID;
 
     struct FakeWitnessSelector {}

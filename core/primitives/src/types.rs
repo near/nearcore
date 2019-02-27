@@ -9,9 +9,9 @@ use crate::signature::{bs58_serializer, Signature};
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
 /// Public key alias. Used to human readable public key.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ReadablePublicKey(pub String);
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ReadableBlsPublicKey(pub String);
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;

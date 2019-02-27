@@ -206,7 +206,7 @@ impl<T: ChainStateRetriever + Sized + Send + Clone + 'static> Peer<T> {
         .unwrap();
         tokio::spawn(
             inc_msg_tx
-                .send((self.node_info.id, data))
+                .send((handshake.info.id, data))
                 .map(|_| ())
                 .map_err(|err| warn!("Failed to send message: {}", err)),
         );

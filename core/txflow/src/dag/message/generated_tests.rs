@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::dag::message::Message;
-    use primitives::traits::{Payload, WitnessSelector};
+    use primitives::consensus::{Payload, WitnessSelector};
     use primitives::types::UID;
     use std::collections::HashSet;
     use typed_arena::Arena;

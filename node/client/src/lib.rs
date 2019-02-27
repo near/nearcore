@@ -320,7 +320,7 @@ impl Client {
     /// Fetch "coupled" blocks by index range.
     pub fn fetch_blocks_range(&self, from_index: u64, til_index: u64) -> Result<Vec<(SignedBeaconBlock, SignedShardBlock)>, String> {
         let mut result = vec![];
-        for i in from_index..til_index {
+        for i in from_index..=til_index {
             match self.beacon_chain.chain.get_block(&BlockId::Number(i)) {
                 Some(beacon_block) => {
                     let shard_block = self.shard_chain.chain.get_block(&BlockId::Hash(beacon_block.body.header.shard_block_hash)).expect(BEACON_SHARD_BLOCK_MATCH);
