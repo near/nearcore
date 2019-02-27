@@ -19,7 +19,7 @@ use primitives::hash::hash_struct;
 use primitives::hash::CryptoHash;
 use primitives::signature::{sign, verify, PublicKey, SecretKey, Signature};
 
-use super::nightshade::{AuthorityId, Block, BlockHeader, Nightshade, State, ConsensusBlockHeader};
+use super::nightshade::{AuthorityId, Block, Nightshade, State, ConsensusBlockHeader};
 
 const COOLDOWN_MS: u64 = 50;
 
@@ -123,8 +123,8 @@ pub struct NightshadeTask<P> {
     control_receiver: mpsc::Receiver<Control<P>>,
     /// Consensus header and block index on which the consensus was reached.
     consensus_sender: mpsc::Sender<ConsensusBlockHeader>,
-    /// None while not consensus have not been reached, and Some(outcome) after consensus is reached.
-    consensus_reached: Option<BlockHeader>,
+    /// Flag to determine if consensus was already reported in the consensus channel.
+    consensus_reported: bool,
     /// Number of payloads from other authorities that we still don't have.
     missing_payloads: usize,
     /// Timer that determines the minimum time that we should not gossip after the given message
@@ -149,7 +149,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
             out_gossips,
             control_receiver,
             consensus_sender,
-            consensus_reached: None,
+            consensus_reported: false,
             missing_payloads: 0,
             cooldown_delay: None,
         }
@@ -181,7 +181,7 @@ impl<P: Send + Debug + Clone + Serialize + 'static> NightshadeTask<P> {
         self.authority_blocks = vec![None; num_authorities];
         self.authority_blocks[owner_uid as usize] =
             Some(SignedBlock::new(owner_uid as usize, payload, &owner_secret_key));
-        self.consensus_reached = None;
+        self.consensus_reported = false;
         self.nightshade = Some(Nightshade::new(
             owner_uid as AuthorityId,
             num_authorities,
@@ -405,9 +405,9 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
                     self.process_gossip(gossip);
 
                     // Report as soon as possible when an authority reach consensus on some outcome
-                    if self.consensus_reached == None {
+                    if self.consensus_reported {
                         if let Some(outcome) = self.nightshade_as_ref().committed.clone() {
-                            self.consensus_reached = Some(outcome.clone());
+                            self.consensus_reported = true;
 
                             tokio::spawn(
                                 self.consensus_sender
@@ -448,8 +448,6 @@ impl<P: Send + Debug + Clone + Serialize + 'static> Stream for NightshadeTask<P>
         } else {
             Ok(Async::Ready(Some(())))
         }
-
-        // TODO: Finish consensus automatically if more than 2/3 of participants have committed already
     }
 }
 
