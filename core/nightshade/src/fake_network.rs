@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
-use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
+use futures::{Future, Sink, Stream};
 use log::error;
 use tokio::timer::Delay;
 
@@ -34,8 +34,10 @@ fn spawn_all(num_authorities: usize) {
         let mut out_gossips_rx_vec = vec![];
         let mut consensus_rx_vec = vec![];
 
-        let (public_keys, secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_key_pair()).unzip();
-        let (bls_public_keys, bls_secret_keys): (Vec<_>, Vec<_>) = (0..num_authorities).map(|_| get_bls_key_pair()).unzip();
+        let (public_keys, secret_keys): (Vec<_>, Vec<_>) =
+            (0..num_authorities).map(|_| get_key_pair()).unzip();
+        let (bls_public_keys, bls_secret_keys): (Vec<_>, Vec<_>) =
+            (0..num_authorities).map(|_| get_bls_key_pair()).unzip();
 
         for owner_uid in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
@@ -50,26 +52,25 @@ fn spawn_all(num_authorities: usize) {
 
             let payload = DummyPayload { dummy: owner_uid as u64 };
 
-            let task: NightshadeTask<DummyPayload> = NightshadeTask::new(
-                inc_gossips_rx,
-                out_gossips_tx,
-                control_rx,
-                consensus_tx,
-            );
+            let task: NightshadeTask<DummyPayload> =
+                NightshadeTask::new(inc_gossips_rx, out_gossips_tx, control_rx, consensus_tx);
 
             tokio::spawn(task.for_each(|_| Ok(())));
 
             // Start the task using control channels, and stop it after 1 second
-            let start_task = control_tx.clone().send(Control::Reset{
-                owner_uid: owner_uid as u64,
-                block_index: 0,
-                payload,
-                public_keys: public_keys.clone(),
-                owner_secret_key: secret_keys[owner_uid].clone(),
-                bls_public_keys: bls_public_keys.clone(),
-                bls_owner_secret_key: bls_secret_keys[owner_uid].clone(),
-            })
-                .map(|_| ()).map_err(|e| error!("Error sending control {:?}", e));
+            let start_task = control_tx
+                .clone()
+                .send(Control::Reset {
+                    owner_uid: owner_uid as u64,
+                    block_index: 0,
+                    payload,
+                    public_keys: public_keys.clone(),
+                    owner_secret_key: secret_keys[owner_uid].clone(),
+                    bls_public_keys: bls_public_keys.clone(),
+                    bls_owner_secret_key: bls_secret_keys[owner_uid].clone(),
+                })
+                .map(|_| ())
+                .map_err(|e| error!("Error sending control {:?}", e));
             tokio::spawn(start_task);
 
             let control_tx1 = control_tx.clone();
@@ -90,8 +91,11 @@ fn spawn_all(num_authorities: usize) {
             let fut = out_gossip_rx.map(move |message| {
                 let gossip_input = inc_gossip_tx_vec1[message.receiver_id].clone();
                 tokio::spawn(
-                    gossip_input.send(message).
-                        map(|_| ()).map_err(|e| error!("Error relaying message {:?}", e)));
+                    gossip_input
+                        .send(message)
+                        .map(|_| ())
+                        .map_err(|e| error!("Error relaying message {:?}", e)),
+                );
             });
 
             tokio::spawn(fut.for_each(|_| Ok(())));
@@ -104,15 +108,17 @@ fn spawn_all(num_authorities: usize) {
         let futures: Vec<_> = v.into_iter().map(|rx| rx.into_future()).collect();
 
         join_all(futures)
-            .map(|v: Vec<(Option<BlockHeader>, _)>| {
+            .map(|v: Vec<(Option<(BlockHeader, u64)>, _)>| {
                 // Check every authority committed to the same outcome
-                if !v.iter().all(|(outcome, _)| { Some(outcome.clone().expect("Authority not committed")) == v[0].0 }) {
+                let headers: Vec<_> = v
+                    .iter()
+                    .map(|(el, _)| el.clone().expect("Authority not committed").0)
+                    .collect();
+                if !headers.iter().all(|h| h == &headers[0]) {
                     panic!("Authorities committed to different outcomes.");
                 }
             })
-            .map_err(|e| {
-                panic!("Failed achieving consensus: {:?}", e)
-            })
+            .map_err(|e| panic!("Failed achieving consensus: {:?}", e))
     });
 
     let mut rt = tokio::runtime::current_thread::Runtime::new().unwrap();

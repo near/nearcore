@@ -1,15 +1,19 @@
 //! Constructs control for Nightshade using the current Client state.
+use rand::{SeedableRng, XorShiftRng};
+
 use client::Client;
-use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
 use primitives::chain::ChainPayload;
 use primitives::signature::PublicKey;
 use primitives::signature::SecretKey;
-use rand::{SeedableRng, XorShiftRng};
+use primitives::test_utils::get_key_pair_from_seed;
 
 pub fn get_control(client: &Client, block_index: u64) -> Control<ChainPayload> {
-    let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(block_index);
+    // TODO: Get authorities for the correct block index. For now these are the same authorities
+    // that built the first block. In other words use `block_index` instead of `mock_block_index`.
+    let mock_block_index = 2;
+    let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(mock_block_index);
     if owner_uid.is_none() {
         return Control::Stop;
     }
@@ -27,12 +31,12 @@ pub fn get_control(client: &Client, block_index: u64) -> Control<ChainPayload> {
     for i in 0..num_authorities {
         let mut seed: [u8; 32] = [b' '; 32];
         seed[0] = i as u8;
-        let (public_key, secret_key) = keypair_from_seed(&Seed(seed));
-        public_keys.push(PublicKey(public_key));
-        secret_keys.push(SecretKey(secret_key));
+        let (public_key, secret_key) = get_key_pair_from_seed(&String::from_utf8_lossy(&seed));
+        public_keys.push(public_key);
+        secret_keys.push(secret_key);
     }
     for i in 0..num_authorities {
-        let mut rng = XorShiftRng::from_seed([i as u32, 0, 0, 0]);
+        let mut rng = XorShiftRng::from_seed([i as u32 + 1, 0, 0, 0]);
         let bls_secret_key = BlsSecretKey::generate_from_rng(&mut rng);
         let bls_public_key = bls_secret_key.get_public_key();
         bls_public_keys.push(bls_public_key);
