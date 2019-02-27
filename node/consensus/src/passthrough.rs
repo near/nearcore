@@ -1,10 +1,13 @@
-use client::ChainConsensusBlockBody;
+use std::time::Duration;
+
+use futures::{future, Future, Sink, Stream};
 use futures::future::Either;
 use futures::sync::mpsc::{Receiver, Sender};
-use futures::{future, Future, Sink, Stream};
-use std::time::Duration;
 use tokio::{self, timer::Interval};
+
+use client::ChainConsensusBlockBody;
 use primitives::chain::ChainPayload;
+use primitives::consensus::Payload;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 
@@ -22,11 +25,10 @@ pub fn spawn_consensus(
         .select(interval_stream)
         .fold((control_rx, ChainPayload::default(), initial_beacon_block_index), move |(control_rx, mut payload, mut beacon_block_index), p| {
             if let Some(new_payload) = p {
-                payload.transactions.extend(new_payload.transactions);
-                payload.receipts.extend(new_payload.receipts);
+                payload.union_update(new_payload);
                 Either::A(future::ok((control_rx, payload, beacon_block_index)))
             } else {
-                if !payload.transactions.is_empty() || !payload.receipts.is_empty() {
+                if !payload.is_empty() {
                     beacon_block_index += 1;
                     let c = ChainConsensusBlockBody {
                         payload,

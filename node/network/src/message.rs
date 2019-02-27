@@ -18,7 +18,7 @@ pub struct ChainState {
     pub last_index: u64,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct ConnectedInfo {
     pub chain_state: ChainState,
 }
