@@ -1,10 +1,12 @@
+use std::fmt;
+
 use bs58;
 use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
-use std::fmt;
-use crate::traits::Encode;
+
 use crate::logging::pretty_hash;
+use crate::serialize::Encode;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
 pub struct CryptoHash(pub Digest);
@@ -75,9 +77,10 @@ impl fmt::Display for CryptoHash {
 }
 
 pub mod bs58_format {
-    use super::{bs58, CryptoHash};
-    use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
+    use serde::de;
+
+    use super::{bs58, CryptoHash};
 
     pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
     where

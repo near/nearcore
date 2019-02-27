@@ -55,6 +55,7 @@ keystore = { path = "./test-utils/keygen" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
 configs = { path = "./node/configs" }
+client = { path = "./node/client" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

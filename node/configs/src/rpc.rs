@@ -2,6 +2,7 @@ use clap::{Arg, ArgMatches};
 
 const DEFAULT_RPC_PORT: &str = "3030";
 
+#[derive(Clone)]
 pub struct RPCConfig {
     pub rpc_port: u16,
 }

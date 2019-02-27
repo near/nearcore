@@ -15,6 +15,7 @@ pub mod aggregate_signature;
 pub mod beacon;
 pub mod block_traits;
 pub mod chain;
+pub mod consensus;
 pub mod hash;
 pub mod merkle;
 pub mod network;

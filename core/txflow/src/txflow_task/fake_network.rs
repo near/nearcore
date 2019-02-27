@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
 
-use primitives::traits::{Payload, WitnessSelector};
+use primitives::consensus::{Payload, WitnessSelector};
 use primitives::types::GossipBody;
 
 /// Fake witness selector that does not rotate the witnesses.
@@ -50,7 +50,7 @@ impl WitnessSelector for FakeWitnessSelector {
 }
 
 /// Fake payload that only stores one number.
-#[derive(Debug, Serialize, Deserialize, Hash, Clone)]
+#[derive(Debug, Serialize, Deserialize, Hash, Clone, Default)]
 struct FakePayload {
     content: u64,
 }

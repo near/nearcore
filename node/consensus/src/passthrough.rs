@@ -1,13 +1,14 @@
 use client::ChainConsensusBlockBody;
-use futures::sync::mpsc::{Receiver, Sender};
-use futures::{future, Future, Sink, Stream};
-use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::types::{MessageDataBody, SignedMessageData};
-use std::collections::HashSet;
 use std::time::Duration;
+
+use futures::{future, Future, Sink, Stream};
+use futures::future::Either;
+use futures::sync::mpsc::{Receiver, Sender};
 use tokio::{self, timer::Interval};
+
+use client::ChainConsensusBlockBody;
 use primitives::chain::ChainPayload;
-use primitives::traits::Payload;
+use primitives::consensus::Payload;
 use txflow::txflow_task::beacon_witness_selector::BeaconWitnessSelector;
 use txflow::txflow_task::Control;
 use client::Client;

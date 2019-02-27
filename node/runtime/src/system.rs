@@ -1,6 +1,6 @@
 use storage::TrieUpdate;
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::traits::Decode;
+use primitives::serialize::Decode;
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
 use primitives::utils::is_valid_account_id;
@@ -272,7 +272,7 @@ mod tests {
     use crate::test_utils::*;
     use primitives::hash::hash;
     use primitives::signature::get_key_pair;
-    use primitives::traits::Encode;
+    use primitives::serialize::Encode;
     use primitives::transaction::{TransactionBody, TransactionStatus};
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::get;

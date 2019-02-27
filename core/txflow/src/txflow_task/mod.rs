@@ -9,9 +9,9 @@ use tokio::timer::Delay;
 
 use crate::dag::DAG;
 use primitives::signature::DEFAULT_SIGNATURE;
-use primitives::traits::{Payload, WitnessSelector};
+use primitives::consensus::{Payload, WitnessSelector, ConsensusBlockBody};
 use primitives::types::{
-    ConsensusBlockBody, Gossip, GossipBody, SignedMessageData, TxFlowHash, UID,
+    Gossip, GossipBody, SignedMessageData, TxFlowHash, UID,
 };
 
 pub mod beacon_witness_selector;
@@ -42,7 +42,7 @@ pub enum Control<W: WitnessSelector> {
 /// Spawns `TxFlowTask` as a tokio task.
 pub fn spawn_task<
     'a,
-    P: 'a + Payload + Send + Sync + 'static,
+    P: 'a + Payload + Default + Send + Sync + 'static,
     W: WitnessSelector + Send + Sync + 'static,
 >(
     messages_receiver: mpsc::Receiver<Gossip<P>>,
@@ -64,7 +64,7 @@ pub fn spawn_task<
 /// A future that owns TxFlow DAG and encapsulates gossiping logic. Should be run as a separate
 /// task by a reactor. Consumes a stream of gossips and payloads, and produces a stream of gossips
 /// and consensuses. Currently produces only stream of gossips, TODO stream of consensuses.
-pub struct TxFlowTask<'a, P: 'a + Payload, W: WitnessSelector> {
+pub struct TxFlowTask<'a, P: 'a + Payload + Default, W: WitnessSelector> {
     state: Option<State<W>>,
     dag: Option<Box<DAG<'a, P, W>>>,
     messages_receiver: mpsc::Receiver<Gossip<P>>,
@@ -98,7 +98,7 @@ pub struct TxFlowTask<'a, P: 'a + Payload, W: WitnessSelector> {
     forced_gossip_delay: Option<Delay>,
 }
 
-impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
+impl<'a, P: Payload + Default, W: WitnessSelector> TxFlowTask<'a, P, W> {
     pub fn new(
         messages_receiver: mpsc::Receiver<Gossip<P>>,
         payload_receiver: mpsc::Receiver<P>,
@@ -321,7 +321,7 @@ impl<'a, P: Payload, W: WitnessSelector> TxFlowTask<'a, P, W> {
 
 // TxFlowTask can be used as a stream, where each element produced by the stream corresponds to
 // an individual step of the algorithm.
-impl<'a, P: Payload, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
+impl<'a, P: Payload + Default, W: WitnessSelector> Stream for TxFlowTask<'a, P, W> {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -514,7 +514,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::testing_utils::FakePayload;
-    use primitives::traits::WitnessSelector;
+    use primitives::consensus::WitnessSelector;
     use primitives::types::UID;
 
     struct FakeWitnessSelector {}

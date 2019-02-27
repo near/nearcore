@@ -1,4 +1,4 @@
-use primitives::traits::Payload;
+use primitives::consensus::Payload;
 use primitives::types::UID;
 use std::collections::{HashMap, HashSet};
 

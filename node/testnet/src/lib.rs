@@ -6,7 +6,7 @@ use futures::future;
 use futures::sync::mpsc::{channel};
 
 use client::Client;
-use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use consensus::adapters::transaction_to_payload;
 use primitives::chain::ChainPayload;
 use txflow::txflow_task;
@@ -18,6 +18,10 @@ pub fn start() {
 
 pub fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, rpc_cfg: RPCConfig) {
     let client = Arc::new(Client::new(&client_cfg));
+    start_from_client(client, client_cfg.account_id, network_cfg, rpc_cfg);
+}
+
+pub fn start_from_client(client: Arc<Client>, account_id: AccountId, network_cfg: NetworkConfig, rpc_cfg: RPCConfig) {
     tokio::run(future::lazy(move || {
         // TODO: TxFlow should be listening on these transactions.
         let (_transactions_tx, transactions_rx) = channel(1024);
@@ -50,7 +54,7 @@ pub fn start_from_configs(client_cfg: ClientConfig, network_cfg: NetworkConfig, 
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
         network::spawn_network(
-            Some(client_cfg.account_id),
+            Some(account_id),
             network_cfg,
             client.clone(),
             inc_gossip_tx,
