@@ -60,8 +60,10 @@ pub fn start_from_client(
         let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
+        let (mempool_control_tx, mempool_contorl_rx) = channel(1024);
         spawn_pool(
             client.shard_client.pool.clone(),
+            mempool_contorl_rx,
             retrieve_payload_rx,
             payload_announce_tx,
             payload_request_tx,
@@ -77,7 +79,7 @@ pub fn start_from_client(
         let (control_tx, control_rx) = channel(1024);
 
         spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx, retrieve_payload_tx);
-        spawn_block_producer(client.clone(), consensus_rx, control_tx, receipts_tx);
+        spawn_block_producer(client.clone(), consensus_rx, control_tx, mempool_control_tx, receipts_tx);
 
         // Launch Network task.
         spawn_network(

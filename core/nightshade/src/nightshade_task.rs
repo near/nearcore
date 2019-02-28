@@ -233,14 +233,13 @@ impl NightshadeTask {
             // TODO: This message is discarded if we haven't receive the payload yet. We can store it
             // in a queue instead, and process it after we have the payload.
 
-            let gossip = Gossip::new(
-                self.nightshade.as_ref().unwrap().owner_id,
-                author,
-                GossipBody::PayloadRequest(vec![author]),
-                self.owner_secret_key.as_ref().unwrap(),
-                self.block_index.unwrap(),
+            tokio::spawn(
+                self.retrieve_payload_tx
+                    .clone()
+                    .send((author, message.state.block_hash()))
+                    .map(|_| ())
+                    .map_err(|e| error!("Error sending retrieve payload message: {}", e))
             );
-            self.send_gossip(gossip);
         }
     }
 

@@ -2,17 +2,19 @@
 use rand::{SeedableRng, XorShiftRng};
 
 use client::Client;
+use mempool::pool_task::MemPoolControl;
 use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
 use primitives::test_utils::get_key_pair_from_seed;
+use primitives::types::AuthorityId;
 
-pub fn get_control(client: &Client, block_index: u64) -> Control {
+pub fn get_control(client: &Client, block_index: u64) -> (Control, MemPoolControl) {
     // TODO: Get authorities for the correct block index. For now these are the same authorities
     // that built the first block. In other words use `block_index` instead of `mock_block_index`.
     let mock_block_index = 2;
     let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(mock_block_index);
     if owner_uid.is_none() {
-        return Control::Stop;
+        return (Control::Stop, MemPoolControl { authority_id: 0, num_authorities: 0 });
     }
     let owner_uid = owner_uid.unwrap();
     let num_authorities = uid_to_authority_map.len();
@@ -39,10 +41,10 @@ pub fn get_control(client: &Client, block_index: u64) -> Control {
         bls_public_keys.push(bls_public_key);
         bls_secret_keys.push(bls_secret_key);
     }
-    let owner_secret_key = secret_keys[owner_uid as usize].clone();
-    let bls_owner_secret_key = bls_secret_keys[owner_uid as usize].clone();
+    let owner_secret_key = secret_keys[owner_uid as AuthorityId].clone();
+    let bls_owner_secret_key = bls_secret_keys[owner_uid as AuthorityId].clone();
 
-    Control::Reset {
+    (Control::Reset {
         owner_uid,
         block_index,
         hash: payload_hash,
@@ -50,5 +52,5 @@ pub fn get_control(client: &Client, block_index: u64) -> Control {
         owner_secret_key,
         bls_public_keys,
         bls_owner_secret_key,
-    }
+    }, MemPoolControl { authority_id: owner_uid as AuthorityId, num_authorities })
 }

@@ -15,8 +15,14 @@ use primitives::types::AuthorityId;
 
 use crate::Pool;
 
+pub struct MemPoolControl {
+    pub authority_id: AuthorityId,
+    pub num_authorities: usize,
+}
+
 pub fn spawn_pool(
     pool: Arc<Pool>,
+    mempool_contorl_rx: Receiver<MemPoolControl>,
     retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
     payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
     payload_request_tx: Sender<PayloadRequest>,
@@ -65,6 +71,13 @@ pub fn spawn_pool(
             Err(e) => warn!(target: "pool", "Failed to add payload: {}", e),
             _ => {},
         };
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    let pool4 = pool.clone();
+    let task = mempool_contorl_rx.for_each(move |control| {
+        pool4.reset(control);
         future::ok(())
     });
     tokio::spawn(task);

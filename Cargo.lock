@@ -341,6 +341,7 @@ dependencies = [
  "client 0.1.0",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mempool 0.1.0",
  "nightshade 0.1.0",
  "primitives 0.1.0",
  "rand 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",

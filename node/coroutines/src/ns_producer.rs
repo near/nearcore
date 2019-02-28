@@ -11,33 +11,38 @@ use nightshade::nightshade::ConsensusBlockProposal;
 use nightshade::nightshade_task::Control;
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::ReceiptBlock;
+use mempool::pool_task::MemPoolControl;
 
 use crate::ns_control_builder::get_control;
 
 // Create new block proposal. Send control signal to NightshadeTask and gossip Block around.
-fn spawn_start_proposal(client: Arc<Client>, block_index: u64, control_tx: Sender<Control>) {
-    let control = get_control(&client, block_index);
-
-    if let Control::Reset { hash: snapshot_hash, .. } = control {
-        // TODO: Get snapshot from the pool and gossip it around the network
-    }
+fn spawn_start_proposal(client: Arc<Client>, block_index: u64, control_tx: Sender<Control>, mempool_control_tx: Sender<MemPoolControl>) {
+    let (control, mempool_control) = get_control(&client, block_index);
 
     // Send control
     let start_task = control_tx
-        .send(get_control(&client, 1))
+        .send(control)
         .map(|_| ())
         .map_err(|e| error!("Error sending control {:?}", e));
     tokio::spawn(start_task);
+
+    // Send mempool control.
+    let mempool_reset = mempool_control_tx
+        .send(mempool_control)
+        .map(|_| ())
+        .map_err(|e| error!("Error sending mempool control: {:?}", e));
+    tokio::spawn(mempool_reset);
 }
 
 pub fn spawn_block_producer(
     client: Arc<Client>,
     consensus_rx: Receiver<ConsensusBlockProposal>,
     control_tx: Sender<Control>,
+    mempool_control_tx: Sender<MemPoolControl>,
     receipts_tx: Sender<ReceiptBlock>,
 ) {
     // Send proposal for the first block
-    spawn_start_proposal(client.clone(), 1, control_tx.clone());
+    spawn_start_proposal(client.clone(), 1, control_tx.clone(), mempool_control_tx.clone());
 
     let task = consensus_rx
         .for_each(move |consensus_block_header| {
@@ -59,7 +64,7 @@ pub fn spawn_block_producer(
                         }
 
                         // Send proposal for the next block
-                        spawn_start_proposal(client.clone(), new_beacon_block.header().index() + 1, control_tx.clone());
+                        spawn_start_proposal(client.clone(), new_beacon_block.header().index() + 1, control_tx.clone(), mempool_control_tx.clone());
                     }
             } else {
                 // Assumption: This else should never be reached, if an authority achieves consensus on some block hash

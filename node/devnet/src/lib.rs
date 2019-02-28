@@ -31,6 +31,7 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         // and send the authority information to consensus
         let (consensus_tx, consensus_rx) = channel(1024);
         let (consensus_control_tx, consensus_control_rx) = channel(1024);
+        let (mempool_control_tx, _mempool_control_rx) = channel(1024);
 
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
@@ -38,6 +39,7 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             client.clone(),
             consensus_rx,
             consensus_control_tx,
+            mempool_control_tx,
             receipts_tx,
         );
 

@@ -1,20 +1,22 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use log::info;
 
 use node_runtime::state_viewer::TrieViewer;
-use primitives::consensus::Payload;
-use primitives::types::AuthorityId;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
+use primitives::consensus::Payload;
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::merkle::verify_path;
 use primitives::transaction::{SignedTransaction, verify_transaction_signature};
+use primitives::types::AuthorityId;
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub mod pool_task;
+
+use crate::pool_task::MemPoolControl;
 
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
@@ -24,6 +26,12 @@ pub struct Pool {
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
     snapshots: RwLock<HashMap<CryptoHash, ChainPayload>>,
+    /// Given MemPool's authority id.
+    authority_id: RwLock<AuthorityId>,
+    /// Number of authorities currently.
+    num_authorities: RwLock<usize>,
+    /// Map from hash of tx/receipt to hashset of authorities it is known.
+    known_to: RwLock<HashMap<CryptoHash, HashSet<AuthorityId>>>,
 }
 
 impl Pool {
@@ -35,7 +43,18 @@ impl Pool {
             trie,
             state_viewer: TrieViewer {},
             snapshots: RwLock::new(HashMap::new()),
+            authority_id: RwLock::new(0),
+            num_authorities: RwLock::new(0),
+            known_to: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
+    pub fn reset(&self, control: MemPoolControl) {
+        *self.authority_id.write().expect(POISONED_LOCK_ERR) = control.authority_id;
+        *self.num_authorities.write().expect(POISONED_LOCK_ERR) = control.num_authorities;
+        self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
+        self.known_to.write().expect(POISONED_LOCK_ERR).clear();
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
@@ -121,7 +140,7 @@ impl Pool {
         if hash == &CryptoHash::default() {
             return true;
         }
-        self.snapshots.write().expect(POISONED_LOCK_ERR).contains_key(hash)
+        self.snapshots.read().expect(POISONED_LOCK_ERR).contains_key(hash)
     }
 
     pub fn pop_payload_snapshot(&self, hash: &CryptoHash) -> Option<ChainPayload> {
@@ -131,13 +150,13 @@ impl Pool {
         self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash)
     }
 
-    pub fn clear_snapshots(&self) {
-        self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
-    }
-
     /// Request payload diff for given authority.
-    pub fn snapshot_request(&self, _authority_id: AuthorityId, _hash: CryptoHash) -> Result<ChainPayload, String> {
-        Err("Not implemented".to_string())
+    pub fn snapshot_request(&self, _authority_id: AuthorityId, hash: CryptoHash) -> Result<ChainPayload, String> {
+        if let Some(value) = self.snapshots.read().expect(POISONED_LOCK_ERR).get(&hash) {
+            Ok(value.clone())
+        } else {
+            Err(format!("No such payload with hash {}", hash))
+        }
     }
 
     /// Prepares payload to gossip to peer authority.
