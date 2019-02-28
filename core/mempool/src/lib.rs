@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use node_runtime::state_viewer::TrieViewer;
 use primitives::consensus::Payload;
+use primitives::types::PeerId;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::merkle::verify_path;
@@ -10,6 +11,8 @@ use primitives::transaction::{SignedTransaction, verify_transaction_signature};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+pub mod pool_task;
 
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
@@ -81,6 +84,16 @@ impl Pool {
         Ok(())
     }
 
+    pub fn add_payload(&self, payload: ChainPayload) -> Result<(), String> {
+        for transaction in payload.transactions {
+            self.add_transaction(transaction)?;
+        }
+        for receipt in payload.receipts {
+            self.add_receipt(receipt)?;
+        }
+        Ok(())
+    }
+
     pub fn snapshot_payload(&self) -> CryptoHash {
         let transactions: Vec<_> = self.transactions
             .write()
@@ -101,8 +114,21 @@ impl Pool {
         h
     }
 
+    pub fn contains_payload_snapshot(&self, hash: &CryptoHash) -> bool {
+        self.snapshots.write().expect(POISONED_LOCK_ERR).contains_key(hash)
+    }
+
     pub fn pop_payload_snapshot(&self, hash: &CryptoHash) -> Option<ChainPayload> {
         self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash)
+    }
+
+    pub fn clear_snapshots(&self) {
+        self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
+    }
+
+    /// Request payload diff for given peer.
+    pub fn snapshot_request(&self, _peer_id: PeerId, _hash: CryptoHash) -> Result<ChainPayload, String> {
+        Err("Not implemented".to_string())
     }
 
     pub fn import_block(&self, block: &SignedShardBlock) {

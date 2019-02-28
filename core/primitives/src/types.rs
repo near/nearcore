@@ -23,6 +23,8 @@ pub type AccountId = String;
 pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
+/// Authority identifier in current group.
+pub type AuthorityId = usize;
 /// Mask which authorities participated in multi sign.
 pub type AuthorityMask = Vec<bool>;
 /// Part of the signature.

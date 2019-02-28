@@ -2,8 +2,6 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::hash::CryptoHash;
-
 pub use super::serialize::{Decode, Encode};
 use super::types;
 
@@ -25,42 +23,4 @@ pub trait Payload: Clone + Send + Hash + Debug + Encode + Decode + 'static {
     fn is_empty(&self) -> bool;
     // Creates empty payload.
     fn new() -> Self;
-}
-
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ConsensusBlockHeader {
-    pub body_hash: CryptoHash,
-    pub prev_block_body_hash: CryptoHash,
-}
-
-#[derive(Hash, Debug, PartialEq, Eq)]
-pub struct ConsensusBlockBody<P: Payload> {
-    pub payload: P,
-    pub beacon_block_index: types::BlockIndex,
-}
-
-pub trait TxFlow<P: Payload> {
-    /// Tells TxFlow to process the given TxFlow message received from another peer. TxFlow signals
-    /// when the message is processed.
-    fn process_message(
-        &mut self,
-        message: types::SignedMessageData<P>,
-        callback: &Fn() -> GenericResult,
-    ) -> GenericResult;
-    /// Tells TxFlow to process a payload, e.g. for in-shard TxFlow it is a transaction received
-    /// from a client. TxFlow signals when the payload is accepted.
-    fn process_payload(&mut self, payload: P, callback: &Fn() -> GenericResult) -> GenericResult;
-    /// Subscribes to the messages produced by TxFlow. These messages indicate the receiver that
-    /// they have to be relayed to.
-    fn subscribe_to_messages(
-        &mut self,
-        subscriber: &Fn(types::UID, &types::SignedMessageData<P>) -> GenericResult,
-    ) -> GenericResult;
-    /// Subscribes to the consensus blocks produced by TxFlow. The consensus blocks contain messages
-    /// with payload + some content specific to whether TxFlow is used on the Beacon Chain or in
-    /// the shard.
-    fn subscribe_to_consensus_blocks(
-        &mut self,
-        subscriber: &Fn(ConsensusBlockBody<P>),
-    ) -> GenericResult;
 }

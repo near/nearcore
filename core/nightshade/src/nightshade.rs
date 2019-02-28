@@ -2,13 +2,11 @@
 use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
 
-use primitives::types::BlockIndex;
 use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
-
-pub type AuthorityId = usize;
+use primitives::types::{AuthorityId, BlockIndex};
 
 const COMMIT_THRESHOLD: i64 = 3;
 

@@ -13,7 +13,7 @@ use primitives::hash::CryptoHash;
 pub fn spawn_consensus(
     client: Arc<Client>,
     consensus_tx: Sender<ConsensusBlockProposal>,
-    control_rx: Receiver<Control<CryptoHash>>,
+    control_rx: Receiver<Control>,
     block_period: Duration,
 ) {
     let initial_beacon_block_index = client.beacon_chain.chain.best_index();

@@ -16,10 +16,9 @@ use primitives::aggregate_signature::BlsSecretKey;
 use primitives::hash::CryptoHash;
 use primitives::hash::hash_struct;
 use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
+use primitives::types::AuthorityId;
 
-use crate::nightshade::BlockProposal;
-
-use super::nightshade::{AuthorityId, ConsensusBlockProposal, Nightshade, State};
+use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
 
 const COOLDOWN_MS: u64 = 200;
 
@@ -121,6 +120,8 @@ pub struct NightshadeTask {
     control_receiver: mpsc::Receiver<Control>,
     /// Consensus header and block index on which the consensus was reached.
     consensus_sender: mpsc::Sender<ConsensusBlockProposal>,
+    /// Send block proposal info to retrieve payload.
+    retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
     /// Flag to determine if consensus was already reported in the consensus channel.
     consensus_reported: bool,
     /// Number of payloads from other authorities that we still don't have.
@@ -136,6 +137,7 @@ impl NightshadeTask {
         out_gossips: mpsc::Sender<Gossip>,
         control_receiver: mpsc::Receiver<Control>,
         consensus_sender: mpsc::Sender<ConsensusBlockProposal>,
+        retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
     ) -> Self {
         Self {
             authority_blocks: vec![],
@@ -147,6 +149,7 @@ impl NightshadeTask {
             out_gossips,
             control_receiver,
             consensus_sender,
+            retrieve_payload_tx,
             consensus_reported: false,
             missing_payloads: 0,
             cooldown_delay: None,
@@ -466,9 +469,10 @@ pub fn spawn_nightshade_task(
     out_gossip_tx: mpsc::Sender<Gossip>,
     consensus_tx: mpsc::Sender<ConsensusBlockProposal>,
     control_rx: mpsc::Receiver<Control>,
+    retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
 )
 {
-    let task = NightshadeTask::new(inc_gossip_rx, out_gossip_tx, control_rx, consensus_tx);
+    let task = NightshadeTask::new(inc_gossip_rx, out_gossip_tx, control_rx, consensus_tx, retrieve_payload_tx);
 
     tokio::spawn(task.for_each(|_| Ok(())));
 }
