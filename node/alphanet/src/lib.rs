@@ -12,6 +12,7 @@ use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Receiver};
 
 use client::Client;
+use mempool::pool_task::spawn_pool;
 use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use coroutines::importer::spawn_block_importer;
 use coroutines::ns_producer::spawn_block_producer;
@@ -54,6 +55,12 @@ pub fn start_from_client(
         let (_out_block_tx, out_block_rx) = channel(1024);
         spawn_block_importer(client.clone(), inc_block_rx);
 
+        // Launch tx gossup / payload sync.
+        let (retrieve_payload_tx, retrieve_payload_rx) = channel(1024);
+        let (payload_request_tx, payload_request_rx) = channel(1024);
+        let (payload_response_tx, payload_response_rx) = channel(1024);
+        spawn_pool(client.shard_client.pool.clone(), retrieve_payload_rx, payload_request_tx, payload_response_rx);
+
         // Launch Nightshade task
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
@@ -61,8 +68,7 @@ pub fn start_from_client(
         // Create control channel and send kick-off reset signal.
         let (control_tx, control_rx) = channel(1024);
 
-        spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx);
-
+        spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx, retrieve_payload_tx);
         spawn_block_producer(client.clone(), consensus_rx, control_tx, receipts_tx);
 
         // Launch Network task.
@@ -74,6 +80,8 @@ pub fn start_from_client(
             out_gossip_rx,
             inc_block_tx,
             out_block_rx,
+            payload_request_rx,
+            payload_response_tx,
         );
 
         Ok(())
@@ -152,7 +160,7 @@ mod tests {
     }
 
 
-    /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
+    /// Creates two nodes, one node is ahead on blocks. Wait until the second one syncs.
     #[test]
     fn test_two_nodes_sync() {
         let chain_spec = configure_chain_spec();

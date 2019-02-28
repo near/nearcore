@@ -22,6 +22,7 @@ dependencies = [
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mempool 0.1.0",
  "network 0.0.1",
  "nightshade 0.1.0",
  "node-http 0.1.0",

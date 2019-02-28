@@ -1,22 +1,23 @@
 use std::sync::Arc;
 
+use futures::{stream, stream::Stream};
 use futures::future;
+use futures::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use futures::Future;
-use futures::{stream, stream::Stream};
 use log::{error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::ChainPayload;
+use primitives::chain::{ChainPayload, PayloadRequest};
+use primitives::hash::CryptoHash;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
-use primitives::types::{AccountId, PeerId};
+use primitives::types::{AccountId, AuthorityId, PeerId};
 
 use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
@@ -49,6 +50,7 @@ struct Protocol {
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
+    payload_response_tx: Sender<ChainPayload>,
 }
 
 impl Protocol {
@@ -102,6 +104,19 @@ impl Protocol {
                             warn!(target: "network", "Failed to fetch payload from {} with {}. Possible grinding attack.", peer_id, err);
                         }
                     }
+                },
+                Message::PayloadSnapshotRequest(request_id, hash) => {
+                    match self.client.shard_client.pool.snapshot_request(peer_id, hash) {
+                        Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                        Err(err) => {
+                            self.peer_manager.suspect_malicious(&peer_id);
+                            warn!(target: "network", "Failed to fetch payload snapshot from {} with {}. Possible grinding attack.", peer_id, err);
+                        }
+                    }
+                },
+                Message::PayloadResponse(_request_id, payload) => {
+                    // TODO: check request id.
+                    forward_msg(self.payload_response_tx.clone(), payload);
                 }
                 _ => (),
             },
@@ -128,16 +143,19 @@ impl Protocol {
         }
     }
 
-    fn send_gossip(&self, g: Gossip) {
+    fn get_authority_channel(&self, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
         // TODO: Currently it gets the same authority map for all block indices.
         // Update authority map, once block production and block importing is in place.
         //        let auth_map = self.client.get_recent_uid_to_authority_map();
         let (_, auth_map) = self.client.get_uid_to_authority_map(1);
-        let out_channel = auth_map
-            .get(&(g.receiver_id as u64))
+        auth_map
+            .get(&(authority_id as u64))
             .map(|auth| auth.account_id.clone())
-            .and_then(|account_id| self.peer_manager.get_account_channel(account_id));
-        if let Some(ch) = out_channel {
+            .and_then(|account_id| self.peer_manager.get_account_channel(account_id))
+    }
+
+    fn send_gossip(&self, g: Gossip) {
+        if let Some(ch) = self.get_authority_channel(g.receiver_id) {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
@@ -154,6 +172,7 @@ impl Protocol {
 
     fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: u64, til_index: u64) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
+            // TODO: make proper request ids.
             let request_id = 1;
             let data =
                 Encode::encode(&Message::BlockFetchRequest(request_id, from_index, til_index))
@@ -175,6 +194,22 @@ impl Protocol {
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             warn!(target: "network", "[SND BLOCK RQ] Channel for {} not found.", peer_id);
+        }
+    }
+
+    fn send_payload_request(&self, request: PayloadRequest) {
+        match request {
+            PayloadRequest::General(_transactions, _receipts) => panic!("Not implemented"),
+            PayloadRequest::BlockProposal(authority_id, hash) => {
+                // TODO: make proper request ids.
+                let request_id = 1;
+                if let Some(ch) = self.get_authority_channel(authority_id) {
+                    let data = Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
+                    forward_msg(ch, PeerMessage::Message(data));
+                } else {
+                    warn!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found", authority_id);
+                }
+            }
         }
     }
 
@@ -212,6 +247,8 @@ pub fn spawn_network(
     out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
     out_block_rx: Receiver<CoupledBlock>,
+    payload_request_rx: Receiver<PayloadRequest>,
+    payload_response_tx: Sender<ChainPayload>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
@@ -228,7 +265,7 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx });
+    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx, payload_response_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -250,6 +287,14 @@ pub fn spawn_network(
     let protocol3 = protocol.clone();
     let task = out_block_rx.for_each(move |b| {
         protocol3.send_block_announce(b);
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    // Spawn a task that send payload requests.
+    let protocol4 = protocol.clone();
+    let task = payload_request_rx.for_each(move |r| {
+        protocol4.send_payload_request(r);
         future::ok(())
     });
     tokio::spawn(task);

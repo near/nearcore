@@ -22,7 +22,6 @@ use configs::ClientConfig;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
-use primitives::consensus::ConsensusBlockBody;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, UID};
@@ -118,8 +117,6 @@ fn get_storage_path(base_path: &Path) -> String {
     };
     storage_path.to_str().unwrap().to_owned()
 }
-
-pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
     pub fn new(config: &ClientConfig) -> Self {

@@ -49,6 +49,8 @@ pub enum Message {
     PayloadGossip(ChainPayload),
     /// Request specific tx/receipts.
     PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
+    /// Request payload snapshot diff.
+    PayloadSnapshotRequest(RequestId, CryptoHash),
     /// Response with payload for request.
     PayloadResponse(RequestId, ChainPayload),
 }
