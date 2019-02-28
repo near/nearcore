@@ -7,24 +7,42 @@ use futures::{future, Future, Sink, Stream};
 
 use client::BlockProductionResult;
 use client::Client;
-use nightshade::nightshade::ConsensusBlockHeader;
+use nightshade::nightshade::ConsensusBlockProposal;
 use nightshade::nightshade_task::Control;
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::ReceiptBlock;
-use primitives::hash::CryptoHash;
 
 use crate::ns_control_builder::get_control;
 
+// Create new block proposal. Send control signal to NightshadeTask and gossip Block around.
+fn spawn_start_proposal(client: Arc<Client>, block_index: u64, control_tx: Sender<Control>) {
+    let control = get_control(&client, block_index);
+
+    if let Control::Reset { hash: snapshot_hash, .. } = control {
+        // TODO: Get snapshot from the pool and gossip it around the network
+    }
+
+    // Send control
+    let start_task = control_tx
+        .send(get_control(&client, 1))
+        .map(|_| ())
+        .map_err(|e| error!("Error sending control {:?}", e));
+    tokio::spawn(start_task);
+}
+
 pub fn spawn_block_producer(
     client: Arc<Client>,
-    consensus_rx: Receiver<ConsensusBlockHeader>,
-    control_tx: Sender<Control<CryptoHash>>,
+    consensus_rx: Receiver<ConsensusBlockProposal>,
+    control_tx: Sender<Control>,
     receipts_tx: Sender<ReceiptBlock>,
 ) {
+    // Send proposal for the first block
+    spawn_start_proposal(client.clone(), 1, control_tx.clone());
+
     let task = consensus_rx
         .for_each(move |consensus_block_header| {
             info!(target: "consensus", "Producing block for index {}", consensus_block_header.index);
-            if let Some(payload) = client.shard_client.pool.pop_payload_snapshot(&consensus_block_header.header.hash) {
+            if let Some(payload) = client.shard_client.pool.pop_payload_snapshot(&consensus_block_header.proposal.hash) {
                 if let BlockProductionResult::Success(new_beacon_block, new_shard_block) =
                 client.try_produce_block(consensus_block_header.index, payload)
                     {
@@ -39,17 +57,15 @@ pub fn spawn_block_producer(
                                     .map_err(|e| error!("Error sending receipts from produced block: {}", e))
                             );
                         }
-                        let control = get_control(&*client, new_beacon_block.header().index() + 1);
-                        let ns_control_task = control_tx
-                            .clone()
-                            .send(control)
-                            .map(|_| ())
-                            .map_err(|e| error!("Error sending control to NightShade: {}", e));
-                        tokio::spawn(ns_control_task);
+
+                        // Send proposal for the next block
+                        spawn_start_proposal(client.clone(), new_beacon_block.header().index() + 1, control_tx.clone());
                     }
             } else {
-                warn!(target: "consensus", "Failed to find payload for {} from authority {}",
-                      consensus_block_header.header.hash, consensus_block_header.header.author);
+                // Assumption: This else should never be reached, if an authority achieves consensus on some block hash
+                // then it is because this block can be retrieved from the mempool.
+                warn!(target: "consensus", "Authority: {} Failed to find payload for {} from authority {}",
+                      client.account_id, consensus_block_header.proposal.hash, consensus_block_header.proposal.author);
             }
             future::ok(())
         })

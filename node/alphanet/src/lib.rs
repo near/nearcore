@@ -8,14 +8,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use futures::future::Future;
-use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Receiver};
 
 use client::Client;
 use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
 use coroutines::importer::spawn_block_importer;
-use coroutines::ns_control_builder::get_control;
 use coroutines::ns_producer::spawn_block_producer;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
@@ -64,12 +62,7 @@ pub fn start_from_client(
         let (control_tx, control_rx) = channel(1024);
 
         spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx);
-        let start_task = control_tx
-            .clone()
-            .send(get_control(&client, 1))
-            .map(|_| ())
-            .map_err(|e| error!("Error sending control {:?}", e));
-        tokio::spawn(start_task);
+
         spawn_block_producer(client.clone(), consensus_rx, control_tx, receipts_tx);
 
         // Launch Network task.

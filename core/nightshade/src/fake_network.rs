@@ -1,16 +1,17 @@
 use std::time::{Duration, Instant};
 
+use futures::{Future, Sink, Stream};
 use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
-use futures::{Future, Sink, Stream};
 use log::error;
 use tokio::timer::Delay;
 
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::aggregate_signature::BlsSecretKey;
+use primitives::hash::CryptoHash;
 use primitives::signature::get_key_pair;
 
-use crate::nightshade::ConsensusBlockHeader;
+use crate::nightshade::ConsensusBlockProposal;
 
 use super::nightshade_task::{Control, NightshadeTask};
 
@@ -50,12 +51,12 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let payload = DummyPayload { dummy: owner_uid as u64 };
-
-            let task: NightshadeTask<DummyPayload> =
+            let task: NightshadeTask =
                 NightshadeTask::new(inc_gossips_rx, out_gossips_tx, control_rx, consensus_tx);
 
             tokio::spawn(task.for_each(|_| Ok(())));
+
+            let block_hash = CryptoHash::default();
 
             // Start the task using control channels, and stop it after 1 second
             let start_task = control_tx
@@ -63,7 +64,7 @@ fn spawn_all(num_authorities: usize) {
                 .send(Control::Reset {
                     owner_uid: owner_uid as u64,
                     block_index: 0,
-                    payload,
+                    hash: block_hash,
                     public_keys: public_keys.clone(),
                     owner_secret_key: secret_keys[owner_uid].clone(),
                     bls_public_keys: bls_public_keys.clone(),
@@ -108,11 +109,11 @@ fn spawn_all(num_authorities: usize) {
         let futures: Vec<_> = v.into_iter().map(|rx| rx.into_future()).collect();
 
         join_all(futures)
-            .map(|v: Vec<(Option<ConsensusBlockHeader>, _)>| {
+            .map(|v: Vec<(Option<ConsensusBlockProposal>, _)>| {
                 // Check every authority committed to the same outcome
                 let headers: Vec<_> = v
                     .iter()
-                    .map(|(el, _)| el.clone().expect("Authority not committed").header)
+                    .map(|(el, _)| el.clone().expect("Authority not committed").proposal)
                     .collect();
                 if !headers.iter().all(|h| h == &headers[0]) {
                     panic!("Authorities committed to different outcomes.");

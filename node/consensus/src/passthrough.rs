@@ -6,13 +6,13 @@ use futures::{future, Future, Sink, Stream};
 use tokio::{self, timer::Interval};
 
 use client::Client;
-use nightshade::nightshade::{BlockHeader, ConsensusBlockHeader};
+use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
 use nightshade::nightshade_task::Control;
 use primitives::hash::CryptoHash;
 
 pub fn spawn_consensus(
     client: Arc<Client>,
-    consensus_tx: Sender<ConsensusBlockHeader>,
+    consensus_tx: Sender<ConsensusBlockProposal>,
     control_rx: Receiver<Control<CryptoHash>>,
     block_period: Duration,
 ) {
@@ -24,8 +24,8 @@ pub fn spawn_consensus(
                 let hash = client.shard_client.pool.snapshot_payload();
                 if hash != CryptoHash::default() {
                     beacon_block_index += 1;
-                    let c = ConsensusBlockHeader {
-                        header: BlockHeader { author: 0, hash },
+                    let c = ConsensusBlockProposal {
+                        proposal: BlockProposal { author: 0, hash },
                         index: beacon_block_index,
                     };
                     tokio::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {

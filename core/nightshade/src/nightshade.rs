@@ -2,11 +2,9 @@
 use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
 
-use serde::Serialize;
-
 use primitives::types::BlockIndex;
 use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
 
@@ -24,41 +22,11 @@ fn empty_cryptohash() -> CryptoHash {
     CryptoHash::new(&[0u8; 32])
 }
 
-/// Nightshade consensus run on top of outcomes proposed by each authority.
-/// Blocks represent authorities proposal.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Block<P> {
-    pub header: BlockHeader,
-    payload: P,
-}
-
-impl<P: Serialize> Block<P> {
-    pub fn new(author: AuthorityId, payload: P) -> Self {
-        Self {
-            header: BlockHeader {
-                author,
-                hash: hash_struct(&payload),
-            },
-            payload,
-        }
-    }
-
-    /// Authority proposing the block
-    pub fn author(&self) -> AuthorityId {
-        self.header.author
-    }
-
-    /// Hash of the payload contained in the block
-    pub fn hash(&self) -> CryptoHash {
-        self.header.hash
-    }
-}
-
 /// BlockHeaders are used instead of Blocks as authorities proposal in the consensus.
 /// They are used to avoid receiving two different proposals from the same authority,
 /// and penalize such behavior.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct BlockHeader {
+pub struct BlockProposal {
     /// Authority proposing the block.
     pub author: AuthorityId,
     /// Hash of the payload contained in the block.
@@ -66,8 +34,8 @@ pub struct BlockHeader {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct ConsensusBlockHeader {
-    pub header: BlockHeader,
+pub struct ConsensusBlockProposal {
+    pub proposal: BlockProposal,
     pub index: BlockIndex,
 }
 
@@ -83,7 +51,7 @@ pub struct BareState {
     /// How much confidence we have on `endorses`.
     pub primary_confidence: i64,
     /// It is the outcome with higher confidence. (Higher `endorses` values are used as tie breaker)
-    pub endorses: BlockHeader,
+    pub endorses: BlockProposal,
     /// Confidence of outcome with second higher confidence.
     pub secondary_confidence: i64,
 }
@@ -94,7 +62,7 @@ impl BareState {
     fn empty() -> Self {
         Self {
             primary_confidence: -1,
-            endorses: BlockHeader { author: 0, hash: empty_cryptohash() },
+            endorses: BlockProposal { author: 0, hash: empty_cryptohash() },
             secondary_confidence: -1,
         }
     }
@@ -102,7 +70,7 @@ impl BareState {
     pub fn new(author: AuthorityId, hash: CryptoHash) -> Self {
         Self {
             primary_confidence: 0,
-            endorses: BlockHeader { author, hash },
+            endorses: BlockProposal { author, hash },
             secondary_confidence: 0,
         }
     }
@@ -258,7 +226,7 @@ impl State {
     }
 
     /// BlockHeader (Authority and Block) that this state is endorsing.
-    fn endorses(&self) -> BlockHeader {
+    fn endorses(&self) -> BlockProposal {
         self.bare_state.endorses.clone()
     }
 
@@ -342,7 +310,7 @@ pub struct Nightshade {
     /// It is Some(outcome) when the authority holding this Nightshade instance has committed
     /// to some proposal. Nightshade consensus "guarantees" that if an authority commits to some
     /// value then every other honest authority will not commit to a different value.
-    pub committed: Option<BlockHeader>,
+    pub committed: Option<BlockProposal>,
     /// BLS Public Keys of all authorities participating in consensus.
     bls_public_keys: Vec<BlsPublicKey>,
     /// BLS secret key of the authority holding this Nightshade instance.
@@ -353,16 +321,16 @@ impl Nightshade {
     pub fn new(
         owner_id: AuthorityId,
         num_authorities: usize,
-        block_header: BlockHeader,
+        block_proposal: BlockProposal,
         bls_public_keys: Vec<BlsPublicKey>,
         bls_owner_secret_key: BlsSecretKey,
     ) -> Self {
-        assert_eq!(owner_id, block_header.author);
+        assert_eq!(owner_id, block_proposal.author);
         let mut states = vec![];
 
         for a in 0..num_authorities {
             if a == owner_id {
-                states.push(State::new(a, block_header.hash, &bls_owner_secret_key));
+                states.push(State::new(a, block_proposal.hash, &bls_owner_secret_key));
             } else {
                 states.push(State::empty());
             }
@@ -522,8 +490,8 @@ mod tests {
         assert_eq!(state.bare_state.secondary_confidence == 0, state.secondary_proof.is_none());
     }
 
-    fn header(author: AuthorityId) -> BlockHeader {
-        BlockHeader {
+    fn proposal(author: AuthorityId) -> BlockProposal {
+        BlockProposal {
             author,
             hash: hash_struct(&author),
         }
@@ -534,7 +502,7 @@ mod tests {
         let (pks, sks) = generate_bls_key_pairs(2);
         let triplet = BareState {
             primary_confidence: 0,
-            endorses: header(1),
+            endorses: proposal(1),
             secondary_confidence: 0,
         };
         // Aggregate signature
@@ -562,7 +530,7 @@ mod tests {
                 Nightshade::new(
                     i,
                     num_authorities,
-                    header(i),
+                    proposal(i),
                     public_keys.clone(),
                     secret_keys[i].clone(),
                 )
@@ -618,7 +586,7 @@ mod tests {
     fn bare_state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> BareState {
         BareState {
             primary_confidence,
-            endorses: header(endorses),
+            endorses: proposal(endorses),
             secondary_confidence,
         }
     }

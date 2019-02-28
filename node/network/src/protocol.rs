@@ -14,7 +14,6 @@ use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
-use primitives::hash::CryptoHash;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, PeerId};
@@ -48,7 +47,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
-    inc_gossip_tx: Sender<Gossip<CryptoHash>>,
+    inc_gossip_tx: Sender<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
 }
 
@@ -129,7 +128,7 @@ impl Protocol {
         }
     }
 
-    fn send_gossip(&self, g: Gossip<CryptoHash>) {
+    fn send_gossip(&self, g: Gossip) {
         // TODO: Currently it gets the same authority map for all block indices.
         // Update authority map, once block production and block importing is in place.
         //        let auth_map = self.client.get_recent_uid_to_authority_map();
@@ -209,8 +208,8 @@ pub fn spawn_network(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     client: Arc<Client>,
-    inc_gossip_tx: Sender<Gossip<CryptoHash>>,
-    out_gossip_rx: Receiver<Gossip<CryptoHash>>,
+    inc_gossip_tx: Sender<Gossip>,
+    out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
     out_block_rx: Receiver<CoupledBlock>,
 ) {

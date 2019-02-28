@@ -4,10 +4,9 @@ use rand::{SeedableRng, XorShiftRng};
 use client::Client;
 use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
-use primitives::hash::CryptoHash;
 use primitives::test_utils::get_key_pair_from_seed;
 
-pub fn get_control(client: &Client, block_index: u64) -> Control<CryptoHash> {
+pub fn get_control(client: &Client, block_index: u64) -> Control {
     // TODO: Get authorities for the correct block index. For now these are the same authorities
     // that built the first block. In other words use `block_index` instead of `mock_block_index`.
     let mock_block_index = 2;
@@ -46,7 +45,7 @@ pub fn get_control(client: &Client, block_index: u64) -> Control<CryptoHash> {
     Control::Reset {
         owner_uid,
         block_index,
-        payload: payload_hash,
+        hash: payload_hash,
         public_keys,
         owner_secret_key,
         bls_public_keys,
