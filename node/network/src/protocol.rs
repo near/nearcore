@@ -14,7 +14,6 @@ use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, PayloadRequest};
-use primitives::hash::CryptoHash;
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, AuthorityId, PeerId};
@@ -106,12 +105,17 @@ impl Protocol {
                     }
                 },
                 Message::PayloadSnapshotRequest(request_id, hash) => {
-                    match self.client.shard_client.pool.snapshot_request(peer_id, hash) {
-                        Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
-                        Err(err) => {
-                            self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch payload snapshot from {} with {}. Possible grinding attack.", peer_id, err);
+                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                        match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
+                            Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                            Err(err) => {
+                                self.peer_manager.suspect_malicious(&peer_id);
+                                warn!(target: "network", "Failed to fetch payload snapshot from {} with {}. Possible grinding attack.", peer_id, err);
+                            }
                         }
+                    } else {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
                 },
                 Message::PayloadResponse(_request_id, payload) => {
@@ -140,6 +144,25 @@ impl Protocol {
                 self.client.beacon_chain.chain.best_index() + 1,
                 connected_info.chain_state.last_index,
             );
+        }
+    }
+
+    fn get_authority_id_from_peer_id(&self, peer_id: &PeerId) -> Option<AuthorityId> {
+        if let Some(peer_info) = self.peer_manager.get_peer_info(peer_id) {
+            if let Some(account_id) = peer_info.account_id {
+                let (_, auth_map) = self.client.get_uid_to_authority_map(1);
+                auth_map.iter().find_map(|(authority_id, authority_stake)| {
+                    if authority_stake.account_id == account_id {
+                        Some(*authority_id as AuthorityId)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
@@ -226,6 +249,19 @@ impl Protocol {
             warn!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found.", peer_id);
         }
     }
+
+    fn send_payload_announce(
+        &self,
+        authority_id: AuthorityId,
+        payload: ChainPayload
+    ) {
+        if let Some(ch) = self.get_authority_channel(authority_id) {
+            let data = Encode::encode(&Message::PayloadAnnounce(payload)).unwrap();
+            forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "[SND PLD ANC] Channel for {} not found.", authority_id);
+        }
+    }
 }
 
 /// Spawn network tasks that process incoming and outgoing messages of various kind.
@@ -247,6 +283,7 @@ pub fn spawn_network(
     out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
     out_block_rx: Receiver<CoupledBlock>,
+    payload_announce_rx: Receiver<(AuthorityId, ChainPayload)>,
     payload_request_rx: Receiver<PayloadRequest>,
     payload_response_tx: Sender<ChainPayload>,
 ) {
@@ -295,6 +332,14 @@ pub fn spawn_network(
     let protocol4 = protocol.clone();
     let task = payload_request_rx.for_each(move |r| {
         protocol4.send_payload_request(r);
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    // Spawn a task that sends payload announces.
+    let protocol5 = protocol.clone();
+    let task = payload_announce_rx.for_each(move |(authority_id, payload)| {
+        protocol5.send_payload_announce(authority_id, payload);
         future::ok(())
     });
     tokio::spawn(task);

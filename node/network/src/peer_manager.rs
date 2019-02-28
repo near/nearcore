@@ -156,6 +156,17 @@ impl<T: ChainStateRetriever> PeerManager<T> {
         // TODO(??): add counter + banning (disconnect and don't connect again) flag here for given peers.
     }
 
+    /// Get `peer_id` peer information.
+    pub fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerInfo> {
+        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, _)| {
+            if info.id == *peer_id {
+                Some(info.clone())
+            } else {
+                None
+            }
+        })
+    }
+
     /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.
     pub fn get_peer_channel(&self, peer_id: &PeerId) -> Option<Sender<PeerMessage>> {
         self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {

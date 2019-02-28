@@ -57,9 +57,17 @@ pub fn start_from_client(
 
         // Launch tx gossup / payload sync.
         let (retrieve_payload_tx, retrieve_payload_rx) = channel(1024);
+        let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
-        spawn_pool(client.shard_client.pool.clone(), retrieve_payload_rx, payload_request_tx, payload_response_rx);
+        spawn_pool(
+            client.shard_client.pool.clone(),
+            retrieve_payload_rx,
+            payload_announce_tx,
+            payload_request_tx,
+            payload_response_rx,
+            network_cfg.gossip_interval,
+        );
 
         // Launch Nightshade task
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
@@ -80,6 +88,7 @@ pub fn start_from_client(
             out_gossip_rx,
             inc_block_tx,
             out_block_rx,
+            payload_announce_rx,
             payload_request_rx,
             payload_response_tx,
         );
@@ -118,7 +127,8 @@ mod tests {
 
     use crate::testing_utils::{configure_chain_spec, Node, wait};
 
-    /// Creates two nodes, one boot node and secondary node booting from it. Waits until they connect.
+    /// Creates two nodes, one boot node and secondary node booting from it.
+    /// Waits until they produce block with transfer money tx.
     #[test]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();

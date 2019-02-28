@@ -1,11 +1,13 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future;
 use futures::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc::{Receiver, Sender};
-use log::warn;
+use log::{warn, error};
+use tokio::{self, timer::Interval};
 
 use primitives::chain::{ChainPayload, PayloadRequest};
 use primitives::hash::CryptoHash;
@@ -16,8 +18,10 @@ use crate::Pool;
 pub fn spawn_pool(
     pool: Arc<Pool>,
     retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
+    payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
     payload_request_tx: Sender<PayloadRequest>,
     payload_response_rx: Receiver<ChainPayload>,
+    payload_announce_period: Duration,
 ) {
     let pool1 = pool.clone();
     let task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
@@ -35,8 +39,29 @@ pub fn spawn_pool(
     tokio::spawn(task);
 
     let pool2 = pool.clone();
+    let task = Interval::new_interval(payload_announce_period)
+        .for_each(move |_| {
+            let authority_payload = pool2.prepare_payload_announce();
+            match authority_payload {
+                Some((authority_id, payload)) => {
+                    tokio::spawn(
+                        payload_announce_tx
+                            .clone()
+                            .send((authority_id, payload))
+                            .map(|_| ())
+                            .map_err(|e| warn!(target: "pool", "Error sending message: {}", e))
+                    );
+                },
+                _ => {},
+            }
+            future::ok(())
+        })
+        .map_err(|e| error!("timer error: {}", e));
+    tokio::spawn(task);
+
+    let pool3 = pool.clone();
     let task = payload_response_rx.for_each(move |payload| {
-        match pool2.add_payload(payload) {
+        match pool3.add_payload(payload) {
             Err(e) => warn!(target: "pool", "Failed to add payload: {}", e),
             _ => {},
         };

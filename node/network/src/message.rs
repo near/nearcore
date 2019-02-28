@@ -46,7 +46,7 @@ pub enum Message {
     /// Nightshade gossip.
     Gossip(Box<Gossip>),
     /// Announce of tx/receipts between authorities.
-    PayloadGossip(ChainPayload),
+    PayloadAnnounce(ChainPayload),
     /// Request specific tx/receipts.
     PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
     /// Request payload snapshot diff.

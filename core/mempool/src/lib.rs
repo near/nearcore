@@ -1,9 +1,11 @@
 use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, RwLock};
 
+use log::info;
+
 use node_runtime::state_viewer::TrieViewer;
 use primitives::consensus::Payload;
-use primitives::types::PeerId;
+use primitives::types::AuthorityId;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::merkle::verify_path;
@@ -110,15 +112,22 @@ impl Pool {
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
+        info!("Snapshot: {:?}, hash: {:?}", snapshot, h);
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h
     }
 
     pub fn contains_payload_snapshot(&self, hash: &CryptoHash) -> bool {
+        if hash == &CryptoHash::default() {
+            return true;
+        }
         self.snapshots.write().expect(POISONED_LOCK_ERR).contains_key(hash)
     }
 
     pub fn pop_payload_snapshot(&self, hash: &CryptoHash) -> Option<ChainPayload> {
+        if hash == &CryptoHash::default() {
+            return Some(ChainPayload::default());
+        }
         self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash)
     }
 
@@ -126,9 +135,14 @@ impl Pool {
         self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
     }
 
-    /// Request payload diff for given peer.
-    pub fn snapshot_request(&self, _peer_id: PeerId, _hash: CryptoHash) -> Result<ChainPayload, String> {
+    /// Request payload diff for given authority.
+    pub fn snapshot_request(&self, _authority_id: AuthorityId, _hash: CryptoHash) -> Result<ChainPayload, String> {
         Err("Not implemented".to_string())
+    }
+
+    /// Prepares payload to gossip to peer authority.
+    pub fn prepare_payload_announce(&self) -> Option<(AuthorityId, ChainPayload)> {
+        None
     }
 
     pub fn import_block(&self, block: &SignedShardBlock) {
