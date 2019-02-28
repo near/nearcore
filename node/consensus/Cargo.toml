@@ -21,3 +21,4 @@ primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
 coroutines = { path = "../coroutines" }
 nightshade = { path = "../../core/nightshade" }
+mempool = { path = "../../core/mempool" }

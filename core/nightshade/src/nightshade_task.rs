@@ -22,6 +22,7 @@ use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State
 
 const COOLDOWN_MS: u64 = 200;
 
+#[derive(Clone, Debug)]
 pub enum Control {
     Reset {
         owner_uid: u64,

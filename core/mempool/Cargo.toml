@@ -15,3 +15,4 @@ primitives = { path = "../primitives" }
 chain = { path = "../../core/chain" }
 storage = { path = "../../core/storage"}
 node-runtime = { path = "../../node/runtime" }
+nightshade = { path = "../nightshade" }

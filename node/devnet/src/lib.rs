@@ -30,26 +30,19 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         // Create a task that receives new blocks from importer/producer
         // and send the authority information to consensus
         let (consensus_tx, consensus_rx) = channel(1024);
-        let (consensus_control_tx, consensus_control_rx) = channel(1024);
-        let (mempool_control_tx, _mempool_control_rx) = channel(1024);
+        let (mempool_control_tx, mempool_control_rx) = channel(1024);
 
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
         coroutines::ns_producer::spawn_block_producer(
             client.clone(),
             consensus_rx,
-            consensus_control_tx,
             mempool_control_tx,
             receipts_tx,
         );
 
         // Spawn consensus tasks.
-        spawn_consensus(
-            client.clone(),
-            consensus_tx,
-            consensus_control_rx,
-            devnet_cfg.block_period,
-        );
+        spawn_consensus(client.clone(), consensus_tx, mempool_control_rx, devnet_cfg.block_period);
         Ok(())
     });
 

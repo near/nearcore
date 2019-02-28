@@ -100,7 +100,7 @@ impl Protocol {
                         Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
                         Err(err) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch payload from {} with {}. Possible grinding attack.", peer_id, err);
+                            warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
                         }
                     }
                 },
@@ -110,7 +110,7 @@ impl Protocol {
                             Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
                             Err(err) => {
                                 self.peer_manager.suspect_malicious(&peer_id);
-                                warn!(target: "network", "Failed to fetch payload snapshot from {} with {}. Possible grinding attack.", peer_id, err);
+                                warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
                             }
                         }
                     } else {

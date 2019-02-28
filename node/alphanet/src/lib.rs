@@ -12,10 +12,10 @@ use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Receiver};
 
 use client::Client;
-use mempool::pool_task::spawn_pool;
-use configs::{ClientConfig, get_testnet_configs, NetworkConfig, RPCConfig};
+use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use coroutines::importer::spawn_block_importer;
 use coroutines::ns_producer::spawn_block_producer;
+use mempool::pool_task::spawn_pool;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::chain::ReceiptBlock;
@@ -55,7 +55,13 @@ pub fn start_from_client(
         let (_out_block_tx, out_block_rx) = channel(1024);
         spawn_block_importer(client.clone(), inc_block_rx);
 
-        // Launch tx gossup / payload sync.
+        // Create all the consensus channels.
+        let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
+        let (out_gossip_tx, out_gossip_rx) = channel(1024);
+        let (consensus_tx, consensus_rx) = channel(1024);
+        let (control_tx, control_rx) = channel(1024);
+
+        // Launch tx gossip / payload sync.
         let (retrieve_payload_tx, retrieve_payload_rx) = channel(1024);
         let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
@@ -64,6 +70,7 @@ pub fn start_from_client(
         spawn_pool(
             client.shard_client.pool.clone(),
             mempool_contorl_rx,
+            control_tx,
             retrieve_payload_rx,
             payload_announce_tx,
             payload_request_tx,
@@ -71,15 +78,16 @@ pub fn start_from_client(
             network_cfg.gossip_interval,
         );
 
-        // Launch Nightshade task
-        let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
-        let (out_gossip_tx, out_gossip_rx) = channel(1024);
-        let (consensus_tx, consensus_rx) = channel(1024);
-        // Create control channel and send kick-off reset signal.
-        let (control_tx, control_rx) = channel(1024);
-
-        spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx, retrieve_payload_tx);
-        spawn_block_producer(client.clone(), consensus_rx, control_tx, mempool_control_tx, receipts_tx);
+        // Launch Nightshade task.
+        spawn_nightshade_task(
+            inc_gossip_rx,
+            out_gossip_tx,
+            consensus_tx,
+            control_rx,
+            retrieve_payload_tx,
+        );
+        // Launch block producer.
+        spawn_block_producer(client.clone(), consensus_rx, mempool_control_tx, receipts_tx);
 
         // Launch Network task.
         spawn_network(
@@ -127,7 +135,7 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, Node, wait};
+    use crate::testing_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -153,9 +161,15 @@ mod tests {
             chain_spec,
         );
 
-        alice.client.shard_client.pool.add_transaction(
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.secret_key),
-        ).unwrap();
+        alice
+            .client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
+                    .sign(&alice.secret_key),
+            )
+            .unwrap();
 
         alice.start();
         bob.start();
@@ -163,25 +177,65 @@ mod tests {
         // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.client.shard_client.chain.best_block().index() >= 1
-                    && bob.client.shard_client.chain.best_block().index() >= 1
+                alice.client.shard_client.chain.best_block().index() >= 2
+                    && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
             10000,
         );
-    }
 
+        // Check that transaction and it's receipt were included.
+        let mut state_update = alice.client.shard_client.get_state_update();
+        assert_eq!(
+            alice
+                .client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"alice.near".to_string())
+                .unwrap()
+                .amount,
+            9999990
+        );
+        assert_eq!(
+            alice
+                .client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"bob.near".to_string())
+                .unwrap()
+                .amount,
+            110
+        );
+    }
 
     /// Creates two nodes, one node is ahead on blocks. Wait until the second one syncs.
     #[test]
     fn test_two_nodes_sync() {
         let chain_spec = configure_chain_spec();
-        let alice = Node::new("t2_alice", "alice.near", 1, "127.0.0.1:3002", 3032, vec![], chain_spec.clone());
-        let bob = Node::new("t2_bob", "bob.near", 2, "127.0.0.1:3003", 3033, vec![alice.node_info.clone()], chain_spec);
+        let alice = Node::new(
+            "t2_alice",
+            "alice.near",
+            1,
+            "127.0.0.1:3002",
+            3032,
+            vec![],
+            chain_spec.clone(),
+        );
+        let bob = Node::new(
+            "t2_bob",
+            "bob.near",
+            2,
+            "127.0.0.1:3003",
+            3033,
+            vec![alice.node_info.clone()],
+            chain_spec,
+        );
 
         let payload = ChainPayload { transactions: vec![], receipts: vec![] };
         let (beacon_block, shard_block) = match alice.client.try_produce_block(1, payload) {
-            BlockProductionResult::Success(beacon_block, shard_block) => (beacon_block, shard_block),
+            BlockProductionResult::Success(beacon_block, shard_block) => {
+                (beacon_block, shard_block)
+            }
             _ => panic!("Should produce block"),
         };
         alice.client.try_import_blocks(beacon_block, shard_block);
@@ -189,8 +243,6 @@ mod tests {
         alice.start();
         bob.start();
 
-        wait(|| {
-            bob.client.shard_client.chain.best_block().index() == 1
-        }, 500, 10000);
+        wait(|| bob.client.shard_client.chain.best_block().index() == 1, 500, 10000);
     }
 }

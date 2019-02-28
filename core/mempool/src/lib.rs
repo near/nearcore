@@ -6,9 +6,9 @@ use log::info;
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::consensus::Payload;
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::{hash_struct, CryptoHash};
 use primitives::merkle::verify_path;
-use primitives::transaction::{SignedTransaction, verify_transaction_signature};
+use primitives::transaction::{verify_transaction_signature, SignedTransaction};
 use primitives::types::AuthorityId;
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
@@ -36,7 +36,7 @@ pub struct Pool {
 
 impl Pool {
     pub fn new(storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
-        Pool { 
+        Pool {
             transactions: RwLock::new(HashSet::new()),
             receipts: RwLock::new(HashSet::new()),
             storage,
@@ -58,7 +58,8 @@ impl Pool {
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
-        let root = self.storage
+        let root = self
+            .storage
             .write()
             .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
@@ -70,10 +71,12 @@ impl Pool {
     }
 
     pub fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        if let Ok(Some(_)) = self.storage
+        if let Ok(Some(_)) = self
+            .storage
             .write()
             .expect(POISONED_LOCK_ERR)
-            .transaction_address(&transaction.get_hash()) {
+            .transaction_address(&transaction.get_hash())
+        {
             return Ok(());
         }
         let mut state_update = self.get_state_update();
@@ -92,10 +95,12 @@ impl Pool {
 
     pub fn add_receipt(&self, receipt: ReceiptBlock) -> Result<(), String> {
         // TODO: cache hash of receipt
-        if let Ok(Some(_)) = self.storage
+        if let Ok(Some(_)) = self
+            .storage
             .write()
             .expect(POISONED_LOCK_ERR)
-            .transaction_address(&hash_struct(&receipt)) {
+            .transaction_address(&hash_struct(&receipt))
+        {
             return Ok(());
         }
         if !verify_path(receipt.header.body.receipt_merkle_root, &receipt.path, &receipt.receipts) {
@@ -116,16 +121,9 @@ impl Pool {
     }
 
     pub fn snapshot_payload(&self) -> CryptoHash {
-        let transactions: Vec<_> = self.transactions
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .drain()
-            .collect();
-        let receipts: Vec<_> = self.receipts
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .drain()
-            .collect();
+        let transactions: Vec<_> =
+            self.transactions.write().expect(POISONED_LOCK_ERR).drain().collect();
+        let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
             return CryptoHash::default();
@@ -151,7 +149,11 @@ impl Pool {
     }
 
     /// Request payload diff for given authority.
-    pub fn snapshot_request(&self, _authority_id: AuthorityId, hash: CryptoHash) -> Result<ChainPayload, String> {
+    pub fn snapshot_request(
+        &self,
+        _authority_id: AuthorityId,
+        hash: CryptoHash,
+    ) -> Result<ChainPayload, String> {
         if let Some(value) = self.snapshots.read().expect(POISONED_LOCK_ERR).get(&hash) {
             Ok(value.clone())
         } else {
@@ -176,20 +178,16 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
-    use node_runtime::{Runtime, test_utils::generate_test_chain_spec};
+    use node_runtime::{test_utils::generate_test_chain_spec, Runtime};
     use primitives::hash::CryptoHash;
-    use primitives::signature::{SecretKey, sign};
+    use primitives::signature::{sign, SecretKey};
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
-    fn get_test_chain() -> (
-        Arc<RwLock<ShardChainStorage>>,
-        Arc<Trie>,
-        SecretKey,
-    ) {
+    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, SecretKey) {
         let (chain_spec, _, secret_key) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
         let trie = Arc::new(Trie::new(shard_storage.clone()));

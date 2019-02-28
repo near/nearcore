@@ -8,13 +8,13 @@ use primitives::aggregate_signature::BlsSecretKey;
 use primitives::test_utils::get_key_pair_from_seed;
 use primitives::types::AuthorityId;
 
-pub fn get_control(client: &Client, block_index: u64) -> (Control, MemPoolControl) {
+pub fn get_control(client: &Client, block_index: u64) -> MemPoolControl {
     // TODO: Get authorities for the correct block index. For now these are the same authorities
     // that built the first block. In other words use `block_index` instead of `mock_block_index`.
     let mock_block_index = 2;
     let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(mock_block_index);
     if owner_uid.is_none() {
-        return (Control::Stop, MemPoolControl { authority_id: 0, num_authorities: 0 });
+        return MemPoolControl { authority_id: 0, num_authorities: 0, control: Control::Stop };
     }
     let owner_uid = owner_uid.unwrap();
     let num_authorities = uid_to_authority_map.len();
@@ -44,13 +44,17 @@ pub fn get_control(client: &Client, block_index: u64) -> (Control, MemPoolContro
     let owner_secret_key = secret_keys[owner_uid as AuthorityId].clone();
     let bls_owner_secret_key = bls_secret_keys[owner_uid as AuthorityId].clone();
 
-    (Control::Reset {
-        owner_uid,
-        block_index,
-        hash: payload_hash,
-        public_keys,
-        owner_secret_key,
-        bls_public_keys,
-        bls_owner_secret_key,
-    }, MemPoolControl { authority_id: owner_uid as AuthorityId, num_authorities })
+    MemPoolControl {
+        authority_id: owner_uid as AuthorityId,
+        num_authorities,
+        control: Control::Reset {
+            owner_uid,
+            block_index,
+            hash: payload_hash,
+            public_keys,
+            owner_secret_key,
+            bls_public_keys,
+            bls_owner_secret_key,
+        },
+    }
 }
