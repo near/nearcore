@@ -86,6 +86,7 @@ pub fn start_from_client(
             control_rx,
             retrieve_payload_tx,
         );
+
         // Launch block producer.
         spawn_block_producer(client.clone(), consensus_rx, mempool_control_tx, receipts_tx);
 

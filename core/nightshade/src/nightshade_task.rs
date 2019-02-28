@@ -34,6 +34,7 @@ pub enum Control {
         bls_owner_secret_key: BlsSecretKey,
     },
     Stop,
+    PayloadConfirmation(AuthorityId, CryptoHash),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -105,7 +106,10 @@ pub struct NightshadeTask {
     /// Blocks from other authorities containing payloads. At the beginning of the consensus
     /// authorities only have their own block. It is required for an authority to endorse a block
     /// from other authority to have its block.
-    authority_blocks: Vec<Option<SignedBlockProposal>>,
+    proposals: Vec<Option<SignedBlockProposal>>,
+    /// Flags indicating if the proposing blocks can be fetched from the mempool.
+    /// Mempool task should send the signal to confirm a proposal
+    confirmed_proposals: Vec<bool>,
     nightshade: Option<Nightshade>,
     /// Block index that we are currently working on.
     block_index: Option<u64>,
@@ -141,7 +145,8 @@ impl NightshadeTask {
         retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
     ) -> Self {
         Self {
-            authority_blocks: vec![],
+            proposals: vec![],
+            confirmed_proposals: vec![],
             nightshade: None,
             block_index: None,
             public_keys: vec![],
@@ -176,21 +181,24 @@ impl NightshadeTask {
         bls_owner_secret_key: BlsSecretKey,
     ) {
         let num_authorities = public_keys.len();
+
+        self.proposals = vec![None; num_authorities];
+        self.proposals[owner_uid as usize] =
+            Some(SignedBlockProposal::new(owner_uid as usize, hash, &owner_secret_key));
+        self.confirmed_proposals = vec![false; num_authorities];
+        self.confirmed_proposals[owner_uid as usize] = true;
+        self.block_index = Some(block_index);
         self.public_keys = public_keys;
         self.owner_secret_key = Some(owner_secret_key.clone());
-        self.block_index = Some(block_index);
-        self.missing_payloads = num_authorities - 1;
-        self.authority_blocks = vec![None; num_authorities];
-        self.authority_blocks[owner_uid as usize] =
-            Some(SignedBlockProposal::new(owner_uid as usize, hash, &owner_secret_key));
-        self.consensus_reported = false;
         self.nightshade = Some(Nightshade::new(
             owner_uid as AuthorityId,
             num_authorities,
-            self.authority_blocks[owner_uid as usize].clone().unwrap().block_proposal,
+            self.proposals[owner_uid as usize].clone().unwrap().block_proposal,
             bls_public_keys,
             bls_owner_secret_key,
         ));
+        self.consensus_reported = false;
+        self.missing_payloads = num_authorities - 1;
     }
 
     fn send_state(&self, message: Message) {
@@ -219,21 +227,23 @@ impl NightshadeTask {
         // Get author of the payload inside this message
         let author = message.state.bare_state.endorses.author;
 
-        // Check we already have such payload and request it otherwise
-        if let Some(signed_block) = &self.authority_blocks[author] {
-            if signed_block.block_proposal.hash == message.state.block_hash() {
-                if let Err(e) =
-                self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
-                {
-                    warn!(target: "nightshade", "{}", e);
+        // Check if this proposal was confirmed
+        if self.confirmed_proposals[author] {
+            if let Some(signed_proposal) = &self.proposals[author] {
+                if signed_proposal.block_proposal.hash == message.state.block_hash() {
+                    if let Err(e) =
+                    self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
+                    {
+                        warn!(target: "nightshade", "{}", e);
+                    }
+                } else {
+                    self.nightshade_as_mut_ref().set_adversary(author);
                 }
             } else {
-                self.nightshade_as_mut_ref().set_adversary(author);
+                panic!("Signed proposal must exist if it was already confirmed.");
             }
         } else {
-            // TODO: This message is discarded if we haven't receive the payload yet. We can store it
-            // in a queue instead, and process it after we have the payload.
-
+            // TODO: This message is discarded if we haven't received the proposal yet.
             tokio::spawn(
                 self.retrieve_payload_tx
                     .clone()
@@ -266,7 +276,7 @@ impl NightshadeTask {
     fn send_payloads(&self, receiver_id: AuthorityId, authorities: Vec<AuthorityId>) {
         let mut payloads = Vec::new();
         for a in authorities {
-            if let Some(ref p) = self.authority_blocks[a] {
+            if let Some(ref p) = self.proposals[a] {
                 payloads.push(p.clone());
             }
         }
@@ -280,6 +290,17 @@ impl NightshadeTask {
         self.send_gossip(gossip);
     }
 
+    fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
+        let authority = signed_payload.block_proposal.author;
+        let hash = signed_payload.block_proposal.hash;
+        let task = self.retrieve_payload_tx
+            .clone()
+            .send((authority, hash))
+            .map(|_| ())
+            .map_err(move |_| error!("Failing requesting confirmation for ({},{:?})", authority, hash));
+        tokio::spawn(task);
+    }
+
     fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlockProposal>) {
         for signed_payload in payloads {
             let authority_id = signed_payload.block_proposal.author;
@@ -290,13 +311,15 @@ impl NightshadeTask {
                 continue;
             }
 
-            if let Some(ref p) = self.authority_blocks[authority_id] {
+            if let Some(ref p) = self.proposals[authority_id] {
+                // If received proposal differs from our current proposal flag him as an adversary.
                 if p.block_proposal.hash != signed_payload.block_proposal.hash {
                     self.nightshade_as_mut_ref().set_adversary(authority_id);
-                    self.authority_blocks[authority_id] = None;
+                    self.proposals[authority_id] = None;
                 }
             } else {
-                self.authority_blocks[authority_id] = Some(signed_payload);
+                self.request_payload_confirmation(&signed_payload);
+                self.proposals[authority_id] = Some(signed_payload);
                 self.missing_payloads -= 1;
             }
         }
@@ -322,7 +345,7 @@ impl NightshadeTask {
     /// TODO do it in a smarter way
     fn collect_missing_payloads(&self) {
         for authority in 0..self.nightshade.as_ref().unwrap().num_authorities {
-            if self.authority_blocks[authority].is_none() {
+            if self.proposals[authority].is_none() {
                 let gossip = Gossip::new(
                     self.nightshade.as_ref().unwrap().owner_id,
                     authority,
@@ -388,6 +411,20 @@ impl Stream for NightshadeTask {
                     }
                     // Otherwise loop until we encounter Reset command in the stream. If the stream
                     // is NotReady this will automatically park the task.
+                }
+                Ok(Async::Ready(Some(Control::PayloadConfirmation(authority_id, hash)))) => {
+                    info!(target: "nightshade", "Received confirmation for ({}, {:?})", authority_id, hash);
+                    // Check that we got confirmation for the current proposal
+                    // and not for a proposal in a previous block index
+                    if let Some(signed_block) = &self.proposals[authority_id] {
+                        if signed_block.block_proposal.hash == hash {
+                            self.confirmed_proposals[authority_id] = true;
+                        }
+                    }
+
+                    if !self.confirmed_proposals[authority_id] {
+                        warn!(target: "nightshade", "Outdated confirmation.");
+                    }
                 }
                 Ok(Async::Ready(None)) => {
                     info!(target: "nightshade", "Control channel was dropped");
