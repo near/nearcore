@@ -244,13 +244,14 @@ impl NightshadeTask {
             }
         } else {
             // TODO: This message is discarded if we haven't received the proposal yet.
-            tokio::spawn(
-                self.retrieve_payload_tx
-                    .clone()
-                    .send((author, message.state.block_hash()))
-                    .map(|_| ())
-                    .map_err(|e| error!("Error sending retrieve payload message: {}", e))
+            let gossip = Gossip::new(
+                self.owner_id(),
+                author,
+                GossipBody::PayloadRequest(vec![author]),
+                self.owner_secret_key.as_ref().unwrap(),
+                self.block_index.unwrap(),
             );
+            self.send_gossip(gossip);
         }
     }
 
