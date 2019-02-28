@@ -12,7 +12,7 @@ setup(
     packages=find_packages('src'),
     package_dir={'': 'src'},
     install_requires=[
-        'ed25519==1.4',
+        'cryptography==2.6.1',
         'protobuf==3.6.1',
         'requests==2.21.0',
     ],
