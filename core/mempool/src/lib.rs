@@ -32,6 +32,10 @@ pub struct Pool {
     num_authorities: RwLock<usize>,
     /// Map from hash of tx/receipt to hashset of authorities it is known.
     known_to: RwLock<HashMap<CryptoHash, HashSet<AuthorityId>>>,
+    /// List of requested snapshots that can't be fetched yet.
+    pending_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
+    /// List of requested snapshots that are unblocked and can be confirmed.
+    ready_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
 }
 
 impl Pool {
@@ -46,6 +50,8 @@ impl Pool {
             authority_id: RwLock::new(0),
             num_authorities: RwLock::new(0),
             known_to: RwLock::new(HashMap::new()),
+            pending_snapshots: RwLock::new(vec![]),
+            ready_snapshots: RwLock::new(vec![]),
         }
     }
 
@@ -110,6 +116,7 @@ impl Pool {
         Ok(())
     }
 
+    // TODO: Check snapshots on `pending_snapshots` which get unblocked and move them to `ready_snapshots`
     pub fn add_payload(&self, payload: ChainPayload) -> Result<(), String> {
         for transaction in payload.transactions {
             self.add_transaction(transaction)?;
@@ -173,6 +180,14 @@ impl Pool {
         for receipt in block.body.receipts.iter() {
             self.receipts.write().expect(POISONED_LOCK_ERR).remove(receipt);
         }
+    }
+
+    pub fn add_pending(&self, authority_id: AuthorityId, hash: CryptoHash) {
+        self.pending_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, hash))
+    }
+
+    pub fn ready_snapshots(&self) -> Vec<(AuthorityId, CryptoHash)> {
+        self.ready_snapshots.write().expect(POISONED_LOCK_ERR).drain(..).collect()
     }
 }
 

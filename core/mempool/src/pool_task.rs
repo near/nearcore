@@ -34,7 +34,11 @@ pub fn spawn_pool(
     payload_response_rx: Receiver<ChainPayload>,
     payload_announce_period: Duration,
 ) {
+    // Handle request from NightshadeTask for confirmation on a payload.
+    // If the payload can't be built from the mempool task to fetch necessary data is spawned and the
+    // request is stored until it is ready.
     let pool1 = pool.clone();
+    let control_tx1 = control_tx.clone();
     let task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
         if !pool1.contains_payload_snapshot(&hash) {
             tokio::spawn(
@@ -44,11 +48,21 @@ pub fn spawn_pool(
                     .map(|_| ())
                     .map_err(|e| warn!(target: "pool", "Error sending message: {}", e)),
             );
+
+            pool1.add_pending(authority_id, hash);
+        } else {
+            let send_confirmation = control_tx1
+                .clone()
+                .send(Control::PayloadConfirmation(authority_id, hash))
+                .map(|_| ())
+                .map_err(|_| error!("Fail sending control signal to nightshade"));
+            tokio::spawn(send_confirmation);
         }
         future::ok(())
     });
     tokio::spawn(task);
 
+    // Make announcements of new payloads created from this node.
     let pool2 = pool.clone();
     let task = Interval::new_interval(payload_announce_period)
         .for_each(move |_| {
@@ -66,11 +80,23 @@ pub fn spawn_pool(
         .map_err(|e| error!("Timer error: {}", e));
     tokio::spawn(task);
 
+    // Receive payload and send confirmation signal of unblocked payloads.
     let pool3 = pool.clone();
+    let control_tx2 = control_tx.clone();
     let task = payload_response_rx.for_each(move |payload| {
         if let Err(e) = pool3.add_payload(payload) {
             warn!(target: "pool", "Failed to add payload: {}", e);
         }
+
+        for (authority_id, hash) in pool3.ready_snapshots() {
+            let send_confirmation = control_tx2
+                .clone()
+                .send(Control::PayloadConfirmation(authority_id, hash))
+                .map(|_| ())
+                .map_err(|_| error!("Fail sending control signal to nightshade"));
+            tokio::spawn(send_confirmation);
+        }
+
         future::ok(())
     });
     tokio::spawn(task);
