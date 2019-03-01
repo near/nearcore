@@ -6,8 +6,8 @@ use primitives::signature::PublicKey;
 use primitives::utils::is_valid_account_id;
 use primitives::transaction::{
     AsyncCall, ReceiptTransaction, SendMoneyTransaction,
-    ReceiptBody, StakeTransaction, CreateAccountTransaction,
-    SwapKeyTransaction, AddKeyTransaction, DeleteKeyTransaction,
+    ReceiptBody, StakeTransaction, CreateAccountTransaction, CallbackInfo,
+    SwapKeyTransaction, AddKeyTransaction, DeleteKeyTransaction, CallbackResult,
 };
 use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
 use crate::{TxTotalStake, get_tx_stake_key};
@@ -91,16 +91,36 @@ pub fn staking(
 pub fn deposit(
     state_update: &mut TrieUpdate,
     amount: u64,
+    callback_info: &Option<CallbackInfo>,
+    originator_id: &AccountId,
     receiver_id: &AccountId,
+    nonce: &CryptoHash,
     receiver: &mut Account
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    receiver.amount += amount;
-    set(
-        state_update,
-        &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
-        receiver
-    );
-    Ok(vec![])
+    let mut receipts = vec![];
+    if let Some(callback_info) = callback_info {
+        let new_nonce = create_nonce_with_nonce(&nonce, 0);
+        let new_receipt = ReceiptTransaction::new(
+            receiver_id.clone(),
+            originator_id.clone(),
+            new_nonce,
+            ReceiptBody::Callback(CallbackResult::new(
+                callback_info.clone(),
+                Some(vec![]),
+            )),
+        );
+        receipts.push(new_receipt);
+    }
+
+    if amount > 0 {
+        receiver.amount += amount;
+        set(
+            state_update,
+            &account_id_to_bytes(COL_ACCOUNT, &receiver_id),
+            receiver
+        );
+    }
+    Ok(receipts)
 }
 
 pub fn create_account(

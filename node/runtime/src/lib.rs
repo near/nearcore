@@ -423,9 +423,6 @@ impl Runtime {
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| format!("cannot find contract code for account {}", receiver_id.clone()))?;
-        mana_accounting.gas_used = 0;
-        mana_accounting.mana_refund = async_call.mana;
-        mana_accounting.accounting_info = async_call.accounting_info.clone();
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -604,24 +601,22 @@ impl Runtime {
                 match &receipt.body {
                     ReceiptBody::NewCall(async_call) => {
                         amount = async_call.amount;
+                        mana_accounting.mana_refund = async_call.mana;
+                        mana_accounting.accounting_info = async_call.accounting_info.clone();
+                        callback_info = async_call.callback.clone();
                         if async_call.method_name.is_empty() {
-                            if amount > 0 {
-                                mana_accounting.mana_refund = async_call.mana;
-                                mana_accounting.accounting_info = async_call.accounting_info.clone();
-                                system::deposit(
-                                    state_update,
-                                    async_call.amount,
-                                    &receipt.receiver,
-                                    &mut receiver
-                                )
-                            } else {
-                                // Transferred amount is 0. Weird.
-                                Ok(vec![])
-                            }
+                            system::deposit(
+                                state_update,
+                                async_call.amount,
+                                &async_call.callback,
+                                &receipt.originator,
+                                &receipt.receiver,
+                                &receipt.nonce,
+                                &mut receiver
+                            )
                         } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                             Err(format!("Account {} already exists", receipt.receiver))
                         } else {
-                            callback_info = async_call.callback.clone();
                             self.apply_async_call(
                                 state_update,
                                 &async_call,
@@ -1195,6 +1190,59 @@ mod tests {
         } else {
             assert!(false);
         }
+    }
+
+    #[test]
+    fn test_deposit_with_callback() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
+        let accounting_info = AccountingInfo {
+            originator: alice_account(),
+            contract_id: Some(bob_account()),
+        };
+        let mut callback = Callback::new(
+            b"sum_with_input".to_vec(),
+            args,
+            0,
+            accounting_info.clone(),
+        );
+        callback.results.resize(1, None);
+        let callback_id = [0; 32].to_vec();
+        let mut async_call = AsyncCall::new(
+            vec![], // deposit
+            vec![],
+            1,
+            0,
+            accounting_info.clone(),
+        );
+        let callback_info = CallbackInfo::new(callback_id.clone(), 0, alice_account());
+        async_call.callback = Some(callback_info.clone());
+        let receipt = ReceiptTransaction::new(
+            alice_account(),
+            bob_account(),
+            hash(&[1, 2, 3]).into(),
+            ReceiptBody::NewCall(async_call),
+        );
+        let block_index = 1;
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut new_receipts = vec![];
+        let mut logs = vec![];
+        runtime.apply_receipt(
+            &mut state_update,
+            &receipt,
+            &mut new_receipts,
+            block_index,
+            &mut logs,
+        ).unwrap();
+        // Just callback - no refunds
+        assert_eq!(new_receipts.len(), 1);
+
+        assert_eq!(new_receipts[0].originator, bob_account());
+        assert_eq!(new_receipts[0].receiver, alice_account());
+        let callback_res = CallbackResult::new(
+            callback_info.clone(), Some(vec![])
+        );
+        assert_eq!(new_receipts[0].body, ReceiptBody::Callback(callback_res));
     }
 
     #[test]
