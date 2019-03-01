@@ -32,8 +32,14 @@ spec:
         - "-c"
         - |
           NODE_ID=${HOSTNAME##*-}
-          ./docker_command -b {{ boot_node }} --test-network-key-seed ${NODE_ID}
-
+          if [ ${NODE_ID} -eq 0 ]; then
+            ./docker_command --addr 0.0.0.0:3000 --test-network-key-seed ${NODE_ID}
+          else
+            sleep 30
+            BOOT_NODE_IP=$(host {{ boot_node_host }} | head -n 1 | cut -f4 -d ' ')
+            BOOT_NODE=${BOOT_NODE_IP}:3000/{{ boot_node_peer_id }}
+            ./docker_command --addr 0.0.0.0:3000 -b ${BOOT_NODE} --test-network-key-seed ${NODE_ID}
+          fi
 ---
 
 apiVersion: v1
