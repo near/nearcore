@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use log::info;
+use log::{info, debug};
 
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
@@ -59,12 +59,12 @@ impl Pool {
     pub fn reset(&self, control: MemPoolControl) {
         match control {
             MemPoolControl::Reset { authority_id, num_authorities, .. } => {
-                info!("MemPool reset for {}", authority_id);
+                info!(target: "mempool", "MemPool reset for {}", authority_id);
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = authority_id;
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = num_authorities;
             }
             MemPoolControl::Stop => {
-                info!("MemPool stopped");
+                info!(target: "mempool", "MemPool stopped");
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = 0;
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = 0;
             }
@@ -143,12 +143,12 @@ impl Pool {
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
-            info!("[{}] Snapshot is empty", self.authority_id.read().expect(POISONED_LOCK_ERR));
+            debug!(target: "mempool", "[{}] Snapshot is empty", self.authority_id.read().expect(POISONED_LOCK_ERR));
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
-        info!(
-            "[{}] Snapshot: {:?}, hash: {:?}",
+        debug!(target: "mempool",
+            "[{}] Snapshot: {:#?}, hash: {:?}",
             self.authority_id.read().expect(POISONED_LOCK_ERR),
             snapshot,
             h
