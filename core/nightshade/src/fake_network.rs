@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use futures::{Future, Sink, Stream};
+use futures::{Future, Sink, Stream, future};
 use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
 use log::error;
@@ -45,7 +45,7 @@ fn spawn_all(num_authorities: usize) {
             let (inc_gossips_tx, inc_gossips_rx) = mpsc::channel(1024);
             let (out_gossips_tx, out_gossips_rx) = mpsc::channel(1024);
             let (consensus_tx, consensus_rx) = mpsc::channel(1024);
-            let (retrieve_payload_tx, _retrieve_payload_rx) = mpsc::channel(1024);
+            let (retrieve_payload_tx, retrieve_payload_rx) = mpsc::channel(1024);
 
             control_tx_vec.push(control_tx.clone());
             inc_gossips_tx_vec.push(inc_gossips_tx);
@@ -85,6 +85,18 @@ fn spawn_all(num_authorities: usize) {
                         .map_err(|e| error!("Error sending control {:?}", e))
                 });
             tokio::spawn(stop_task);
+
+            let control_tx2 = control_tx.clone();
+            let retrieve_task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
+                let send_confirmation = control_tx2
+                    .clone()
+                    .send(Control::PayloadConfirmation(authority_id, hash))
+                    .map(|_| ())
+                    .map_err(|_| error!("Fail sending control signal to nightshade"));
+                tokio::spawn(send_confirmation);
+                future::ok(())
+            });
+            tokio::spawn(retrieve_task);
         }
 
         // Traffic management

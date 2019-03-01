@@ -10,6 +10,7 @@ use futures::sync::mpsc;
 use futures::try_ready;
 use log::*;
 use tokio::timer::Delay;
+use elapsed::measure_time;
 
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::aggregate_signature::BlsSecretKey;
@@ -447,8 +448,10 @@ impl Stream for NightshadeTask {
         loop {
             match self.inc_gossips.poll() {
                 Ok(Async::Ready(Some(gossip))) => {
-                    self.process_gossip(gossip);
-                    debug!(target: "nightshade", "Node: {} Current state: {:?}", self.owner_id(), self.state_as_triplet());
+                    let (elapsed, _) = measure_time(|| {
+                        self.process_gossip(gossip);
+                    });
+                    debug!(target: "nightshade", "Node: {} Current state: {:?}, elapsed = {}", self.owner_id(), self.state_as_triplet(), elapsed);
 
                     // Report as soon as possible when an authority reach consensus on some outcome
                     if !self.consensus_reported {
