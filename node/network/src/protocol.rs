@@ -106,6 +106,7 @@ impl Protocol {
                 },
                 Message::PayloadSnapshotRequest(request_id, hash) => {
                     if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                        info!("Payload snapshot request from {} for {}", authority_id, hash);
                         match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
                             Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
                             Err(err) => {

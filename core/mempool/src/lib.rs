@@ -27,7 +27,7 @@ pub struct Pool {
     state_viewer: TrieViewer,
     snapshots: RwLock<HashMap<CryptoHash, ChainPayload>>,
     /// Given MemPool's authority id.
-    authority_id: RwLock<AuthorityId>,
+    pub authority_id: RwLock<AuthorityId>,
     /// Number of authorities currently.
     num_authorities: RwLock<usize>,
     /// Map from hash of tx/receipt to hashset of authorities it is known.
@@ -57,8 +57,18 @@ impl Pool {
 
     /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
     pub fn reset(&self, control: MemPoolControl) {
-        *self.authority_id.write().expect(POISONED_LOCK_ERR) = control.authority_id;
-        *self.num_authorities.write().expect(POISONED_LOCK_ERR) = control.num_authorities;
+        match control {
+            MemPoolControl::Reset { authority_id, num_authorities, .. } => {
+                info!("MemPool reset for {}", authority_id);
+                *self.authority_id.write().expect(POISONED_LOCK_ERR) = authority_id;
+                *self.num_authorities.write().expect(POISONED_LOCK_ERR) = num_authorities;
+            }
+            MemPoolControl::Stop => {
+                info!("MemPool stopped");
+                *self.authority_id.write().expect(POISONED_LOCK_ERR) = 0;
+                *self.num_authorities.write().expect(POISONED_LOCK_ERR) = 0;
+            }
+        }
         self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
         self.known_to.write().expect(POISONED_LOCK_ERR).clear();
     }
@@ -133,10 +143,16 @@ impl Pool {
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
+            info!("[{}] Snapshot is empty", self.authority_id.read().expect(POISONED_LOCK_ERR));
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
-        info!("Snapshot: {:?}, hash: {:?}", snapshot, h);
+        info!(
+            "[{}] Snapshot: {:?}, hash: {:?}",
+            self.authority_id.read().expect(POISONED_LOCK_ERR),
+            snapshot,
+            h
+        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h
     }
@@ -164,7 +180,11 @@ impl Pool {
         if let Some(value) = self.snapshots.read().expect(POISONED_LOCK_ERR).get(&hash) {
             Ok(value.clone())
         } else {
-            Err(format!("No such payload with hash {}", hash))
+            Err(format!(
+                "[{}] No such payload with hash {}",
+                self.authority_id.read().expect(POISONED_LOCK_ERR),
+                hash
+            ))
         }
     }
 

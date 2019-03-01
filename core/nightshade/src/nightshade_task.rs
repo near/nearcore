@@ -292,6 +292,7 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
+        info!("Request payload confirmation: {:?}", signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx
@@ -303,6 +304,7 @@ impl NightshadeTask {
     }
 
     fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlockProposal>) {
+//        info!("Received payloads from {}: {:?}", sender_id, payloads);
         for signed_payload in payloads {
             let authority_id = signed_payload.block_proposal.author;
 

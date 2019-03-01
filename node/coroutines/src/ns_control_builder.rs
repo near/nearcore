@@ -3,7 +3,6 @@ use rand::{SeedableRng, XorShiftRng};
 
 use client::Client;
 use mempool::pool_task::MemPoolControl;
-use nightshade::nightshade_task::Control;
 use primitives::aggregate_signature::BlsSecretKey;
 use primitives::test_utils::get_key_pair_from_seed;
 use primitives::types::AuthorityId;
@@ -14,12 +13,10 @@ pub fn get_control(client: &Client, block_index: u64) -> MemPoolControl {
     let mock_block_index = 2;
     let (owner_uid, uid_to_authority_map) = client.get_uid_to_authority_map(mock_block_index);
     if owner_uid.is_none() {
-        return MemPoolControl { authority_id: 0, num_authorities: 0, control: Control::Stop };
+        return MemPoolControl::Stop;
     }
     let owner_uid = owner_uid.unwrap();
     let num_authorities = uid_to_authority_map.len();
-    // Each participant proposes hash of their payloads.
-    let payload_hash = client.shard_client.pool.snapshot_payload();
 
     // TODO: This is a temporary hack that generates public and secret keys
     // for all participants inside each participant.
@@ -44,17 +41,14 @@ pub fn get_control(client: &Client, block_index: u64) -> MemPoolControl {
     let owner_secret_key = secret_keys[owner_uid as AuthorityId].clone();
     let bls_owner_secret_key = bls_secret_keys[owner_uid as AuthorityId].clone();
 
-    MemPoolControl {
+    MemPoolControl::Reset {
         authority_id: owner_uid as AuthorityId,
         num_authorities,
-        control: Control::Reset {
-            owner_uid,
-            block_index,
-            hash: payload_hash,
-            public_keys,
-            owner_secret_key,
-            bls_public_keys,
-            bls_owner_secret_key,
-        },
+        owner_uid,
+        block_index,
+        public_keys,
+        owner_secret_key,
+        bls_public_keys,
+        bls_owner_secret_key,
     }
 }

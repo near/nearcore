@@ -6,11 +6,13 @@ use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::Future;
-use log::{error, warn};
+use log::{error, info, warn};
 use tokio::{self, timer::Interval};
 
+use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use primitives::chain::{ChainPayload, PayloadRequest};
 use primitives::hash::CryptoHash;
+use primitives::signature::{PublicKey, SecretKey};
 use primitives::types::AuthorityId;
 
 use nightshade::nightshade_task::Control;
@@ -18,10 +20,19 @@ use nightshade::nightshade_task::Control;
 use crate::Pool;
 
 #[derive(Clone, Debug)]
-pub struct MemPoolControl {
-    pub authority_id: AuthorityId,
-    pub num_authorities: usize,
-    pub control: Control,
+pub enum MemPoolControl {
+    Reset {
+        authority_id: AuthorityId,
+        num_authorities: usize,
+
+        owner_uid: u64,
+        block_index: u64,
+        public_keys: Vec<PublicKey>,
+        owner_secret_key: SecretKey,
+        bls_public_keys: Vec<BlsPublicKey>,
+        bls_owner_secret_key: BlsSecretKey,
+    },
+    Stop,
 }
 
 pub fn spawn_pool(
@@ -40,6 +51,12 @@ pub fn spawn_pool(
     let pool1 = pool.clone();
     let control_tx1 = control_tx.clone();
     let task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
+        info!(
+            "[{}] Payload confirmation for {} from {}",
+            pool1.authority_id.read().expect(""),
+            hash,
+            authority_id
+        );
         if !pool1.contains_payload_snapshot(&hash) {
             tokio::spawn(
                 payload_request_tx
@@ -67,6 +84,11 @@ pub fn spawn_pool(
     let task = Interval::new_interval(payload_announce_period)
         .for_each(move |_| {
             if let Some((authority_id, payload)) = pool2.prepare_payload_announce() {
+                info!(
+                    "[{}] Payload confirmed from {}",
+                    pool2.authority_id.read().expect(""),
+                    authority_id
+                );
                 tokio::spawn(
                     payload_announce_tx
                         .clone()
@@ -104,10 +126,33 @@ pub fn spawn_pool(
     let pool4 = pool.clone();
     let task = mempool_control_rx.for_each(move |control| {
         pool4.reset(control.clone());
+        let ns_control = match control {
+            MemPoolControl::Reset {
+                owner_uid,
+                block_index,
+                public_keys,
+                owner_secret_key,
+                bls_public_keys,
+                bls_owner_secret_key,
+                ..
+            } => {
+                let hash = pool4.snapshot_payload();
+                Control::Reset {
+                    owner_uid,
+                    block_index,
+                    hash,
+                    public_keys,
+                    owner_secret_key,
+                    bls_public_keys,
+                    bls_owner_secret_key,
+                }
+            }
+            MemPoolControl::Stop => Control::Stop,
+        };
         tokio::spawn(
             control_tx
                 .clone()
-                .send(control.control)
+                .send(ns_control)
                 .map(|_| ())
                 .map_err(|e| error!("Failed to send NS control: {}", e)),
         );
