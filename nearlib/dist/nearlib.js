@@ -106,24 +106,22 @@ module.exports = {
      */
     connect: async function(options = {}) {
         // construct full options objects based on params, and fill in with defaults.
-        const fullRuntimeOptions = Object.assign({
-            // default options
-            nodeUrl: (await this.getConfig()).nodeUrl || localNodeUrl,
-            deps: {
-                keyStore: new nearlib.BrowserLocalStorageKeystore(),
-                storage: window.localStorage
-            }}, options);
+        const fullRuntimeOptions = Object.assign({}, options);
         if (fullRuntimeOptions.useDevAccount) {
             fullRuntimeOptions.accountId = devAccountName;
             fullRuntimeOptions.key = devKey;
         }
+        fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
+        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new nearlib.BrowserLocalStorageKeystore(),
+        fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
         this.deps = fullRuntimeOptions.deps;
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(fullRuntimeOptions.nodeUrl));
         this.near = new nearlib.Near(nearClient);
-        if (fullRuntimeOptions.accountId) {
+        if (fullRuntimeOptions.accountId && fullRuntimeOptions.key) {
             this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key);
-        } else {
+        }
+        if (!fullRuntimeOptions.accountId) {
             await this.getOrCreateDevUser();
         }
         return this.near;
@@ -208,9 +206,7 @@ module.exports = async function sendJson(method, url, json) {
         headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
-        console.log(response);
-        console.log(await response.text());
-       // throw createError(response.status, await response.text());
+        throw createError(response.status, await response.text());
     }
     if (response.status === 204) {
         // No Content
