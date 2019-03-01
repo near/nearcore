@@ -29,6 +29,7 @@ near-protos = { path = "../../core/protos" }
 shard = { path = "../shard" }
 storage = { path = "../../core/storage", features=["test-utils"] }
 nightshade = { path = "../../core/nightshade" }
+mempool = { path = "../../core/mempool" }
 
 [features]
 test-utils = []

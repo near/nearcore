@@ -21,6 +21,7 @@ pub struct NetworkConfig {
     pub boot_nodes: Vec<PeerInfo>,
     pub reconnect_delay: Duration,
     pub gossip_interval: Duration,
+    pub tx_gossip_interval: Duration,
     pub gossip_sample_size: usize,
 }
 
@@ -63,6 +64,12 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .long("gossip-interval-ms")
             .value_name("GOSSIP_INTERVAL_MS")
             .help("Delay in ms between gossiping peers info with known peers.")
+            .default_value(DEFAULT_GOSSIP_INTERVAL_MS)
+            .takes_value(true),
+        Arg::with_name("tx_gossip_interval_ms")
+            .long("tx-gossip-interval-ms")
+            .value_name("TRANSACTIONS GOSSIP_INTERVAL_MS")
+            .help("Delay in ms between gossiping transactions to peers.")
             .default_value(DEFAULT_GOSSIP_INTERVAL_MS)
             .takes_value(true),
         Arg::with_name("gossip_sample_size")
@@ -112,6 +119,8 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         matches.value_of("reconnect_delay_ms").map(|x| x.parse::<u64>().unwrap()).unwrap();
     let gossip_interval_ms =
         matches.value_of("gossip_interval_ms").map(|x| x.parse::<u64>().unwrap()).unwrap();
+    let tx_gossip_interval_ms =
+        matches.value_of("tx_gossip_interval_ms").map(|x| x.parse::<u64>().unwrap()).unwrap();
     let gossip_sample_size =
         matches.value_of("gossip_sample_size").map(|x| x.parse::<usize>().unwrap()).unwrap();
 
@@ -129,6 +138,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         boot_nodes,
         reconnect_delay: Duration::from_millis(reconnect_delay_ms),
         gossip_interval: Duration::from_millis(gossip_interval_ms),
+        tx_gossip_interval: Duration::from_millis(tx_gossip_interval_ms),
         gossip_sample_size,
     }
 }

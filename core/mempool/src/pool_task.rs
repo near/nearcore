@@ -18,6 +18,10 @@ use primitives::types::AuthorityId;
 use nightshade::nightshade_task::Control;
 
 use crate::Pool;
+use crate::tx_gossip::TxGossip;
+use std::collections::HashSet;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Clone, Debug)]
 pub enum MemPoolControl {
@@ -43,7 +47,10 @@ pub fn spawn_pool(
     payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
     payload_request_tx: Sender<PayloadRequest>,
     payload_response_rx: Receiver<PayloadResponse>,
+    inc_tx_gossip_rx: Receiver<TxGossip>,
+    out_tx_gossip_tx: Sender<TxGossip>,
     payload_announce_period: Duration,
+    gossip_tx_period: Duration,
 ) {
     // Handle request from NightshadeTask for confirmation on a payload.
     // If the payload can't be built from the mempool task to fetch necessary data is spawned and the
@@ -175,5 +182,74 @@ pub fn spawn_pool(
         );
         future::ok(())
     });
+    tokio::spawn(task);
+
+    // Receive transaction gossips
+    let pool5 = pool.clone();
+    let task = inc_tx_gossip_rx.for_each(move |tx_gossip| {
+        // TODO: verify signature
+        if let Err(e) = pool5.add_payload_with_author(tx_gossip.payload, tx_gossip.sender_id) {
+            warn!(target: "pool", "Failed to add payload from tx gossip: {}", e);
+        }
+
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    let pool6 = pool.clone();
+    let task = Interval::new_interval(gossip_tx_period)
+        .for_each(move |_| {
+            let my_authority_id = match *pool6.authority_id.read().expect(POISONED_LOCK_ERR) {
+                Some(x) => { x },
+                None => { return future::ok(()) },
+            };
+            for their_authority_id in 0..pool6.num_authorities.read().expect(POISONED_LOCK_ERR).unwrap_or(0) {
+                if their_authority_id == my_authority_id {
+                    continue;
+                }
+                let sk = match pool6.owner_secret_key.write().expect(POISONED_LOCK_ERR).clone() {
+                    Some(sk) => sk,
+                    None => continue
+                };
+
+                let mut to_send = vec![];
+                for tx in pool6.transactions.read().expect(POISONED_LOCK_ERR).iter() {
+                    let mut locked_known_to = pool6.known_to.write().expect(POISONED_LOCK_ERR);
+                    match locked_known_to.get_mut(&tx.get_hash()) {
+                        Some(known_to) => {
+                            if !known_to.contains(&their_authority_id) {
+                                to_send.push(tx.clone());
+                                known_to.insert(their_authority_id);
+                            }
+                        },
+                        None => {
+                            to_send.push(tx.clone());
+                            let mut known_to = HashSet::new();
+                            known_to.insert(their_authority_id);
+                            locked_known_to.insert(tx.get_hash(), known_to);
+                        },
+                    }
+                }
+                if to_send.len() == 0 {
+                    continue;
+                }
+                let payload = ChainPayload{ transactions: to_send, receipts: vec![] };
+                let gossip = TxGossip::new(
+                    my_authority_id,
+                    their_authority_id,
+                    payload,
+                    sk,
+                );
+                tokio::spawn(
+                    out_tx_gossip_tx
+                        .clone()
+                        .send(gossip)
+                        .map(|_| ())
+                        .map_err(|e| warn!(target: "pool", "Error sending message: {}", e)),
+                );
+            }
+            future::ok(())
+        })
+        .map_err(|e| error!(target: "pool", "Timer error: {}", e));
     tokio::spawn(task);
 }

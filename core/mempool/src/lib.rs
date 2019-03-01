@@ -15,8 +15,13 @@ use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub mod pool_task;
+pub mod tx_gossip;
 
 use crate::pool_task::MemPoolControl;
+use primitives::signature::SecretKey;
+
+#[macro_use]
+extern crate serde_derive;
 
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
@@ -30,6 +35,7 @@ pub struct Pool {
     pub authority_id: RwLock<Option<AuthorityId>>,
     /// Number of authorities currently.
     num_authorities: RwLock<Option<usize>>,
+    owner_secret_key: RwLock<Option<SecretKey>>,
     /// Map from hash of tx/receipt to hashset of authorities it is known.
     known_to: RwLock<HashMap<CryptoHash, HashSet<AuthorityId>>>,
     /// List of requested snapshots that can't be fetched yet.
@@ -49,6 +55,7 @@ impl Pool {
             snapshots: Default::default(),
             authority_id: Default::default(),
             num_authorities: Default::default(),
+            owner_secret_key: Default::default(),
             known_to: Default::default(),
             pending_snapshots: Default::default(),
             ready_snapshots: Default::default(),
@@ -58,15 +65,17 @@ impl Pool {
     /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
     pub fn reset(&self, control: MemPoolControl) {
         match control {
-            MemPoolControl::Reset { authority_id, num_authorities, .. } => {
+            MemPoolControl::Reset { authority_id, num_authorities, owner_secret_key, .. } => {
                 info!(target: "mempool", "MemPool reset for {}", authority_id);
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = Some(authority_id);
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = Some(num_authorities);
+                *self.owner_secret_key.write().expect(POISONED_LOCK_ERR) = Some(owner_secret_key);
             }
             MemPoolControl::Stop => {
                 info!(target: "mempool", "MemPool stopped");
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = None;
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = None;
+                *self.owner_secret_key.write().expect(POISONED_LOCK_ERR) = None;
             }
         }
         self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
@@ -105,6 +114,7 @@ impl Pool {
                 originator
             ));
         }
+        self.known_to.write().expect(POISONED_LOCK_ERR).insert(transaction.get_hash(), HashSet::new());
         self.transactions.write().expect(POISONED_LOCK_ERR).insert(transaction);
         Ok(())
     }
@@ -137,9 +147,27 @@ impl Pool {
         Ok(())
     }
 
+    pub fn add_payload_with_author(&self, payload: ChainPayload, author: AuthorityId) -> Result<(), String> {
+        for transaction in payload.transactions {
+            let hash = transaction.get_hash();
+            self.add_transaction(transaction)?;
+            self.known_to
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(hash)
+                .or_insert(HashSet::new())
+                .insert(author);
+        }
+        for receipt in payload.receipts {
+            self.add_receipt(receipt)?;
+        }
+        Ok(())
+    }
+
     pub fn snapshot_payload(&self) -> CryptoHash {
         let transactions: Vec<_> =
             self.transactions.write().expect(POISONED_LOCK_ERR).drain().collect();
+        self.known_to.write().expect(POISONED_LOCK_ERR).drain();
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
@@ -188,6 +216,7 @@ impl Pool {
 
     pub fn import_block(&self, block: &SignedShardBlock) {
         for transaction in block.body.transactions.iter() {
+            self.known_to.write().expect(POISONED_LOCK_ERR).remove(&transaction.get_hash());
             self.transactions.write().expect(POISONED_LOCK_ERR).remove(transaction);
         }
         for receipt in block.body.receipts.iter() {
@@ -263,6 +292,7 @@ mod tests {
         let transaction = SignedTransaction::new(signature, tx_body);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
+        assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);
         let block = SignedShardBlock::new(
             0,
             0,
@@ -274,5 +304,6 @@ mod tests {
         );
         pool.import_block(&block);
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 0);
+        assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 0);
     }
 }

@@ -12,6 +12,7 @@ use log::{error, info, warn};
 use client::Client;
 use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
+use mempool::tx_gossip::TxGossip;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
 use primitives::network::PeerInfo;
@@ -48,6 +49,7 @@ struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip>,
+    inc_tx_gossip_tx: Sender<TxGossip>,
     inc_block_tx: Sender<CoupledBlock>,
     payload_response_tx: Sender<PayloadResponse>,
 }
@@ -71,6 +73,7 @@ impl Protocol {
                     }
                 }
                 Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
+                Message::TxGossip(gossip) => forward_msg(self.inc_tx_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
                     forward_msg(self.inc_block_tx.clone(), *block);
                 }
@@ -195,6 +198,15 @@ impl Protocol {
         }
     }
 
+    fn send_tx_gossip(&self, g: TxGossip) {
+        if let Some(ch) = self.get_authority_channel(g.receiver_id) {
+            let data = Encode::encode(&Message::TxGossip(Box::new(g))).unwrap();
+            forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
+        }
+    }
+
     fn send_block_announce(&self, b: CoupledBlock) {
         let data = Encode::encode(&Message::BlockAnnounce(Box::new(b))).unwrap();
         for ch in self.peer_manager.get_ready_channels() {
@@ -291,6 +303,8 @@ pub fn spawn_network(
     network_cfg: NetworkConfig,
     inc_gossip_tx: Sender<Gossip>,
     out_gossip_rx: Receiver<Gossip>,
+    inc_tx_gossip_tx: Sender<TxGossip>,
+    out_tx_gossip_rx: Receiver<TxGossip>,
     inc_block_tx: Sender<CoupledBlock>,
     out_block_rx: Receiver<CoupledBlock>,
     payload_announce_rx: Receiver<(AuthorityId, ChainPayload)>,
@@ -312,7 +326,7 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx, payload_response_tx });
+    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_tx_gossip_tx, inc_block_tx, payload_response_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -326,6 +340,14 @@ pub fn spawn_network(
     let protocol2 = protocol.clone();
     let task = out_gossip_rx.for_each(move |g| {
         protocol2.send_gossip(g);
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    // Spawn a task that encodes and sends outgoing gossips.
+    let protocol_tx = protocol.clone();
+    let task = out_tx_gossip_rx.for_each(move |g| {
+        protocol_tx.send_tx_gossip(g);
         future::ok(())
     });
     tokio::spawn(task);

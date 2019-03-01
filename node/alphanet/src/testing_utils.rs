@@ -73,6 +73,7 @@ impl Node {
             boot_nodes,
             reconnect_delay: Duration::from_millis(50),
             gossip_interval: Duration::from_millis(50),
+            tx_gossip_interval: Duration::from_millis(50),
             gossip_sample_size: 10,
         };
 

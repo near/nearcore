@@ -1,6 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 
 use nightshade::nightshade_task::Gossip;
+use mempool::tx_gossip::TxGossip;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
@@ -45,6 +46,8 @@ pub enum Message {
 
     /// Nightshade gossip.
     Gossip(Box<Gossip>),
+    /// Transaction gossip
+    TxGossip(Box<TxGossip>),
     /// Announce of tx/receipts between authorities.
     PayloadAnnounce(ChainPayload),
     /// Request specific tx/receipts.
