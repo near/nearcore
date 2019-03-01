@@ -1,15 +1,18 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::thread;
 use std::time::Duration;
 
+use primitives::hash::CryptoHash;
+
+use crate::message::ChainState;
+use crate::peer::{PeerState, ChainStateRetriever};
 use crate::peer_manager::PeerManager;
-use crate::peer::PeerState;
-use std::ops::Deref;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-impl PeerManager {
+impl<T> PeerManager<T> {
     pub fn count_ready_channels(&self) -> usize {
         self.all_peer_states
             .read()
@@ -23,10 +26,10 @@ impl PeerManager {
     }
 }
 
-pub fn wait_all_peers_connected(
+pub fn wait_all_peers_connected<T>(
     check_interval_ms: u64,
     max_wait_ms: u64,
-    peer_managers: &Arc<RwLock<Vec<PeerManager>>>,
+    peer_managers: &Arc<RwLock<Vec<PeerManager<T>>>>,
     expected_num_managers: usize,
 ) {
     wait(
@@ -51,5 +54,13 @@ pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
         if ms_slept > max_wait_ms {
             panic!("Timed out waiting for the condition");
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct MockChainStateRetriever {}
+impl ChainStateRetriever for MockChainStateRetriever {
+    fn get_chain_state(&self) -> ChainState {
+        ChainState { genesis_hash: CryptoHash::default(), last_index: 0 }
     }
 }

@@ -73,6 +73,12 @@ export function generateLogs(): void {
   near.log("log2");
 }
 
+export function returnHiWithLogs(): string {
+  near.log("loooog1");
+  near.log("loooog2");
+  return "Hi"
+}
+
 export function triggerAssert(): void {
   near.log("log before assert");
   assert(false, "expected to fail");

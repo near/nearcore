@@ -1,5 +1,4 @@
 import json
-import random
 
 import delegator
 from retrying import retry
@@ -43,11 +42,13 @@ class CliHelpers(object):
 
         return _wait_for_account()
 
-    def deploy_contract(self, contract_name, wasm_path):
+    def deploy_contract(self, contract_name, wasm_path=None):
         self.create_account(contract_name)
 
         command = "deploy {} {}".format(contract_name, wasm_path)
-        self.run_command(command)
+        out = self.run_command(command)
+        data = json.loads(out)
+        transaction_hash = data['hash']
 
         @retry(stop_max_attempt_number=5, wait_fixed=1000)
         def _wait_for_contract():
@@ -55,4 +56,4 @@ class CliHelpers(object):
 
         contract = _wait_for_contract()
         assert contract['account_id'] == contract_name
-        return contract
+        return contract, transaction_hash

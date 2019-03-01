@@ -6,15 +6,14 @@ use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock};
 use primitives::hash::CryptoHash;
-use primitives::signature::{sign, SecretKey as SK, DEFAULT_SIGNATURE};
+use primitives::signature::{sign, SecretKey as SK};
 use primitives::test_utils::get_key_pair_from_seed;
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
-use primitives::types::{MessageDataBody, SignedMessageData};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 const TMP_DIR: &str = "./tmp_bench/";
@@ -81,18 +80,7 @@ fn transaction_and_receipts_to_consensus(
     beacon_block_index: u64,
 ) -> ChainConsensusBlockBody {
     ChainConsensusBlockBody {
-        messages: vec![SignedMessageData {
-            owner_sig: DEFAULT_SIGNATURE,
-            hash: 0,
-            body: MessageDataBody {
-                owner_uid: 0,
-                parents: HashSet::new(),
-                epoch: 0,
-                payload: ChainPayload { transactions, receipts },
-                endorsements: vec![],
-            },
-            beacon_block_index,
-        }],
+        payload: ChainPayload { transactions, receipts },
         beacon_block_index,
     }
 }
@@ -339,6 +327,7 @@ fn set_get_values_blocks(bench: &mut Bencher) {
         for (k, v) in expected_storage.iter() {
             let state_update = client.shard_client.get_state_update();
             let best_index = client.shard_client.chain.best_index();
+            let mut logs = vec![];
             let res = client
                 .shard_client
                 .trie_viewer
@@ -348,6 +337,7 @@ fn set_get_values_blocks(bench: &mut Bencher) {
                     &CONTRACT_ID.to_string(),
                     &"getValueByKey".to_string(),
                     format!("{{\"key\":\"{}\"}}", k).as_bytes(),
+                    &mut logs,
                 )
                 .unwrap();
             let res = std::str::from_utf8(&res).unwrap();

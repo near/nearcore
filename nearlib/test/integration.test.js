@@ -160,7 +160,7 @@ describe('with deployed contract', () => {
             await nearjs.deployContract(contractName, data));
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
-            viewMethods: ['getAllKeys'],
+            viewMethods: ['getAllKeys', "returnHiWithLogs"],
             changeMethods: ['generateLogs', 'triggerAssert', 'testSetRemove']
         });
     });
@@ -177,26 +177,20 @@ describe('with deployed contract', () => {
         console.log = oldLog;
     });
 
-    test('make function calls', async () => {
-        const args = {
-            'name': 'trex'
-        };
+    test('make function calls raw', async () => {
         const viewFunctionResult = await nearjs.callViewFunction(
             contractName,
             'hello', // this is the function defined in hello.wasm file that we are calling
-            args);
+            { name: 'trex' });
         expect(viewFunctionResult).toEqual('hello trex');
 
-        var setCallValue = await generateUniqueString('setCallPrefix');
-        const setArgs = {
-            'value': setCallValue
-        };
+        const setCallValue = await generateUniqueString('setCallPrefix');
         const scheduleResult = await nearjs.scheduleFunctionCall(
             0,
             aliceAccountName,
             contractName,
             'setValue', // this is the function defined in hello.wasm file that we are calling
-            setArgs);
+            { value: setCallValue });
         expect(scheduleResult.hash).not.toBeFalsy();
         await nearjs.waitForTransactionResult(scheduleResult);
         const getValueResult = await nearjs.callViewFunction(
@@ -204,20 +198,19 @@ describe('with deployed contract', () => {
             'getValue', // this is the function defined in hello.wasm file that we are calling
             {});
         expect(getValueResult).toEqual(setCallValue);
+    });
 
+    test('make function calls wrapped', async () => {
         // test that load contract works and we can make calls afterwards
         const contract = await nearjs.loadContract(contractName, {
             viewMethods: ['hello', 'getValue'],
             changeMethods: ['setValue'],
             sender: aliceAccountName,
         });
-        const helloResult = await contract.hello(args);
+        const helloResult = await contract.hello({ name: 'trex' });
         expect(helloResult).toEqual('hello trex');
-        var setCallValue2 = await generateUniqueString('setCallPrefix');
-        const setArgs2 = {
-            'value': setCallValue2
-        };
-        const setValueResult = await contract.setValue(setArgs2);
+        const setCallValue2 = await generateUniqueString('setCallPrefix');
+        const setValueResult = await contract.setValue({ value: setCallValue2 });
         expect(setValueResult.status).toBe('Completed');
         const getValueResult2 = await contract.getValue();
         expect(getValueResult2).toEqual(setCallValue2);
@@ -226,6 +219,12 @@ describe('with deployed contract', () => {
     test('can get logs from method result', async () => {
         await contract.generateLogs();
         expect(logs).toEqual([`[${contractName}]: LOG: log1`, `[${contractName}]: LOG: log2`]);
+    });
+
+    test('can get logs from view call', async () => {
+        let result = await contract.returnHiWithLogs();
+        expect(result).toEqual('Hi');
+        expect(logs).toEqual([`[${contractName}]: LOG: loooog1`, `[${contractName}]: LOG: loooog2`]);
     });
 
     test('can get assert message from method result', async () => {

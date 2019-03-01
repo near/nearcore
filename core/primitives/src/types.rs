@@ -11,9 +11,9 @@ use crate::signature::{bs58_serializer, Signature};
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
 /// Public key alias. Used to human readable public key.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ReadablePublicKey(pub String);
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ReadableBlsPublicKey(pub String);
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -218,19 +218,6 @@ impl<P> PartialEq for SignedMessageData<P> {
 }
 
 impl<P> Eq for SignedMessageData<P> {}
-
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ConsensusBlockHeader {
-    pub body_hash: CryptoHash,
-    pub prev_block_body_hash: CryptoHash,
-}
-
-#[derive(Hash, Debug, PartialEq, Eq)]
-pub struct ConsensusBlockBody<P> {
-    /// TxFlow messages that constitute that consensus block together with the endorsements.
-    pub messages: Vec<SignedMessageData<P>>,
-    pub beacon_block_index: u64,
-}
 
 // Gossip-specific structs.
 

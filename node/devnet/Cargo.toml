@@ -6,6 +6,7 @@ edition = "2018"
 [dependencies]
 futures = "0.1.25"
 tokio = "0.1.11"
+log = "0.4"
 
 client = { path = "../../node/client" }
 configs = { path = "../configs" }

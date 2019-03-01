@@ -6,11 +6,11 @@ use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_serializer};
 use primitives::types::{
-    AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId
+    AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId,
 };
 use primitives::chain::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
 use primitives::transaction::{
-    FinalTransactionResult, SignedTransaction, TransactionResult,
+    FinalTransactionResult, SignedTransaction, TransactionResult, LogEntry,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -38,6 +38,7 @@ pub struct CallViewFunctionRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CallViewFunctionResponse {
     pub result: Vec<u8>,
+    pub logs: Vec<LogEntry>,
 }
 
 #[derive(Serialize, Deserialize)]

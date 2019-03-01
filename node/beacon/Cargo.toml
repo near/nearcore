@@ -5,6 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+log = "0.4"
 rand = "0.6.4"
 futures = "0.1"
 serde = "1.0"

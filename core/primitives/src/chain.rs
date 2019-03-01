@@ -1,7 +1,7 @@
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::hash::{hash_struct, CryptoHash};
 use super::merkle::MerklePath;
-use super::traits::Payload;
+use super::consensus::Payload;
 use super::transaction::{ReceiptTransaction, SignedTransaction};
 use super::types::{GroupSignature, MerkleHash, PartialSignature, ShardId};
 use serde_derive::{Deserialize, Serialize};
@@ -152,7 +152,7 @@ impl SignedBlock for SignedShardBlock {
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 pub struct ChainPayload {
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<ReceiptBlock>,

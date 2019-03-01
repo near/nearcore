@@ -1,8 +1,13 @@
 //! Structure that encapsulates communication, gossip, and discovery with the peers.
 
-use crate::peer::Peer;
-use crate::peer::PeerState;
-use crate::peer::{AllPeerStates, PeerMessage};
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::time::Duration;
+use std::time::Instant;
+
 use futures::future;
 use futures::future::Future;
 use futures::sink::Sink;
@@ -10,27 +15,25 @@ use futures::stream::Stream;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use log::warn;
-use primitives::network::PeerInfo;
-use primitives::types::AccountId;
-use primitives::types::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::Arc;
-use std::sync::RwLock;
-use std::time::Duration;
-use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::timer::Interval;
 
+use primitives::network::PeerInfo;
+use primitives::types::AccountId;
+use primitives::types::PeerId;
+
+use crate::peer::{AllPeerStates, ChainStateRetriever, Peer, PeerMessage, PeerState};
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub struct PeerManager {
+pub struct PeerManager<T> {
     pub all_peer_states: AllPeerStates,
+    phantom: PhantomData<T>,
 }
 
-impl PeerManager {
+impl<T: ChainStateRetriever> PeerManager<T> {
     /// Args:
     /// * `reconnect_delay`: How long should we wait before connecting a newly discovered peer or
     ///   reconnecting the old one;
@@ -41,6 +44,7 @@ impl PeerManager {
     /// * `boot_nodes`: list of verified info about boot nodes from which we can join the network;
     /// * `inc_msg_tx`: where `PeerManager` should be sending incoming messages;
     /// * `out_msg_rx`: where from `PeerManager` should be getting outgoing messages.
+    /// * `chain_state_retriever`: adapter to retrieve `ChainState`.
     pub fn new(
         reconnect_delay: Duration,
         gossip_interval: Duration,
@@ -49,6 +53,7 @@ impl PeerManager {
         boot_nodes: &Vec<PeerInfo>,
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
         out_msg_rx: Receiver<(PeerId, Vec<u8>)>,
+        chain_state_retriever: T,
     ) -> Self {
         let all_peer_states = Arc::new(RwLock::new(HashMap::new()));
         // Spawn peers that represent boot nodes.
@@ -61,6 +66,7 @@ impl PeerManager {
             reconnect_delay,
             // Connect to the boot nodes immediately.
             Instant::now(),
+            chain_state_retriever.clone(),
         );
 
         // Spawn the task that forwards outgoing messages to the appropriate peers.
@@ -129,6 +135,7 @@ impl PeerManager {
                     all_peer_states3.clone(),
                     inc_msg_tx.clone(),
                     reconnect_delay,
+                    chain_state_retriever.clone(),
                 );
                 future::ok(())
             })
@@ -136,7 +143,31 @@ impl PeerManager {
             .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
         tokio::spawn(task);
 
-        Self { all_peer_states }
+        Self { all_peer_states, phantom: PhantomData }
+    }
+
+    /// Ban this peer.
+    pub fn ban_peer(&self, _peer_id: &PeerId) {
+        // TODO(??): disconnect from this peer and don't accept connections.
+    }
+
+    /// This should be called if peer has done something wrong.
+    pub fn suspect_malicious(&self, _peer_id: &PeerId) {
+        // TODO(??): add counter + banning (disconnect and don't connect again) flag here for given peers.
+    }
+
+    /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.
+    pub fn get_peer_channel(&self, peer_id: &PeerId) -> Option<Sender<PeerMessage>> {
+        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
+            if info.id == *peer_id {
+                match state.read().expect(POISONED_LOCK_ERR).deref() {
+                    PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
     }
 
     /// Get channel for the given `account_id`, if the corresponding peer is `Ready`.
@@ -145,9 +176,7 @@ impl PeerManager {
             if info.account_id.as_ref() == Some(&account_id) {
                 match state.read().expect(POISONED_LOCK_ERR).deref() {
                     PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                    _ => {
-                        None
-                    }
+                    _ => None,
                 }
             } else {
                 None
@@ -171,22 +200,25 @@ impl PeerManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
-    use futures::future;
-    use futures::future::Future;
-    use futures::sink::Sink;
-    use futures::stream::{iter_ok, Stream};
-    use futures::sync::mpsc::channel;
-    use primitives::hash::hash_struct;
-    use primitives::network::PeerInfo;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::{Arc, RwLock};
     use std::thread;
     use std::time::Duration;
+
+    use futures::future;
+    use futures::future::Future;
+    use futures::sink::Sink;
+    use futures::stream::{iter_ok, Stream};
+    use futures::sync::mpsc::channel;
     use tokio::util::StreamExt;
-    use crate::testing_utils::{wait_all_peers_connected, wait};
+
+    use primitives::hash::hash_struct;
+    use primitives::network::PeerInfo;
+
+    use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
+    use crate::testing_utils::{wait, wait_all_peers_connected, MockChainStateRetriever};
 
     #[test]
     fn test_two_peers_boot() {
@@ -195,6 +227,7 @@ mod tests {
         let (out_msg_tx1, out_msg_rx1) = channel(1024);
         let (inc_msg_tx1, _) = channel(1024);
         let all_pms1 = all_pms.clone();
+        let chain_state_retriever = MockChainStateRetriever {};
         let task = futures::lazy(move || {
             let pm = PeerManager::new(
                 Duration::from_millis(5000),
@@ -208,6 +241,7 @@ mod tests {
                 &vec![],
                 inc_msg_tx1,
                 out_msg_rx1,
+                chain_state_retriever,
             );
             all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
             future::ok(())
@@ -218,6 +252,7 @@ mod tests {
         let (_, out_msg_rx2) = channel(1024);
         let (inc_msg_tx2, inc_msg_rx2) = channel(1024);
         let all_pms2 = all_pms.clone();
+        let chain_state_retriever = MockChainStateRetriever {};
         let task = futures::lazy(move || {
             let pm = PeerManager::new(
                 Duration::from_millis(5000),
@@ -235,6 +270,7 @@ mod tests {
                 }],
                 inc_msg_tx2,
                 out_msg_rx2,
+                chain_state_retriever,
             );
             all_pms2.write().expect(POISONED_LOCK_ERR).push(pm);
             future::ok(())
@@ -282,6 +318,7 @@ mod tests {
             v_out_msg_tx.push(out_msg_tx);
             v_inc_msg_rx.push(inc_msg_rx);
             let all_pms1 = all_pms.clone();
+            let chain_state_retriever = MockChainStateRetriever {};
             let task = futures::lazy(move || {
                 let mut boot_nodes = vec![];
                 if i != 0 {
@@ -303,6 +340,7 @@ mod tests {
                     &boot_nodes,
                     inc_msg_tx,
                     out_msg_rx,
+                    chain_state_retriever,
                 );
                 all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
                 Ok(())
@@ -335,12 +373,15 @@ mod tests {
                 let task = inc_msg_rx
                     .for_each(move |msg| {
                         let (id, data) = msg;
-                        let sender = data[0] as usize;
-                        let receiver = data[1] as usize;
-                        if hash_struct(&sender) == id && receiver == i {
-                            acc.write().expect(POISONED_LOCK_ERR).insert(data);
-                        } else {
-                            panic!("Should not happen");
+                        // Skip peer connected messages.
+                        if data.len() == 2 {
+                            let sender = data[0] as usize;
+                            let receiver = data[1] as usize;
+                            if hash_struct(&sender) == id && receiver == i {
+                                acc.write().expect(POISONED_LOCK_ERR).insert(data);
+                            } else {
+                                panic!("Should not happen");
+                            }
                         }
                         future::ok(())
                     })
