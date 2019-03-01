@@ -55,6 +55,13 @@ message DeleteKeyTransaction {
     bytes cur_key = 3;
 }
 
+message AddBlsKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes new_key = 3;
+    bytes proof_of_possession = 4;
+}
+
 message SignedTransaction {
     bytes signature = 1;
     oneof body {
@@ -66,5 +73,6 @@ message SignedTransaction {
         SwapKeyTransaction swap_key = 7;
         AddKeyTransaction add_key = 8;
         DeleteKeyTransaction delete_key = 9;
+        AddBlsKeyTransaction add_bls_key = 10;
     }
 }
