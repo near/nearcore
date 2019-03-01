@@ -13,7 +13,7 @@ use client::Client;
 use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::{ChainPayload, PayloadRequest};
+use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, AuthorityId, PeerId};
@@ -49,7 +49,7 @@ struct Protocol {
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
-    payload_response_tx: Sender<ChainPayload>,
+    payload_response_tx: Sender<PayloadResponse>,
 }
 
 impl Protocol {
@@ -119,11 +119,19 @@ impl Protocol {
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
                 },
+                Message::PayloadAnnounce(payload) => {
+                    forward_msg(self.payload_response_tx.clone(), PayloadResponse::General(payload));
+                }
                 Message::PayloadResponse(_request_id, payload) => {
                     // TODO: check request id.
-                    forward_msg(self.payload_response_tx.clone(), payload);
+                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                        info!("Payload response from {} / {}", peer_id, authority_id);
+                        forward_msg(self.payload_response_tx.clone(), PayloadResponse::BlockProposal(authority_id, payload));
+                    } else {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                    }
                 }
-                _ => (),
             },
             Err(e) => warn!(target: "network", "{}", e),
         };
@@ -243,6 +251,7 @@ impl Protocol {
         request_id: RequestId,
         payload: ChainPayload,
     ) {
+        info!("Send payload to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
@@ -286,7 +295,7 @@ pub fn spawn_network(
     out_block_rx: Receiver<CoupledBlock>,
     payload_announce_rx: Receiver<(AuthorityId, ChainPayload)>,
     payload_request_rx: Receiver<PayloadRequest>,
-    payload_response_tx: Sender<ChainPayload>,
+    payload_response_tx: Sender<PayloadResponse>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);

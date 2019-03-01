@@ -183,3 +183,8 @@ pub enum PayloadRequest {
     General(Vec<CryptoHash>, Vec<CryptoHash>),
     BlockProposal(AuthorityId, CryptoHash),
 }
+
+pub enum PayloadResponse {
+    General(ChainPayload),
+    BlockProposal(AuthorityId, ChainPayload),
+}

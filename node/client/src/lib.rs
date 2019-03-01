@@ -215,10 +215,12 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
-        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}",
+        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
             block.body.header.index,
             block.hash,
             shard_block.hash,
+            shard_block.body.transactions.len(),
+            shard_block.body.receipts.len(),
         );
         if log_enabled!(target: "client", Debug) {
             let block_receipts = get_all_receipts(shard_block.body.receipts.iter());

@@ -201,8 +201,8 @@ impl NightshadeTask {
         self.missing_payloads = num_authorities - 1;
 
         // Announce proposal to every other node in the beginning of the consensus
-        for a in (0..num_authorities).iter() {
-            if a == owner_uid {
+        for a in 0..num_authorities {
+            if a == owner_uid as usize {
                 continue;
             }
             self.send_payloads(a, vec![owner_uid as usize]);

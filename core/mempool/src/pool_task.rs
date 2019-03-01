@@ -10,7 +10,7 @@ use log::{error, info, warn};
 use tokio::{self, timer::Interval};
 
 use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use primitives::chain::{ChainPayload, PayloadRequest};
+use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
 use primitives::hash::CryptoHash;
 use primitives::signature::{PublicKey, SecretKey};
 use primitives::types::AuthorityId;
@@ -42,7 +42,7 @@ pub fn spawn_pool(
     retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
     payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
     payload_request_tx: Sender<PayloadRequest>,
-    payload_response_rx: Receiver<ChainPayload>,
+    payload_response_rx: Receiver<PayloadResponse>,
     payload_announce_period: Duration,
 ) {
     // Handle request from NightshadeTask for confirmation on a payload.
@@ -105,9 +105,14 @@ pub fn spawn_pool(
     // Receive payload and send confirmation signal of unblocked payloads.
     let pool3 = pool.clone();
     let control_tx2 = control_tx.clone();
-    let task = payload_response_rx.for_each(move |payload| {
-        if let Err(e) = pool3.add_payload(payload) {
-            warn!(target: "pool", "Failed to add payload: {}", e);
+    let task = payload_response_rx.for_each(move |payload_response| {
+        if let Err(e) = match payload_response {
+            PayloadResponse::General(payload) => pool3.add_payload(payload),
+            PayloadResponse::BlockProposal(authority_id, payload) => {
+                pool3.add_payload_snapshot(authority_id, payload)
+            }
+        } {
+            warn!("Failed to add incoming payload: {}", e);
         }
 
         for (authority_id, hash) in pool3.ready_snapshots() {

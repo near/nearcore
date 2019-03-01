@@ -206,6 +206,18 @@ impl Pool {
         self.pending_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, hash))
     }
 
+    pub fn add_payload_snapshot(
+        &self,
+        authority_id: AuthorityId,
+        payload: ChainPayload,
+    ) -> Result<(), String> {
+        // TODO: payload should be diff and then calculate the actual payload, but for now it is full.
+        let h = hash_struct(&payload);
+        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, payload);
+        self.ready_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, h));
+        Ok(())
+    }
+
     pub fn ready_snapshots(&self) -> Vec<(AuthorityId, CryptoHash)> {
         self.ready_snapshots.write().expect(POISONED_LOCK_ERR).drain(..).collect()
     }
