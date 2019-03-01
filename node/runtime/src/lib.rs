@@ -17,7 +17,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{bs58_serializer, PublicKey};
-use primitives::traits::{Decode, Encode};
+use primitives::serialize::{Decode, Encode};
 use primitives::types::{
     AccountId, AccountingInfo, AuthorityStake,
     Balance, BlockIndex, Mana,

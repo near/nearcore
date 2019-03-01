@@ -134,11 +134,10 @@ class Executor(object):
         self._kubectl_create_from_yaml(ingress_yaml)
 
     @staticmethod
-    def _generate_boot_node_address(namespace, node_index):
+    def _generate_boot_node_info(namespace, node_index):
         host_name = "node-{}.node.{}.svc.cluster.local".format(node_index, namespace)
-        port = 3000
         peer_id = b58encode(hashlib.sha256(node_index.to_bytes(32, byteorder='big')).digest()).decode('utf-8')
-        return "{}:{}/{}".format(host_name, port, peer_id)
+        return host_name, peer_id
 
     def execute(
             self,
@@ -170,7 +169,7 @@ class Executor(object):
         self._push_image(push_tag)
 
         namespace = "nearcore-{}".format(_uuid)
-        boot_node = self._generate_boot_node_address(namespace, node_index=0)
+        boot_node_host, boot_node_peer_id = self._generate_boot_node_info(namespace, node_index=0)
         print('Deploying build...')
         env = jinja2.Environment(loader=jinja2.FileSystemLoader('../k8s/'))
         template = env.get_template('run.yaml')
@@ -178,7 +177,8 @@ class Executor(object):
             namespace=namespace,
             image_tag=deploy_tag,
             node_count=node_count,
-            boot_node=boot_node,
+            boot_node_host=boot_node_host,
+            boot_node_peer_id=boot_node_peer_id,
         )
         self._kubectl_create_from_yaml(run_yaml)
 

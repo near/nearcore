@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use primitives::traits::{Payload, WitnessSelector};
+use primitives::consensus::{Payload, WitnessSelector};
 use primitives::types::UID;
 
 use super::group::{Group, GroupsPerEpoch};

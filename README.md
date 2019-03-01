@@ -8,10 +8,10 @@
 
 NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
 
-Through sharding it aims to linearly scale with number of validation nodes on the network.
+Through sharding it will linearly scale with number of validation nodes on the network.
 
-Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancement, NEAR
-makes using blockchain protocol for developers and consumers way easier compared to competitors.
+Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
+finally makes using a blockchain protocol easy for both developers and consumers.
 
 ## Quick start
 
@@ -28,17 +28,20 @@ Develop and deploy contracts without any setup required using [NEARStudio](https
 
 ## Status
 
-Project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and work items.
+This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and work items.
 
 High level milestones:
 
  - [x] DevNet: a tool with fully working State Transition + WebAssembly.
  - [ ] AlphaNet: Multi-node smart-contract platform.
  - [ ] BetaNet: Added economics and enchanced security.
- - [ ] MVB: Added goverannce module, ready for launching as Minimum Viable Blockchain.
- - [ ] Shard chains: Support for scalable sharded blockchain.
+ - [ ] TestNet: added governance module, ready to launch as MVB
+ - [ ] MainNet: Launched as Minimum Viable Blockchain.
+ - [ ] Shard chains: Support for scalable sharding.
 
 ## Development
+
+This repo contains the core NEAR Protocol node client.  It is written using the Rust language and contains a Python-based wrapper for interfacing to it.
 
 ### Setup rust
 

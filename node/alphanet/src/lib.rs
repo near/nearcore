@@ -14,16 +14,19 @@ use configs::{ClientConfig, NetworkConfig, RPCConfig};
 use network::nightshade_protocol::spawn_consensus_network;
 use nightshade::nightshade_task::{spawn_nightshade_task, Control};
 use std::sync::Arc;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 mod control_builder;
 
 pub fn start_from_configs(
     client_cfg: ClientConfig,
     network_cfg: NetworkConfig,
-    _rpc_cfg: RPCConfig,
+    rpc_cfg: RPCConfig,
 ) {
     let client = Arc::new(Client::new(&client_cfg));
     let node_task = futures::lazy(move || {
+        spawn_rpc_server_task(&rpc_cfg, client.clone());
+
         // Create control channel and send kick-off reset signal.
         let (control_tx, control_rx) = mpsc::channel(1024);
         let start_task = control_tx
@@ -40,8 +43,6 @@ pub fn start_from_configs(
 
         spawn_nightshade_task(inc_gossip_rx, out_gossip_tx, consensus_tx, control_rx);
         // Spawn the network tasks.
-        // Note, that network and RPC are using the same channels
-        // to send transactions and receipts for processing.
         spawn_consensus_network(
             Some(client_cfg.account_id),
             network_cfg,
@@ -68,4 +69,13 @@ pub fn start_from_configs(
     });
 
     tokio::run(node_task);
+}
+
+fn spawn_rpc_server_task(
+    rpc_config: &RPCConfig,
+    client: Arc<Client>,
+) {
+    let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
+    let http_api = node_http::api::HttpApi::new(client);
+    node_http::server::spawn_server(http_api, http_addr);
 }

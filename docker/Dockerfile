@@ -41,6 +41,10 @@ FROM phusion/baseimage:0.11
 # Args must be defined for every stage
 ARG PACKAGE="devnet"
 
+RUN apt-get update -qq && apt-get install -y \
+    dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /root/.local/share/nearcore && \
 	ln -s /root/.local/share/nearcore /data
 

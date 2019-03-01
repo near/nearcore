@@ -1,4 +1,4 @@
-use primitives::traits::WitnessSelector;
+use primitives::consensus::WitnessSelector;
 use primitives::types::UID;
 use rand::prelude::IteratorRandom;
 use rand::thread_rng;
