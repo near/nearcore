@@ -27,23 +27,24 @@ test('test creating default config', async () => {
 
 describe('dev connect', () => {
     let deps;
+    let options;
     beforeEach(async () => {
         const keyStore = new InMemoryKeyStore();
         const storage = createFakeStorage();   
         deps = {
             keyStore,
             storage,
-            createAccount: (async (newAccountName, newAccountPublicKey) => {
-                const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
-                await nearjs.waitForTransactionResult(createAccountResponse);
-            })
+            createAccount: dev.createAccountWithLocalNodeConnection
+        };
+        options = {
+            deps,
         };
     });
 
     test('test dev connect with no account creates a new account', async () => {
-        await dev.connect({deps});
-        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
-        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        await dev.connect(options);
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(2); // one key for dev account and one key for the new account.
+        const newAccountId = deps.storage.getItem(storageAccountIdKey);
         const viewAccountResponse = await account.viewAccount(newAccountId);
         const newAccountKeyPair = await deps.keyStore.getKey(newAccountId);
         expect(newAccountKeyPair).toBeTruthy();
@@ -61,9 +62,9 @@ describe('dev connect', () => {
     test('test dev connect with invalid account in storage creates a new account', async () => {
         // set up invalid account id in local storage
         deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
-        await dev.connect({deps});
-        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
-        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        await dev.connect(options);
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(2);
+        const newAccountId = deps.storage.getItem(storageAccountIdKey);
         const viewAccountResponse = await account.viewAccount(newAccountId);
         const newAccountKeyPair = await deps.keyStore.getKey(newAccountId);
         expect(newAccountKeyPair).toBeTruthy();
@@ -81,12 +82,12 @@ describe('dev connect', () => {
     test('test dev connect with valid account but no keys', async () => {
         // setup: connect with dev, but rmemove keys afterwards!
         deps.storage.setItem(storageAccountIdKey, await generateUniqueString('invalid'));
-        await dev.connect({deps});
-        expect(Object.keys(deps.keyStore.keys).length).toEqual(1);
-        const newAccountId = Object.keys(deps.keyStore.keys)[0];
+        await dev.connect(options);
+        expect(Object.keys(deps.keyStore.keys).length).toEqual(2);
+        const newAccountId = deps.storage.getItem(storageAccountIdKey);
         expect(deps.storage.getItem(storageAccountIdKey)).toEqual(newAccountId);
         await deps.keyStore.clear();
-        await dev.connect({deps});
+        await dev.connect(options);
         // we are expecting account to be recreated!
         expect(deps.storage.getItem(storageAccountIdKey)).not.toEqual(newAccountId);
     });
@@ -235,9 +236,9 @@ describe('with deployed contract', () => {
     });
 
     test('test set/remove', async () => {
-        const result = await contract.testSetRemove({value: "123"});
+        const result = await contract.testSetRemove({value: '123'});
         expect(result.status).toBe('Completed');
-    })
+    });
 });
 
 // Generate some unique string with a given prefix using the alice nonce. 
