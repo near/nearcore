@@ -130,8 +130,6 @@ pub struct NightshadeTask {
     retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
     /// Flag to determine if consensus was already reported in the consensus channel.
     consensus_reported: bool,
-    /// Number of payloads from other authorities that we still don't have.
-    missing_payloads: usize,
     /// Timer that determines the minimum time that we should not gossip after the given message
     /// for the sake of not spamming the network with small packages.
     cooldown_delay: Option<Delay>,
@@ -158,7 +156,6 @@ impl NightshadeTask {
             consensus_sender,
             retrieve_payload_tx,
             consensus_reported: false,
-            missing_payloads: 0,
             cooldown_delay: None,
         }
     }
@@ -199,7 +196,6 @@ impl NightshadeTask {
             bls_owner_secret_key,
         ));
         self.consensus_reported = false;
-        self.missing_payloads = num_authorities - 1;
 
         // Announce proposal to every other node in the beginning of the consensus
         for a in 0..num_authorities {
@@ -334,7 +330,6 @@ impl NightshadeTask {
             } else {
                 self.request_payload_confirmation(&signed_payload);
                 self.proposals[authority_id] = Some(signed_payload);
-                self.missing_payloads -= 1;
             }
         }
     }
