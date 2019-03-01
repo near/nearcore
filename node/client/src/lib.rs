@@ -22,7 +22,6 @@ use configs::ClientConfig;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
-use primitives::consensus::ConsensusBlockBody;
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, UID};
@@ -82,6 +81,7 @@ fn configure_logging(log_level: log::LevelFilter) {
         "wasm",
         "client",
         "memorypool",
+        "nightshade",
     ];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
@@ -117,8 +117,6 @@ fn get_storage_path(base_path: &Path) -> String {
     };
     storage_path.to_str().unwrap().to_owned()
 }
-
-pub type ChainConsensusBlockBody = ConsensusBlockBody<ChainPayload>;
 
 impl Client {
     pub fn new(config: &ClientConfig) -> Self {
@@ -178,9 +176,9 @@ impl Client {
     }
 
     // Block producer code.
-    pub fn try_produce_block(&self, body: ChainConsensusBlockBody) -> BlockProductionResult {
+    pub fn try_produce_block(&self, block_index: BlockIndex, payload: ChainPayload) -> BlockProductionResult {
         let current_index = self.beacon_chain.chain.best_block().index();
-        if body.beacon_block_index < current_index + 1 {
+        if block_index < current_index + 1 {
             // The consensus is too late, the block was already imported.
             return BlockProductionResult::LateConsensus { current_index };
         }
@@ -195,7 +193,7 @@ impl Client {
             .expect("Authorities should be present for given block to produce it");
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
             .shard_client
-            .prepare_new_block(last_block.body.header.shard_block_hash, body.payload.receipts, body.payload.transactions);
+            .prepare_new_block(last_block.body.header.shard_block_hash, payload.receipts, payload.transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
@@ -217,10 +215,12 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
-        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}",
+        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
             block.body.header.index,
             block.hash,
             shard_block.hash,
+            shard_block.body.transactions.len(),
+            shard_block.body.receipts.len(),
         );
         if log_enabled!(target: "client", Debug) {
             let block_receipts = get_all_receipts(shard_block.body.receipts.iter());

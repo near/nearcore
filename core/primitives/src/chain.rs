@@ -1,11 +1,13 @@
-use super::block_traits::{SignedBlock, SignedHeader};
-use super::hash::{hash_struct, CryptoHash};
-use super::merkle::MerklePath;
-use super::consensus::Payload;
-use super::transaction::{ReceiptTransaction, SignedTransaction};
-use super::types::{GroupSignature, MerkleHash, PartialSignature, ShardId};
-use serde_derive::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+
+use serde_derive::{Deserialize, Serialize};
+
+use super::block_traits::{SignedBlock, SignedHeader};
+use super::consensus::Payload;
+use super::hash::{CryptoHash, hash_struct};
+use super::merkle::MerklePath;
+use super::transaction::{ReceiptTransaction, SignedTransaction};
+use super::types::{AuthorityId, GroupSignature, MerkleHash, PartialSignature, ShardId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -175,4 +177,14 @@ impl Payload for ChainPayload {
     fn new() -> Self {
         Self { transactions: vec![], receipts: vec![] }
     }
+}
+
+pub enum PayloadRequest {
+    General(Vec<CryptoHash>, Vec<CryptoHash>),
+    BlockProposal(AuthorityId, CryptoHash),
+}
+
+pub enum PayloadResponse {
+    General(ChainPayload),
+    BlockProposal(AuthorityId, ChainPayload),
 }

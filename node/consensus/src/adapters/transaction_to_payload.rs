@@ -7,7 +7,7 @@ use primitives::chain::ChainPayload;
 pub fn spawn_task<T: Send + 'static>(
     receiver: Receiver<T>,
     f: fn(T) -> ChainPayload,
-    sender: Sender<ChainPayload>
+    sender: Sender<ChainPayload>,
 ) {
     let task = receiver
         .map(f)
@@ -35,7 +35,7 @@ mod tests {
             spawn_task(
                 transaction_rx,
                 |t| ChainPayload { transactions: vec![t], receipts: vec![] },
-                payload_tx
+                payload_tx,
             );
             let mut transactions = vec![];
             for i in 0..10 {

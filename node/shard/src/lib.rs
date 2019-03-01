@@ -57,7 +57,7 @@ pub struct ShardClient {
     storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
     pub trie_viewer: TrieViewer,
-    pub pool: Pool,
+    pub pool: Arc<Pool>,
 }
 
 impl ShardClient {
@@ -76,7 +76,7 @@ impl ShardClient {
 
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
-        let pool = Pool::new(storage.clone(), trie.clone());
+        let pool = Arc::new(Pool::new(storage.clone(), trie.clone()));
         Self { 
             chain,
             receipts: RwLock::new(HashMap::new()),

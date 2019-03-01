@@ -5,7 +5,7 @@ use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
 use crate::logging;
 use super::hash::{CryptoHash, hash};
-use super::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
+use super::signature::{DEFAULT_SIGNATURE, PublicKey, SecretKey, Signature, verify, sign};
 use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana,
     ManaAccounting, StructSignature, ShardId,
@@ -25,6 +25,19 @@ pub enum TransactionBody {
     AddKey(AddKeyTransaction),
     DeleteKey(DeleteKeyTransaction),
     AddBlsKey(AddBlsKeyTransaction),
+}
+
+impl TransactionBody {
+    pub fn send_money(nonce: u64, originator: &str, receiver: &str, amount: u64) -> Self {
+        TransactionBody::SendMoney(SendMoneyTransaction {
+            nonce, originator: originator.to_string(), receiver: receiver.to_string(), amount
+        })
+    }
+
+    pub fn sign(self, secret_key: &SecretKey) -> SignedTransaction {
+        let signature = sign(self.get_hash().as_ref(), secret_key);
+        SignedTransaction::new(signature, self)
+    }
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]

@@ -2,30 +2,30 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use primitives::aggregate_signature::{BlsSecretKey};
-use primitives::types::{MerkleHash, GroupSignature, AccountingInfo, AccountId};
-use primitives::traits::{ToBytes};
+use configs::ChainSpec;
+use primitives::aggregate_signature::BlsSecretKey;
+use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
+use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{get_key_pair, PublicKey, SecretKey, sign};
 use primitives::signer::InMemorySigner;
-use primitives::hash::{hash, CryptoHash};
 use primitives::test_utils::get_key_pair_from_seed;
+use primitives::traits::ToBytes;
+use primitives::transaction::{
+    AddBlsKeyTransaction, AddKeyTransaction, AsyncCall,
+    Callback, CallbackInfo, CallbackResult,
+    CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
+    ReceiptTransaction, SignedTransaction,
+    TransactionBody
+};
+use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash};
 use storage::{Trie, TrieUpdate};
 use storage::test_utils::create_trie;
-use primitives::transaction::{
-    SignedTransaction, ReceiptTransaction, TransactionBody,
-    SendMoneyTransaction, DeployContractTransaction, FunctionCallTransaction,
-    CreateAccountTransaction, ReceiptBody, Callback, AsyncCall, CallbackInfo,
-    CallbackResult, AddKeyTransaction, DeleteKeyTransaction,
-    AddBlsKeyTransaction
-};
-use primitives::chain::{SignedShardBlockHeader, ShardBlockHeader, ReceiptBlock};
 
-use configs::ChainSpec;
 use crate::state_viewer::TrieViewer;
 
 use super::{
-    ApplyResult, ApplyState, Runtime, set, callback_id_to_bytes, get, account_id_to_bytes,
-    COL_ACCOUNT, Account
+    Account, account_id_to_bytes, ApplyResult, ApplyState, callback_id_to_bytes, COL_ACCOUNT, get,
+    Runtime, set
 };
 
 pub fn alice_account() -> AccountId {
@@ -237,12 +237,7 @@ impl User {
         destination: &str,
         amount: u64
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: self.nonce,
-            originator: self.account_id.clone(),
-            receiver: destination.to_string(),
-            amount,
-        });
+        let tx_body = TransactionBody::send_money(self.nonce, &self.account_id.clone(), destination, amount);
         self.nonce += 1;
         self.send_tx(root, tx_body)
     }

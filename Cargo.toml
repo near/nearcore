@@ -9,7 +9,7 @@ name = "nearcore"
 path = "node/src/main.rs"
 
 [dependencies]
-testnet = { path = "./node/testnet" }
+alphanet = { path = "./node/alphanet" }
 
 [build-dependencies]
 protos-autogen = { path = "./protos/builder" }
@@ -20,7 +20,6 @@ members = [
     "core/mempool",
     "core/primitives",
     "core/storage",
-    "core/txflow",
     "core/nightshade",
     "core/wasm",
     "core/wasm/runtest",
@@ -36,7 +35,6 @@ members = [
     "protos/builder",
     "node/runtime",
     "node/shard",
-    "node/testnet",
     "test-utils/keygen"
 ]
 exclude = [

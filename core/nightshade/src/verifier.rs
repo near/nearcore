@@ -1,6 +1,7 @@
 use primitives::aggregate_signature::BlsPublicKey;
+use primitives::types::AuthorityId;
 
-use crate::nightshade::{AuthorityId, BareState, NSVerifyErr, State};
+use crate::nightshade::{BareState, NSVerifyErr, State};
 
 macro_rules! check_or {
     ($condition:expr, $error:expr) => {

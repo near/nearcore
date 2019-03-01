@@ -23,6 +23,8 @@ pub type AccountId = String;
 pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
+/// Authority identifier in current group.
+pub type AuthorityId = usize;
 /// Mask which authorities participated in multi sign.
 pub type AuthorityMask = Vec<bool>;
 /// Part of the signature.
@@ -218,29 +220,6 @@ impl<P> PartialEq for SignedMessageData<P> {
 }
 
 impl<P> Eq for SignedMessageData<P> {}
-
-// Gossip-specific structs.
-
-#[derive(Hash, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GossipBody<P> {
-    /// A gossip with a single `SignedMessageData` that one participant decided to share with another.
-    Unsolicited(SignedMessageData<P>),
-    /// A reply to an unsolicited gossip with the `SignedMessageData`.
-    UnsolicitedReply(SignedMessageData<P>),
-    /// A request to provide a list of `SignedMessageData`'s with the following hashes.
-    Fetch(Vec<TxFlowHash>),
-    /// A response to the fetch request providing the requested messages.
-    FetchReply(Vec<SignedMessageData<P>>),
-}
-
-/// A single unit of communication between the TxFlow participants.
-#[derive(Hash, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Gossip<P> {
-    pub sender_uid: UID,
-    pub receiver_uid: UID,
-    pub sender_sig: StructSignature,
-    pub body: GossipBody<P>,
-}
 
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]

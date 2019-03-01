@@ -6,6 +6,3 @@ mod peer_manager;
 mod protocol;
 #[cfg(test)]
 mod testing_utils;
-
-pub mod nightshade_protocol;
-

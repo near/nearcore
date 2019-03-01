@@ -1,20 +1,21 @@
-use bencher::{benchmark_group, benchmark_main, Bencher};
+use std::collections::HashMap;
+use std::path::Path;
 
-use client::{BlockProductionResult, ChainConsensusBlockBody, Client};
+use bencher::{Bencher, benchmark_group, benchmark_main};
+use serde_json::Value;
+
+use client::{BlockProductionResult, Client};
 use configs::{ChainSpec, ClientConfig};
 use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use primitives::block_traits::SignedBlock;
-use primitives::chain::{ChainPayload, ReceiptBlock};
+use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
-use primitives::signature::{sign, SecretKey as SK};
+use primitives::signature::SecretKey as SK;
 use primitives::test_utils::get_key_pair_from_seed;
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
-use serde_json::Value;
-use std::collections::HashMap;
-use std::path::Path;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
@@ -73,18 +74,6 @@ fn get_client(test_name: &str) -> (Client, SK, SK) {
     (Client::new(&cfg), alice_sk, bob_sk)
 }
 
-/// Constructs consensus block from transactions and receipt blocks.
-fn transaction_and_receipts_to_consensus(
-    transactions: Vec<SignedTransaction>,
-    receipts: Vec<ReceiptBlock>,
-    beacon_block_index: u64,
-) -> ChainConsensusBlockBody {
-    ChainConsensusBlockBody {
-        payload: ChainPayload { transactions, receipts },
-        beacon_block_index,
-    }
-}
-
 /// Produces blocks by consuming batches of transactions. Runs until all receipts are processed.
 fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
     let mut prev_receipt_blocks = vec![];
@@ -102,13 +91,9 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
         } else {
             transactions = batches.remove(0);
         }
-        let consensus = transaction_and_receipts_to_consensus(
-            transactions,
-            prev_receipt_blocks,
-            next_block_idx,
-        );
+        let payload = ChainPayload { transactions, receipts: prev_receipt_blocks };
         if let BlockProductionResult::Success(_beacon_block, shard_block) =
-            client.try_produce_block(consensus)
+            client.try_produce_block(next_block_idx, payload)
         {
             prev_receipt_blocks = client
                 .shard_client
@@ -121,12 +106,6 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
 
         next_block_idx += 1;
     }
-}
-
-fn sign_transaction(t: TransactionBody, sk: &SK) -> SignedTransaction {
-    let hash = t.get_hash();
-    let signature = sign(hash.as_ref(), sk);
-    SignedTransaction::new(signature, t)
 }
 
 /// Create transactions that would deploy the contract on the blockchain.
@@ -145,7 +124,7 @@ fn deploy_test_contract(
         public_key: contract_pk.0[..].to_vec(),
     };
     let t_create = TransactionBody::CreateAccount(t_create);
-    let t_create = sign_transaction(t_create, &deployer_sk);
+    let t_create = t_create.sign(&deployer_sk);
 
     next_nonce += 1;
 
@@ -157,7 +136,7 @@ fn deploy_test_contract(
         wasm_byte_array: wasm_binary.to_vec(),
     };
     let t_deploy = TransactionBody::DeployContract(t_deploy);
-    let t_deploy = sign_transaction(t_deploy, &contract_sk);
+    let t_deploy = t_deploy.sign(&contract_sk);
     next_nonce += 1;
 
     (t_create, t_deploy, next_nonce)
@@ -179,7 +158,7 @@ fn call_contract(
         amount: 0,
     };
     let t = TransactionBody::FunctionCall(t);
-    let t = sign_transaction(t, &deployer_sk);
+    let t = t.sign(&deployer_sk);
     next_nonce += 1;
     (t, next_nonce)
 }
@@ -230,7 +209,7 @@ fn money_transaction_blocks(bench: &mut Bencher) {
                 bob_nonce += 1;
             }
             let t = TransactionBody::SendMoney(t);
-            let t = sign_transaction(t, &sk);
+            let t = t.sign(&sk);
             hashes.push(t.body.get_hash());
             batch.push(t);
         }

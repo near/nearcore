@@ -1,21 +1,22 @@
 use std::sync::Arc;
 
-use futures::future;
-use futures::sink::Sink;
 use futures::{stream, stream::Stream};
+use futures::future;
+use futures::Future;
+use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use futures::Future;
-use log::{warn, info, error};
+use log::{error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
+use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::ChainPayload;
+use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
-use primitives::types::{AccountId, Gossip, PeerId};
+use primitives::types::{AccountId, AuthorityId, PeerId};
 
 use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
@@ -46,8 +47,9 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
-    inc_gossip_tx: Sender<Gossip<ChainPayload>>,
+    inc_gossip_tx: Sender<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
+    payload_response_tx: Sender<PayloadResponse>,
 }
 
 impl Protocol {
@@ -55,22 +57,23 @@ impl Protocol {
         match Decode::decode(&data) {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
+                    info!("Peer {} connected.", peer_id);
                     self.on_new_peer(peer_id, connected_info);
-                },
+                }
                 Message::Transaction(tx) => {
                     if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
                         error!(target: "network", "{}", e);
                     }
-                },
+                }
                 Message::Receipt(receipt) => {
                     if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
                         error!(target: "network", "{}", e);
                     }
-                },
+                }
                 Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
                     forward_msg(self.inc_block_tx.clone(), *block);
-                },
+                }
                 Message::BlockRequest(request_id, hashes) => {
                     match self.client.fetch_blocks(hashes) {
                         Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
@@ -97,11 +100,38 @@ impl Protocol {
                         Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
                         Err(err) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch payload from {} with {}. Possible grinding attack.", peer_id, err);
+                            warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
                         }
                     }
+                },
+                Message::PayloadSnapshotRequest(request_id, hash) => {
+                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                        info!("Payload snapshot request from {} for {}", authority_id, hash);
+                        match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
+                            Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                            Err(err) => {
+                                self.peer_manager.suspect_malicious(&peer_id);
+                                warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
+                            }
+                        }
+                    } else {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                    }
+                },
+                Message::PayloadAnnounce(payload) => {
+                    forward_msg(self.payload_response_tx.clone(), PayloadResponse::General(payload));
                 }
-                _ => (),
+                Message::PayloadResponse(_request_id, payload) => {
+                    // TODO: check request id.
+                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                        info!("Payload response from {} / {}", peer_id, authority_id);
+                        forward_msg(self.payload_response_tx.clone(), PayloadResponse::BlockProposal(authority_id, payload));
+                    } else {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                    }
+                }
             },
             Err(e) => warn!(target: "network", "{}", e),
         };
@@ -126,17 +156,42 @@ impl Protocol {
         }
     }
 
-    fn send_gossip(&self, g: Gossip<ChainPayload>) {
-        let auth_map = self.client.get_recent_uid_to_authority_map();
-        let out_channel = auth_map
-            .get(&g.receiver_uid)
+    fn get_authority_id_from_peer_id(&self, peer_id: &PeerId) -> Option<AuthorityId> {
+        if let Some(peer_info) = self.peer_manager.get_peer_info(peer_id) {
+            if let Some(account_id) = peer_info.account_id {
+                let (_, auth_map) = self.client.get_uid_to_authority_map(1);
+                auth_map.iter().find_map(|(authority_id, authority_stake)| {
+                    if authority_stake.account_id == account_id {
+                        Some(*authority_id as AuthorityId)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn get_authority_channel(&self, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
+        // TODO: Currently it gets the same authority map for all block indices.
+        // Update authority map, once block production and block importing is in place.
+        //        let auth_map = self.client.get_recent_uid_to_authority_map();
+        let (_, auth_map) = self.client.get_uid_to_authority_map(1);
+        auth_map
+            .get(&(authority_id as u64))
             .map(|auth| auth.account_id.clone())
-            .and_then(|account_id| self.peer_manager.get_account_channel(account_id));
-        if let Some(ch) = out_channel {
+            .and_then(|account_id| self.peer_manager.get_account_channel(account_id))
+    }
+
+    fn send_gossip(&self, g: Gossip) {
+        if let Some(ch) = self.get_authority_channel(g.receiver_id) {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND GSP] Channel for {} not found.", g.receiver_uid);
+            warn!(target: "network", "[SND GSP] Channel for {} not found.", g.receiver_id);
         }
     }
 
@@ -149,6 +204,7 @@ impl Protocol {
 
     fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: u64, til_index: u64) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
+            // TODO: make proper request ids.
             let request_id = 1;
             let data =
                 Encode::encode(&Message::BlockFetchRequest(request_id, from_index, til_index))
@@ -173,17 +229,47 @@ impl Protocol {
         }
     }
 
+    fn send_payload_request(&self, request: PayloadRequest) {
+        match request {
+            PayloadRequest::General(_transactions, _receipts) => panic!("Not implemented"),
+            PayloadRequest::BlockProposal(authority_id, hash) => {
+                // TODO: make proper request ids.
+                let request_id = 1;
+                if let Some(ch) = self.get_authority_channel(authority_id) {
+                    let data = Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
+                    forward_msg(ch, PeerMessage::Message(data));
+                } else {
+                    warn!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found", authority_id);
+                }
+            }
+        }
+    }
+
     fn send_payload_response(
         &self,
         peer_id: &PeerId,
         request_id: RequestId,
         payload: ChainPayload,
     ) {
+        info!("Send payload to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             warn!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found.", peer_id);
+        }
+    }
+
+    fn send_payload_announce(
+        &self,
+        authority_id: AuthorityId,
+        payload: ChainPayload
+    ) {
+        if let Some(ch) = self.get_authority_channel(authority_id) {
+            let data = Encode::encode(&Message::PayloadAnnounce(payload)).unwrap();
+            forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "[SND PLD ANC] Channel for {} not found.", authority_id);
         }
     }
 }
@@ -194,7 +280,7 @@ impl Protocol {
 /// * `network_cfg`: `NetworkConfig` object;
 /// * `client`: Shared Client object which we use to get the list of authorities, and use for
 ///   exporting, importing blocks;
-/// * `inc_gossip_tx`: Channel where protocol places incoming TxFlow gossip;
+/// * `inc_gossip_tx`: Channel where protocol places incoming Nightshade gossip;
 /// * `out_gossip_rx`: Channel where from protocol reads gossip that should be sent to other peers;
 /// * `inc_block_tx`: Channel where protocol places incoming blocks;
 /// * `out_blocks_rx`: Channel where from protocol reads blocks that should be sent for
@@ -203,10 +289,13 @@ pub fn spawn_network(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     client: Arc<Client>,
-    inc_gossip_tx: Sender<Gossip<ChainPayload>>,
-    out_gossip_rx: Receiver<Gossip<ChainPayload>>,
+    inc_gossip_tx: Sender<Gossip>,
+    out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
     out_block_rx: Receiver<CoupledBlock>,
+    payload_announce_rx: Receiver<(AuthorityId, ChainPayload)>,
+    payload_request_rx: Receiver<PayloadRequest>,
+    payload_response_tx: Sender<PayloadResponse>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
@@ -223,7 +312,7 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx });
+    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx, payload_response_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -248,14 +337,32 @@ pub fn spawn_network(
         future::ok(())
     });
     tokio::spawn(task);
+
+    // Spawn a task that send payload requests.
+    let protocol4 = protocol.clone();
+    let task = payload_request_rx.for_each(move |r| {
+        protocol4.send_payload_request(r);
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    // Spawn a task that sends payload announces.
+    let protocol5 = protocol.clone();
+    let task = payload_announce_rx.for_each(move |(authority_id, payload)| {
+        protocol5.send_payload_announce(authority_id, payload);
+        future::ok(())
+    });
+    tokio::spawn(task);
 }
 
 fn forward_msg<T>(ch: Sender<T>, el: T)
 where
     T: Send + 'static,
 {
-    let task =
-        ch.send(el).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
+    let task = ch
+        .send(el)
+        .map(|_| ())
+        .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
     tokio::spawn(task);
 }
 
@@ -263,6 +370,9 @@ fn forward_msgs<T>(ch: Sender<T>, els: Vec<T>)
 where
     T: Send + 'static,
 {
-    let task = ch.send_all(stream::iter_ok(els)).map(|_| ()).map_err(|e| warn!(target: "network", "Error forwarding {}", e));
+    let task = ch
+        .send_all(stream::iter_ok(els))
+        .map(|_| ())
+        .map_err(|e| warn!(target: "network", "Error forwarding messages: {}", e));
     tokio::spawn(task);
 }
