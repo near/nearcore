@@ -99,7 +99,7 @@ pub fn spawn_pool(
             }
             future::ok(())
         })
-        .map_err(|e| error!("Timer error: {}", e));
+        .map_err(|e| error!(target: "pool", "Timer error: {}", e));
     tokio::spawn(task);
 
     // Receive payload and send confirmation signal of unblocked payloads.
