@@ -182,7 +182,7 @@ mod tests {
                     && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
-            20000,
+            60000,
         );
 
         // Check that transaction and it's receipt were included.
@@ -244,6 +244,6 @@ mod tests {
         alice.start();
         bob.start();
 
-        wait(|| bob.client.shard_client.chain.best_block().index() == 1, 500, 10000);
+        wait(|| bob.client.shard_client.chain.best_block().index() >= 1, 500, 10000);
     }
 }
