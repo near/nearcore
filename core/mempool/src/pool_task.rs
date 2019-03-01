@@ -52,8 +52,9 @@ pub fn spawn_pool(
     let control_tx1 = control_tx.clone();
     let task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
         info!(
-            "[{}] Payload confirmation for {} from {}",
-            pool1.authority_id.read().expect(""),
+            target: "mempool",
+            "[{:?}] Payload confirmation for {} from {}",
+            pool1.authority_id.read().expect(crate::POISONED_LOCK_ERR),
             hash,
             authority_id
         );
@@ -63,7 +64,7 @@ pub fn spawn_pool(
                     .clone()
                     .send(PayloadRequest::BlockProposal(authority_id, hash))
                     .map(|_| ())
-                    .map_err(|e| warn!(target: "pool", "Error sending message: {}", e)),
+                    .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
             );
 
             pool1.add_pending(authority_id, hash);
@@ -72,7 +73,9 @@ pub fn spawn_pool(
                 .clone()
                 .send(Control::PayloadConfirmation(authority_id, hash))
                 .map(|_| ())
-                .map_err(|_| error!("Fail sending control signal to nightshade"));
+                .map_err(
+                    |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
+                );
             tokio::spawn(send_confirmation);
         }
         future::ok(())
@@ -85,8 +88,9 @@ pub fn spawn_pool(
         .for_each(move |_| {
             if let Some((authority_id, payload)) = pool2.prepare_payload_announce() {
                 info!(
-                    "[{}] Payload confirmed from {}",
-                    pool2.authority_id.read().expect(""),
+                    target: "mempool",
+                    "[{:?}] Payload confirmed from {}",
+                    pool2.authority_id.read().expect(crate::POISONED_LOCK_ERR),
                     authority_id
                 );
                 tokio::spawn(
@@ -94,12 +98,12 @@ pub fn spawn_pool(
                         .clone()
                         .send((authority_id, payload))
                         .map(|_| ())
-                        .map_err(|e| warn!(target: "pool", "Error sending message: {}", e)),
+                        .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
                 );
             }
             future::ok(())
         })
-        .map_err(|e| error!(target: "pool", "Timer error: {}", e));
+        .map_err(|e| error!(target: "mempool", "Timer error: {}", e));
     tokio::spawn(task);
 
     // Receive payload and send confirmation signal of unblocked payloads.
@@ -112,7 +116,7 @@ pub fn spawn_pool(
                 pool3.add_payload_snapshot(authority_id, payload)
             }
         } {
-            warn!("Failed to add incoming payload: {}", e);
+            warn!(target: "mempool", "Failed to add incoming payload: {}", e);
         }
 
         for (authority_id, hash) in pool3.ready_snapshots() {
@@ -120,7 +124,9 @@ pub fn spawn_pool(
                 .clone()
                 .send(Control::PayloadConfirmation(authority_id, hash))
                 .map(|_| ())
-                .map_err(|_| error!("Fail sending control signal to nightshade"));
+                .map_err(
+                    |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
+                );
             tokio::spawn(send_confirmation);
         }
 
@@ -159,7 +165,7 @@ pub fn spawn_pool(
                 .clone()
                 .send(ns_control)
                 .map(|_| ())
-                .map_err(|e| error!("Failed to send NS control: {}", e)),
+                .map_err(|e| error!(target: "mempool", "Failed to send NS control: {}", e)),
         );
         future::ok(())
     });
