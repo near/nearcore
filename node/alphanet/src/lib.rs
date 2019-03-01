@@ -274,6 +274,9 @@ mod tests {
         wait(|| {
             charlie.client.shard_client.chain.best_block().index() >= 3
         }, 500, 10000);
+
+        // Check that non-authority synced into the same state.
+        let mut state_update = charlie.client.shard_client.get_state_update();
         assert_eq!(
             charlie
                 .client
