@@ -199,6 +199,14 @@ impl NightshadeTask {
         ));
         self.consensus_reported = false;
         self.missing_payloads = num_authorities - 1;
+
+        // Announce proposal to every other node in the beginning of the consensus
+        for a in (0..num_authorities).iter() {
+            if a == owner_uid {
+                continue;
+            }
+            self.send_payloads(a, vec![owner_uid as usize]);
+        }
     }
 
     fn send_state(&self, message: Message) {
@@ -227,20 +235,23 @@ impl NightshadeTask {
         // Get author of the payload inside this message
         let author = message.state.bare_state.endorses.author;
 
-        // Check if this proposal was confirmed
-        if self.confirmed_proposals[author] {
-            if let Some(signed_proposal) = &self.proposals[author] {
-                if signed_proposal.block_proposal.hash == message.state.block_hash() {
+        // Check if we already receive this proposal.
+        if let Some(signed_proposal) = &self.proposals[author] {
+            if signed_proposal.block_proposal.hash == message.state.block_hash() {
+                // Check if this proposal was already confirmed by the mempool
+                if self.confirmed_proposals[author] {
                     if let Err(e) =
                     self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
                     {
                         warn!(target: "nightshade", "{}", e);
                     }
                 } else {
-                    self.nightshade_as_mut_ref().set_adversary(author);
+                    // Wait for confirmation from mempool,
+                    // request was already sent when the proposal arrived.
                 }
             } else {
-                panic!("Signed proposal must exist if it was already confirmed.");
+                // There is at least one malicious actor between the sender of this message
+                // and the original author of the payload. But we can't determine which is the bad actor.
             }
         } else {
             // TODO: This message is discarded if we haven't received the proposal yet.
@@ -304,7 +315,6 @@ impl NightshadeTask {
     }
 
     fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlockProposal>) {
-//        info!("Received payloads from {}: {:?}", sender_id, payloads);
         for signed_payload in payloads {
             let authority_id = signed_payload.block_proposal.author;
 
@@ -340,23 +350,6 @@ impl NightshadeTask {
                     state: my_state.clone(),
                 };
                 self.send_state(message);
-            }
-        }
-    }
-
-    /// We need to have the payload for anything we want to endorse
-    /// TODO do it in a smarter way
-    fn collect_missing_payloads(&self) {
-        for authority in 0..self.nightshade.as_ref().unwrap().num_authorities {
-            if self.proposals[authority].is_none() {
-                let gossip = Gossip::new(
-                    self.nightshade.as_ref().unwrap().owner_id,
-                    authority,
-                    GossipBody::PayloadRequest(vec![authority]),
-                    self.owner_secret_key.as_ref().unwrap(),
-                    self.block_index.unwrap(),
-                );
-                self.send_gossip(gossip);
             }
         }
     }
@@ -488,10 +481,6 @@ impl Stream for NightshadeTask {
         }
 
         self.gossip_state();
-
-        if self.missing_payloads > 0 {
-            self.collect_missing_payloads();
-        }
 
         let now = Instant::now();
         self.cooldown_delay = Some(Delay::new(now + Duration::from_millis(COOLDOWN_MS)));
