@@ -105,19 +105,24 @@ module.exports = {
      * @param {string} options.accountId account ID to use.
      */
     connect: async function(options = {}) {
-        if (options.useDevAccount) {
-            options.accountId = devAccountName;
-            options.key = devKey;
+        // construct full options objects based on params, and fill in with defaults.
+        const fullRuntimeOptions = Object.assign({
+            // default options
+            nodeUrl: (await this.getConfig()).nodeUrl || localNodeUrl,
+            deps: {
+                keyStore: new nearlib.BrowserLocalStorageKeystore(),
+                storage: window.localStorage
+            }}, options);
+        if (fullRuntimeOptions.useDevAccount) {
+            fullRuntimeOptions.accountId = devAccountName;
+            fullRuntimeOptions.key = devKey;
         }
-        this.deps = options.deps || {};
-        this.deps.keyStore = this.deps.keyStore || new nearlib.BrowserLocalStorageKeystore();
-        this.deps.storage = this.deps.storage || window.localStorage;
-        const nodeUrl = options.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
+        this.deps = fullRuntimeOptions.deps;
         const nearClient = new nearlib.NearClient(
-            new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(nodeUrl));
+            new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(fullRuntimeOptions.nodeUrl));
         this.near = new nearlib.Near(nearClient);
-        if (options.accountId) {
-            this.deps.keyStore.setKey(options.accountId, options.key);
+        if (fullRuntimeOptions.accountId) {
+            this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key);
         } else {
             await this.getOrCreateDevUser();
         }
@@ -151,9 +156,6 @@ module.exports = {
     get myAccountId() {
         return window.localStorage.getItem(storageAccountIdKey);
     },
-    getNear: function () {
-        return this.near;
-    },
     /**
      * Function to create an account on local node. This will not work on non-dev environments.
      */
@@ -163,6 +165,9 @@ module.exports = {
         const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, devAccountName);
         await this.near.waitForTransactionResult(createAccountResponse);
     },
+    /**
+     * Function to create an account on near-hosted devnet using contract helper. This will not work on non-dev environments.
+     */
     createAccountWithContractHelper: async function (nearConfig, newAccountId, publicKey) {
         return await sendJson('POST', `${nearConfig.baseUrl}/account`, {
             newAccountId: newAccountId,
@@ -203,7 +208,9 @@ module.exports = async function sendJson(method, url, json) {
         headers: { 'Content-type': 'application/json; charset=utf-8' }
     });
     if (!response.ok) {
-        throw createError(response.status, await response.text());
+        console.log(response);
+        console.log(await response.text());
+       // throw createError(response.status, await response.text());
     }
     if (response.status === 204) {
         // No Content
