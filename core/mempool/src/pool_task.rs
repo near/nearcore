@@ -142,6 +142,12 @@ pub fn spawn_pool(
                 ..
             } => {
                 let hash = pool4.snapshot_payload();
+                info!(
+                    target: "mempool",
+                    "[{}] Mempool snapshot hash: {:?}",
+                    pool4.authority_id.read().expect(crate::POISONED_LOCK_ERR),
+                    hash
+                );
                 Control::Reset {
                     owner_uid,
                     block_index,

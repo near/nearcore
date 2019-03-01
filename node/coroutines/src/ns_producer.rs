@@ -9,8 +9,9 @@ use client::BlockProductionResult;
 use client::Client;
 use mempool::pool_task::MemPoolControl;
 use nightshade::nightshade::ConsensusBlockProposal;
+use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::ReceiptBlock;
+use primitives::chain::{ReceiptBlock, SignedShardBlock};
 
 use crate::ns_control_builder::get_control;
 
@@ -26,7 +27,7 @@ fn spawn_start_proposal(
     let mempool_reset = mempool_control_tx
         .send(mempool_control)
         .map(|_| ())
-        .map_err(|e| error!("Error sending mempool control: {:?}", e));
+        .map_err(|e| error!(target: "consensus", "Error sending mempool control: {:?}", e));
     tokio::spawn(mempool_reset);
 }
 
@@ -35,6 +36,7 @@ pub fn spawn_block_producer(
     consensus_rx: Receiver<ConsensusBlockProposal>,
     mempool_control_tx: Sender<MemPoolControl>,
     receipts_tx: Sender<ReceiptBlock>,
+    out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     // Send proposal for the first block
     spawn_start_proposal(client.clone(), 1, mempool_control_tx.clone());
@@ -54,12 +56,19 @@ pub fn spawn_block_producer(
                                     .clone()
                                     .send(receipt_block)
                                     .map(|_| ())
-                                    .map_err(|e| error!("Error sending receipts from produced block: {}", e))
+                                    .map_err(|e| error!(target: "consensus", "Error sending receipts from produced block: {}", e))
                             );
                         }
 
+                        let next_index = new_beacon_block.header().index() + 1;
+
+                        // Send block announcement.
+                        tokio::spawn(
+                            out_block_tx.clone().send((new_beacon_block, new_shard_block)).map(|_| ()).map_err(|e| error!(target: "consensus", "Error sending block announcement: {}", e))
+                        );
+
                         // Send proposal for the next block
-                        spawn_start_proposal(client.clone(), new_beacon_block.header().index() + 1, mempool_control_tx.clone());
+                        spawn_start_proposal(client.clone(), next_index, mempool_control_tx.clone());
                     }
             } else {
                 // Assumption: This else should never be reached, if an authority achieves consensus on some block hash

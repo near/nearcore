@@ -143,16 +143,9 @@ impl Pool {
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
-            info!("[{}] Snapshot is empty", self.authority_id.read().expect(POISONED_LOCK_ERR));
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
-        info!(
-            "[{}] Snapshot: {:?}, hash: {:?}",
-            self.authority_id.read().expect(POISONED_LOCK_ERR),
-            snapshot,
-            h
-        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h
     }

@@ -31,6 +31,7 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         // and send the authority information to consensus
         let (consensus_tx, consensus_rx) = channel(1024);
         let (mempool_control_tx, mempool_control_rx) = channel(1024);
+        let (out_block_tx, out_block_rx) = channel(1024);
 
         // Block producer is also responsible for re-submitting receipts from the previous block
         // into the next block.
@@ -39,10 +40,14 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             consensus_rx,
             mempool_control_tx,
             receipts_tx,
+            out_block_tx
         );
 
         // Spawn consensus tasks.
         spawn_consensus(client.clone(), consensus_tx, mempool_control_rx, devnet_cfg.block_period);
+
+        // Spawn empty block announcement task.
+        tokio::spawn(out_block_rx.for_each(|(_, _)| { future::ok(())}));
         Ok(())
     });
 

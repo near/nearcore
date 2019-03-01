@@ -64,7 +64,7 @@ impl Node {
             account_id: String::from(account_id),
             public_key: None,
             chain_spec,
-            log_level: log::LevelFilter::Debug,
+            log_level: log::LevelFilter::Info,
         };
 
         let network_cfg = NetworkConfig {
