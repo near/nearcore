@@ -3,9 +3,10 @@ use crate::types::ReadableBlsPublicKey;
 use bs58;
 use pairing::{
     CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
-    PrimeFieldRepr,
+    PrimeFieldRepr, Rand,
 };
-use rand::{OsRng, Rand, Rng};
+use rand::Rng;
+use rand::rngs::OsRng;
 use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
@@ -373,11 +374,12 @@ pub type BlsAggregateSignature = AggregateSignature<Bls12>;
 mod tests {
     use super::*;
 
-    use rand::{SeedableRng, XorShiftRng};
+    use rand::{SeedableRng};
+    use rand_xorshift::XorShiftRng;
 
     #[test]
     fn sign_verify() {
-        let mut rng = XorShiftRng::from_seed([11111111, 22222222, 33333333, 44444444]);
+        let mut rng = XorShiftRng::seed_from_u64(1);
 
         let secret = (0..2).map(|_| BlsSecretKey::generate_from_rng(&mut rng)).collect::<Vec<_>>();
         let pubkey = (0..2).map(|i| secret[i].get_public_key()).collect::<Vec<_>>();
@@ -398,7 +400,7 @@ mod tests {
 
     #[test]
     fn proof_verify() {
-        let mut rng = XorShiftRng::from_seed([22222222, 33333333, 44444444, 55555555]);
+        let mut rng = XorShiftRng::seed_from_u64(2);
 
         let secret = (0..2).map(|_| BlsSecretKey::generate_from_rng(&mut rng)).collect::<Vec<_>>();
         let pubkey = (0..2).map(|i| secret[i].get_public_key()).collect::<Vec<_>>();
@@ -417,7 +419,7 @@ mod tests {
 
     #[test]
     fn aggregate_signature() {
-        let mut rng = XorShiftRng::from_seed([33333333, 44444444, 55555555, 66666666]);
+        let mut rng = XorShiftRng::seed_from_u64(3);
 
         let secret = (0..10).map(|_| BlsSecretKey::generate_from_rng(&mut rng)).collect::<Vec<_>>();
 
