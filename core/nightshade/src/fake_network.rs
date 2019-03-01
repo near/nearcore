@@ -45,6 +45,7 @@ fn spawn_all(num_authorities: usize) {
             let (inc_gossips_tx, inc_gossips_rx) = mpsc::channel(1024);
             let (out_gossips_tx, out_gossips_rx) = mpsc::channel(1024);
             let (consensus_tx, consensus_rx) = mpsc::channel(1024);
+            let (retrieve_payload_tx, _retrieve_payload_rx) = mpsc::channel(1024);
 
             control_tx_vec.push(control_tx.clone());
             inc_gossips_tx_vec.push(inc_gossips_tx);
@@ -52,7 +53,7 @@ fn spawn_all(num_authorities: usize) {
             consensus_rx_vec.push(consensus_rx);
 
             let task: NightshadeTask =
-                NightshadeTask::new(inc_gossips_rx, out_gossips_tx, control_rx, consensus_tx);
+                NightshadeTask::new(inc_gossips_rx, out_gossips_tx, control_rx, consensus_tx, retrieve_payload_tx);
 
             tokio::spawn(task.for_each(|_| Ok(())));
 

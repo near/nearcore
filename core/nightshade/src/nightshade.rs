@@ -468,6 +468,7 @@ impl Nightshade {
 mod tests {
     use rand::{SeedableRng, XorShiftRng};
 
+    use primitives::hash::hash_struct;
     use primitives::aggregate_signature::AggregateSignature;
 
     use super::*;
