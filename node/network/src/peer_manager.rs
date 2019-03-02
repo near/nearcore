@@ -123,25 +123,27 @@ impl<T: ChainStateRetriever> PeerManager<T> {
             .map_err(|e| warn!(target: "network", "Error gossiping peers info {}", e));
         tokio::spawn(task);
 
-        // Spawn the task that listens to incoming connections.
-        let all_peer_states3 = all_peer_states.clone();
-        let task = TcpListener::bind(&node_info.addr)
-            .expect("Cannot listen to the address")
-            .incoming()
-            .for_each(move |socket| {
-                Peer::spawn_incoming_conn(
-                    node_info.clone(),
-                    socket,
-                    all_peer_states3.clone(),
-                    inc_msg_tx.clone(),
-                    reconnect_delay,
-                    chain_state_retriever.clone(),
-                );
-                future::ok(())
-            })
-            .map(|_| ())
-            .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
-        tokio::spawn(task);
+        // Spawn the task that listens to incoming connections if address is specified.
+        if node_info.addr.is_some() {
+            let all_peer_states3 = all_peer_states.clone();
+            let task = TcpListener::bind(&node_info.addr.unwrap())
+                .expect("Cannot listen to the address")
+                .incoming()
+                .for_each(move |socket| {
+                    Peer::spawn_incoming_conn(
+                        node_info.clone(),
+                        socket,
+                        all_peer_states3.clone(),
+                        inc_msg_tx.clone(),
+                        reconnect_delay,
+                        chain_state_retriever.clone(),
+                    );
+                    future::ok(())
+                })
+                .map(|_| ())
+                .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
+            tokio::spawn(task);
+        }
 
         Self { all_peer_states, phantom: PhantomData }
     }
