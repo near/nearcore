@@ -16,7 +16,7 @@ use tokio::timer::Delay;
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signature::{PublicKey, Signature, verify};
-use primitives::traits::Signer;
+use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
@@ -65,7 +65,7 @@ impl Gossip {
         sender_id: AuthorityId,
         receiver_id: AuthorityId,
         body: GossipBody,
-        signer: Arc<Signer>,
+        signer: Arc<BlockSigner>,
         block_index: u64,
     ) -> Self {
         let hash = hash_struct(&(sender_id, receiver_id, &body));
@@ -89,7 +89,7 @@ pub struct SignedBlockProposal {
 }
 
 impl SignedBlockProposal {
-    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<Signer>) -> Self {
+    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
         let block_proposal = BlockProposal { author, hash };
         let signature = signer.sign(block_proposal.hash.as_ref());
 
@@ -103,7 +103,7 @@ impl SignedBlockProposal {
 
 pub struct NightshadeTask {
     /// Signer.
-    signer: Arc<Signer>,
+    signer: Arc<BlockSigner>,
     /// Blocks from other authorities containing payloads. At the beginning of the consensus
     /// authorities only have their own block. It is required for an authority to endorse a block
     /// from other authority to have its block.
@@ -137,7 +137,7 @@ pub struct NightshadeTask {
 
 impl NightshadeTask {
     pub fn new(
-        signer: Arc<Signer>,
+        signer: Arc<BlockSigner>,
         inc_gossips: mpsc::Receiver<Gossip>,
         out_gossips: mpsc::Sender<Gossip>,
         control_receiver: mpsc::Receiver<Control>,
@@ -486,7 +486,7 @@ impl Stream for NightshadeTask {
 }
 
 pub fn spawn_nightshade_task(
-    signer: Arc<Signer>,
+    signer: Arc<BlockSigner>,
     inc_gossip_rx: mpsc::Receiver<Gossip>,
     out_gossip_tx: mpsc::Sender<Gossip>,
     consensus_tx: mpsc::Sender<ConsensusBlockProposal>,

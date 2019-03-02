@@ -14,8 +14,7 @@ use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use primitives::network::PeerInfo;
-use primitives::signature::SecretKey;
-use primitives::test_utils::get_key_pair_from_seed;
+use primitives::signer::InMemorySigner;
 
 use crate::start_from_client;
 
@@ -33,7 +32,6 @@ pub struct Node {
     pub client_cfg: ClientConfig,
     pub network_cfg: NetworkConfig,
     pub rpc_cfg: RPCConfig,
-    pub secret_key: SecretKey,
 }
 
 impl Node {
@@ -78,9 +76,14 @@ impl Node {
 
         let rpc_cfg = RPCConfig { rpc_port };
 
-        let client = Arc::new(Client::new(&client_cfg));
-        let (_, secret_key) = get_key_pair_from_seed(account_id);
-        Node { client, node_info, client_cfg, network_cfg, rpc_cfg, secret_key }
+        let signer = Arc::new(InMemorySigner::from_seed(&account_id, &account_id));
+        let client = Arc::new(Client::new_with_signer(&client_cfg, signer));
+        Node { client, node_info, client_cfg, network_cfg, rpc_cfg }
+    }
+
+    #[inline]
+    pub fn signer(&self) -> Arc<InMemorySigner> {
+        self.client.signer.clone()
     }
 
     pub fn start(&self) {

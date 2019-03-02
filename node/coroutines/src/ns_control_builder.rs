@@ -1,10 +1,6 @@
 //! Constructs control for Nightshade using the current Client state.
-use rand::{SeedableRng, XorShiftRng};
-
 use client::Client;
 use mempool::pool_task::MemPoolControl;
-use primitives::aggregate_signature::BlsSecretKey;
-use primitives::test_utils::get_key_pair_from_seed;
 use primitives::types::AuthorityId;
 
 pub fn get_control(client: &Client, block_index: u64) -> MemPoolControl {
@@ -21,14 +17,13 @@ pub fn get_control(client: &Client, block_index: u64) -> MemPoolControl {
     let mut public_keys = vec![];
     let mut bls_public_keys = vec![];
     for i in 0..num_authorities {
-        public_keys.push(uid_to_authority_map[i].public_key);
-        bls_public_keys.push(uid_to_authority_map[i].bls_public_key);
+        public_keys.push(uid_to_authority_map[&(i as u64)].public_key);
+        bls_public_keys.push(uid_to_authority_map[&(i as u64)].bls_public_key.clone());
     }
 
     MemPoolControl::Reset {
         authority_id: owner_uid as AuthorityId,
         num_authorities,
-        owner_uid,
         block_index,
         public_keys,
         bls_public_keys,

@@ -25,7 +25,6 @@ pub enum MemPoolControl {
         authority_id: AuthorityId,
         num_authorities: usize,
 
-        owner_uid: u64,
         block_index: u64,
         public_keys: Vec<PublicKey>,
         bls_public_keys: Vec<BlsPublicKey>,
@@ -137,7 +136,7 @@ pub fn spawn_pool(
         pool4.reset(control.clone());
         let ns_control = match control {
             MemPoolControl::Reset {
-                owner_uid,
+                authority_id,
                 block_index,
                 public_keys,
                 bls_public_keys,
@@ -151,7 +150,7 @@ pub fn spawn_pool(
                     hash
                 );
                 Control::Reset {
-                    owner_uid,
+                    owner_uid: authority_id,
                     block_index,
                     hash,
                     public_keys,

@@ -7,7 +7,7 @@ use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature,
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
-use primitives::traits::Signer;
+use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
 
 const COMMIT_THRESHOLD: i64 = 3;
@@ -173,7 +173,7 @@ pub struct State {
 
 impl State {
     /// Create new state
-    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<Signer>) -> Self {
+    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
         let bare_state = BareState::new(author, hash);
         let signature = signer.bls_sign(&bare_state.bs_encode());
         Self {
@@ -199,7 +199,7 @@ impl State {
     }
 
     /// Create new State with increased confidence using `proof`
-    fn increase_confidence(&self, proof: Proof, signer: Arc<Signer>) -> Self {
+    fn increase_confidence(&self, proof: Proof, signer: Arc<BlockSigner>) -> Self {
         let bare_state = BareState {
             primary_confidence: self.bare_state.primary_confidence + 1,
             endorses: self.bare_state.endorses.clone(),
@@ -310,7 +310,7 @@ pub struct Nightshade {
     /// BLS Public Keys of all authorities participating in consensus.
     bls_public_keys: Vec<BlsPublicKey>,
     /// Signer object that can sign bytes with appropriate BLS secret key.
-    signer: Arc<Signer>,
+    signer: Arc<BlockSigner>,
 }
 
 impl Nightshade {
@@ -319,7 +319,7 @@ impl Nightshade {
         num_authorities: usize,
         block_proposal: BlockProposal,
         bls_public_keys: Vec<BlsPublicKey>,
-        signer: Arc<Signer>,
+        signer: Arc<BlockSigner>,
     ) -> Self {
         assert_eq!(owner_id, block_proposal.author);
         let mut states = vec![];

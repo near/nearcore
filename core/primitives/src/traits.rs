@@ -1,16 +1,3 @@
-use super::aggregate_signature::BlsPublicKey;
-use super::signature::{PublicKey, Signature};
-use super::types;
-
-/// Trait to abstract the way signing happens.
-/// Can be used to not keep private key in the given binary via cross-process communication.
-pub trait Signer: Sync + Send {
-    fn public_key(&self) -> PublicKey;
-    fn bls_public_key(&self) -> BlsPublicKey;
-    fn sign(&self, hash: &[u8]) -> Signature;
-    fn bls_sign(&self, hash: &[u8]) -> types::PartialSignature;
-    fn account_id(&self) -> types::AccountId;
-}
 
 /// FromBytes is like TryFrom<Vec<u8>>
 pub trait FromBytes: Sized {

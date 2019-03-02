@@ -119,7 +119,7 @@ fn get_storage_path(base_path: &Path) -> String {
 }
 
 impl Client {
-    pub fn new(config: &ClientConfig) -> Self {
+    pub fn new_with_signer(config: &ClientConfig, signer: Arc<InMemorySigner>) -> Self {
         configure_logging(config.log_level);
 
         let storage_path = get_storage_path(&config.base_path);
@@ -135,14 +135,6 @@ impl Client {
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_chain = BeaconClient::new(genesis, &chain_spec, beacon_storage);
 
-        let mut key_file_path = config.base_path.to_path_buf();
-        key_file_path.push(KEY_STORE_PATH);
-        let signer = Arc::new(InMemorySigner::from_key_file(
-            config.account_id.clone(),
-            key_file_path.as_path(),
-            config.public_key.clone(),
-        ));
-
         Self {
             account_id: config.account_id.clone(),
             signer,
@@ -151,6 +143,17 @@ impl Client {
             pending_beacon_blocks: RwLock::new(HashMap::new()),
             pending_shard_blocks: RwLock::new(HashMap::new()),
         }
+    }
+
+    pub fn new(config: &ClientConfig) -> Self {
+        let mut key_file_path = config.base_path.to_path_buf();
+        key_file_path.push(KEY_STORE_PATH);
+        let signer = Arc::new(InMemorySigner::from_key_file(
+            config.account_id.clone(),
+            key_file_path.as_path(),
+            config.public_key.clone(),
+        ));
+        Self::new_with_signer(config, signer)
     }
 
     /// Get indices of the blocks that we are missing.
@@ -200,8 +203,8 @@ impl Client {
             authority_proposals,
             shard_block.block_hash(),
         );
-        let shard_block_signature = shard_block.sign(&self.signer);
-        let block_signature = block.sign(&self.signer);
+        let shard_block_signature = shard_block.sign(self.signer.clone());
+        let block_signature = block.sign(self.signer.clone());
         for (i, authority) in authorities.iter().enumerate() {
             if authority.account_id == self.signer.account_id {
                 shard_block.add_signature(&shard_block_signature, i);

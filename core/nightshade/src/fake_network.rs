@@ -8,8 +8,7 @@ use log::error;
 use tokio::timer::Delay;
 
 use primitives::hash::CryptoHash;
-use primitives::signer::InMemorySigner;
-use primitives::traits::Signer;
+use primitives::signer::{InMemorySigner, BlockSigner};
 use primitives::signature::PublicKey;
 use primitives::aggregate_signature::BlsPublicKey;
 

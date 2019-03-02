@@ -1,15 +1,19 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
-use super::hash::{hash, CryptoHash};
-use super::signature::{sign, verify, PublicKey, SecretKey, Signature, DEFAULT_SIGNATURE};
+use near_protos::Message as ProtoMessage;
+use near_protos::signed_transaction as transaction_proto;
+
+use crate::logging;
+
+use super::hash::{CryptoHash, hash};
+use super::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
+use super::signer::TransactionSigner;
 use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, ShardId, StructSignature,
 };
 use super::utils::account_to_shard_id;
-use crate::logging;
-use near_protos::signed_transaction as transaction_proto;
-use near_protos::Message as ProtoMessage;
 
 pub type LogEntry = String;
 
@@ -36,8 +40,8 @@ impl TransactionBody {
         })
     }
 
-    pub fn sign(self, secret_key: &SecretKey) -> SignedTransaction {
-        let signature = sign(self.get_hash().as_ref(), secret_key);
+    pub fn sign(self, signer: Arc<TransactionSigner>) -> SignedTransaction {
+        let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self)
     }
 }

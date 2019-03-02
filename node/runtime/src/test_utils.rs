@@ -7,7 +7,7 @@ use primitives::aggregate_signature::BlsSecretKey;
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::{get_key_pair, PublicKey, SecretKey, sign};
-use primitives::signer::InMemorySigner;
+use primitives::signer::{InMemorySigner, TransactionSigner, BlockSigner};
 use primitives::test_utils::get_key_pair_from_seed;
 use primitives::traits::ToBytes;
 use primitives::transaction::{
@@ -43,33 +43,22 @@ pub fn default_code_hash() -> CryptoHash {
     hash(genesis_wasm)
 }
 
-pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner, SecretKey) {
-    use rand::{SeedableRng, XorShiftRng};
-
+pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let account_id = "alice.near";
-    let mut rng = XorShiftRng::from_seed([11111, 22222, 33333, 44444]);
-    let bls_secret_key = BlsSecretKey::generate_from_rng(&mut rng);
-    let bls_public_key = bls_secret_key.get_public_key();
-    let authority = bls_public_key.to_readable();
-    let signer = InMemorySigner {
-        account_id: account_id.to_string(),
-        public_key: bls_public_key,
-        secret_key: bls_secret_key,
-    };
-    let (public_key, secret_key) = get_key_pair_from_seed("alice.near");
+    let signer = InMemorySigner::from_seed(&account_id, &account_id);
     (ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), public_key.to_readable(), 100, 10),
+            ("alice.near".to_string(), signer.public_key().to_readable(), 100, 10),
             ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_readable(), 0, 10),
             ("system".to_string(), get_key_pair_from_seed("system").0.to_readable(), 0, 0),
         ],
-        initial_authorities: vec![(account_id.to_string(), public_key.to_readable(), authority, 50)],
+        initial_authorities: vec![(account_id.to_string(), signer.public_key().to_readable(), signer.bls_public_key().to_readable(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
         boot_nodes: vec![],
-    }, signer, secret_key)
+    }, signer)
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {
@@ -87,7 +76,7 @@ pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime,
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let (chain_spec, _, _) = generate_test_chain_spec();
+    let (chain_spec, _) = generate_test_chain_spec();
     get_runtime_and_trie_from_chain_spec(&chain_spec)
 }
 

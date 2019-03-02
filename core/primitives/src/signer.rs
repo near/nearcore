@@ -3,9 +3,23 @@ use std::path::Path;
 use std::process;
 
 use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use crate::signature::{self, PublicKey, SecretKey};
-use crate::traits;
+use crate::signature::{self, PublicKey, SecretKey, Signature};
 use crate::types;
+
+/// Trait to abstract the way transaction signing happens.
+pub trait TransactionSigner: Sync + Send {
+    fn public_key(&self) -> PublicKey;
+    fn sign(&self, hash: &[u8]) -> Signature;
+}
+
+/// Trait to abstract the way signing happens for block production.
+/// Can be used to not keep private key in the given binary via cross-process communication.
+pub trait BlockSigner: Sync + Send + TransactionSigner {
+    fn bls_public_key(&self) -> BlsPublicKey;
+    fn bls_sign(&self, hash: &[u8]) -> types::PartialSignature;
+    fn account_id(&self) -> types::AccountId;
+}
+
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
@@ -175,18 +189,21 @@ impl Default for InMemorySigner {
     }
 }
 
-impl traits::Signer for InMemorySigner {
+impl TransactionSigner for InMemorySigner {
     #[inline]
     fn public_key(&self) -> PublicKey {
-        self.public_key.clone()
-    }
-    #[inline]
-    fn bls_public_key(&self) -> BlsPublicKey {
-        self.bls_public_key.clone()
+        self.public_key
     }
 
     fn sign(&self, data: &[u8]) -> signature::Signature {
         signature::sign(data, &self.secret_key)
+    }
+}
+
+impl BlockSigner for InMemorySigner {
+    #[inline]
+    fn bls_public_key(&self) -> BlsPublicKey {
+        self.bls_public_key.clone()
     }
 
     fn bls_sign(&self, data: &[u8]) -> types::PartialSignature {

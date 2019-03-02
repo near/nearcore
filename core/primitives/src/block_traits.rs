@@ -1,10 +1,11 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::hash::CryptoHash;
 use super::serialize::{Decode, Encode};
-use super::traits::Signer;
+use super::signer::BlockSigner;
 use super::types::PartialSignature;
 
 /// Trait that abstracts ``Header"
@@ -38,7 +39,7 @@ pub trait SignedBlock:
     fn block_hash(&self) -> CryptoHash;
 
     /// Signs this block with given signer and returns part of multi signature.
-    fn sign(&self, signer: &Signer) -> PartialSignature {
+    fn sign(&self, signer: Arc<BlockSigner>) -> PartialSignature {
         signer.bls_sign(self.block_hash().as_ref())
     }
 

@@ -146,7 +146,7 @@ mod tests {
     use crate::testing_utils::{configure_chain_spec, Node, wait};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
-        /// Waits until they produce block with transfer money tx.
+    /// Waits until they produce block with transfer money tx.
     #[test]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();
@@ -168,6 +168,10 @@ mod tests {
             vec![alice.node_info.clone()],
             chain_spec,
         );
+        let alice_signer = alice.signer();
+        let bob_signer = bob.signer();
+        println!("Alice pk={:?}, bls pk={:?}", alice_signer.public_key.to_readable(), alice_signer.bls_public_key.to_readable());
+        println!("Bob pk={:?}, bls pk={:?}", bob_signer.public_key.to_readable(), bob_signer.bls_public_key.to_readable());
 
         alice
             .client
@@ -175,7 +179,7 @@ mod tests {
             .pool
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(&alice.secret_key),
+                    .sign(alice.signer()),
             )
             .unwrap();
 
@@ -251,13 +255,16 @@ mod tests {
             chain_spec,
         );
 
-        let (beacon_block, shard_block) =
+        let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
                 BlockProductionResult::Success(beacon_block, shard_block) => {
                     (beacon_block, shard_block)
                 }
                 _ => panic!("Should produce block"),
             };
+        // Sign by bob to make this blocks valid.
+        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
+        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
         bob.client
@@ -265,7 +272,7 @@ mod tests {
             .pool
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(&alice.secret_key),
+                    .sign(alice.signer()),
             )
             .unwrap();
 
