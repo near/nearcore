@@ -46,10 +46,6 @@ pub fn start_from_client(
     let node_task = futures::lazy(move || {
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
 
-        // Receipts from previous blocks.
-        let (receipts_tx, receipts_rx) = channel(1024);
-        spawn_receipt_task(client.clone(), receipts_rx);
-
         // Create all the consensus channels.
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
@@ -83,7 +79,6 @@ pub fn start_from_client(
             client.clone(),
             consensus_rx,
             mempool_control_tx,
-            receipts_tx,
             out_block_tx,
         );
 
