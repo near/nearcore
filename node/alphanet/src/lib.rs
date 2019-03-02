@@ -147,6 +147,7 @@ mod tests {
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
     #[test]
+    #[ignore]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();
         let alice = Node::new(
