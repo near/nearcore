@@ -6,7 +6,7 @@ use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::Future;
-use log::{error, info, warn};
+use log::{error, info, warn, debug};
 use tokio::{self, timer::Interval};
 
 use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
@@ -148,6 +148,12 @@ pub fn spawn_pool(
                 ..
             } => {
                 let hash = pool4.snapshot_payload();
+                debug!(
+                    target: "mempool",
+                    "[{:?}] Mempool snapshot hash: {:?}",
+                    pool4.authority_id.read().expect(crate::POISONED_LOCK_ERR),
+                    hash
+                );
                 Control::Reset {
                     owner_uid,
                     block_index,

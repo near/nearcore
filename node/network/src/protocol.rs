@@ -286,9 +286,9 @@ impl Protocol {
 /// * `out_blocks_rx`: Channel where from protocol reads blocks that should be sent for
 ///   announcements.
 pub fn spawn_network(
+    client: Arc<Client>,
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
-    client: Arc<Client>,
     inc_gossip_tx: Sender<Gossip>,
     out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,

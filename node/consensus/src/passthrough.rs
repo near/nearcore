@@ -6,9 +6,9 @@ use futures::{future, Future, Sink, Stream};
 use tokio::{self, timer::Interval};
 
 use client::Client;
+use mempool::pool_task::MemPoolControl;
 use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
 use primitives::hash::CryptoHash;
-use mempool::pool_task::MemPoolControl;
 
 pub fn spawn_consensus(
     client: Arc<Client>,

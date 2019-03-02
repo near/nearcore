@@ -50,11 +50,6 @@ pub fn start_from_client(
         let (receipts_tx, receipts_rx) = channel(1024);
         spawn_receipt_task(client.clone(), receipts_rx);
 
-        // Launch block syncing / importing.
-        let (inc_block_tx, inc_block_rx) = channel(1024);
-        let (_out_block_tx, out_block_rx) = channel(1024);
-        spawn_block_importer(client.clone(), inc_block_rx);
-
         // Create all the consensus channels.
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
@@ -66,16 +61,30 @@ pub fn start_from_client(
         let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
-        let (mempool_control_tx, mempool_contorl_rx) = channel(1024);
+        let (mempool_control_tx, mempool_control_rx) = channel(1024);
         spawn_pool(
             client.shard_client.pool.clone(),
-            mempool_contorl_rx,
+            mempool_control_rx,
             control_tx,
             retrieve_payload_rx,
             payload_announce_tx,
             payload_request_tx,
             payload_response_rx,
             network_cfg.gossip_interval,
+        );
+
+        // Launch block syncing / importing.
+        let (inc_block_tx, inc_block_rx) = channel(1024);
+        let (out_block_tx, out_block_rx) = channel(1024);
+        spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
+
+        // Launch block producer.
+        spawn_block_producer(
+            client.clone(),
+            consensus_rx,
+            mempool_control_tx,
+            receipts_tx,
+            out_block_tx,
         );
 
         // Launch Nightshade task.
@@ -87,14 +96,11 @@ pub fn start_from_client(
             retrieve_payload_tx,
         );
 
-        // Launch block producer.
-        spawn_block_producer(client.clone(), consensus_rx, mempool_control_tx, receipts_tx);
-
         // Launch Network task.
         spawn_network(
+            client.clone(),
             account_id,
             network_cfg,
-            client.clone(),
             inc_gossip_tx,
             out_gossip_rx,
             inc_block_tx,
@@ -209,9 +215,12 @@ mod tests {
         );
     }
 
-    /// Creates two nodes, one node is ahead on blocks. Wait until the second one syncs.
+    /// Creates three nodes, two are authorities, first authority node is ahead on blocks.
+    /// Wait until the second authority syncs and then build a block on top.
+    /// Check that third node got the same state.
     #[test]
-    fn test_two_nodes_sync() {
+    #[ignore]
+    fn test_three_nodes_sync() {
         let chain_spec = configure_chain_spec();
         let alice = Node::new(
             "t2_alice",
@@ -229,21 +238,56 @@ mod tests {
             "127.0.0.1:3003",
             3033,
             vec![alice.node_info.clone()],
+            chain_spec.clone(),
+        );
+        let charlie = Node::new(
+            "t2_charlie",
+            "charlie.near",
+            3,
+            "127.0.0.1:3004",
+            3034,
+            vec![bob.node_info.clone()],
             chain_spec,
         );
 
-        let payload = ChainPayload { transactions: vec![], receipts: vec![] };
-        let (beacon_block, shard_block) = match alice.client.try_produce_block(1, payload) {
-            BlockProductionResult::Success(beacon_block, shard_block) => {
-                (beacon_block, shard_block)
-            }
-            _ => panic!("Should produce block"),
-        };
+        let (beacon_block, shard_block) =
+            match alice.client.try_produce_block(1, ChainPayload::default()) {
+                BlockProductionResult::Success(beacon_block, shard_block) => {
+                    (beacon_block, shard_block)
+                }
+                _ => panic!("Should produce block"),
+            };
         alice.client.try_import_blocks(beacon_block, shard_block);
+
+        bob.client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
+                    .sign(&alice.secret_key),
+            )
+            .unwrap();
 
         alice.start();
         bob.start();
+        charlie.start();
 
-        wait(|| bob.client.shard_client.chain.best_block().index() >= 1, 500, 10000);
+        let mut state_update = charlie.client.shard_client.get_state_update();
+        wait(|| {
+            charlie.client.shard_client.chain.best_block().index() >= 3
+        }, 500, 10000);
+
+        // Check that non-authority synced into the same state.
+        let mut state_update = charlie.client.shard_client.get_state_update();
+        assert_eq!(
+            charlie
+                .client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"bob.near".to_string())
+                .unwrap()
+                .amount,
+            110
+        );
     }
 }

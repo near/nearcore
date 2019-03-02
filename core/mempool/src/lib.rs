@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use log::{info, debug};
+use log::info;
 
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
@@ -143,16 +143,9 @@ impl Pool {
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
-            debug!("[{:?}] Snapshot is empty", self.authority_id.read().expect(POISONED_LOCK_ERR));
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
-        debug!(
-            "[{:?}] Snapshot: {:?}, hash: {:?}",
-            self.authority_id.read().expect(POISONED_LOCK_ERR),
-            snapshot,
-            h
-        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h
     }
