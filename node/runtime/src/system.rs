@@ -645,8 +645,8 @@ mod tests {
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
-        assert_eq!(account.public_keys.len(), 3);
-        assert_eq!(account.public_keys[2].clone(), signer2.public_key());
+        assert_eq!(account.public_keys.len(), 2);
+        assert_eq!(account.public_keys[1].clone(), signer2.public_key());
     }
 
     #[test]
@@ -661,14 +661,16 @@ mod tests {
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
-        assert_eq!(account.public_keys.len(), 2);
+        assert_eq!(account.public_keys.len(), 1);
     }
 
     #[test]
     fn test_delete_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.delete_key(root, alice.signer.public_key());
+        let signer2 = InMemorySigner::default();
+        let (new_root, _) = alice.add_key(root, signer2.public_key());
+        let (new_root, _) = alice.delete_key(new_root, alice.signer.public_key());
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let account = get::<Account>(
             &mut new_state_update,
@@ -681,7 +683,8 @@ mod tests {
     fn test_delete_key_not_owned() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.delete_key(root, alice.signer.public_key());
+        let signer2 = InMemorySigner::default();
+        let (new_root, _) = alice.delete_key(root, signer2.public_key());
         // delete failed, root does not change
         assert_eq!(new_root, root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -689,7 +692,7 @@ mod tests {
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
-        assert_eq!(account.public_keys.len(), 2);
+        assert_eq!(account.public_keys.len(), 1);
     }
 
     #[test]

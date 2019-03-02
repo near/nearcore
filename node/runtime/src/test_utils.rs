@@ -5,9 +5,8 @@ use byteorder::{ByteOrder, LittleEndian};
 use configs::ChainSpec;
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{get_key_pair, PublicKey};
+use primitives::signature::PublicKey;
 use primitives::signer::{InMemorySigner, TransactionSigner, BlockSigner};
-use primitives::test_utils::get_key_pair_from_seed;
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall,
     Callback, CallbackInfo, CallbackResult,
@@ -22,7 +21,7 @@ use storage::test_utils::create_trie;
 use crate::state_viewer::TrieViewer;
 
 use super::{
-    Account, account_id_to_bytes, ApplyResult, ApplyState, callback_id_to_bytes, COL_ACCOUNT, get,
+    ApplyResult, ApplyState, callback_id_to_bytes,
     Runtime, set
 };
 
@@ -43,20 +42,21 @@ pub fn default_code_hash() -> CryptoHash {
 
 pub fn generate_test_chain_spec() -> (ChainSpec, Arc<InMemorySigner>) {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let account_id = "alice.near";
-    let signer = InMemorySigner::from_seed(&account_id, &account_id);
+    let alice_signer = InMemorySigner::from_seed("alice.near", "alice.near");
+    let bob_signer = InMemorySigner::from_seed("bob.near", "bob.near");
+    let system_signer = InMemorySigner::from_seed("system", "system");
     (ChainSpec {
         accounts: vec![
-            ("alice.near".to_string(), signer.public_key().to_readable(), 100, 10),
-            ("bob.near".to_string(), get_key_pair_from_seed("bob.near").0.to_readable(), 0, 10),
-            ("system".to_string(), get_key_pair_from_seed("system").0.to_readable(), 0, 0),
+            ("alice.near".to_string(), alice_signer.public_key().to_readable(), 100, 10),
+            ("bob.near".to_string(), bob_signer.public_key().to_readable(), 0, 10),
+            ("system".to_string(), system_signer.public_key().to_readable(), 0, 0),
         ],
-        initial_authorities: vec![(account_id.to_string(), signer.public_key().to_readable(), signer.bls_public_key().to_readable(), 50)],
+        initial_authorities: vec![("alice.near".to_string(), alice_signer.public_key().to_readable(), alice_signer.bls_public_key().to_readable(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
         boot_nodes: vec![],
-    }, Arc::new(signer))
+    }, Arc::new(alice_signer))
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {
@@ -167,28 +167,13 @@ impl User {
         root: MerkleHash
     ) -> (Self, MerkleHash) {
         let signer = Arc::new(InMemorySigner::from_seed(&account_id, &account_id));
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let mut account: Account = get(
-            &mut state_update,
-            &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string())
-        ).unwrap();
-        account.public_keys.push(signer.public_key());
-        account.bls_public_key = signer.bls_public_key();
-        set(
-            &mut state_update,
-            &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string()),
-            &account
-        );
-        let (new_root, transaction) = state_update.finalize();
-        trie.apply_changes(transaction).unwrap();
-
         (User {
             runtime,
             account_id: account_id.to_string(),
             nonce: 1,
             trie,
             signer,
-        }, new_root)
+        }, root)
     }
 
     pub fn send_tx(
@@ -228,8 +213,8 @@ impl User {
         account_id: &str,
         amount: u64
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let (pub_key, _) = get_key_pair();
-        self.create_account_with_key(root, account_id, amount, pub_key)
+        let signer = InMemorySigner::from_seed(account_id, account_id);
+        self.create_account_with_key(root, account_id, amount, signer.public_key())
     }
 
     pub fn create_account_with_key(
