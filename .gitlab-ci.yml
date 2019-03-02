@@ -42,7 +42,6 @@ test_cargo:
     - *install_protos
     - *setup_python
     - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
-    - rustup component add clippy
     script:
     - rustc --version && cargo --version
     - ./scripts/run_clippy.sh
