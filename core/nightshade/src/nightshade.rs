@@ -1,11 +1,13 @@
 /// Nightshade v2
 use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
+use std::sync::Arc;
 
-use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSecretKey, BlsSignature};
+use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature};
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
+use primitives::traits::Signer;
 use primitives::types::{AuthorityId, BlockIndex};
 
 const COMMIT_THRESHOLD: i64 = 3;
@@ -75,10 +77,6 @@ impl BareState {
 
     pub fn bs_encode(&self) -> Vec<u8> {
         self.encode().expect("Fail serializing triplet.")
-    }
-
-    pub fn sign(&self, secret_key: &BlsSecretKey) -> BlsSignature {
-        secret_key.sign(&self.bs_encode())
     }
 
     pub fn verify(&self) -> Result<(), NSVerifyErr> {
@@ -175,9 +173,9 @@ pub struct State {
 
 impl State {
     /// Create new state
-    fn new(author: AuthorityId, hash: CryptoHash, secret_key: &BlsSecretKey) -> Self {
+    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<Signer>) -> Self {
         let bare_state = BareState::new(author, hash);
-        let signature = bare_state.sign(&secret_key);
+        let signature = signer.bls_sign(&bare_state.bs_encode());
         Self {
             bare_state,
             primary_proof: None,
@@ -201,14 +199,14 @@ impl State {
     }
 
     /// Create new State with increased confidence using `proof`
-    fn increase_confidence(&self, proof: Proof, secret_key: &BlsSecretKey) -> Self {
+    fn increase_confidence(&self, proof: Proof, signer: Arc<Signer>) -> Self {
         let bare_state = BareState {
             primary_confidence: self.bare_state.primary_confidence + 1,
             endorses: self.bare_state.endorses.clone(),
             secondary_confidence: self.bare_state.secondary_confidence,
         };
 
-        let signature = bare_state.sign(&secret_key);
+        let signature = signer.bls_sign(&bare_state.bs_encode());
 
         Self {
             bare_state,
@@ -311,8 +309,8 @@ pub struct Nightshade {
     pub committed: Option<BlockProposal>,
     /// BLS Public Keys of all authorities participating in consensus.
     bls_public_keys: Vec<BlsPublicKey>,
-    /// BLS secret key of the authority holding this Nightshade instance.
-    bls_owner_secret_key: BlsSecretKey,
+    /// Signer object that can sign bytes with appropriate BLS secret key.
+    signer: Arc<Signer>,
 }
 
 impl Nightshade {
@@ -321,14 +319,14 @@ impl Nightshade {
         num_authorities: usize,
         block_proposal: BlockProposal,
         bls_public_keys: Vec<BlsPublicKey>,
-        bls_owner_secret_key: BlsSecretKey,
+        signer: Arc<Signer>,
     ) -> Self {
         assert_eq!(owner_id, block_proposal.author);
         let mut states = vec![];
 
         for a in 0..num_authorities {
             if a == owner_id {
-                states.push(State::new(a, block_proposal.hash, &bls_owner_secret_key));
+                states.push(State::new(a, block_proposal.hash, signer.clone()));
             } else {
                 states.push(State::empty());
             }
@@ -347,7 +345,7 @@ impl Nightshade {
             seen_bare_states,
             committed: None,
             bls_public_keys,
-            bls_owner_secret_key,
+            signer,
         }
     }
 
@@ -388,7 +386,7 @@ impl Nightshade {
 
             if new_state != self.states[self.owner_id] {
                 // Sign new state (Only sign this state if we are going to accept it)
-                new_state.signature = new_state.bare_state.sign(&self.bls_owner_secret_key);
+                new_state.signature = self.signer.bls_sign(&new_state.bare_state.bs_encode());
                 self.states[self.owner_id] = new_state;
                 self.best_state_counter = 1;
             }
@@ -421,7 +419,7 @@ impl Nightshade {
 
                 // Double check we already have enough proofs
                 assert_eq!(collected_proofs, self.best_state_counter);
-                let new_state = my_state.increase_confidence(proof, &self.bls_owner_secret_key);
+                let new_state = my_state.increase_confidence(proof, self.signer.clone());
                 // New state must be valid. Verifying is expensive! Enable this assert for testing.
                 // assert_eq!(new_state.verify(self.owner_id, &self.bls_public_keys), true);
                 self.seen_bare_states.insert(new_state.bare_state.clone());
@@ -466,22 +464,16 @@ impl Nightshade {
 
 #[cfg(test)]
 mod tests {
-    use rand::{SeedableRng, XorShiftRng};
-
-    use primitives::hash::hash_struct;
     use primitives::aggregate_signature::AggregateSignature;
+    use primitives::hash::hash_struct;
+    use primitives::signer::InMemorySigner;
 
     use super::*;
 
-    fn generate_bls_key_pairs(total: usize) -> (Vec<BlsPublicKey>, Vec<BlsSecretKey>) {
-        // Use rng to create deterministic tests
-        let mut rng = XorShiftRng::from_seed([11111111, 22222222, 33333333, 44444444]);
-
-        (0..total).map(|_| {
-            let secret_key = BlsSecretKey::generate_from_rng(&mut rng);
-            let public_key = secret_key.get_public_key();
-            (public_key, secret_key)
-        }).unzip()
+    fn generate_signers(total: usize) -> Vec<Arc<InMemorySigner>> {
+        (0..total).map(|i| {
+            Arc::new(InMemorySigner::from_seed(&format!("{}", i), &format!("{}", i)))
+        }).collect()
     }
 
     fn check_state_proofs(state: &State) {
@@ -498,7 +490,7 @@ mod tests {
 
     #[test]
     fn bls_on_bare_states() {
-        let (pks, sks) = generate_bls_key_pairs(2);
+        let signers = generate_signers(2);
         let triplet = BareState {
             primary_confidence: 0,
             endorses: proposal(1),
@@ -506,15 +498,15 @@ mod tests {
         };
         // Aggregate signature
         let mut aggregated_signature = AggregateSignature::new();
-        for sk in sks {
-            let s = triplet.sign(&sk);
+        for signer in signers.iter() {
+            let s = signer.bls_sign(&triplet.bs_encode());
             aggregated_signature.aggregate(&s);
         }
         let signature = aggregated_signature.get_signature();
         // Aggregate public keys
         let mut aggregated_pk = AggregatePublicKey::new();
-        for pk in pks {
-            aggregated_pk.aggregate(&pk);
+        for signer in signers.iter() {
+            aggregated_pk.aggregate(&signer.bls_public_key());
         }
         let a_pk = aggregated_pk.get_key();
 
@@ -522,7 +514,8 @@ mod tests {
     }
 
     fn create_nightshades(num_authorities: usize) -> Vec<Nightshade> {
-        let (public_keys, secret_keys) = generate_bls_key_pairs(num_authorities);
+        let signers = generate_signers(num_authorities);
+        let public_keys: Vec<BlsPublicKey> = signers.iter().map(|s| s.bls_public_key()).collect();
 
         let ns: Vec<_> = (0..num_authorities)
             .map(|i|
@@ -531,7 +524,7 @@ mod tests {
                     num_authorities,
                     proposal(i),
                     public_keys.clone(),
-                    secret_keys[i].clone(),
+                    signers[i].clone(),
                 )
             ).collect();
 

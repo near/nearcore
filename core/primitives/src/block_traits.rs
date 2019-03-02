@@ -39,7 +39,7 @@ pub trait SignedBlock:
 
     /// Signs this block with given signer and returns part of multi signature.
     fn sign(&self, signer: &Signer) -> PartialSignature {
-        signer.sign(&self.block_hash())
+        signer.bls_sign(self.block_hash().as_ref())
     }
 
     /// Add signature to multi sign.

@@ -1,12 +1,14 @@
+use crate::logging;
 use std::borrow::Borrow;
 use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
 use std::fmt;
-use crate::logging;
+use std::hash::{Hash, Hasher};
 
-use crate::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature};
+use crate::aggregate_signature::{
+    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
+};
 use crate::hash::CryptoHash;
-use crate::signature::{bs58_serializer, Signature};
+use crate::signature::{bs58_serializer, PublicKey, Signature};
 
 /// User identifier. Currently derived tfrom the user's public key.
 pub type UID = u64;
@@ -62,7 +64,7 @@ impl GroupSignature {
     // it in affine coordinates always.
     pub fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
         if authority_id >= self.authority_mask.len() {
-            self.authority_mask.resize(authority_id+1, false);
+            self.authority_mask.resize(authority_id + 1, false);
         }
         if self.authority_mask[authority_id] {
             return;
@@ -183,9 +185,7 @@ impl<P: Hash> PartialEq for MessageDataBody<P> {
         let mut other_parents: Vec<_> = other.parents.clone().into_iter().collect();
         other_parents.sort();
 
-        self.owner_uid == other.owner_uid
-            && self.epoch == other.epoch
-            && parents == other_parents
+        self.owner_uid == other.owner_uid && self.epoch == other.epoch && parents == other_parents
     }
 }
 
@@ -226,17 +226,18 @@ impl<P> Eq for SignedMessageData<P> {}
 pub struct AuthorityStake {
     /// Account that stakes money.
     pub account_id: AccountId,
-    /// Public key of the proposed authority.
+    /// ED25591 Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// BLS Public key of the proposed authority.
     #[serde(with = "bs58_serializer")]
-    pub public_key: BlsPublicKey,
+    pub bls_public_key: BlsPublicKey,
     /// Stake / weight of the authority.
     pub amount: u64,
 }
 
 impl PartialEq for AuthorityStake {
     fn eq(&self, other: &Self) -> bool {
-        self.account_id == other.account_id
-            && self.public_key == other.public_key
+        self.account_id == other.account_id && self.public_key == other.public_key
     }
 }
 

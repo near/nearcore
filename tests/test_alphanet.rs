@@ -2,7 +2,6 @@
 /// exercising them in different scenarios.
 /// Note: tests get executed in parallel, so use different ports / names.
 
-use std::panic;
 use std::process::Command;
 
 use alphanet::testing_utils::{check_result, configure_chain_spec, Node, wait};

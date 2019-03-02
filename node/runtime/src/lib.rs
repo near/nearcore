@@ -901,7 +901,7 @@ impl Runtime {
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],
-        initial_authorities: &[(AccountId, ReadableBlsPublicKey, u64)]
+        initial_authorities: &[(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)]
     ) -> (MerkleHash, storage::DBChanges) {
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
             set(
@@ -936,7 +936,7 @@ impl Runtime {
             );
             // TODO(#345): Add system TX stake
         });
-        for (account_id, _pk, amount) in initial_authorities {
+        for (account_id, _, _, amount) in initial_authorities {
             let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
             let mut account: Account = get(
                 &mut state_update,

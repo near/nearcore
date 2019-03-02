@@ -1,13 +1,14 @@
-use crate::hash::CryptoHash;
-
-use super::aggregate_signature;
+use super::aggregate_signature::BlsPublicKey;
+use super::signature::{PublicKey, Signature};
 use super::types;
 
 /// Trait to abstract the way signing happens.
 /// Can be used to not keep private key in the given binary via cross-process communication.
 pub trait Signer: Sync + Send {
-    fn public_key(&self) -> aggregate_signature::BlsPublicKey;
-    fn sign(&self, hash: &CryptoHash) -> types::PartialSignature;
+    fn public_key(&self) -> PublicKey;
+    fn bls_public_key(&self) -> BlsPublicKey;
+    fn sign(&self, hash: &[u8]) -> Signature;
+    fn bls_sign(&self, hash: &[u8]) -> types::PartialSignature;
     fn account_id(&self) -> types::AccountId;
 }
 
@@ -21,7 +22,7 @@ pub trait ToBytes: Sized {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
-pub trait Base58Encoded : FromBytes + ToBytes {
+pub trait Base58Encoded: FromBytes + ToBytes {
     fn from_base58(s: &String) -> Result<Self, Box<std::error::Error>> {
         let bytes = bs58::decode(s).into_vec()?;
         Self::from_bytes(&bytes)

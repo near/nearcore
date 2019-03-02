@@ -9,10 +9,10 @@ use futures::Future;
 use log::{error, info, warn, debug};
 use tokio::{self, timer::Interval};
 
-use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use primitives::aggregate_signature::{BlsPublicKey};
 use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
 use primitives::hash::CryptoHash;
-use primitives::signature::{PublicKey, SecretKey};
+use primitives::signature::PublicKey;
 use primitives::types::AuthorityId;
 
 use nightshade::nightshade_task::Control;
@@ -28,9 +28,7 @@ pub enum MemPoolControl {
         owner_uid: u64,
         block_index: u64,
         public_keys: Vec<PublicKey>,
-        owner_secret_key: SecretKey,
         bls_public_keys: Vec<BlsPublicKey>,
-        bls_owner_secret_key: BlsSecretKey,
     },
     Stop,
 }
@@ -142,9 +140,7 @@ pub fn spawn_pool(
                 owner_uid,
                 block_index,
                 public_keys,
-                owner_secret_key,
                 bls_public_keys,
-                bls_owner_secret_key,
                 ..
             } => {
                 let hash = pool4.snapshot_payload();
@@ -159,9 +155,7 @@ pub fn spawn_pool(
                     block_index,
                     hash,
                     public_keys,
-                    owner_secret_key,
                     bls_public_keys,
-                    bls_owner_secret_key,
                 }
             }
             MemPoolControl::Stop => Control::Stop,

@@ -12,7 +12,7 @@ use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Receiver};
 
 use client::Client;
-use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
 use coroutines::importer::spawn_block_importer;
 use coroutines::ns_producer::spawn_block_producer;
 use mempool::pool_task::spawn_pool;
@@ -24,7 +24,7 @@ use primitives::types::AccountId;
 pub mod testing_utils;
 
 pub fn start() {
-    let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
+    let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
     start_from_configs(client_cfg, network_cfg, rpc_cfg);
 }
 
@@ -89,6 +89,7 @@ pub fn start_from_client(
 
         // Launch Nightshade task.
         spawn_nightshade_task(
+            client.signer.clone(),
             inc_gossip_rx,
             out_gossip_tx,
             consensus_tx,
@@ -142,10 +143,10 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, wait, Node};
+    use crate::testing_utils::{configure_chain_spec, Node, wait};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
-    /// Waits until they produce block with transfer money tx.
+        /// Waits until they produce block with transfer money tx.
     #[test]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();
@@ -272,7 +273,6 @@ mod tests {
         bob.start();
         charlie.start();
 
-        let mut state_update = charlie.client.shard_client.get_state_update();
         wait(|| {
             charlie.client.shard_client.chain.best_block().index() >= 3
         }, 500, 10000);

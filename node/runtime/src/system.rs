@@ -1,19 +1,22 @@
-use storage::TrieUpdate;
-use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::serialize::Decode;
-use primitives::traits::FromBytes;
 use primitives::aggregate_signature::{BlsPublicKey, BlsSignature};
-use primitives::hash::{hash, CryptoHash};
+use primitives::hash::{CryptoHash, hash};
+use primitives::serialize::Decode;
 use primitives::signature::PublicKey;
-use primitives::utils::is_valid_account_id;
+use primitives::traits::Base58Encoded;
+use primitives::traits::FromBytes;
 use primitives::transaction::{
-    AsyncCall, ReceiptTransaction, SendMoneyTransaction,
-    ReceiptBody, StakeTransaction, CreateAccountTransaction, CallbackInfo,
-    SwapKeyTransaction, AddKeyTransaction, DeleteKeyTransaction, CallbackResult,
-    AddBlsKeyTransaction,
+    AddBlsKeyTransaction, AddKeyTransaction, AsyncCall,
+    CallbackInfo, CallbackResult, CreateAccountTransaction, DeleteKeyTransaction,
+    ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
+    SwapKeyTransaction,
 };
-use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
-use crate::{TxTotalStake, get_tx_stake_key};
+use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
+use primitives::utils::is_valid_account_id;
+use storage::TrieUpdate;
+
+use crate::{get_tx_stake_key, TxTotalStake};
+
+use super::{Account, account_id_to_bytes, COL_ACCOUNT, COL_CODE, create_nonce_with_nonce, set};
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId { "system".to_string() }
@@ -70,7 +73,8 @@ pub fn staking(
     if sender.amount >= body.amount && !sender.bls_public_key.is_empty() {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
-            public_key: sender.bls_public_key.clone(),
+            public_key: PublicKey::from(&body.public_key),
+            bls_public_key: BlsPublicKey::from_base58(&body.bls_public_key).unwrap(),
             amount: body.amount,
         });
         sender.amount -= body.amount;
@@ -309,15 +313,17 @@ pub fn system_create_account(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::*;
-    use primitives::aggregate_signature::{BlsSecretKey};
+    use primitives::aggregate_signature::BlsSecretKey;
     use primitives::hash::hash;
-    use primitives::signature::get_key_pair;
     use primitives::serialize::Encode;
+    use primitives::signature::get_key_pair;
     use primitives::transaction::{TransactionBody, TransactionStatus};
-    use crate::state_viewer::{AccountViewCallResult, TrieViewer};
+
     use crate::get;
+    use crate::state_viewer::{AccountViewCallResult, TrieViewer};
+    use crate::test_utils::*;
+
+    use super::*;
 
     #[test]
     fn test_upload_contract() {

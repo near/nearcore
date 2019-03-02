@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use env_logger::Builder;
 use log::Level::Debug;
@@ -59,7 +59,7 @@ pub enum BlockImportingResult {
 
 pub struct Client {
     pub account_id: AccountId,
-    pub signer: InMemorySigner,
+    pub signer: Arc<InMemorySigner>,
 
     pub shard_client: ShardClient,
     pub beacon_chain: BeaconClient,
@@ -137,11 +137,11 @@ impl Client {
 
         let mut key_file_path = config.base_path.to_path_buf();
         key_file_path.push(KEY_STORE_PATH);
-        let signer = InMemorySigner::from_key_file(
+        let signer = Arc::new(InMemorySigner::from_key_file(
             config.account_id.clone(),
             key_file_path.as_path(),
             config.public_key.clone(),
-        );
+        ));
 
         Self {
             account_id: config.account_id.clone(),

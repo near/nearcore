@@ -188,6 +188,7 @@ impl Authority {
             curr.push(AuthorityStake {
                 account_id: proposal.account_id,
                 public_key: proposal.public_key,
+                bls_public_key: proposal.bls_public_key,
                 amount: threshold,
             });
             if curr.len() == self.authority_config.num_seats_per_slot as usize {

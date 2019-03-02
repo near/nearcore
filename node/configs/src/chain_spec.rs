@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::types::{AccountId, Balance, ReadablePublicKey, ReadableBlsPublicKey};
 use primitives::network::PeerInfo;
+use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 
 /// Specification of the blockchain in general.
 #[derive(Clone)]
@@ -17,7 +17,7 @@ pub struct ChainSpec {
     pub genesis_wasm: Vec<u8>,
 
     /// Genesis state authorities that bootstrap the chain.
-    pub initial_authorities: Vec<(AccountId, ReadableBlsPublicKey, Balance)>,
+    pub initial_authorities: Vec<(AccountId, ReadablePublicKey, ReadableBlsPublicKey, Balance)>,
 
     pub beacon_chain_epoch_length: u64,
     pub beacon_chain_num_seats_per_slot: u64,
@@ -29,7 +29,7 @@ pub struct ChainSpec {
 #[serde(remote = "ChainSpec")]
 struct ChainSpecRef {
     accounts: Vec<(AccountId, ReadablePublicKey, u64, u64)>,
-    initial_authorities: Vec<(AccountId, ReadableBlsPublicKey, u64)>,
+    initial_authorities: Vec<(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)>,
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
@@ -73,7 +73,7 @@ pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpe
 fn test_deserialize() {
     let data = json!({
         "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100, 10]],
-        "initial_authorities": [("alice.near", "7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD", 50)],
+        "initial_authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD", 50)],
         "genesis_wasm": [0,1],
         "beacon_chain_epoch_length": 10,
         "beacon_chain_num_seats_per_slot": 100,
@@ -82,6 +82,13 @@ fn test_deserialize() {
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(
         spec.initial_authorities[0],
-        ("alice.near".to_string(), ReadableBlsPublicKey("7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD".to_string()), 50)
+        (
+            "alice.near".to_string(),
+            ReadablePublicKey("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()),
+            ReadableBlsPublicKey(
+                "7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD".to_string()
+            ),
+            50
+        )
     );
 }
