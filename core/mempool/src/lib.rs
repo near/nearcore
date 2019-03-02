@@ -238,7 +238,7 @@ impl Pool {
                     },
                 }
             }
-            if to_send.len() == 0 {
+            if to_send.is_empty() {
                 continue;
             }
             let payload = ChainPayload { transactions: to_send, receipts: vec![] };

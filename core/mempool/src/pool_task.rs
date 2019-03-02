@@ -150,9 +150,10 @@ pub fn spawn_pool(
 
     // Receive transaction gossips
     let pool5 = pool.clone();
-    let task = inc_payload_gossip_rx.for_each(move |tx_gossip| {
+    let task = inc_payload_gossip_rx.for_each(move |payload_gossip| {
         // TODO: verify signature
-        if let Err(e) = pool5.add_payload_with_author(tx_gossip.payload, tx_gossip.sender_id) {
+        info!("Receive payload announce: {:?}", payload_gossip);
+        if let Err(e) = pool5.add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id) {
             warn!(target: "pool", "Failed to add payload from tx gossip: {}", e);
         }
 
@@ -164,11 +165,12 @@ pub fn spawn_pool(
     let pool6 = pool.clone();
     let task = Interval::new_interval(gossip_payload_period)
         .for_each(move |_| {
-            for tx_gossip in pool6.prepare_payload_announce() {
+            for payload_gossip in pool6.prepare_payload_announce() {
+                info!("Sending payload announce: {:?}", payload_gossip);
                 tokio::spawn(
                     out_payload_gossip_tx
                         .clone()
-                        .send(tx_gossip)
+                        .send(payload_gossip)
                         .map(|_| ())
                         .map_err(|e| warn!(target: "pool", "Error sending message: {}", e)),
                 );

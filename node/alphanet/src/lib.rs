@@ -246,7 +246,7 @@ mod tests {
         shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
-        alice.client
+        bob.client
             .shard_client
             .pool
             .add_transaction(
