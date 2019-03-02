@@ -2,14 +2,12 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use futures::sync::mpsc::{channel, Receiver};
-use futures::{future, Future, Stream};
-use log::error;
+use futures::sync::mpsc::channel;
+use futures::{future, Stream};
 
 use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
-use primitives::chain::ReceiptBlock;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -23,9 +21,7 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
 
 pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
     let node_task = future::lazy(move || {
-        let (receipts_tx, receipts_rx) = channel(1024);
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
-        spawn_receipt_task(client.clone(), receipts_rx);
 
         // Create a task that receives new blocks from importer/producer
         // and send the authority information to consensus
@@ -39,7 +35,6 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             client.clone(),
             consensus_rx,
             mempool_control_tx,
-            receipts_tx,
             out_block_tx
         );
 
@@ -60,19 +55,6 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
     node_http::server::spawn_server(http_api, http_addr);
 }
 
-fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
-    let task = receipt_rx
-        .for_each(move |receipt| {
-            if let Err(e) = client.shard_client.pool.add_receipt(receipt) {
-                error!("Failed to add receipt: {}", e);
-            }
-            Ok(())
-        })
-        .map_err(|e| error!("Error receiving receipts: {:?}", e));
-
-    tokio::spawn(task);
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -84,6 +66,7 @@ mod tests {
     use primitives::transaction::TransactionBody;
 
     use super::*;
+    use std::time::Duration;
 
     const TMP_DIR: &str = "../../tmp/devnet";
 
@@ -96,8 +79,12 @@ mod tests {
             std::fs::remove_dir_all(base_path.clone()).unwrap();
         }
 
-        let (mut client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
+        let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
+        client_cfg.log_level = log::LevelFilter::Off;
+        let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
+        let rpc_cfg = configs::RPCConfig::default();
+
         let client = Arc::new(Client::new(&client_cfg));
         let client1 = client.clone();
         thread::spawn(|| {

@@ -1,15 +1,11 @@
 extern crate env_logger;
-#[macro_use]
-extern crate log;
 extern crate serde;
 extern crate serde_derive;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use futures::future::Future;
-use futures::stream::Stream;
-use futures::sync::mpsc::{channel, Receiver};
+use futures::sync::mpsc::channel;
 
 use client::Client;
 use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
@@ -18,7 +14,6 @@ use coroutines::ns_producer::spawn_block_producer;
 use mempool::pool_task::spawn_pool;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
-use primitives::chain::ReceiptBlock;
 use primitives::types::AccountId;
 
 pub mod testing_utils;
@@ -45,10 +40,6 @@ pub fn start_from_client(
 ) {
     let node_task = futures::lazy(move || {
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
-
-        // Receipts from previous blocks.
-        let (receipts_tx, receipts_rx) = channel(1024);
-        spawn_receipt_task(client.clone(), receipts_rx);
 
         // Create all the consensus channels.
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
@@ -83,7 +74,6 @@ pub fn start_from_client(
             client.clone(),
             consensus_rx,
             mempool_control_tx,
-            receipts_tx,
             out_block_tx,
         );
 
@@ -122,19 +112,6 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
     node_http::server::spawn_server(http_api, http_addr);
 }
 
-fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
-    let task = receipt_rx
-        .for_each(move |receipt| {
-            if let Err(e) = client.shard_client.pool.add_receipt(receipt) {
-                error!("Failed to add receipt: {}", e);
-            }
-            Ok(())
-        })
-        .map_err(|e| error!("Error receiving receipts: {:?}", e));
-
-    tokio::spawn(task);
-}
-
 #[cfg(test)]
 mod tests {
     use client::BlockProductionResult;
@@ -147,7 +124,6 @@ mod tests {
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
     #[test]
-    #[ignore]
     fn two_nodes() {
         let chain_spec = configure_chain_spec();
         let alice = Node::new(
@@ -273,7 +249,6 @@ mod tests {
         bob.start();
         charlie.start();
 
-        let mut state_update = charlie.client.shard_client.get_state_update();
         wait(|| {
             charlie.client.shard_client.chain.best_block().index() >= 3
         }, 500, 10000);
