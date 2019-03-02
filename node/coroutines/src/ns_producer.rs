@@ -11,7 +11,7 @@ use mempool::pool_task::MemPoolControl;
 use nightshade::nightshade::ConsensusBlockProposal;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{ReceiptBlock, SignedShardBlock};
+use primitives::chain::SignedShardBlock;
 
 use crate::ns_control_builder::get_control;
 
