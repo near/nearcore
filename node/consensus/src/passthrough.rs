@@ -9,6 +9,7 @@ use client::Client;
 use mempool::pool_task::MemPoolControl;
 use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
 use primitives::hash::CryptoHash;
+use primitives::block_traits::SignedBlock;
 
 pub fn spawn_consensus(
     client: Arc<Client>,
@@ -22,7 +23,9 @@ pub fn spawn_consensus(
             (mempool_control_rx, initial_beacon_block_index),
             move |(mempool_control_rx, mut beacon_block_index), _| {
                 let hash = client.shard_client.pool.snapshot_payload();
-                if hash != CryptoHash::default() {
+                let last_shard_block = client.shard_client.chain.best_block();
+                let receipt_block = client.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
+                if hash != CryptoHash::default() || receipt_block.is_some() {
                     beacon_block_index += 1;
                     let c = ConsensusBlockProposal {
                         proposal: BlockProposal { author: 0, hash },

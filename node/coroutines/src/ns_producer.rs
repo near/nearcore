@@ -54,7 +54,9 @@ pub fn spawn_block_producer(
                         );
                         // Send proposal for the next block
                         spawn_start_proposal(client.clone(), next_index, mempool_control_tx.clone());
-                    }
+                    } else {
+                    info!(target: "consensus", "Block production did not succeed");
+                }
             } else {
                 // Assumption: This else should never be reached, if an authority achieves consensus on some block hash
                 // then it is because this block can be retrieved from the mempool.
