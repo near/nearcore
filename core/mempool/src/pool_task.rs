@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
+use std::ops::Deref;
 
 use futures::future;
 use futures::sink::Sink;
@@ -53,10 +54,10 @@ pub fn spawn_pool(
     let task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
         info!(
             target: "mempool",
-            "[{:?}] Payload confirmation for {} from {}",
-            pool1.authority_id.read().expect(crate::POISONED_LOCK_ERR),
+            "Payload confirmation for {} from {}, authority_id={:?}",
             hash,
-            authority_id
+            authority_id,
+            pool1.authority_id.read().expect(crate::POISONED_LOCK_ERR).deref(),
         );
         if !pool1.contains_payload_snapshot(&hash) {
             tokio::spawn(

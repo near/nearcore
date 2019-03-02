@@ -43,7 +43,7 @@ pub fn spawn_block_producer(
 
     let task = consensus_rx
         .for_each(move |consensus_block_header| {
-            info!(target: "consensus", "Producing block for index {}", consensus_block_header.index);
+            info!(target: "consensus", "Producing block for account_id={:?}, index {}", client.account_id, consensus_block_header.index);
             if let Some(payload) = client.shard_client.pool.pop_payload_snapshot(&consensus_block_header.proposal.hash) {
                 if let BlockProductionResult::Success(new_beacon_block, new_shard_block) =
                 client.try_produce_block(consensus_block_header.index, payload)

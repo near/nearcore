@@ -305,7 +305,7 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
-        info!("Request payload confirmation: {:?}", signed_payload);
+        info!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx
@@ -387,7 +387,9 @@ impl Stream for NightshadeTask {
                                          bls_public_keys,
                                          bls_owner_secret_key,
                                      }))) => {
-                    info!(target: "nightshade", "Control channel received Reset");
+                    info!(target: "nightshade",
+                          "Control channel received Reset for owner_uid={}, block_index={}",
+                          owner_uid, block_index);
                     self.init_nightshade(
                         owner_uid,
                         block_index,
