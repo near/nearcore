@@ -20,9 +20,15 @@ pub fn spawn_block_importer(
 ) {
     let task = incoming_block_rx.for_each(move |(beacon_block, shard_block)| {
         // TODO: handle other cases.
-        if let BlockImportingResult::Success { new_index } = client.try_import_blocks(beacon_block, shard_block) {
-            info!("Successfully imported block(s) up to {}", new_index);
-            let mempool_control = get_control(&client, new_index);
+        if let BlockImportingResult::Success { new_index } =
+            client.try_import_blocks(beacon_block, shard_block)
+        {
+            info!(
+                "Successfully imported block(s) up to {}, account_id={:?}",
+                new_index, client.account_id
+            );
+            let next_index = new_index + 1;
+            let mempool_control = get_control(&client, next_index);
 
             // Send mempool control.
             let mempool_reset =

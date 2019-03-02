@@ -1,15 +1,12 @@
-use std::borrow::Borrow;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::fmt;
 use crate::logging;
+use std::fmt;
 
-use crate::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature};
+use crate::aggregate_signature::{
+    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
+};
 use crate::hash::CryptoHash;
-use crate::signature::{bs58_serializer, Signature};
+use crate::signature::{bs58_serializer, PublicKey, Signature};
 
-/// User identifier. Currently derived tfrom the user's public key.
-pub type UID = u64;
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ReadablePublicKey(pub String);
@@ -62,7 +59,7 @@ impl GroupSignature {
     // it in affine coordinates always.
     pub fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
         if authority_id >= self.authority_mask.len() {
-            self.authority_mask.resize(authority_id+1, false);
+            self.authority_mask.resize(authority_id + 1, false);
         }
         if self.authority_mask[authority_id] {
             return;
@@ -134,109 +131,23 @@ pub enum BlockId {
     Hash(CryptoHash),
 }
 
-// TxFlow-specific structs.
-
-pub type TxFlowHash = u64;
-
-// DAG-specific structs.
-
-/// Endorsement of a representative message. Includes the epoch of the message that it endorses as
-/// well as the BLS signature part. The leader should also include such self-endorsement upon
-/// creation of the representative message.
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Endorsement {
-    pub epoch: u64,
-    #[serde(with = "bs58_serializer")]
-    pub signature: BlsSignature,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-/// Not signed data representing TxFlow message.
-pub struct MessageDataBody<P> {
-    pub owner_uid: UID,
-    pub parents: HashSet<TxFlowHash>,
-    pub epoch: u64,
-    pub payload: P,
-    /// Optional endorsement of this or other representative block.
-    pub endorsements: Vec<Endorsement>,
-}
-
-impl<P: Hash> Hash for MessageDataBody<P> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.owner_uid.hash(state);
-        let mut vec: Vec<_> = self.parents.clone().into_iter().collect();
-        vec.sort();
-        for h in vec {
-            h.hash(state);
-        }
-        self.epoch.hash(state);
-        //self.payload.hash(state);
-        // TODO: Hash endorsements.
-    }
-}
-
-impl<P: Hash> PartialEq for MessageDataBody<P> {
-    fn eq(&self, other: &Self) -> bool {
-        let mut parents: Vec<_> = self.parents.clone().into_iter().collect();
-        parents.sort();
-
-        let mut other_parents: Vec<_> = other.parents.clone().into_iter().collect();
-        other_parents.sort();
-
-        self.owner_uid == other.owner_uid
-            && self.epoch == other.epoch
-            && parents == other_parents
-    }
-}
-
-impl<P: Hash> Eq for MessageDataBody<P> {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedMessageData<P> {
-    /// Signature of the hash.
-    pub owner_sig: StructSignature,
-    /// Hash of the body.
-    pub hash: TxFlowHash,
-    pub body: MessageDataBody<P>,
-    pub beacon_block_index: u64,
-}
-
-impl<P> Hash for SignedMessageData<P> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u64(self.hash);
-    }
-}
-
-impl<P> Borrow<TxFlowHash> for SignedMessageData<P> {
-    fn borrow(&self) -> &TxFlowHash {
-        &self.hash
-    }
-}
-
-impl<P> PartialEq for SignedMessageData<P> {
-    fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
-    }
-}
-
-impl<P> Eq for SignedMessageData<P> {}
-
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthorityStake {
     /// Account that stakes money.
     pub account_id: AccountId,
-    /// Public key of the proposed authority.
+    /// ED25591 Public key of the proposed authority.
+    pub public_key: PublicKey,
+    /// BLS Public key of the proposed authority.
     #[serde(with = "bs58_serializer")]
-    pub public_key: BlsPublicKey,
+    pub bls_public_key: BlsPublicKey,
     /// Stake / weight of the authority.
     pub amount: u64,
 }
 
 impl PartialEq for AuthorityStake {
     fn eq(&self, other: &Self) -> bool {
-        self.account_id == other.account_id
-            && self.public_key == other.public_key
+        self.account_id == other.account_id && self.public_key == other.public_key
     }
 }
 

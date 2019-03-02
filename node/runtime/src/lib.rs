@@ -61,7 +61,7 @@ const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
-    // TODO: Multiple bls keys associated with the same account
+    // TODO: REMOVE THIS!
     #[serde(with = "bs58_serializer")]
     pub bls_public_key: BlsPublicKey,
     pub nonce: u64,
@@ -901,7 +901,7 @@ impl Runtime {
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],
-        initial_authorities: &[(AccountId, ReadableBlsPublicKey, u64)]
+        initial_authorities: &[(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)]
     ) -> (MerkleHash, storage::DBChanges) {
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
             set(
@@ -936,7 +936,7 @@ impl Runtime {
             );
             // TODO(#345): Add system TX stake
         });
-        for (account_id, _pk, amount) in initial_authorities {
+        for (account_id, _, _, amount) in initial_authorities {
             let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
             let mut account: Account = get(
                 &mut state_update,
@@ -1306,7 +1306,7 @@ mod tests {
 
     #[test]
     fn test_100_accounts() {
-        let (mut chain_spec, _, _) = generate_test_chain_spec();
+        let (mut chain_spec, _) = generate_test_chain_spec();
         let public_key = get_key_pair().0;
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_readable(), 10000, 0));

@@ -1,19 +1,22 @@
-use storage::TrieUpdate;
-use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::serialize::Decode;
-use primitives::traits::FromBytes;
 use primitives::aggregate_signature::{BlsPublicKey, BlsSignature};
-use primitives::hash::{hash, CryptoHash};
+use primitives::hash::{CryptoHash, hash};
+use primitives::serialize::Decode;
 use primitives::signature::PublicKey;
-use primitives::utils::is_valid_account_id;
+use primitives::traits::Base58Encoded;
+use primitives::traits::FromBytes;
 use primitives::transaction::{
-    AsyncCall, ReceiptTransaction, SendMoneyTransaction,
-    ReceiptBody, StakeTransaction, CreateAccountTransaction, CallbackInfo,
-    SwapKeyTransaction, AddKeyTransaction, DeleteKeyTransaction, CallbackResult,
-    AddBlsKeyTransaction,
+    AddBlsKeyTransaction, AddKeyTransaction, AsyncCall,
+    CallbackInfo, CallbackResult, CreateAccountTransaction, DeleteKeyTransaction,
+    ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
+    SwapKeyTransaction,
 };
-use super::{COL_ACCOUNT, COL_CODE, set, account_id_to_bytes, Account, create_nonce_with_nonce};
-use crate::{TxTotalStake, get_tx_stake_key};
+use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
+use primitives::utils::is_valid_account_id;
+use storage::TrieUpdate;
+
+use crate::{get_tx_stake_key, TxTotalStake};
+
+use super::{Account, account_id_to_bytes, COL_ACCOUNT, COL_CODE, create_nonce_with_nonce, set};
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId { "system".to_string() }
@@ -70,7 +73,8 @@ pub fn staking(
     if sender.amount >= body.amount && !sender.bls_public_key.is_empty() {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
-            public_key: sender.bls_public_key.clone(),
+            public_key: PublicKey::from(&body.public_key),
+            bls_public_key: BlsPublicKey::from_base58(&body.bls_public_key).unwrap(),
             amount: body.amount,
         });
         sender.amount -= body.amount;
@@ -309,15 +313,16 @@ pub fn system_create_account(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::*;
-    use primitives::aggregate_signature::{BlsSecretKey};
     use primitives::hash::hash;
-    use primitives::signature::get_key_pair;
     use primitives::serialize::Encode;
+    use primitives::signer::{InMemorySigner, TransactionSigner};
     use primitives::transaction::{TransactionBody, TransactionStatus};
-    use crate::state_viewer::{AccountViewCallResult, TrieViewer};
+
     use crate::get;
+    use crate::state_viewer::{AccountViewCallResult, TrieViewer};
+    use crate::test_utils::*;
+
+    use super::*;
 
     #[test]
     fn test_upload_contract() {
@@ -605,11 +610,10 @@ mod tests {
     #[test]
     fn test_swap_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
-        // let (pub_key1, secret_key1) = get_key_pair();
-        let (pub_key2, _) = get_key_pair();
+        let signer2 = InMemorySigner::default();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let (new_root, apply_results) = alice.create_account_with_key(
-            root, &eve_account(), 10, alice.pub_key.clone()
+            root, &eve_account(), 10, alice.signer.public_key().clone()
         );
         for apply_result in apply_results {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
@@ -618,8 +622,8 @@ mod tests {
         let tx_body = TransactionBody::SwapKey(SwapKeyTransaction {
             nonce: 2,
             originator: eve_account(),
-            cur_key: alice.pub_key.encode().unwrap(),
-            new_key: pub_key2.encode().unwrap(),
+            cur_key: alice.signer.public_key().encode().unwrap(),
+            new_key: signer2.public_key().encode().unwrap(),
         });
         let (new_root, _) = alice.send_tx(new_root, tx_body);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -627,29 +631,29 @@ mod tests {
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &eve_account()),
         ).unwrap();
-        assert_eq!(account.public_keys, vec![pub_key2]);
+        assert_eq!(account.public_keys, vec![signer2.public_key()]);
     }
 
     #[test]
     fn test_add_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (pub_key, _) = get_key_pair();
-        let (new_root, _) = alice.add_key(root, pub_key);
+        let signer2 = InMemorySigner::default();
+        let (new_root, _) = alice.add_key(root, signer2.public_key());
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let account = get::<Account>(
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
-        assert_eq!(account.public_keys.len(), 3);
-        assert_eq!(account.public_keys[2].clone(), pub_key);
+        assert_eq!(account.public_keys.len(), 2);
+        assert_eq!(account.public_keys[1].clone(), signer2.public_key());
     }
 
     #[test]
     fn test_add_existing_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.add_key(root, alice.pub_key);
+        let (new_root, _) = alice.add_key(root, alice.signer.public_key());
         // adding existing key should fail
         assert_eq!(new_root, root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -657,14 +661,16 @@ mod tests {
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
-        assert_eq!(account.public_keys.len(), 2);
+        assert_eq!(account.public_keys.len(), 1);
     }
 
     #[test]
     fn test_delete_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.delete_key(root, alice.pub_key);
+        let signer2 = InMemorySigner::default();
+        let (new_root, _) = alice.add_key(root, signer2.public_key());
+        let (new_root, _) = alice.delete_key(new_root, alice.signer.public_key());
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let account = get::<Account>(
             &mut new_state_update,
@@ -677,8 +683,8 @@ mod tests {
     fn test_delete_key_not_owned() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (pub_key, _) = get_key_pair();
-        let (new_root, _) = alice.delete_key(root, pub_key);
+        let signer2 = InMemorySigner::default();
+        let (new_root, _) = alice.delete_key(root, signer2.public_key());
         // delete failed, root does not change
         assert_eq!(new_root, root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -686,7 +692,7 @@ mod tests {
             &mut new_state_update,
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
-        assert_eq!(account.public_keys.len(), 2);
+        assert_eq!(account.public_keys.len(), 1);
     }
 
     #[test]
@@ -709,23 +715,5 @@ mod tests {
             &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
         ).unwrap();
         assert_eq!(account.public_keys.len(), 1);
-    }
-
-    #[test]
-    fn test_add_bls_key() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, mut root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-
-        // Change Alice's key
-        alice.bls_secret_key = BlsSecretKey::generate();
-
-        let (new_root, _) = alice.add_bls_key(root);
-        root = new_root;
-        let mut new_state_update = TrieUpdate::new(trie.clone(), root);
-        let account = get::<Account>(
-            &mut new_state_update,
-            &account_id_to_bytes(COL_ACCOUNT, &alice_account()),
-        ).unwrap();
-        assert_eq!(account.bls_public_key, alice.bls_secret_key.get_public_key());
     }
 }

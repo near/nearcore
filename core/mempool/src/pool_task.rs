@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
+use std::ops::Deref;
 
 use futures::future;
 use futures::sink::Sink;
@@ -9,10 +10,10 @@ use futures::Future;
 use log::{error, info, warn, debug};
 use tokio::{self, timer::Interval};
 
-use primitives::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use primitives::aggregate_signature::{BlsPublicKey};
 use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
 use primitives::hash::CryptoHash;
-use primitives::signature::{PublicKey, SecretKey};
+use primitives::signature::PublicKey;
 use primitives::types::AuthorityId;
 
 use nightshade::nightshade_task::Control;
@@ -29,12 +30,9 @@ pub enum MemPoolControl {
         authority_id: AuthorityId,
         num_authorities: usize,
 
-        owner_uid: u64,
         block_index: u64,
         public_keys: Vec<PublicKey>,
-        owner_secret_key: SecretKey,
         bls_public_keys: Vec<BlsPublicKey>,
-        bls_owner_secret_key: BlsSecretKey,
     },
     Stop,
 }
@@ -60,10 +58,10 @@ pub fn spawn_pool(
     let task = retrieve_payload_rx.for_each(move |(authority_id, hash)| {
         info!(
             target: "mempool",
-            "[{:?}] Payload confirmation for {} from {}",
-            pool1.authority_id.read().expect(crate::POISONED_LOCK_ERR),
+            "Payload confirmation for {} from {}, authority_id={:?}",
             hash,
-            authority_id
+            authority_id,
+            pool1.authority_id.read().expect(crate::POISONED_LOCK_ERR).deref(),
         );
         if !pool1.contains_payload_snapshot(&hash) {
             tokio::spawn(
@@ -146,12 +144,10 @@ pub fn spawn_pool(
         pool4.reset(control.clone());
         let ns_control = match control {
             MemPoolControl::Reset {
-                owner_uid,
+                authority_id,
                 block_index,
                 public_keys,
-                owner_secret_key,
                 bls_public_keys,
-                bls_owner_secret_key,
                 ..
             } => {
                 let hash = pool4.snapshot_payload();
@@ -162,13 +158,11 @@ pub fn spawn_pool(
                     hash
                 );
                 Control::Reset {
-                    owner_uid,
+                    owner_uid: authority_id,
                     block_index,
                     hash,
                     public_keys,
-                    owner_secret_key,
                     bls_public_keys,
-                    bls_owner_secret_key,
                 }
             }
             MemPoolControl::Stop => Control::Stop,
@@ -207,11 +201,6 @@ pub fn spawn_pool(
                 if their_authority_id == my_authority_id {
                     continue;
                 }
-                let sk = match pool6.owner_secret_key.write().expect(POISONED_LOCK_ERR).clone() {
-                    Some(sk) => sk,
-                    None => continue
-                };
-
                 let mut to_send = vec![];
                 for tx in pool6.transactions.read().expect(POISONED_LOCK_ERR).iter() {
                     let mut locked_known_to = pool6.known_to.write().expect(POISONED_LOCK_ERR);
@@ -238,7 +227,7 @@ pub fn spawn_pool(
                     my_authority_id,
                     their_authority_id,
                     payload,
-                    sk,
+                    pool6.signer.clone(),
                 );
                 tokio::spawn(
                     out_tx_gossip_tx

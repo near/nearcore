@@ -1,9 +1,10 @@
+use std::sync::Arc;
+
 use primitives::types::AuthorityId;
 use primitives::chain::ChainPayload;
 use primitives::signature::Signature;
 use primitives::hash::hash_struct;
-use primitives::signature::SecretKey;
-use primitives::signature::sign;
+use primitives::signer::BlockSigner;
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct TxGossip {
@@ -14,13 +15,13 @@ pub struct TxGossip {
 }
 
 impl TxGossip {
-    pub fn new(sender_id: AuthorityId, receiver_id: AuthorityId, payload: ChainPayload, sk: SecretKey) -> Self {
+    pub fn new(sender_id: AuthorityId, receiver_id: AuthorityId, payload: ChainPayload, signer: Arc<BlockSigner>) -> Self {
         let hash = hash_struct(&(receiver_id, &payload));
         TxGossip {
             sender_id,
             receiver_id,
             payload,
-            signature: sign(hash.as_ref(), &sk),
+            signature: signer.sign(hash.as_ref()),
         }
     }
 }

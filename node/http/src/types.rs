@@ -4,7 +4,7 @@ use primitives::beacon::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use near_protos::serde::b64_format as protos_b64_format;
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
-use primitives::signature::{bs58_serializer};
+use primitives::signature::{bs58_serializer, PublicKey};
 use primitives::types::{
     AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId,
 };
@@ -55,8 +55,9 @@ pub struct ViewStateResponse {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct AuthorityProposalResponse {
     pub account_id: AccountId,
+    pub public_key: PublicKey,
     #[serde(with = "bs58_serializer")]
-    pub public_key: BlsPublicKey,
+    pub bls_public_key: BlsPublicKey,
     pub amount: u64,
 }
 
@@ -65,6 +66,7 @@ impl From<AuthorityStake> for AuthorityProposalResponse {
         AuthorityProposalResponse {
             account_id: proposal.account_id,
             public_key: proposal.public_key,
+            bls_public_key: proposal.bls_public_key,
             amount: proposal.amount,
         }
     }

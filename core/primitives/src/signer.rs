@@ -2,11 +2,23 @@ use std::fs;
 use std::path::Path;
 use std::process;
 
-use crate::aggregate_signature::{BlsSecretKey, BlsPublicKey};
-use crate::hash;
-use crate::signature::{self, PublicKey, SecretKey};
-use crate::traits;
+use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::signature::{self, PublicKey, SecretKey, Signature};
 use crate::types;
+
+/// Trait to abstract the way transaction signing happens.
+pub trait TransactionSigner: Sync + Send {
+    fn public_key(&self) -> PublicKey;
+    fn sign(&self, hash: &[u8]) -> Signature;
+}
+
+/// Trait to abstract the way signing happens for block production.
+/// Can be used to not keep private key in the given binary via cross-process communication.
+pub trait BlockSigner: Sync + Send + TransactionSigner {
+    fn bls_public_key(&self) -> BlsPublicKey;
+    fn bls_sign(&self, hash: &[u8]) -> types::PartialSignature;
+    fn account_id(&self) -> types::AccountId;
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
@@ -45,8 +57,10 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
             let key_file_path = key_store_path.join(Path::new(&p));
             fs::read_to_string(key_file_path).unwrap()
         } else {
-            println!("Public key must be specified when there is more than one \
-            file in the keystore");
+            println!(
+                "Public key must be specified when there is more than one \
+                 file in the keystore"
+            );
             process::exit(4);
         }
     } else {
@@ -57,30 +71,37 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct BlsKeyFile {
+pub struct BlockProducerKeyFile {
+    pub public_key: PublicKey,
+    pub secret_key: SecretKey,
     #[serde(with = "signature::bs58_serializer")]
-    pub public_key: BlsPublicKey,
+    pub bls_public_key: BlsPublicKey,
     #[serde(with = "signature::bs58_serializer")]
-    pub secret_key: BlsSecretKey,
+    pub bls_secret_key: BlsSecretKey,
 }
 
-pub fn write_bls_key_file(
+pub fn write_block_producer_key_file(
     key_store_path: &Path,
-    public_key: BlsPublicKey,
-    secret_key: BlsSecretKey,
+    public_key: PublicKey,
+    secret_key: SecretKey,
+    bls_public_key: BlsPublicKey,
+    bls_secret_key: BlsSecretKey,
 ) -> String {
     if !key_store_path.exists() {
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let key_file = BlsKeyFile { public_key, secret_key };
+    let key_file = BlockProducerKeyFile { public_key, secret_key, bls_public_key, bls_secret_key };
     let key_file_path = key_store_path.join(Path::new(&key_file.public_key.to_string()));
     let serialized = serde_json::to_string(&key_file).unwrap();
     fs::write(key_file_path, serialized).unwrap();
     key_file.public_key.to_string()
 }
 
-pub fn get_bls_key_file(key_store_path: &Path, public_key: Option<String>) -> BlsKeyFile {
+pub fn get_block_producer_key_file(
+    key_store_path: &Path,
+    public_key: Option<String>,
+) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
         println!("Key store path does not exist: {:?}", &key_store_path);
         process::exit(3);
@@ -93,8 +114,10 @@ pub fn get_bls_key_file(key_store_path: &Path, public_key: Option<String>) -> Bl
             let key_file_path = key_store_path.join(Path::new(&p));
             fs::read_to_string(key_file_path).unwrap()
         } else {
-            println!("Public key must be specified when there is more than one \
-            file in the keystore");
+            println!(
+                "Public key must be specified when there is more than one \
+                 file in the keystore"
+            );
             process::exit(4);
         }
     } else {
@@ -104,50 +127,86 @@ pub fn get_bls_key_file(key_store_path: &Path, public_key: Option<String>) -> Bl
     serde_json::from_str(&key_file_string).unwrap()
 }
 
-pub fn get_or_create_key_file(key_store_path: &Path, public_key: Option<String>) -> BlsKeyFile {
+pub fn get_or_create_key_file(
+    key_store_path: &Path,
+    public_key: Option<String>,
+) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
-        let secret_key = BlsSecretKey::generate();
-        let public_key = secret_key.get_public_key();
-        let new_public_key = write_bls_key_file(key_store_path, public_key, secret_key);
-        get_bls_key_file(key_store_path, Some(new_public_key))
+        let (public_key, secret_key) = signature::get_key_pair();
+        let bls_secret_key = BlsSecretKey::generate();
+        let bls_public_key = bls_secret_key.get_public_key();
+        let new_public_key = write_block_producer_key_file(
+            key_store_path,
+            public_key,
+            secret_key,
+            bls_public_key,
+            bls_secret_key,
+        );
+        get_block_producer_key_file(key_store_path, Some(new_public_key))
     } else {
-        get_bls_key_file(key_store_path, public_key)
+        get_block_producer_key_file(key_store_path, public_key)
     }
 }
 
 pub struct InMemorySigner {
     pub account_id: types::AccountId,
-    pub public_key: BlsPublicKey,
-    pub secret_key: BlsSecretKey,
+    pub public_key: PublicKey,
+    pub secret_key: SecretKey,
+    pub bls_public_key: BlsPublicKey,
+    pub bls_secret_key: BlsSecretKey,
 }
 
 impl InMemorySigner {
-    pub fn from_key_file(account_id: types::AccountId, key_store_path: &Path, public_key: Option<String>) -> Self {
+    pub fn from_key_file(
+        account_id: types::AccountId,
+        key_store_path: &Path,
+        public_key: Option<String>,
+    ) -> Self {
         let key_file = get_or_create_key_file(key_store_path, public_key);
         InMemorySigner {
             account_id,
             public_key: key_file.public_key,
             secret_key: key_file.secret_key,
+            bls_public_key: key_file.bls_public_key,
+            bls_secret_key: key_file.bls_secret_key,
         }
     }
 }
 
 impl Default for InMemorySigner {
     fn default() -> Self {
-        let secret_key = BlsSecretKey::generate();
-        let public_key = secret_key.get_public_key();
-        InMemorySigner { account_id: "alice.near".to_string(), public_key, secret_key }
+        let (public_key, secret_key) = signature::get_key_pair();
+        let bls_secret_key = BlsSecretKey::generate();
+        let bls_public_key = bls_secret_key.get_public_key();
+        InMemorySigner {
+            account_id: "alice.near".to_string(),
+            public_key,
+            secret_key,
+            bls_public_key,
+            bls_secret_key,
+        }
     }
 }
 
-impl traits::Signer for InMemorySigner {
+impl TransactionSigner for InMemorySigner {
     #[inline]
-    fn public_key(&self) -> BlsPublicKey {
-        self.public_key.clone()
+    fn public_key(&self) -> PublicKey {
+        self.public_key
     }
 
-    fn sign(&self, hash: &hash::CryptoHash) -> types::PartialSignature {
-        self.secret_key.sign(hash.as_ref())
+    fn sign(&self, data: &[u8]) -> signature::Signature {
+        signature::sign(data, &self.secret_key)
+    }
+}
+
+impl BlockSigner for InMemorySigner {
+    #[inline]
+    fn bls_public_key(&self) -> BlsPublicKey {
+        self.bls_public_key.clone()
+    }
+
+    fn bls_sign(&self, data: &[u8]) -> types::PartialSignature {
+        self.bls_secret_key.sign(data)
     }
 
     #[inline]

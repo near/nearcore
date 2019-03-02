@@ -1,12 +1,12 @@
 extern crate exonum_sodiumoxide as sodiumoxide;
 
-use bs58;
 use crate::hash;
+use bs58;
 use std::fmt;
 
 use crate::logging::pretty_hash;
-use crate::types::ReadablePublicKey;
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
+use crate::types::ReadablePublicKey;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -30,19 +30,24 @@ pub fn get_key_pair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-pub fn verify_signature(signature: &Signature, hash: &hash::CryptoHash, pubkey: &PublicKey) -> bool {
+pub fn verify_signature(
+    signature: &Signature,
+    hash: &hash::CryptoHash,
+    pubkey: &PublicKey,
+) -> bool {
     sodiumoxide::crypto::sign::ed25519::verify_detached(&signature.0, hash.as_ref(), &pubkey.0)
 }
 
 const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
     [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
 
-pub const DEFAULT_SIGNATURE: Signature = Signature(sodiumoxide::crypto::sign::ed25519::Signature(SIG));
+pub const DEFAULT_SIGNATURE: Signature =
+    Signature(sodiumoxide::crypto::sign::ed25519::Signature(SIG));
 
 impl PublicKey {
     pub fn new(bytes: &[u8]) -> Result<PublicKey, String> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
-            return Err("bytes not the size of a public key".to_string())
+            return Err("bytes not the size of a public key".to_string());
         }
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         array.copy_from_slice(bytes);
@@ -208,15 +213,15 @@ pub mod bs58_signature_format {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(String::from(signature).as_str())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         Ok(Signature::from(&s))
@@ -224,21 +229,21 @@ pub mod bs58_signature_format {
 }
 
 pub mod bs58_serializer {
-    use serde::{Deserialize, Deserializer, Serializer};
     use crate::traits::Base58Encoded;
+    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            T: Base58Encoded,
-            S: Serializer,
+    where
+        T: Base58Encoded,
+        S: Serializer,
     {
         serializer.serialize_str(&t.to_base58())
     }
 
     pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
-        where
-            T: Base58Encoded,
-            D: Deserializer<'de>,
+    where
+        T: Base58Encoded,
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         Ok(T::from_base58(&s).unwrap())

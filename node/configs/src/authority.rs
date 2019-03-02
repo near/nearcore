@@ -1,4 +1,5 @@
 use primitives::aggregate_signature::BlsPublicKey;
+use primitives::signature::PublicKey;
 use primitives::traits::Base58Encoded;
 use primitives::types::AuthorityStake;
 
@@ -19,9 +20,10 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
     let initial_authorities: Vec<AuthorityStake> = chain_spec
         .initial_authorities
         .iter()
-        .map(|(account_id, key, amount)| AuthorityStake {
+        .map(|(account_id, public_key, bls_public_key, amount)| AuthorityStake {
             account_id: account_id.clone(),
-            public_key: BlsPublicKey::from_base58(&key.0).unwrap(),
+            public_key: PublicKey::from(&public_key.0),
+            bls_public_key: BlsPublicKey::from_base58(&bls_public_key.0).unwrap(),
             amount: *amount,
         })
         .collect();

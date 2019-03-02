@@ -23,8 +23,8 @@ impl<T: Serialize> Encode for T {
 }
 
 impl<T> Decode for T
-    where
-        T: DeserializeOwned,
+where
+    T: DeserializeOwned,
 {
     fn decode(data: &[u8]) -> DecodeResult<Self> {
         bincode::deserialize(data)

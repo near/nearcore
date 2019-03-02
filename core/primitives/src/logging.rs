@@ -1,6 +1,6 @@
-use std::fmt::Debug;
 use bs58;
 use serde::Serialize;
+use std::fmt::Debug;
 
 const HASH_LENGTH_STR_BYTES: usize = 44;
 const SIGNATURE_LENGTH_BYTES: usize = 64;
@@ -11,7 +11,14 @@ pub fn pretty_vec<T: Debug>(buf: &[T]) -> String {
     if buf.len() <= VECTOR_MAX_LENGTH {
         format!("{:#?}", buf)
     } else {
-        format!("({})[{:#?}, {:#?}, … {:#?}, {:#?}]", buf.len(), buf[0], buf[1], buf[buf.len() - 2], buf[buf.len() - 1])
+        format!(
+            "({})[{:#?}, {:#?}, … {:#?}, {:#?}]",
+            buf.len(),
+            buf[0],
+            buf[1],
+            buf[buf.len() - 2],
+            buf[buf.len() - 1]
+        )
     }
 }
 
@@ -55,7 +62,7 @@ pub fn pretty_results(results: &Vec<Option<Vec<u8>>>) -> String {
 pub fn pretty_serializable<T: Serialize>(s: &T) -> String {
     match bincode::serialize(&s) {
         Ok(buf) => pretty_hash(&bs58::encode(&buf).into_string()),
-        Err(e) => format!("[failed to serialize: {}]", e)
+        Err(e) => format!("[failed to serialize: {}]", e),
     }
 }
 
@@ -66,22 +73,19 @@ mod tests {
 
     #[test]
     fn test_non_ut8_string_truncation() {
-        assert_eq!(
-            format!("({})`Привет…`", HI_NEAR.len()),
-            pretty_str(HI_NEAR, 6, 8));
-    }    
+        assert_eq!(format!("({})`Привет…`", HI_NEAR.len()), pretty_str(HI_NEAR, 6, 8));
+    }
 
     #[test]
     fn test_non_ut8_short_len_is_longer_than_str() {
         assert_eq!(
             format!("({})`{}…`", HI_NEAR.len(), HI_NEAR),
-            pretty_str(HI_NEAR, HI_NEAR.chars().count() + 4, HI_NEAR.len() - 1));
+            pretty_str(HI_NEAR, HI_NEAR.chars().count() + 4, HI_NEAR.len() - 1)
+        );
     }
 
     #[test]
     fn test_non_ut8_no_truncation() {
-        assert_eq!(
-            format!("`{}`", HI_NEAR),
-            pretty_str(HI_NEAR, 3, HI_NEAR.len()));
+        assert_eq!(format!("`{}`", HI_NEAR), pretty_str(HI_NEAR, 3, HI_NEAR.len()));
     }
 }

@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate serde_derive;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
@@ -6,25 +9,23 @@ use log::info;
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::consensus::Payload;
-use primitives::hash::{hash_struct, CryptoHash};
+use primitives::hash::{CryptoHash, hash_struct};
 use primitives::merkle::verify_path;
-use primitives::transaction::{verify_transaction_signature, SignedTransaction};
+use primitives::signer::BlockSigner;
+use primitives::transaction::{SignedTransaction, verify_transaction_signature};
 use primitives::types::AuthorityId;
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
+
+use crate::pool_task::MemPoolControl;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub mod pool_task;
 pub mod tx_gossip;
 
-use crate::pool_task::MemPoolControl;
-use primitives::signature::SecretKey;
-
-#[macro_use]
-extern crate serde_derive;
-
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
+    signer: Arc<BlockSigner>,
     transactions: RwLock<HashSet<SignedTransaction>>,
     receipts: RwLock<HashSet<ReceiptBlock>>,
     storage: Arc<RwLock<ShardChainStorage>>,
@@ -35,7 +36,6 @@ pub struct Pool {
     pub authority_id: RwLock<Option<AuthorityId>>,
     /// Number of authorities currently.
     num_authorities: RwLock<Option<usize>>,
-    owner_secret_key: RwLock<Option<SecretKey>>,
     /// Map from hash of tx/receipt to hashset of authorities it is known.
     known_to: RwLock<HashMap<CryptoHash, HashSet<AuthorityId>>>,
     /// List of requested snapshots that can't be fetched yet.
@@ -45,8 +45,9 @@ pub struct Pool {
 }
 
 impl Pool {
-    pub fn new(storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
+    pub fn new(signer: Arc<BlockSigner>, storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
         Pool {
+            signer,
             transactions: RwLock::new(HashSet::new()),
             receipts: RwLock::new(HashSet::new()),
             storage,
@@ -55,7 +56,6 @@ impl Pool {
             snapshots: Default::default(),
             authority_id: Default::default(),
             num_authorities: Default::default(),
-            owner_secret_key: Default::default(),
             known_to: Default::default(),
             pending_snapshots: Default::default(),
             ready_snapshots: Default::default(),
@@ -65,17 +65,17 @@ impl Pool {
     /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
     pub fn reset(&self, control: MemPoolControl) {
         match control {
-            MemPoolControl::Reset { authority_id, num_authorities, owner_secret_key, .. } => {
-                info!(target: "mempool", "MemPool reset for {}", authority_id);
+            MemPoolControl::Reset { authority_id, num_authorities, block_index, .. } => {
+                info!(target: "mempool", "MemPool reset for authority_id={}, block_index={}",
+                      authority_id, block_index);
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = Some(authority_id);
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = Some(num_authorities);
-                *self.owner_secret_key.write().expect(POISONED_LOCK_ERR) = Some(owner_secret_key);
             }
             MemPoolControl::Stop => {
-                info!(target: "mempool", "MemPool stopped");
+                info!(target: "mempool", "MemPool stopped for authority_id={:?}",
+                      self.authority_id.read().expect(POISONED_LOCK_ERR));
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = None;
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = None;
-                *self.owner_secret_key.write().expect(POISONED_LOCK_ERR) = None;
             }
         }
         self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
@@ -250,17 +250,17 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
-    use node_runtime::{test_utils::generate_test_chain_spec, Runtime};
+    use node_runtime::{Runtime, test_utils::generate_test_chain_spec};
     use primitives::hash::CryptoHash;
-    use primitives::signature::{sign, SecretKey};
+    use primitives::signer::InMemorySigner;
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
-    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, SecretKey) {
-        let (chain_spec, _, secret_key) = generate_test_chain_spec();
+    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, Arc<InMemorySigner>) {
+        let (chain_spec, signer) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
         let trie = Arc::new(Trie::new(shard_storage.clone()));
         let runtime = Runtime {};
@@ -274,22 +274,19 @@ mod tests {
         trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
         let _ = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
-        (shard_storage, trie, secret_key)
+        (shard_storage, trie, signer)
     }
 
     #[test]
     fn test_import_block() {
-        let (storage, trie, secret_key) = get_test_chain();
-        let pool = Pool::new(storage, trie);
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+        let (storage, trie, signer) = get_test_chain();
+        let pool = Pool::new(signer.clone(), storage, trie);
+        let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        });
-        let hash = tx_body.get_hash();
-        let signature = sign(hash.as_ref(), &secret_key);
-        let transaction = SignedTransaction::new(signature, tx_body);
+        }).sign(signer);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);

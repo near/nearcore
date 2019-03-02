@@ -1,6 +1,6 @@
 use crate::hash::{hash, hash_struct};
-use crate::types::MerkleHash;
 use crate::serialize::Encode;
+use crate::types::MerkleHash;
 
 pub type MerklePath = Vec<(MerkleHash, Direction)>;
 
@@ -22,13 +22,9 @@ pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         return (MerkleHash::default(), vec![]);
     }
     let mut len = (arr.len() as u32).next_power_of_two();
-    let mut hashes: Vec<_> = (0..len).map(|i| {
-        if i < arr.len() as u32 {
-            hash_struct(&arr[i as usize])
-        } else {
-            hash_struct(&0)
-        }
-    }).collect();
+    let mut hashes: Vec<_> = (0..len)
+        .map(|i| if i < arr.len() as u32 { hash_struct(&arr[i as usize]) } else { hash_struct(&0) })
+        .collect();
     // degenerate case
     if len == 1 {
         return (hashes[0], vec![vec![]]);
@@ -36,18 +32,19 @@ pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     let mut paths: Vec<MerklePath> = (0..arr.len())
         .map(|i| {
             if i % 2 == 0 {
-                vec![(hashes[(i+1) as usize], Direction::Right)]
+                vec![(hashes[(i + 1) as usize], Direction::Right)]
             } else {
-                vec![(hashes[(i-1) as usize], Direction::Left)]
+                vec![(hashes[(i - 1) as usize], Direction::Left)]
             }
-        }).collect();
-    
+        })
+        .collect();
+
     let mut counter = 1;
     while len > 1 {
         len /= 2;
         counter *= 2;
         for i in 0..len {
-            let hash = combine_hash(hashes[2*i as usize], hashes[(2*i+1) as usize]);
+            let hash = combine_hash(hashes[2 * i as usize], hashes[(2 * i + 1) as usize]);
             hashes[i as usize] = hash;
             if len > 1 {
                 if i % 2 == 0 {
@@ -90,7 +87,7 @@ pub fn verify_path<T: Encode>(root: MerkleHash, path: &MerklePath, item: &T) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{StdRng, SeedableRng, Rng};
+    use rand::{Rng, SeedableRng, StdRng};
 
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];
