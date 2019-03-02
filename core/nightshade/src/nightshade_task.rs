@@ -58,8 +58,8 @@ pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub body: GossipBody,
-    signature: Signature,
     block_index: u64,
+    signature: Signature,
 }
 
 impl Gossip {
@@ -70,13 +70,13 @@ impl Gossip {
         sk: &SecretKey,
         block_index: u64,
     ) -> Self {
-        let hash = hash_struct(&(sender_id, receiver_id, &body));
+        let hash = hash_struct(&(sender_id, receiver_id, &body, block_index));
 
         Self { sender_id, receiver_id, body, signature: sign(hash.as_ref(), &sk), block_index }
     }
 
     fn get_hash(&self) -> CryptoHash {
-        hash_struct(&(self.sender_id, self.receiver_id, &self.body))
+        hash_struct(&(self.sender_id, self.receiver_id, &self.body, self.block_index))
     }
 
     fn verify(&self, pk: &PublicKey) -> bool {
@@ -179,6 +179,11 @@ impl NightshadeTask {
         bls_owner_secret_key: BlsSecretKey,
     ) {
         let num_authorities = public_keys.len();
+        info!(target: "nightshade", "Init nightshade for authority {}/{}, block {}, proposal {}", owner_uid, num_authorities, block_index, hash);
+        assert!(self.block_index.is_none() ||
+                    self.block_index.unwrap() < block_index ||
+                    self.proposals[owner_uid as usize].as_ref().unwrap().block_proposal.hash == hash,
+                "Reset without increasing block index: adversarial behavior");
 
         self.proposals = vec![None; num_authorities];
         self.proposals[owner_uid as usize] =
@@ -326,6 +331,7 @@ impl NightshadeTask {
                 if p.block_proposal.hash != signed_payload.block_proposal.hash {
                     self.nightshade_as_mut_ref().set_adversary(authority_id);
                     self.proposals[authority_id] = None;
+                    panic!("the case of adversaries creating forks is not properly handled yet");
                 }
             } else {
                 self.request_payload_confirmation(&signed_payload);
