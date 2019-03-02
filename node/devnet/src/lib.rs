@@ -69,3 +69,67 @@ fn spawn_receipt_task(client: Arc<Client>, receipt_rx: Receiver<ReceiptBlock>) {
 
     tokio::spawn(task);
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::thread;
+
+    use alphanet::testing_utils::wait;
+    use primitives::block_traits::SignedBlock;
+    use primitives::test_utils::get_key_pair_from_seed;
+    use primitives::transaction::TransactionBody;
+
+    use super::*;
+
+    const TMP_DIR: &str = "../../tmp/devnet";
+
+    #[test]
+    fn test_devnet_produce_blocks() {
+        let mut base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        base_path.push(TMP_DIR);
+        base_path.push("test_devnet_produce_blocks");
+        if base_path.exists() {
+            std::fs::remove_dir_all(base_path.clone()).unwrap();
+        }
+
+        let (mut client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
+        client_cfg.base_path = base_path;
+        let client = Arc::new(Client::new(&client_cfg));
+        let client1 = client.clone();
+        thread::spawn(|| {
+            start_from_client(client1, devnet_cfg, rpc_cfg);
+        });
+
+        let alice = get_key_pair_from_seed("alice.near");
+        client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.1),
+            )
+            .unwrap();
+        wait(|| client.shard_client.chain.best_block().index() == 2, 50, 10000);
+
+        // Check that transaction and it's receipt were included.
+        let mut state_update = client.shard_client.get_state_update();
+        assert_eq!(
+            client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"alice.near".to_string())
+                .unwrap()
+                .amount,
+            9999990
+        );
+        assert_eq!(
+            client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"bob.near".to_string())
+                .unwrap()
+                .amount,
+            110
+        );
+    }
+}
