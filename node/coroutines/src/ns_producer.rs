@@ -35,7 +35,7 @@ pub fn spawn_block_producer(
     client: Arc<Client>,
     consensus_rx: Receiver<ConsensusBlockProposal>,
     mempool_control_tx: Sender<MemPoolControl>,
-    receipts_tx: Sender<ReceiptBlock>,
+    _receipts_tx: Sender<ReceiptBlock>,
     out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     // Send proposal for the first block
@@ -48,25 +48,11 @@ pub fn spawn_block_producer(
                 if let BlockProductionResult::Success(new_beacon_block, new_shard_block) =
                 client.try_produce_block(consensus_block_header.index, payload)
                     {
-                        // TODO: here should be dealing with receipts for other shards.
-                        let receipt_block = client.shard_client.get_receipt_block(new_shard_block.index(), new_shard_block.shard_id());
-                        if let Some(receipt_block) = receipt_block {
-                            tokio::spawn(
-                                receipts_tx
-                                    .clone()
-                                    .send(receipt_block)
-                                    .map(|_| ())
-                                    .map_err(|e| error!(target: "consensus", "Error sending receipts from produced block: {}", e))
-                            );
-                        }
-
                         let next_index = new_beacon_block.header().index() + 1;
-
                         // Send block announcement.
                         tokio::spawn(
                             out_block_tx.clone().send((new_beacon_block, new_shard_block)).map(|_| ()).map_err(|e| error!(target: "consensus", "Error sending block announcement: {}", e))
                         );
-
                         // Send proposal for the next block
                         spawn_start_proposal(client.clone(), next_index, mempool_control_tx.clone());
                     }
