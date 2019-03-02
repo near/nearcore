@@ -1,8 +1,5 @@
 use crate::logging;
-use std::borrow::Borrow;
-use std::collections::HashSet;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 use crate::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
@@ -135,91 +132,6 @@ pub enum BlockId {
     Number(BlockIndex),
     Hash(CryptoHash),
 }
-
-// TxFlow-specific structs.
-
-pub type TxFlowHash = u64;
-
-// DAG-specific structs.
-
-/// Endorsement of a representative message. Includes the epoch of the message that it endorses as
-/// well as the BLS signature part. The leader should also include such self-endorsement upon
-/// creation of the representative message.
-#[derive(Hash, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Endorsement {
-    pub epoch: u64,
-    #[serde(with = "bs58_serializer")]
-    pub signature: BlsSignature,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-/// Not signed data representing TxFlow message.
-pub struct MessageDataBody<P> {
-    pub owner_uid: UID,
-    pub parents: HashSet<TxFlowHash>,
-    pub epoch: u64,
-    pub payload: P,
-    /// Optional endorsement of this or other representative block.
-    pub endorsements: Vec<Endorsement>,
-}
-
-impl<P: Hash> Hash for MessageDataBody<P> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.owner_uid.hash(state);
-        let mut vec: Vec<_> = self.parents.clone().into_iter().collect();
-        vec.sort();
-        for h in vec {
-            h.hash(state);
-        }
-        self.epoch.hash(state);
-        //self.payload.hash(state);
-        // TODO: Hash endorsements.
-    }
-}
-
-impl<P: Hash> PartialEq for MessageDataBody<P> {
-    fn eq(&self, other: &Self) -> bool {
-        let mut parents: Vec<_> = self.parents.clone().into_iter().collect();
-        parents.sort();
-
-        let mut other_parents: Vec<_> = other.parents.clone().into_iter().collect();
-        other_parents.sort();
-
-        self.owner_uid == other.owner_uid && self.epoch == other.epoch && parents == other_parents
-    }
-}
-
-impl<P: Hash> Eq for MessageDataBody<P> {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedMessageData<P> {
-    /// Signature of the hash.
-    pub owner_sig: StructSignature,
-    /// Hash of the body.
-    pub hash: TxFlowHash,
-    pub body: MessageDataBody<P>,
-    pub beacon_block_index: u64,
-}
-
-impl<P> Hash for SignedMessageData<P> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u64(self.hash);
-    }
-}
-
-impl<P> Borrow<TxFlowHash> for SignedMessageData<P> {
-    fn borrow(&self) -> &TxFlowHash {
-        &self.hash
-    }
-}
-
-impl<P> PartialEq for SignedMessageData<P> {
-    fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
-    }
-}
-
-impl<P> Eq for SignedMessageData<P> {}
 
 /// Stores authority and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]

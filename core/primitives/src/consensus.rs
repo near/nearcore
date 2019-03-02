@@ -1,16 +1,7 @@
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use super::serialize::{Decode, Encode};
-use super::types;
-
-pub trait WitnessSelector: 'static {
-    fn epoch_witnesses(&self, epoch: u64) -> &HashSet<types::UID>;
-    fn epoch_leader(&self, epoch: u64) -> types::UID;
-    /// Random sample of witnesses. Should exclude the current witness.
-    fn random_witnesses(&self, epoch: u64, sample_size: usize) -> HashSet<types::UID>;
-}
 
 pub type GenericResult = Result<(), &'static str>;
 
