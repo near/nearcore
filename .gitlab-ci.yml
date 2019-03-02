@@ -8,6 +8,9 @@ variables:
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
 
+.setup_rust: &setup_rust
+    rustup default nightly
+
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
@@ -34,6 +37,7 @@ stages:
 test_cargo:
     stage: rust
     before_script:
+    - *setup_rust
     - *setup_cache
     - *install_protos
     - *setup_python
@@ -51,6 +55,7 @@ test_cargo:
 release_build:
     stage: rust
     before_script:
+    - *setup_rust
     - *setup_cache
     - *install_protos
     script:
