@@ -24,7 +24,7 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, UID};
+use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 
@@ -356,12 +356,12 @@ impl Client {
             .process_block_header(beacon_header);
     }
 
-    /// Returns own UID and UID to authority map for the given block number.
+    /// Returns own AuthorityId and AuthorityId to Authority Stake map for the given block number.
     /// If the owner is not participating in the block then it returns None.
     pub fn get_uid_to_authority_map(
         &self,
         block_index: u64,
-    ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
+    ) -> (Option<AuthorityId>, HashMap<AuthorityId, AuthorityStake>) {
         let next_authorities = self
             .beacon_chain
             .authority
@@ -372,18 +372,18 @@ impl Client {
                 panic!("Failed to get authorities for block index {}", block_index)
             });
 
-        let mut uid_to_authority_map = HashMap::new();
-        let mut owner_uid = None;
+        let mut id_to_authority_map = HashMap::new();
+        let mut owner_id = None;
         for (index, authority) in next_authorities.into_iter().enumerate() {
             if authority.account_id == self.account_id {
-                owner_uid = Some(index as UID);
+                owner_id = Some(index);
             }
-            uid_to_authority_map.insert(index as UID, authority);
+            id_to_authority_map.insert(index, authority);
         }
-        (owner_uid, uid_to_authority_map)
+        (owner_id, id_to_authority_map)
     }
 
-    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<UID, AuthorityStake> {
+    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<AuthorityId, AuthorityStake> {
         let index = self.beacon_chain.chain.best_block().index() + 1;
         self.get_uid_to_authority_map(index).1
     }

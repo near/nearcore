@@ -17,8 +17,8 @@ pub fn get_control(client: &Client, block_index: u64) -> MemPoolControl {
     let mut public_keys = vec![];
     let mut bls_public_keys = vec![];
     for i in 0..num_authorities {
-        public_keys.push(uid_to_authority_map[&(i as u64)].public_key);
-        bls_public_keys.push(uid_to_authority_map[&(i as u64)].bls_public_key.clone());
+        public_keys.push(uid_to_authority_map[&i].public_key);
+        bls_public_keys.push(uid_to_authority_map[&i].bls_public_key.clone());
     }
 
     MemPoolControl::Reset {

@@ -181,7 +181,7 @@ impl Protocol {
         //        let auth_map = self.client.get_recent_uid_to_authority_map();
         let (_, auth_map) = self.client.get_uid_to_authority_map(1);
         auth_map
-            .get(&(authority_id as u64))
+            .get(&authority_id)
             .map(|auth| auth.account_id.clone())
             .and_then(|account_id| self.peer_manager.get_account_channel(account_id))
     }

@@ -7,8 +7,6 @@ use crate::aggregate_signature::{
 use crate::hash::CryptoHash;
 use crate::signature::{bs58_serializer, PublicKey, Signature};
 
-/// User identifier. Currently derived tfrom the user's public key.
-pub type UID = u64;
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ReadablePublicKey(pub String);
