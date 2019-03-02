@@ -210,8 +210,46 @@ impl Pool {
     }
 
     /// Prepares payload to gossip to peer authority.
-    pub fn prepare_payload_announce(&self) -> Option<(AuthorityId, ChainPayload)> {
-        None
+    pub fn prepare_payload_announce(&self) -> Vec<crate::tx_gossip::TxGossip> {
+        if self.authority_id.read().expect(POISONED_LOCK_ERR).is_none() {
+            return vec![];
+        }
+        let mut result = vec![];
+        let authority_id = self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap();
+        for their_authority_id in 0..self.num_authorities.read().expect(POISONED_LOCK_ERR).unwrap_or(0) {
+            if their_authority_id == authority_id {
+                continue;
+            }
+            let mut to_send = vec![];
+            for tx in self.transactions.read().expect(POISONED_LOCK_ERR).iter() {
+                let mut locked_known_to = self.known_to.write().expect(POISONED_LOCK_ERR);
+                match locked_known_to.get_mut(&tx.get_hash()) {
+                    Some(known_to) => {
+                        if !known_to.contains(&their_authority_id) {
+                            to_send.push(tx.clone());
+                            known_to.insert(their_authority_id);
+                        }
+                    },
+                    None => {
+                        to_send.push(tx.clone());
+                        let mut known_to = HashSet::new();
+                        known_to.insert(their_authority_id);
+                        locked_known_to.insert(tx.get_hash(), known_to);
+                    },
+                }
+            }
+            if to_send.len() == 0 {
+                continue;
+            }
+            let payload = ChainPayload { transactions: to_send, receipts: vec![] };
+            result.push(crate::tx_gossip::TxGossip::new(
+                authority_id,
+                their_authority_id,
+                payload,
+                self.signer.clone(),
+            ));
+        }
+        result
     }
 
     pub fn import_block(&self, block: &SignedShardBlock) {

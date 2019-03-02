@@ -1,28 +1,24 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use std::ops::Deref;
 
 use futures::future;
+use futures::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
 use futures::sync::mpsc::{Receiver, Sender};
-use futures::Future;
-use log::{error, info, warn, debug};
+use log::{debug, error, info, warn};
 use tokio::{self, timer::Interval};
 
-use primitives::aggregate_signature::{BlsPublicKey};
-use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
+use nightshade::nightshade_task::Control;
+use primitives::aggregate_signature::BlsPublicKey;
+use primitives::chain::{PayloadRequest, PayloadResponse};
 use primitives::hash::CryptoHash;
 use primitives::signature::PublicKey;
 use primitives::types::AuthorityId;
 
-use nightshade::nightshade_task::Control;
-
 use crate::Pool;
 use crate::tx_gossip::TxGossip;
-use std::collections::HashSet;
-
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Clone, Debug)]
 pub enum MemPoolControl {
@@ -42,12 +38,10 @@ pub fn spawn_pool(
     mempool_control_rx: Receiver<MemPoolControl>,
     control_tx: Sender<Control>,
     retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
-    payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
     payload_request_tx: Sender<PayloadRequest>,
     payload_response_rx: Receiver<PayloadResponse>,
     inc_tx_gossip_rx: Receiver<TxGossip>,
     out_tx_gossip_tx: Sender<TxGossip>,
-    payload_announce_period: Duration,
     gossip_tx_period: Duration,
 ) {
     // Handle request from NightshadeTask for confirmation on a payload.
@@ -85,30 +79,6 @@ pub fn spawn_pool(
         }
         future::ok(())
     });
-    tokio::spawn(task);
-
-    // Make announcements of new payloads created from this node.
-    let pool2 = pool.clone();
-    let task = Interval::new_interval(payload_announce_period)
-        .for_each(move |_| {
-            if let Some((authority_id, payload)) = pool2.prepare_payload_announce() {
-                info!(
-                    target: "mempool",
-                    "[{:?}] Payload confirmed from {}",
-                    pool2.authority_id.read().expect(crate::POISONED_LOCK_ERR),
-                    authority_id
-                );
-                tokio::spawn(
-                    payload_announce_tx
-                        .clone()
-                        .send((authority_id, payload))
-                        .map(|_| ())
-                        .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
-                );
-            }
-            future::ok(())
-        })
-        .map_err(|e| error!(target: "mempool", "Timer error: {}", e));
     tokio::spawn(task);
 
     // Receive payload and send confirmation signal of unblocked payloads.
@@ -190,49 +160,15 @@ pub fn spawn_pool(
     });
     tokio::spawn(task);
 
+    // Make announcements of new payloads created from this node.
     let pool6 = pool.clone();
     let task = Interval::new_interval(gossip_tx_period)
         .for_each(move |_| {
-            let my_authority_id = match *pool6.authority_id.read().expect(POISONED_LOCK_ERR) {
-                Some(x) => { x },
-                None => { return future::ok(()) },
-            };
-            for their_authority_id in 0..pool6.num_authorities.read().expect(POISONED_LOCK_ERR).unwrap_or(0) {
-                if their_authority_id == my_authority_id {
-                    continue;
-                }
-                let mut to_send = vec![];
-                for tx in pool6.transactions.read().expect(POISONED_LOCK_ERR).iter() {
-                    let mut locked_known_to = pool6.known_to.write().expect(POISONED_LOCK_ERR);
-                    match locked_known_to.get_mut(&tx.get_hash()) {
-                        Some(known_to) => {
-                            if !known_to.contains(&their_authority_id) {
-                                to_send.push(tx.clone());
-                                known_to.insert(their_authority_id);
-                            }
-                        },
-                        None => {
-                            to_send.push(tx.clone());
-                            let mut known_to = HashSet::new();
-                            known_to.insert(their_authority_id);
-                            locked_known_to.insert(tx.get_hash(), known_to);
-                        },
-                    }
-                }
-                if to_send.len() == 0 {
-                    continue;
-                }
-                let payload = ChainPayload{ transactions: to_send, receipts: vec![] };
-                let gossip = TxGossip::new(
-                    my_authority_id,
-                    their_authority_id,
-                    payload,
-                    pool6.signer.clone(),
-                );
+            for tx_gossip in pool6.prepare_payload_announce() {
                 tokio::spawn(
                     out_tx_gossip_tx
                         .clone()
-                        .send(gossip)
+                        .send(tx_gossip)
                         .map(|_| ())
                         .map_err(|e| warn!(target: "pool", "Error sending message: {}", e)),
                 );
