@@ -2,9 +2,8 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use futures::sync::mpsc::{channel, Receiver};
-use futures::{future, Future, Stream};
-use log::error;
+use futures::sync::mpsc::channel;
+use futures::{future, Stream};
 
 use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
