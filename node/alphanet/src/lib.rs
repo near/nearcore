@@ -272,6 +272,7 @@ mod tests {
         bob.start();
         charlie.start();
 
+        let mut state_update = charlie.client.shard_client.get_state_update();
         wait(|| {
             charlie.client.shard_client.chain.best_block().index() >= 3
         }, 500, 10000);
@@ -289,5 +290,4 @@ mod tests {
             110
         );
     }
-
 }
