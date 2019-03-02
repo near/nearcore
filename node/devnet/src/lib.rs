@@ -82,7 +82,7 @@ mod tests {
 
         let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
-        //    client_cfg.log_level = log::LevelFilter::Off;
+        client_cfg.log_level = log::LevelFilter::Off;
         let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
         let rpc_cfg = configs::RPCConfig::default();
 
