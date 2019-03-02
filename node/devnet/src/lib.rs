@@ -63,6 +63,7 @@ mod tests {
     use alphanet::testing_utils::wait;
     use primitives::block_traits::SignedBlock;
     use primitives::transaction::TransactionBody;
+    use primitives::signer::InMemorySigner;
 
     use super::*;
     use std::time::Duration;
@@ -90,11 +91,12 @@ mod tests {
             start_from_client(client1, devnet_cfg, rpc_cfg);
         });
 
+        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
         client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(client.signer.clone()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_block().index() == 2, 50, 10000);
