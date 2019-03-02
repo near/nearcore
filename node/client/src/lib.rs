@@ -207,6 +207,9 @@ impl Client {
             authority_proposals,
             shard_block.block_hash(),
         );
+        // TODO(645): Remove this and fill in correctly when collecting final BLS.
+        block.signature.authority_mask.resize(authorities.len(), true);
+        shard_block.signature.authority_mask.resize(authorities.len(), true);
         let shard_block_signature = shard_block.sign(self.signer.clone());
         let block_signature = block.sign(self.signer.clone());
         for (i, authority) in authorities.iter().enumerate() {

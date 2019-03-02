@@ -188,7 +188,7 @@ mod tests {
                     && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
-            80000,
+            60000,
         );
 
         // Check that transaction and it's receipt were included.
@@ -261,7 +261,7 @@ mod tests {
         shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
-        bob.client
+        alice.client
             .shard_client
             .pool
             .add_transaction(
@@ -275,21 +275,20 @@ mod tests {
         charlie.start();
 
         wait(|| {
-//            bob.client.shard_client.chain.best_block().index() >= 3
             charlie.client.shard_client.chain.best_block().index() >= 3
         }, 500, 10000);
 
         // Check that non-authority synced into the same state.
-//        let mut state_update = charlie.client.shard_client.get_state_update();
-//        assert_eq!(
-//            charlie
-//                .client
-//                .shard_client
-//                .trie_viewer
-//                .view_account(&mut state_update, &"bob.near".to_string())
-//                .unwrap()
-//                .amount,
-//            110
-//        );
+        let mut state_update = charlie.client.shard_client.get_state_update();
+        assert_eq!(
+            charlie
+                .client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"bob.near".to_string())
+                .unwrap()
+                .amount,
+            110
+        );
     }
 }
