@@ -184,6 +184,7 @@ impl Client {
         }
 
         let last_block = self.beacon_chain.chain.best_block();
+        let last_shard_block = self.shard_client.chain.best_block();
         let authorities = self
             .beacon_chain
             .authority
@@ -191,9 +192,12 @@ impl Client {
             .expect(POISONED_LOCK_ERR)
             .get_authorities(last_block.body.header.index + 1)
             .expect("Authorities should be present for given block to produce it");
+        // Get previous receipts:
+        let receipt_block = self.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
+        let receipt_blocks = receipt_block.map(|b| vec![b]).unwrap_or(vec![]);
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
             .shard_client
-            .prepare_new_block(last_block.body.header.shard_block_hash, payload.receipts, payload.transactions);
+            .prepare_new_block(last_block.body.header.shard_block_hash, receipt_blocks, payload.transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
