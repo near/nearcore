@@ -58,8 +58,9 @@ impl Pool {
     /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
     pub fn reset(&self, control: MemPoolControl) {
         match control {
-            MemPoolControl::Reset { authority_id, num_authorities, .. } => {
-                info!(target: "mempool", "MemPool reset for {}", authority_id);
+            MemPoolControl::Reset { authority_id, num_authorities, owner_uid, block_index, .. } => {
+                info!(target: "mempool", "MemPool reset for authority_id={}, owner_uid={}, block_index={}",
+                      authority_id, owner_uid, block_index);
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = Some(authority_id);
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = Some(num_authorities);
             }

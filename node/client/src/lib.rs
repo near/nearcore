@@ -215,8 +215,9 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
-        info!(target: "client", "Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
+        info!(target: "client", "Producing block index: {:?}, account_id={:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
             block.body.header.index,
+            self.account_id,
             block.hash,
             shard_block.hash,
             shard_block.body.transactions.len(),
@@ -281,7 +282,10 @@ impl Client {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
-        info!(target: "client", "Importing block index: {:?}, beacon = {:?}, shard = {:?}", beacon_block.body.header.index, beacon_block.hash, shard_block.hash);
+        info!(target: "client", "Importing block index: {:?}, account_id={:?}, beacon = {:?}, shard = {:?}",
+              beacon_block.body.header.index,
+              self.account_id,
+              beacon_block.hash, shard_block.hash);
         if self.beacon_chain.chain.is_known(&hash) {
             return BlockImportingResult::AlreadyImported;
         }

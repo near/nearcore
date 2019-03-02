@@ -21,7 +21,7 @@ pub fn spawn_block_importer(
     let task = incoming_block_rx.for_each(move |(beacon_block, shard_block)| {
         // TODO: handle other cases.
         if let BlockImportingResult::Success { new_index } = client.try_import_blocks(beacon_block, shard_block) {
-            info!("Successfully imported block(s) up to {}", new_index);
+            info!("Successfully imported block(s) up to {}, account_id={:?}", new_index, client.account_id);
             let mempool_control = get_control(&client, new_index);
 
             // Send mempool control.
