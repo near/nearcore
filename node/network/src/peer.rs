@@ -361,9 +361,14 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                 }
                 Unconnected { info, connect_timer, .. } => {
                     try_ready!(connect_timer.poll().map_err(timer_err));
-                    let connect = TcpStream::connect(&info.addr);
-                    let conn_timeout = get_delay(CONNECT_TIMEOUT);
-                    Connecting { info: info.clone(), connect, conn_timeout, evicted: false }
+                    // TODO: add other state for peers who don't have open port, to not keep trying to connect to them.
+                    if info.addr.is_some() {
+                        let connect = TcpStream::connect(&info.addr.unwrap());
+                        let conn_timeout = get_delay(CONNECT_TIMEOUT);
+                        Connecting { info: info.clone(), connect, conn_timeout, evicted: false }
+                    } else {
+                        Unconnected { info: info.clone(), connect_timer: get_delay(self.reconnect_delay * 10), evicted: false }
+                    }
                 }
                 Connecting { info, connect, conn_timeout, .. } => match connect.poll() {
                     Ok(Async::Ready(socket)) => {

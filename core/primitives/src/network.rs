@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub id: PeerId,
-    pub addr: SocketAddr,
+    pub addr: Option<SocketAddr>,
     pub account_id: Option<AccountId>,
 }
 
@@ -29,9 +29,9 @@ impl Eq for PeerInfo {}
 impl fmt::Display for PeerInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(acc) = self.account_id.as_ref() {
-            write!(f, "({}, {}, {})", self.id, self.addr, acc)
+            write!(f, "({}, {:?}, {})", self.id, self.addr, acc)
         } else {
-            write!(f, "({}, {})", self.id, self.addr)
+            write!(f, "({}, {:?})", self.id, self.addr)
         }
     }
 }
