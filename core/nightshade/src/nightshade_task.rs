@@ -56,8 +56,8 @@ pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub body: GossipBody,
-    signature: Signature,
     block_index: u64,
+    signature: Signature,
 }
 
 impl Gossip {
@@ -68,13 +68,13 @@ impl Gossip {
         signer: Arc<BlockSigner>,
         block_index: u64,
     ) -> Self {
-        let hash = hash_struct(&(sender_id, receiver_id, &body));
+        let hash = hash_struct(&(sender_id, receiver_id, &body, block_index));
 
         Self { sender_id, receiver_id, body, signature: signer.sign(hash.as_ref()), block_index }
     }
 
     fn get_hash(&self) -> CryptoHash {
-        hash_struct(&(self.sender_id, self.receiver_id, &self.body))
+        hash_struct(&(self.sender_id, self.receiver_id, &self.body, self.block_index))
     }
 
     fn verify(&self, pk: &PublicKey) -> bool {
@@ -178,6 +178,11 @@ impl NightshadeTask {
         bls_public_keys: Vec<BlsPublicKey>,
     ) {
         let num_authorities = public_keys.len();
+        info!(target: "nightshade", "Init nightshade for authority {}/{}, block {}, proposal {}", owner_uid, num_authorities, block_index, hash);
+        assert!(self.block_index.is_none() ||
+                    self.block_index.unwrap() < block_index ||
+                    self.proposals[owner_uid as usize].as_ref().unwrap().block_proposal.hash == hash,
+                "Reset without increasing block index: adversarial behavior");
 
         self.proposals = vec![None; num_authorities];
         self.proposals[owner_uid] =
@@ -298,7 +303,7 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
-        info!("Request payload confirmation: {:?}", signed_payload);
+        info!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
@@ -322,6 +327,7 @@ impl NightshadeTask {
                 if p.block_proposal.hash != signed_payload.block_proposal.hash {
                     self.nightshade_as_mut_ref().set_adversary(authority_id);
                     self.proposals[authority_id] = None;
+                    panic!("the case of adversaries creating forks is not properly handled yet");
                 }
             } else {
                 self.request_payload_confirmation(&signed_payload);
@@ -381,7 +387,9 @@ impl Stream for NightshadeTask {
                     public_keys,
                     bls_public_keys,
                 }))) => {
-                    info!(target: "nightshade", "Control channel received Reset");
+                    info!(target: "nightshade",
+                          "Control channel received Reset for owner_uid={}, block_index={}",
+                          owner_uid, block_index);
                     self.init_nightshade(
                         owner_uid,
                         block_index,

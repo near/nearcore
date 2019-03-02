@@ -1,3 +1,5 @@
+cargo-features = ["profile-overrides"]
+
 [package]
 name = "nearcore"
 version = "0.1.0"
@@ -58,3 +60,6 @@ client = { path = "./node/client" }
 [profile.release]
 lto = true        # Enable full link-time optimization.
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+
+[profile.dev.overrides.pairing]
+opt-level = 3 # pairing library is too slow to use in debug
