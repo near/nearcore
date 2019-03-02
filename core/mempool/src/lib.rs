@@ -21,7 +21,7 @@ use crate::pool_task::MemPoolControl;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub mod pool_task;
-pub mod tx_gossip;
+pub mod payload_gossip;
 
 /// mempool that stores transactions and receipts for a chain
 pub struct Pool {
@@ -210,7 +210,7 @@ impl Pool {
     }
 
     /// Prepares payload to gossip to peer authority.
-    pub fn prepare_payload_announce(&self) -> Vec<crate::tx_gossip::TxGossip> {
+    pub fn prepare_payload_announce(&self) -> Vec<crate::payload_gossip::PayloadGossip> {
         if self.authority_id.read().expect(POISONED_LOCK_ERR).is_none() {
             return vec![];
         }
@@ -242,7 +242,7 @@ impl Pool {
                 continue;
             }
             let payload = ChainPayload { transactions: to_send, receipts: vec![] };
-            result.push(crate::tx_gossip::TxGossip::new(
+            result.push(crate::payload_gossip::PayloadGossip::new(
                 authority_id,
                 their_authority_id,
                 payload,

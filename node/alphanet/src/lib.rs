@@ -44,14 +44,13 @@ pub fn start_from_client(
         // Create all the consensus channels.
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
-        let (inc_tx_gossip_tx, inc_tx_gossip_rx) = channel(1024);
-        let (out_tx_gossip_tx, out_tx_gossip_rx) = channel(1024);
+        let (inc_payload_gossip_tx, inc_payload_gossip_rx) = channel(1024);
+        let (out_payload_gossip_tx, out_payload_gossip_rx) = channel(1024);
         let (consensus_tx, consensus_rx) = channel(1024);
         let (control_tx, control_rx) = channel(1024);
 
         // Launch tx gossip / payload sync.
         let (retrieve_payload_tx, retrieve_payload_rx) = channel(1024);
-        let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
         let (mempool_control_tx, mempool_control_rx) = channel(1024);
@@ -60,13 +59,11 @@ pub fn start_from_client(
             mempool_control_rx,
             control_tx,
             retrieve_payload_rx,
-            payload_announce_tx,
             payload_request_tx,
             payload_response_rx,
-            inc_tx_gossip_rx,
-            out_tx_gossip_tx,
-            network_cfg.gossip_interval,
-            network_cfg.tx_gossip_interval,
+            inc_payload_gossip_rx,
+            out_payload_gossip_tx,
+            network_cfg.payload_gossip_interval,
         );
 
         // Launch block syncing / importing.
@@ -99,13 +96,12 @@ pub fn start_from_client(
             network_cfg,
             inc_gossip_tx,
             out_gossip_rx,
-            inc_tx_gossip_tx,
-            out_tx_gossip_rx,
             inc_block_tx,
             out_block_rx,
-            payload_announce_rx,
             payload_request_rx,
             payload_response_tx,
+            inc_payload_gossip_tx,
+            out_payload_gossip_rx,
         );
 
         Ok(())

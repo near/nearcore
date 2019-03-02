@@ -18,7 +18,7 @@ use primitives::signature::PublicKey;
 use primitives::types::AuthorityId;
 
 use crate::Pool;
-use crate::tx_gossip::TxGossip;
+use crate::payload_gossip::PayloadGossip;
 
 #[derive(Clone, Debug)]
 pub enum MemPoolControl {
@@ -40,9 +40,9 @@ pub fn spawn_pool(
     retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
     payload_request_tx: Sender<PayloadRequest>,
     payload_response_rx: Receiver<PayloadResponse>,
-    inc_tx_gossip_rx: Receiver<TxGossip>,
-    out_tx_gossip_tx: Sender<TxGossip>,
-    gossip_tx_period: Duration,
+    inc_payload_gossip_rx: Receiver<PayloadGossip>,
+    out_payload_gossip_tx: Sender<PayloadGossip>,
+    gossip_payload_period: Duration,
 ) {
     // Handle request from NightshadeTask for confirmation on a payload.
     // If the payload can't be built from the mempool task to fetch necessary data is spawned and the
@@ -150,7 +150,7 @@ pub fn spawn_pool(
 
     // Receive transaction gossips
     let pool5 = pool.clone();
-    let task = inc_tx_gossip_rx.for_each(move |tx_gossip| {
+    let task = inc_payload_gossip_rx.for_each(move |tx_gossip| {
         // TODO: verify signature
         if let Err(e) = pool5.add_payload_with_author(tx_gossip.payload, tx_gossip.sender_id) {
             warn!(target: "pool", "Failed to add payload from tx gossip: {}", e);
@@ -162,11 +162,11 @@ pub fn spawn_pool(
 
     // Make announcements of new payloads created from this node.
     let pool6 = pool.clone();
-    let task = Interval::new_interval(gossip_tx_period)
+    let task = Interval::new_interval(gossip_payload_period)
         .for_each(move |_| {
             for tx_gossip in pool6.prepare_payload_announce() {
                 tokio::spawn(
-                    out_tx_gossip_tx
+                    out_payload_gossip_tx
                         .clone()
                         .send(tx_gossip)
                         .map(|_| ())
