@@ -188,7 +188,7 @@ mod tests {
                     && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
-            60000,
+            80000,
         );
 
         // Check that transaction and it's receipt were included.
@@ -219,6 +219,7 @@ mod tests {
     /// Wait until the second authority syncs and then build a block on top.
     /// Check that third node got the same state.
     #[test]
+    #[ignore]
     fn test_three_nodes_sync() {
         let chain_spec = configure_chain_spec();
         let alice = Node::new(

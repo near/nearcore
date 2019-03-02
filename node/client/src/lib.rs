@@ -80,7 +80,7 @@ fn configure_logging(log_level: log::LevelFilter) {
         "service",
         "wasm",
         "client",
-        "memorypool",
+        "mempool",
         "nightshade",
     ];
     let mut builder = Builder::from_default_env();
