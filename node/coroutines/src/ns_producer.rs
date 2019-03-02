@@ -35,7 +35,6 @@ pub fn spawn_block_producer(
     client: Arc<Client>,
     consensus_rx: Receiver<ConsensusBlockProposal>,
     mempool_control_tx: Sender<MemPoolControl>,
-    _receipts_tx: Sender<ReceiptBlock>,
     out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     // Send proposal for the first block

@@ -23,9 +23,7 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
 
 pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
     let node_task = future::lazy(move || {
-        let (receipts_tx, receipts_rx) = channel(1024);
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
-        spawn_receipt_task(client.clone(), receipts_rx);
 
         // Create a task that receives new blocks from importer/producer
         // and send the authority information to consensus
@@ -39,7 +37,6 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             client.clone(),
             consensus_rx,
             mempool_control_tx,
-            receipts_tx,
             out_block_tx
         );
 
