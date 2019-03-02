@@ -8,7 +8,7 @@ use std::sync::Arc;
 use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{get_testnet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
 use coroutines::importer::spawn_block_importer;
 use coroutines::ns_producer::spawn_block_producer;
 use mempool::pool_task::spawn_pool;
@@ -19,7 +19,7 @@ use primitives::types::AccountId;
 pub mod testing_utils;
 
 pub fn start() {
-    let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
+    let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
     start_from_configs(client_cfg, network_cfg, rpc_cfg);
 }
 
@@ -79,6 +79,7 @@ pub fn start_from_client(
 
         // Launch Nightshade task.
         spawn_nightshade_task(
+            client.signer.clone(),
             inc_gossip_rx,
             out_gossip_tx,
             consensus_tx,
@@ -119,7 +120,7 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, wait, Node};
+    use crate::testing_utils::{configure_chain_spec, Node, wait};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -130,7 +131,7 @@ mod tests {
             "t1_alice",
             "alice.near",
             1,
-            "127.0.0.1:3000",
+            Some("127.0.0.1:3000"),
             3030,
             vec![],
             chain_spec.clone(),
@@ -139,11 +140,15 @@ mod tests {
             "t1_bob",
             "bob.near",
             2,
-            "127.0.0.1:3001",
+            Some("127.0.0.1:3001"),
             3031,
             vec![alice.node_info.clone()],
             chain_spec,
         );
+        let alice_signer = alice.signer();
+        let bob_signer = bob.signer();
+        println!("Alice pk={:?}, bls pk={:?}", alice_signer.public_key.to_readable(), alice_signer.bls_public_key.to_readable());
+        println!("Bob pk={:?}, bls pk={:?}", bob_signer.public_key.to_readable(), bob_signer.bls_public_key.to_readable());
 
         alice
             .client
@@ -151,7 +156,7 @@ mod tests {
             .pool
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(&alice.secret_key),
+                    .sign(alice.signer()),
             )
             .unwrap();
 
@@ -165,7 +170,7 @@ mod tests {
                     && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
-            80000,
+            60000,
         );
 
         // Check that transaction and it's receipt were included.
@@ -196,14 +201,13 @@ mod tests {
     /// Wait until the second authority syncs and then build a block on top.
     /// Check that third node got the same state.
     #[test]
-    #[ignore]
     fn test_three_nodes_sync() {
         let chain_spec = configure_chain_spec();
         let alice = Node::new(
             "t2_alice",
             "alice.near",
             1,
-            "127.0.0.1:3002",
+            Some("127.0.0.1:3002"),
             3032,
             vec![],
             chain_spec.clone(),
@@ -212,7 +216,7 @@ mod tests {
             "t2_bob",
             "bob.near",
             2,
-            "127.0.0.1:3003",
+            Some("127.0.0.1:3003"),
             3033,
             vec![alice.node_info.clone()],
             chain_spec.clone(),
@@ -221,27 +225,30 @@ mod tests {
             "t2_charlie",
             "charlie.near",
             3,
-            "127.0.0.1:3004",
+            None,
             3034,
             vec![bob.node_info.clone()],
             chain_spec,
         );
 
-        let (beacon_block, shard_block) =
+        let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
                 BlockProductionResult::Success(beacon_block, shard_block) => {
                     (beacon_block, shard_block)
                 }
                 _ => panic!("Should produce block"),
             };
+        // Sign by bob to make this blocks valid.
+        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
+        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
-        bob.client
+        alice.client
             .shard_client
             .pool
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(&alice.secret_key),
+                    .sign(alice.signer()),
             )
             .unwrap();
 

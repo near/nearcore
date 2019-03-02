@@ -1218,6 +1218,8 @@ pub struct StakeTransaction {
     pub nonce: u64,
     pub originator: ::std::string::String,
     pub amount: u64,
+    pub public_key: ::std::string::String,
+    pub bls_public_key: ::std::string::String,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
@@ -1283,6 +1285,58 @@ impl StakeTransaction {
     pub fn get_amount(&self) -> u64 {
         self.amount
     }
+
+    // string public_key = 4;
+
+    pub fn clear_public_key(&mut self) {
+        self.public_key.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_public_key(&mut self, v: ::std::string::String) {
+        self.public_key = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_public_key(&mut self) -> &mut ::std::string::String {
+        &mut self.public_key
+    }
+
+    // Take field
+    pub fn take_public_key(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.public_key, ::std::string::String::new())
+    }
+
+    pub fn get_public_key(&self) -> &str {
+        &self.public_key
+    }
+
+    // string bls_public_key = 5;
+
+    pub fn clear_bls_public_key(&mut self) {
+        self.bls_public_key.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_bls_public_key(&mut self, v: ::std::string::String) {
+        self.bls_public_key = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_bls_public_key(&mut self) -> &mut ::std::string::String {
+        &mut self.bls_public_key
+    }
+
+    // Take field
+    pub fn take_bls_public_key(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.bls_public_key, ::std::string::String::new())
+    }
+
+    pub fn get_bls_public_key(&self) -> &str {
+        &self.bls_public_key
+    }
 }
 
 impl ::protobuf::Message for StakeTransaction {
@@ -1311,6 +1365,12 @@ impl ::protobuf::Message for StakeTransaction {
                     let tmp = is.read_uint64()?;
                     self.amount = tmp;
                 },
+                4 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.public_key)?;
+                },
+                5 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.bls_public_key)?;
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -1332,6 +1392,12 @@ impl ::protobuf::Message for StakeTransaction {
         if self.amount != 0 {
             my_size += ::protobuf::rt::value_size(3, self.amount, ::protobuf::wire_format::WireTypeVarint);
         }
+        if !self.public_key.is_empty() {
+            my_size += ::protobuf::rt::string_size(4, &self.public_key);
+        }
+        if !self.bls_public_key.is_empty() {
+            my_size += ::protobuf::rt::string_size(5, &self.bls_public_key);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -1346,6 +1412,12 @@ impl ::protobuf::Message for StakeTransaction {
         }
         if self.amount != 0 {
             os.write_uint64(3, self.amount)?;
+        }
+        if !self.public_key.is_empty() {
+            os.write_string(4, &self.public_key)?;
+        }
+        if !self.bls_public_key.is_empty() {
+            os.write_string(5, &self.bls_public_key)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1404,6 +1476,16 @@ impl ::protobuf::Message for StakeTransaction {
                     |m: &StakeTransaction| { &m.amount },
                     |m: &mut StakeTransaction| { &mut m.amount },
                 ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "public_key",
+                    |m: &StakeTransaction| { &m.public_key },
+                    |m: &mut StakeTransaction| { &mut m.public_key },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "bls_public_key",
+                    |m: &StakeTransaction| { &m.bls_public_key },
+                    |m: &mut StakeTransaction| { &mut m.bls_public_key },
+                ));
                 ::protobuf::reflect::MessageDescriptor::new::<StakeTransaction>(
                     "StakeTransaction",
                     fields,
@@ -1429,6 +1511,8 @@ impl ::protobuf::Clear for StakeTransaction {
         self.clear_nonce();
         self.clear_originator();
         self.clear_amount();
+        self.clear_public_key();
+        self.clear_bls_public_key();
         self.unknown_fields.clear();
     }
 }
@@ -3367,34 +3451,36 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x01\n\x14SendMoneyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\
     \x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x1a\
     \n\x08receiver\x18\x03\x20\x01(\tR\x08receiver\x12\x16\n\x06amount\x18\
-    \x04\x20\x01(\x04R\x06amount\"`\n\x10StakeTransaction\x12\x14\n\x05nonce\
-    \x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\t\
-    R\noriginator\x12\x16\n\x06amount\x18\x03\x20\x01(\x04R\x06amount\"|\n\
-    \x12SwapKeyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\
-    \x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_\
-    key\x18\x03\x20\x01(\x0cR\x06curKey\x12\x17\n\x07new_key\x18\x04\x20\x01\
-    (\x0cR\x06newKey\"b\n\x11AddKeyTransaction\x12\x14\n\x05nonce\x18\x01\
-    \x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\norigi\
-    nator\x12\x17\n\x07new_key\x18\x03\x20\x01(\x0cR\x06newKey\"e\n\x14Delet\
-    eKeyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\
-    \x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_key\
-    \x18\x03\x20\x01(\x0cR\x06curKey\"\x95\x01\n\x14AddBlsKeyTransaction\x12\
+    \x04\x20\x01(\x04R\x06amount\"\xa5\x01\n\x10StakeTransaction\x12\x14\n\
+    \x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\
+    \x20\x01(\tR\noriginator\x12\x16\n\x06amount\x18\x03\x20\x01(\x04R\x06am\
+    ount\x12\x1d\n\npublic_key\x18\x04\x20\x01(\tR\tpublicKey\x12$\n\x0ebls_\
+    public_key\x18\x05\x20\x01(\tR\x0cblsPublicKey\"|\n\x12SwapKeyTransactio\
+    n\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginato\
+    r\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_key\x18\x03\x20\x01(\
+    \x0cR\x06curKey\x12\x17\n\x07new_key\x18\x04\x20\x01(\x0cR\x06newKey\"b\
+    \n\x11AddKeyTransaction\x12\x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonc\
+    e\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\noriginator\x12\x17\n\x07new\
+    _key\x18\x03\x20\x01(\x0cR\x06newKey\"e\n\x14DeleteKeyTransaction\x12\
     \x14\n\x05nonce\x18\x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\
-    \x02\x20\x01(\tR\noriginator\x12\x17\n\x07new_key\x18\x03\x20\x01(\x0cR\
-    \x06newKey\x12.\n\x13proof_of_possession\x18\x04\x20\x01(\x0cR\x11proofO\
-    fPossession\"\xba\x04\n\x11SignedTransaction\x12\x1c\n\tsignature\x18\
-    \x01\x20\x01(\x0cR\tsignature\x12B\n\x0ecreate_account\x18\x02\x20\x01(\
-    \x0b2\x19.CreateAccountTransactionH\0R\rcreateAccount\x12E\n\x0fdeploy_c\
-    ontract\x18\x03\x20\x01(\x0b2\x1a.DeployContractTransactionH\0R\x0edeplo\
-    yContract\x12?\n\rfunction_call\x18\x04\x20\x01(\x0b2\x18.FunctionCallTr\
-    ansactionH\0R\x0cfunctionCall\x126\n\nsend_money\x18\x05\x20\x01(\x0b2\
-    \x15.SendMoneyTransactionH\0R\tsendMoney\x12)\n\x05stake\x18\x06\x20\x01\
-    (\x0b2\x11.StakeTransactionH\0R\x05stake\x120\n\x08swap_key\x18\x07\x20\
-    \x01(\x0b2\x13.SwapKeyTransactionH\0R\x07swapKey\x12-\n\x07add_key\x18\
-    \x08\x20\x01(\x0b2\x12.AddKeyTransactionH\0R\x06addKey\x126\n\ndelete_ke\
-    y\x18\t\x20\x01(\x0b2\x15.DeleteKeyTransactionH\0R\tdeleteKey\x127\n\x0b\
-    add_bls_key\x18\n\x20\x01(\x0b2\x15.AddBlsKeyTransactionH\0R\taddBlsKeyB\
-    \x06\n\x04bodyb\x06proto3\
+    \x02\x20\x01(\tR\noriginator\x12\x17\n\x07cur_key\x18\x03\x20\x01(\x0cR\
+    \x06curKey\"\x95\x01\n\x14AddBlsKeyTransaction\x12\x14\n\x05nonce\x18\
+    \x01\x20\x01(\x04R\x05nonce\x12\x1e\n\noriginator\x18\x02\x20\x01(\tR\no\
+    riginator\x12\x17\n\x07new_key\x18\x03\x20\x01(\x0cR\x06newKey\x12.\n\
+    \x13proof_of_possession\x18\x04\x20\x01(\x0cR\x11proofOfPossession\"\xba\
+    \x04\n\x11SignedTransaction\x12\x1c\n\tsignature\x18\x01\x20\x01(\x0cR\t\
+    signature\x12B\n\x0ecreate_account\x18\x02\x20\x01(\x0b2\x19.CreateAccou\
+    ntTransactionH\0R\rcreateAccount\x12E\n\x0fdeploy_contract\x18\x03\x20\
+    \x01(\x0b2\x1a.DeployContractTransactionH\0R\x0edeployContract\x12?\n\rf\
+    unction_call\x18\x04\x20\x01(\x0b2\x18.FunctionCallTransactionH\0R\x0cfu\
+    nctionCall\x126\n\nsend_money\x18\x05\x20\x01(\x0b2\x15.SendMoneyTransac\
+    tionH\0R\tsendMoney\x12)\n\x05stake\x18\x06\x20\x01(\x0b2\x11.StakeTrans\
+    actionH\0R\x05stake\x120\n\x08swap_key\x18\x07\x20\x01(\x0b2\x13.SwapKey\
+    TransactionH\0R\x07swapKey\x12-\n\x07add_key\x18\x08\x20\x01(\x0b2\x12.A\
+    ddKeyTransactionH\0R\x06addKey\x126\n\ndelete_key\x18\t\x20\x01(\x0b2\
+    \x15.DeleteKeyTransactionH\0R\tdeleteKey\x127\n\x0badd_bls_key\x18\n\x20\
+    \x01(\x0b2\x15.AddBlsKeyTransactionH\0R\taddBlsKeyB\x06\n\x04bodyb\x06pr\
+    oto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

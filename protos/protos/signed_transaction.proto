@@ -34,6 +34,8 @@ message StakeTransaction {
     uint64 nonce = 1;
     string originator = 2;
     uint64 amount = 3;
+    string public_key = 4;
+    string bls_public_key = 5;
 }
 
 message SwapKeyTransaction {

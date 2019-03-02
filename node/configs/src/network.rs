@@ -16,7 +16,7 @@ const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
 
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub listen_addr: SocketAddr,
+    pub listen_addr: Option<SocketAddr>,
     pub peer_id: PeerId,
     pub boot_nodes: Vec<PeerInfo>,
     pub reconnect_delay: Duration,
@@ -85,22 +85,20 @@ pub fn get_peer_id_from_seed(seed: u32) -> PeerId {
 }
 
 pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
+    // TODO: make addr optional cmd argument.
     let listen_addr =
-        matches.value_of("addr").unwrap().parse::<SocketAddr>().expect("Cannot parse address");
-    let test_network_key_seed = matches.value_of("test_network_key_seed")
-        .map(|x| x.parse::<u32>().unwrap())
-        .unwrap_or(0);
+        Some(matches.value_of("addr").unwrap().parse::<SocketAddr>().expect("Cannot parse address"));
+    let test_network_key_seed =
+        matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap()).unwrap_or(0);
 
-    let parsed_boot_nodes = matches
-        .values_of("boot_nodes")
-        .unwrap_or_else(clap::Values::default)
-        .map(String::from);
+    let parsed_boot_nodes =
+        matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
     let mut boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
             let addr_id: Vec<_> = addr_id.split('/').collect();
             let (addr, id) = (addr_id[0], addr_id[1]);
             PeerInfo {
-                addr: addr.parse::<SocketAddr>().expect("Cannot parse address"),
+                addr: Some(addr.parse::<SocketAddr>().expect("Cannot parse address")),
                 id: String::into(id.to_string()),
                 account_id: None,
             }
@@ -122,7 +120,9 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
     }
     let peer_id = get_peer_id_from_seed(test_network_key_seed);
-    println!("To boot from this node: {}/{}", listen_addr, String::from(&peer_id));
+    if listen_addr.is_some() {
+        println!("To boot from this node: {}/{}", listen_addr.unwrap(), String::from(&peer_id));
+    }
     NetworkConfig {
         listen_addr,
         peer_id,

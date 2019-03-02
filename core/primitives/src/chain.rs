@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::consensus::Payload;
-use super::hash::{CryptoHash, hash_struct};
+use super::hash::{hash_struct, CryptoHash};
 use super::merkle::MerklePath;
 use super::transaction::{ReceiptTransaction, SignedTransaction};
 use super::types::{AuthorityId, GroupSignature, MerkleHash, PartialSignature, ShardId};

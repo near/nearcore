@@ -1,23 +1,23 @@
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use futures::Async;
+use elapsed::measure_time;
 use futures::future::Future;
-use futures::Poll;
 use futures::sink::Sink;
-use futures::Stream;
 use futures::sync::mpsc;
 use futures::try_ready;
+use futures::Async;
+use futures::Poll;
+use futures::Stream;
 use log::*;
 use tokio::timer::Delay;
-use elapsed::measure_time;
 
 use primitives::aggregate_signature::BlsPublicKey;
-use primitives::aggregate_signature::BlsSecretKey;
-use primitives::hash::CryptoHash;
-use primitives::hash::hash_struct;
-use primitives::signature::{PublicKey, SecretKey, sign, Signature, verify};
-use primitives::types::AuthorityId;
+use primitives::hash::{hash_struct, CryptoHash};
+use primitives::signature::{verify, PublicKey, Signature};
+use primitives::signer::BlockSigner;
+use primitives::types::{AuthorityId, BlockIndex};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
 
@@ -26,13 +26,11 @@ const COOLDOWN_MS: u64 = 200;
 #[derive(Clone, Debug)]
 pub enum Control {
     Reset {
-        owner_uid: u64,
-        block_index: u64,
+        owner_uid: AuthorityId,
+        block_index: BlockIndex,
         hash: CryptoHash,
         public_keys: Vec<PublicKey>,
-        owner_secret_key: SecretKey,
         bls_public_keys: Vec<BlsPublicKey>,
-        bls_owner_secret_key: BlsSecretKey,
     },
     Stop,
     PayloadConfirmation(AuthorityId, CryptoHash),
@@ -67,12 +65,12 @@ impl Gossip {
         sender_id: AuthorityId,
         receiver_id: AuthorityId,
         body: GossipBody,
-        sk: &SecretKey,
+        signer: Arc<BlockSigner>,
         block_index: u64,
     ) -> Self {
         let hash = hash_struct(&(sender_id, receiver_id, &body, block_index));
 
-        Self { sender_id, receiver_id, body, signature: sign(hash.as_ref(), &sk), block_index }
+        Self { sender_id, receiver_id, body, signature: signer.sign(hash.as_ref()), block_index }
     }
 
     fn get_hash(&self) -> CryptoHash {
@@ -91,9 +89,9 @@ pub struct SignedBlockProposal {
 }
 
 impl SignedBlockProposal {
-    fn new(author: AuthorityId, hash: CryptoHash, secret_key: &SecretKey) -> Self {
+    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
         let block_proposal = BlockProposal { author, hash };
-        let signature = sign(block_proposal.hash.as_ref(), &secret_key);
+        let signature = signer.sign(block_proposal.hash.as_ref());
 
         Self { block_proposal, signature }
     }
@@ -104,6 +102,8 @@ impl SignedBlockProposal {
 }
 
 pub struct NightshadeTask {
+    /// Signer.
+    signer: Arc<BlockSigner>,
     /// Blocks from other authorities containing payloads. At the beginning of the consensus
     /// authorities only have their own block. It is required for an authority to endorse a block
     /// from other authority to have its block.
@@ -111,12 +111,12 @@ pub struct NightshadeTask {
     /// Flags indicating if the proposing blocks can be fetched from the mempool.
     /// Mempool task should send the signal to confirm a proposal
     confirmed_proposals: Vec<bool>,
+    /// Nightshade main data structure.
     nightshade: Option<Nightshade>,
     /// Block index that we are currently working on.
     block_index: Option<u64>,
     /// Standard public/secret keys are used to sign payloads and gossips
     public_keys: Vec<PublicKey>,
-    owner_secret_key: Option<SecretKey>,
     /// Channel to receive gossips from other authorities.
     inc_gossips: mpsc::Receiver<Gossip>,
     /// Channel to send gossips to other authorities
@@ -137,6 +137,7 @@ pub struct NightshadeTask {
 
 impl NightshadeTask {
     pub fn new(
+        signer: Arc<BlockSigner>,
         inc_gossips: mpsc::Receiver<Gossip>,
         out_gossips: mpsc::Sender<Gossip>,
         control_receiver: mpsc::Receiver<Control>,
@@ -144,12 +145,12 @@ impl NightshadeTask {
         retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
     ) -> Self {
         Self {
+            signer,
             proposals: vec![],
             confirmed_proposals: vec![],
             nightshade: None,
             block_index: None,
             public_keys: vec![],
-            owner_secret_key: None,
             inc_gossips,
             out_gossips,
             control_receiver,
@@ -170,13 +171,11 @@ impl NightshadeTask {
 
     fn init_nightshade(
         &mut self,
-        owner_uid: u64,
-        block_index: u64,
+        owner_uid: AuthorityId,
+        block_index: BlockIndex,
         hash: CryptoHash,
         public_keys: Vec<PublicKey>,
-        owner_secret_key: SecretKey,
         bls_public_keys: Vec<BlsPublicKey>,
-        bls_owner_secret_key: BlsSecretKey,
     ) {
         let num_authorities = public_keys.len();
         info!(target: "nightshade", "Init nightshade for authority {}/{}, block {}, proposal {}", owner_uid, num_authorities, block_index, hash);
@@ -186,28 +185,27 @@ impl NightshadeTask {
                 "Reset without increasing block index: adversarial behavior");
 
         self.proposals = vec![None; num_authorities];
-        self.proposals[owner_uid as usize] =
-            Some(SignedBlockProposal::new(owner_uid as usize, hash, &owner_secret_key));
+        self.proposals[owner_uid] =
+            Some(SignedBlockProposal::new(owner_uid, hash, self.signer.clone()));
         self.confirmed_proposals = vec![false; num_authorities];
-        self.confirmed_proposals[owner_uid as usize] = true;
+        self.confirmed_proposals[owner_uid] = true;
         self.block_index = Some(block_index);
         self.public_keys = public_keys;
-        self.owner_secret_key = Some(owner_secret_key.clone());
         self.nightshade = Some(Nightshade::new(
-            owner_uid as AuthorityId,
+            owner_uid,
             num_authorities,
-            self.proposals[owner_uid as usize].clone().unwrap().block_proposal,
+            self.proposals[owner_uid].clone().unwrap().block_proposal,
             bls_public_keys,
-            bls_owner_secret_key,
+            self.signer.clone(),
         ));
         self.consensus_reported = false;
 
         // Announce proposal to every other node in the beginning of the consensus
         for a in 0..num_authorities {
-            if a == owner_uid as usize {
+            if a == owner_uid {
                 continue;
             }
-            self.send_payloads(a, vec![owner_uid as usize]);
+            self.send_payloads(a, vec![owner_uid]);
         }
     }
 
@@ -216,7 +214,7 @@ impl NightshadeTask {
             self.nightshade.as_ref().unwrap().owner_id,
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
-            self.owner_secret_key.as_ref().unwrap(),
+            self.signer.clone(),
             self.block_index.unwrap(),
         ));
     }
@@ -243,7 +241,7 @@ impl NightshadeTask {
                 // Check if this proposal was already confirmed by the mempool
                 if self.confirmed_proposals[author] {
                     if let Err(e) =
-                    self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
+                        self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
                     {
                         warn!(target: "nightshade", "{}", e);
                     }
@@ -261,7 +259,7 @@ impl NightshadeTask {
                 self.owner_id(),
                 author,
                 GossipBody::PayloadRequest(vec![author]),
-                self.owner_secret_key.as_ref().unwrap(),
+                self.signer.clone(),
                 self.block_index.unwrap(),
             );
             self.send_gossip(gossip);
@@ -298,7 +296,7 @@ impl NightshadeTask {
             self.nightshade.as_ref().unwrap().owner_id,
             receiver_id,
             GossipBody::PayloadReply(payloads),
-            self.owner_secret_key.as_ref().unwrap(),
+            self.signer.clone(),
             self.block_index.unwrap(),
         );
         self.send_gossip(gossip);
@@ -308,11 +306,9 @@ impl NightshadeTask {
         info!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
-        let task = self.retrieve_payload_tx
-            .clone()
-            .send((authority, hash))
-            .map(|_| ())
-            .map_err(move |_| error!("Failing requesting confirmation for ({},{:?})", authority, hash));
+        let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
+            move |_| error!("Failing requesting confirmation for ({},{:?})", authority, hash),
+        );
         tokio::spawn(task);
     }
 
@@ -362,11 +358,17 @@ impl NightshadeTask {
         self.nightshade_as_ref().state()
     }
 
-    fn owner_id(&self) -> AuthorityId { self.nightshade_as_ref().owner_id }
+    fn owner_id(&self) -> AuthorityId {
+        self.nightshade_as_ref().owner_id
+    }
 
     fn state_as_triplet(&self) -> (i64, AuthorityId, i64) {
         let state = self.state();
-        (state.bare_state.primary_confidence, state.bare_state.endorses.author, state.bare_state.secondary_confidence)
+        (
+            state.bare_state.primary_confidence,
+            state.bare_state.endorses.author,
+            state.bare_state.secondary_confidence,
+        )
     }
 }
 
@@ -379,14 +381,12 @@ impl Stream for NightshadeTask {
         loop {
             match self.control_receiver.poll() {
                 Ok(Async::Ready(Some(Control::Reset {
-                                         owner_uid,
-                                         block_index,
-                                         hash,
-                                         public_keys,
-                                         owner_secret_key,
-                                         bls_public_keys,
-                                         bls_owner_secret_key,
-                                     }))) => {
+                    owner_uid,
+                    block_index,
+                    hash,
+                    public_keys,
+                    bls_public_keys,
+                }))) => {
                     info!(target: "nightshade",
                           "Control channel received Reset for owner_uid={}, block_index={}",
                           owner_uid, block_index);
@@ -395,9 +395,7 @@ impl Stream for NightshadeTask {
                         block_index,
                         hash,
                         public_keys,
-                        owner_secret_key,
                         bls_public_keys,
-                        bls_owner_secret_key,
                     );
                     break;
                 }
@@ -464,7 +462,10 @@ impl Stream for NightshadeTask {
                             tokio::spawn(
                                 self.consensus_sender
                                     .clone()
-                                    .send(ConsensusBlockProposal { proposal: outcome, index: self.block_index.unwrap() })
+                                    .send(ConsensusBlockProposal {
+                                        proposal: outcome,
+                                        index: self.block_index.unwrap(),
+                                    })
                                     .map(|_| ())
                                     .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                             );
@@ -500,14 +501,21 @@ impl Stream for NightshadeTask {
 }
 
 pub fn spawn_nightshade_task(
+    signer: Arc<BlockSigner>,
     inc_gossip_rx: mpsc::Receiver<Gossip>,
     out_gossip_tx: mpsc::Sender<Gossip>,
     consensus_tx: mpsc::Sender<ConsensusBlockProposal>,
     control_rx: mpsc::Receiver<Control>,
     retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
-)
-{
-    let task = NightshadeTask::new(inc_gossip_rx, out_gossip_tx, control_rx, consensus_tx, retrieve_payload_tx);
+) {
+    let task = NightshadeTask::new(
+        signer,
+        inc_gossip_rx,
+        out_gossip_tx,
+        control_rx,
+        consensus_tx,
+        retrieve_payload_tx,
+    );
 
     tokio::spawn(task.for_each(|_| Ok(())));
 }

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use env_logger::Builder;
 use log::Level::Debug;
@@ -24,7 +24,7 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::signer::InMemorySigner;
-use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, UID};
+use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 
@@ -59,7 +59,7 @@ pub enum BlockImportingResult {
 
 pub struct Client {
     pub account_id: AccountId,
-    pub signer: InMemorySigner,
+    pub signer: Arc<InMemorySigner>,
 
     pub shard_client: ShardClient,
     pub beacon_chain: BeaconClient,
@@ -119,7 +119,7 @@ fn get_storage_path(base_path: &Path) -> String {
 }
 
 impl Client {
-    pub fn new(config: &ClientConfig) -> Self {
+    pub fn new_with_signer(config: &ClientConfig, signer: Arc<InMemorySigner>) -> Self {
         configure_logging(config.log_level);
 
         let storage_path = get_storage_path(&config.base_path);
@@ -135,14 +135,6 @@ impl Client {
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_chain = BeaconClient::new(genesis, &chain_spec, beacon_storage);
 
-        let mut key_file_path = config.base_path.to_path_buf();
-        key_file_path.push(KEY_STORE_PATH);
-        let signer = InMemorySigner::from_key_file(
-            config.account_id.clone(),
-            key_file_path.as_path(),
-            config.public_key.clone(),
-        );
-
         Self {
             account_id: config.account_id.clone(),
             signer,
@@ -151,6 +143,17 @@ impl Client {
             pending_beacon_blocks: RwLock::new(HashMap::new()),
             pending_shard_blocks: RwLock::new(HashMap::new()),
         }
+    }
+
+    pub fn new(config: &ClientConfig) -> Self {
+        let mut key_file_path = config.base_path.to_path_buf();
+        key_file_path.push(KEY_STORE_PATH);
+        let signer = Arc::new(InMemorySigner::from_key_file(
+            config.account_id.clone(),
+            key_file_path.as_path(),
+            config.public_key.clone(),
+        ));
+        Self::new_with_signer(config, signer)
     }
 
     /// Get indices of the blocks that we are missing.
@@ -204,8 +207,11 @@ impl Client {
             authority_proposals,
             shard_block.block_hash(),
         );
-        let shard_block_signature = shard_block.sign(&self.signer);
-        let block_signature = block.sign(&self.signer);
+        // TODO(645): Remove this and fill in correctly when collecting final BLS.
+        block.signature.authority_mask.resize(authorities.len(), true);
+        shard_block.signature.authority_mask.resize(authorities.len(), true);
+        let shard_block_signature = shard_block.sign(self.signer.clone());
+        let block_signature = block.sign(self.signer.clone());
         for (i, authority) in authorities.iter().enumerate() {
             if authority.account_id == self.signer.account_id {
                 shard_block.add_signature(&shard_block_signature, i);
@@ -361,12 +367,12 @@ impl Client {
             .process_block_header(beacon_header);
     }
 
-    /// Returns own UID and UID to authority map for the given block number.
+    /// Returns own AuthorityId and AuthorityId to Authority Stake map for the given block number.
     /// If the owner is not participating in the block then it returns None.
     pub fn get_uid_to_authority_map(
         &self,
         block_index: u64,
-    ) -> (Option<UID>, HashMap<UID, AuthorityStake>) {
+    ) -> (Option<AuthorityId>, HashMap<AuthorityId, AuthorityStake>) {
         let next_authorities = self
             .beacon_chain
             .authority
@@ -377,18 +383,18 @@ impl Client {
                 panic!("Failed to get authorities for block index {}", block_index)
             });
 
-        let mut uid_to_authority_map = HashMap::new();
-        let mut owner_uid = None;
+        let mut id_to_authority_map = HashMap::new();
+        let mut owner_id = None;
         for (index, authority) in next_authorities.into_iter().enumerate() {
             if authority.account_id == self.account_id {
-                owner_uid = Some(index as UID);
+                owner_id = Some(index);
             }
-            uid_to_authority_map.insert(index as UID, authority);
+            id_to_authority_map.insert(index, authority);
         }
-        (owner_uid, uid_to_authority_map)
+        (owner_id, id_to_authority_map)
     }
 
-    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<UID, AuthorityStake> {
+    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<AuthorityId, AuthorityStake> {
         let index = self.beacon_chain.chain.best_block().index() + 1;
         self.get_uid_to_authority_map(index).1
     }

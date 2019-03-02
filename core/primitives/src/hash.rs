@@ -27,7 +27,7 @@ impl<'a> From<&'a CryptoHash> for String {
 
 impl Into<CryptoHash> for String {
     fn into(self) -> CryptoHash {
-       CryptoHash::from(bs58::decode(self).into_vec().unwrap())
+        CryptoHash::from(bs58::decode(self).into_vec().unwrap())
     }
 }
 
@@ -77,8 +77,8 @@ impl fmt::Display for CryptoHash {
 }
 
 pub mod bs58_format {
-    use serde::{Deserialize, Deserializer, Serializer};
     use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
 
     use super::{bs58, CryptoHash};
 
@@ -97,7 +97,7 @@ pub mod bs58_format {
         let mut array = [0; 32];
         match bs58::decode(s).into(&mut array) {
             Ok(_) => Ok(CryptoHash::new(&array)),
-            Err(e) => Err(de::Error::custom(e.to_string()))
+            Err(e) => Err(de::Error::custom(e.to_string())),
         }
     }
 }

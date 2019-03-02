@@ -2,10 +2,10 @@ use std::sync::{Arc, RwLock};
 
 use configs::authority::get_authority_config;
 use configs::ChainSpec;
-
-use crate::authority::Authority;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use storage::BeaconChainStorage;
+
+use crate::authority::Authority;
 
 pub type BeaconBlockChain =
     chain::BlockChain<SignedBeaconBlockHeader, SignedBeaconBlock, BeaconChainStorage>;
@@ -26,20 +26,15 @@ impl BeaconClient {
 
 #[cfg(test)]
 mod tests {
-//    use std::sync::Arc;
-
     use chain::BlockChain;
-//    use primitives::aggregate_signature::BlsSignature;
-//    use primitives::hash::hash;
-    use primitives::signer::InMemorySigner;
-    use primitives::types::BlockId;
-//    use std::collections::HashMap;
-
-    use super::*;
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
+    use primitives::signer::InMemorySigner;
+    use primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
+
+    use super::*;
 
     #[test]
     fn test_genesis() {
@@ -59,8 +54,8 @@ mod tests {
         let bc = BlockChain::new(genesis.clone(), storage.clone());
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
-        let signer = InMemorySigner::default();
-        let sig = block1.sign(&signer);
+        let signer = Arc::new(InMemorySigner::default());
+        let sig = block1.sign(signer);
         block1.add_signature(&sig, 0);
         bc.insert_block(block1.clone());
         let best_block = bc.best_block();

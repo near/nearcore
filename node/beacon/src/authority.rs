@@ -1,16 +1,17 @@
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use std::collections::hash_map::Entry;
 use std::iter;
 use std::mem;
+
 use log::Level::Debug;
+use rand::{rngs::StdRng, SeedableRng, seq::SliceRandom};
 
 use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityMask, AuthorityStake, BlockId};
+
 use crate::beacon_chain::BeaconBlockChain;
 
 type Epoch = u64;
@@ -188,6 +189,7 @@ impl Authority {
             curr.push(AuthorityStake {
                 account_id: proposal.account_id,
                 public_key: proposal.public_key,
+                bls_public_key: proposal.bls_public_key,
                 amount: threshold,
             });
             if curr.len() == self.authority_config.num_seats_per_slot as usize {
@@ -311,16 +313,17 @@ impl Authority {
 
 #[cfg(test)]
 mod test {
-
+    use configs::ChainSpec;
     use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
+    use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
+    use primitives::signature::get_key_pair;
     use storage::test_utils::create_beacon_shard_storages;
 
-    use super::*;
-    use primitives::block_traits::SignedHeader;
-    use configs::ChainSpec;
     use crate::beacon_chain::BeaconClient;
+
+    use super::*;
 
     fn get_test_chainspec(
         num_authorities: u32,
@@ -329,10 +332,12 @@ mod test {
     ) -> ChainSpec {
         let mut initial_authorities = vec![];
         for i in 0..num_authorities {
-            let public_key = BlsSecretKey::generate().get_public_key();
+            let (public_key, _) = get_key_pair();
+            let bls_public_key = BlsSecretKey::generate().get_public_key();
             initial_authorities.push((
                 i.to_string(),
                 public_key.to_readable(),
+                bls_public_key.to_readable(),
                 100,
             ));
         }

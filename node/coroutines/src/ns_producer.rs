@@ -38,7 +38,7 @@ pub fn spawn_block_producer(
     out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     // Send proposal for the first block
-    spawn_start_proposal(client.clone(), 1, mempool_control_tx.clone());
+    spawn_start_proposal(client.clone(), client.beacon_chain.chain.best_block().index() + 1, mempool_control_tx.clone());
 
     let task = consensus_rx
         .for_each(move |consensus_block_header| {

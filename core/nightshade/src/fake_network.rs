@@ -1,15 +1,16 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures::{Future, Sink, Stream, future};
 use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
+use futures::{future, Future, Sink, Stream};
 use log::error;
 use tokio::timer::Delay;
 
 use primitives::aggregate_signature::BlsPublicKey;
-use primitives::aggregate_signature::BlsSecretKey;
 use primitives::hash::CryptoHash;
-use primitives::signature::get_key_pair;
+use primitives::signature::PublicKey;
+use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 
 use crate::nightshade::ConsensusBlockProposal;
 
@@ -22,12 +23,6 @@ struct DummyPayload {
     dummy: u64,
 }
 
-fn get_bls_key_pair() -> (BlsPublicKey, BlsSecretKey) {
-    let secret_key = BlsSecretKey::generate();
-    let public_key = secret_key.get_public_key();
-    (public_key, secret_key)
-}
-
 fn spawn_all(num_authorities: usize) {
     let fake_network = lazy(move || {
         let mut control_tx_vec = vec![];
@@ -35,10 +30,10 @@ fn spawn_all(num_authorities: usize) {
         let mut out_gossips_rx_vec = vec![];
         let mut consensus_rx_vec = vec![];
 
-        let (public_keys, secret_keys): (Vec<_>, Vec<_>) =
-            (0..num_authorities).map(|_| get_key_pair()).unzip();
-        let (bls_public_keys, bls_secret_keys): (Vec<_>, Vec<_>) =
-            (0..num_authorities).map(|_| get_bls_key_pair()).unzip();
+        let signers: Vec<Arc<InMemorySigner>> =
+            (0..num_authorities).map(|_| Arc::new(InMemorySigner::default())).collect();
+        let (public_keys, bls_public_keys): (Vec<PublicKey>, Vec<BlsPublicKey>) =
+            signers.iter().map(|signer| (signer.public_key(), signer.bls_public_key())).unzip();
 
         for owner_uid in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
@@ -52,8 +47,14 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let task: NightshadeTask =
-                NightshadeTask::new(inc_gossips_rx, out_gossips_tx, control_rx, consensus_tx, retrieve_payload_tx);
+            let task: NightshadeTask = NightshadeTask::new(
+                signers[owner_uid].clone(),
+                inc_gossips_rx,
+                out_gossips_tx,
+                control_rx,
+                consensus_tx,
+                retrieve_payload_tx,
+            );
 
             tokio::spawn(task.for_each(|_| Ok(())));
 
@@ -63,13 +64,11 @@ fn spawn_all(num_authorities: usize) {
             let start_task = control_tx
                 .clone()
                 .send(Control::Reset {
-                    owner_uid: owner_uid as u64,
+                    owner_uid,
                     block_index: 0,
                     hash: block_hash,
                     public_keys: public_keys.clone(),
-                    owner_secret_key: secret_keys[owner_uid].clone(),
                     bls_public_keys: bls_public_keys.clone(),
-                    bls_owner_secret_key: bls_secret_keys[owner_uid].clone(),
                 })
                 .map(|_| ())
                 .map_err(|e| error!("Error sending control {:?}", e));

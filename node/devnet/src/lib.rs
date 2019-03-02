@@ -62,8 +62,8 @@ mod tests {
 
     use alphanet::testing_utils::wait;
     use primitives::block_traits::SignedBlock;
-    use primitives::test_utils::get_key_pair_from_seed;
     use primitives::transaction::TransactionBody;
+    use primitives::signer::InMemorySigner;
 
     use super::*;
     use std::time::Duration;
@@ -91,15 +91,15 @@ mod tests {
             start_from_client(client1, devnet_cfg, rpc_cfg);
         });
 
-        let alice = get_key_pair_from_seed("alice.near");
+        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
         client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.1),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
             )
             .unwrap();
-        wait(|| client.shard_client.chain.best_block().index() == 2, 50, 10000);
+        wait(|| client.shard_client.chain.best_block().index() >= 2, 50, 10000);
 
         // Check that transaction and it's receipt were included.
         let mut state_update = client.shard_client.get_state_update();

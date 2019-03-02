@@ -124,26 +124,28 @@ impl<T: ChainStateRetriever> PeerManager<T> {
             .map_err(|e| warn!(target: "network", "Error gossiping peers info {}", e));
         tokio::spawn(task);
 
-        // Spawn the task that listens to incoming connections.
-        let node_info1 = node_info.clone();
-        let all_peer_states3 = all_peer_states.clone();
-        let task = TcpListener::bind(&node_info.addr)
-            .expect("Cannot listen to the address")
-            .incoming()
-            .for_each(move |socket| {
-                Peer::spawn_incoming_conn(
-                    node_info1.clone(),
-                    socket,
-                    all_peer_states3.clone(),
-                    inc_msg_tx.clone(),
-                    reconnect_delay,
-                    chain_state_retriever.clone(),
-                );
-                future::ok(())
-            })
-            .map(|_| ())
-            .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
-        tokio::spawn(task);
+        // Spawn the task that listens to incoming connections if address is specified.
+        if node_info.addr.is_some() {
+            let node_info1 = node_info.clone();
+            let all_peer_states3 = all_peer_states.clone();
+            let task = TcpListener::bind(&node_info.addr.unwrap())
+                .expect("Cannot listen to the address")
+                .incoming()
+                .for_each(move |socket| {
+                    Peer::spawn_incoming_conn(
+                        node_info1.clone(),
+                        socket,
+                        all_peer_states3.clone(),
+                        inc_msg_tx.clone(),
+                        reconnect_delay,
+                        chain_state_retriever.clone(),
+                    );
+                    future::ok(())
+                })
+                .map(|_| ())
+                .map_err(|e| warn!(target: "network", "Error processing incoming connection {}", e));
+            tokio::spawn(task);
+        }
 
         Self { all_peer_states, node_info, phantom: PhantomData }
     }
@@ -231,7 +233,7 @@ mod tests {
     use primitives::network::PeerInfo;
 
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
-    use crate::testing_utils::{wait, wait_all_peers_connected, MockChainStateRetriever};
+    use crate::testing_utils::{MockChainStateRetriever, wait, wait_all_peers_connected};
 
     #[test]
     fn test_two_peers_boot() {
@@ -248,7 +250,7 @@ mod tests {
                 1,
                 PeerInfo {
                     id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:4000").unwrap(),
+                    addr: Some(SocketAddr::from_str("127.0.0.1:4000").unwrap()),
                     account_id: None,
                 },
                 &vec![],
@@ -273,12 +275,12 @@ mod tests {
                 1,
                 PeerInfo {
                     id: hash_struct(&1),
-                    addr: SocketAddr::from_str("127.0.0.1:4001").unwrap(),
+                    addr: Some(SocketAddr::from_str("127.0.0.1:4001").unwrap()),
                     account_id: None,
                 },
                 &vec![PeerInfo {
                     id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:4000").unwrap(),
+                    addr: Some(SocketAddr::from_str("127.0.0.1:4000").unwrap()),
                     account_id: None,
                 }],
                 inc_msg_tx2,
@@ -337,7 +339,7 @@ mod tests {
                 if i != 0 {
                     boot_nodes.push(PeerInfo {
                         id: hash_struct(&(0 as usize)),
-                        addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
+                        addr: Some(SocketAddr::from_str("127.0.0.1:3000").unwrap()),
                         account_id: None,
                     });
                 }
@@ -347,7 +349,7 @@ mod tests {
                     if i == 0 { NUM_TASKS - 1 } else { 1 },
                     PeerInfo {
                         id: hash_struct(&i),
-                        addr: SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16),
+                        addr: Some(SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16)),
                         account_id: None,
                     },
                     &boot_nodes,

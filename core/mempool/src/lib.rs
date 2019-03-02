@@ -58,9 +58,9 @@ impl Pool {
     /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
     pub fn reset(&self, control: MemPoolControl) {
         match control {
-            MemPoolControl::Reset { authority_id, num_authorities, owner_uid, block_index, .. } => {
-                info!(target: "mempool", "MemPool reset for authority_id={}, owner_uid={}, block_index={}",
-                      authority_id, owner_uid, block_index);
+            MemPoolControl::Reset { authority_id, num_authorities, block_index, .. } => {
+                info!(target: "mempool", "MemPool reset for authority_id={}, block_index={}",
+                      authority_id, block_index);
                 *self.authority_id.write().expect(POISONED_LOCK_ERR) = Some(authority_id);
                 *self.num_authorities.write().expect(POISONED_LOCK_ERR) = Some(num_authorities);
             }
@@ -224,15 +224,15 @@ impl Pool {
 mod tests {
     use node_runtime::{test_utils::generate_test_chain_spec, Runtime};
     use primitives::hash::CryptoHash;
-    use primitives::signature::{sign, SecretKey};
+    use primitives::signer::InMemorySigner;
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
-    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, SecretKey) {
-        let (chain_spec, _, secret_key) = generate_test_chain_spec();
+    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, Arc<InMemorySigner>) {
+        let (chain_spec, signer) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
         let trie = Arc::new(Trie::new(shard_storage.clone()));
         let runtime = Runtime {};
@@ -246,22 +246,19 @@ mod tests {
         trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
         let _ = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
-        (shard_storage, trie, secret_key)
+        (shard_storage, trie, signer)
     }
 
     #[test]
     fn test_import_block() {
-        let (storage, trie, secret_key) = get_test_chain();
+        let (storage, trie, signer) = get_test_chain();
         let pool = Pool::new(storage, trie);
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+        let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        });
-        let hash = tx_body.get_hash();
-        let signature = sign(hash.as_ref(), &secret_key);
-        let transaction = SignedTransaction::new(signature, tx_body);
+        }).sign(signer);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         let block = SignedShardBlock::new(

@@ -11,9 +11,9 @@ use alphanet::testing_utils::{check_result, configure_chain_spec, Node, wait};
 fn test_two_nodes() {
     let chain_spec = configure_chain_spec();
     // Create boot node.
-    let alice = Node::new("t1_alice", "alice.near", 1, "127.0.0.1:3000", 3030, vec![], chain_spec.clone());
+    let alice = Node::new("t1_alice", "alice.near", 1, Some("127.0.0.1:3000"), 3030, vec![], chain_spec.clone());
     // Create secondary node that boots from the alice node.
-    let bob = Node::new("t1_bob", "bob.near", 2, "127.0.0.1:3001", 3031, vec![alice.node_info.clone()], chain_spec);
+    let bob = Node::new("t1_bob", "bob.near", 2, Some("127.0.0.1:3001"), 3031, vec![alice.node_info.clone()], chain_spec);
 
     // Start both nodes.
     alice.start();

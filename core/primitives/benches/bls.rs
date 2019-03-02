@@ -115,11 +115,17 @@ fn bls_decompress_signature_unchecked(bench: &mut Bencher) {
     });
 }
 
-benchmark_group!(benches,
-                 bls_sign, bls_verify,
-                 bls_aggregate_signature, bls_aggregate_pubkey,
-                 bls_aggregate_signature_slow, bls_aggregate_pubkey_slow,
-                 bls_decompress_signature, bls_decompress_pubkey,
-                 bls_decompress_signature_unchecked, bls_decompress_pubkey_unchecked,
-                 );
+benchmark_group!(
+    benches,
+    bls_sign,
+    bls_verify,
+    bls_aggregate_signature,
+    bls_aggregate_pubkey,
+    bls_aggregate_signature_slow,
+    bls_aggregate_pubkey_slow,
+    bls_decompress_signature,
+    bls_decompress_pubkey,
+    bls_decompress_signature_unchecked,
+    bls_decompress_pubkey_unchecked,
+);
 benchmark_main!(benches);

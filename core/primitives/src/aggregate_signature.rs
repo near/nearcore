@@ -1,11 +1,14 @@
+use crate::traits::{Base58Encoded, FromBytes, ToBytes};
+use crate::types::ReadableBlsPublicKey;
+use bs58;
+use pairing::{
+    CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
+    PrimeFieldRepr,
+};
+use rand::{OsRng, Rand, Rng};
 use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
-use bs58;
-use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField, PrimeFieldRepr};
-use rand::{OsRng, Rand, Rng};
-use crate::types::ReadableBlsPublicKey;
-use crate::traits::{Base58Encoded, FromBytes, ToBytes};
 
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
@@ -51,21 +54,15 @@ impl<E: Engine> SecretKey<E> {
     }
 
     pub fn generate_from_rng<R: Rng>(csprng: &mut R) -> Self {
-        SecretKey {
-            scalar: E::Fr::rand(csprng),
-        }
+        SecretKey { scalar: E::Fr::rand(csprng) }
     }
 
     pub fn empty() -> Self {
-        SecretKey {
-            scalar: E::Fr::zero(),
-        }
+        SecretKey { scalar: E::Fr::zero() }
     }
 
     pub fn get_public_key(&self) -> PublicKey<E> {
-        PublicKey {
-            point: E::G1Affine::one().mul(self.scalar).into_affine(),
-        }
+        PublicKey { point: E::G1Affine::one().mul(self.scalar).into_affine() }
     }
 
     pub fn sign(&self, message: &[u8]) -> Signature<E> {
@@ -82,7 +79,7 @@ impl<E: Engine> SecretKey<E> {
         // of just one.  The copy here is silly and avoidable.  It's here because we require domain
         // separation for the proof-of-possession.  Simply signing your own public key is not
         // sufficient.  See https://rist.tech.cornell.edu/papers/pkreg.pdf
-        let padded_message= [message, domain].concat();
+        let padded_message = [message, domain].concat();
         self.sign_internal(padded_message.as_ref())
     }
 
@@ -102,7 +99,7 @@ impl<E: Engine> PublicKey<E> {
     }
 
     pub fn compress(&self) -> CompressedPublicKey<E> {
-        CompressedPublicKey( self.point.into_compressed() )
+        CompressedPublicKey(self.point.into_compressed())
     }
 
     pub fn to_readable(&self) -> ReadableBlsPublicKey {
@@ -119,7 +116,7 @@ impl<E: Engine> PublicKey<E> {
     }
 
     fn verify_domain(&self, message: &[u8], domain: &[u8], signature: &Signature<E>) -> bool {
-        let padded_message= [message, domain].concat();
+        let padded_message = [message, domain].concat();
         self.verify_internal(padded_message.as_ref(), signature)
     }
 
@@ -132,7 +129,9 @@ impl<E: Engine> PublicKey<E> {
 }
 
 impl<E: Engine> fmt::Display for PublicKey<E> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", bs58::encode(self.compress().as_ref()).into_string()) }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", bs58::encode(self.compress().as_ref()).into_string())
+    }
 }
 
 // Note: deriving PartialEq and Eq doesn't work
@@ -146,7 +145,7 @@ impl<E: Engine> Eq for PublicKey<E> {}
 
 impl<E: Engine> Signature<E> {
     pub fn compress(&self) -> CompressedSignature<E> {
-        CompressedSignature( self.point.into_compressed() )
+        CompressedSignature(self.point.into_compressed())
     }
 
     pub fn empty() -> Self {
@@ -170,7 +169,9 @@ impl<E: Engine> std::hash::Hash for Signature<E> {
 }
 
 impl<E: Engine> Default for Signature<E> {
-    fn default() -> Self { Self::empty() }
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl<E: Engine> ToBytes for SecretKey<E> {
@@ -186,11 +187,11 @@ impl<E: Engine> ToBytes for SecretKey<E> {
 
 impl<E: Engine> FromBytes for SecretKey<E> {
     fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<Error>> {
-        let mut repr : <E::Fr as PrimeField>::Repr = Default::default();
+        let mut repr: <E::Fr as PrimeField>::Repr = Default::default();
         let buf = Cursor::new(v);
         repr.read_be(buf)?;
         let scalar = <E::Fr as PrimeField>::from_repr(repr)?;
-        Ok(Self{ scalar })
+        Ok(Self { scalar })
     }
 }
 
@@ -251,18 +252,18 @@ impl<E: Engine> Base58Encoded for Signature<E> {}
 
 impl<E: Engine> CompressedPublicKey<E> {
     fn empty() -> Self {
-        CompressedPublicKey( <E::G1Affine as CurveAffine>::Compressed::empty() )
+        CompressedPublicKey(<E::G1Affine as CurveAffine>::Compressed::empty())
     }
 
     pub fn decompress(&self) -> Result<PublicKey<E>, GroupDecodingError> {
-        Ok(PublicKey{ point: self.0.into_affine()? })
+        Ok(PublicKey { point: self.0.into_affine()? })
     }
 
     /// Decompress a pubkey, without verifying that the resulting point is actually on the curve.
     /// Verifying is very slow, so if we know we've already done it (for example, if we're reading
     /// from disk a previously validated block), we can skip point verification.  Use with caution.
     pub fn decompress_unchecked(&self) -> PublicKey<E> {
-        PublicKey{ point: self.0.into_affine_unchecked().unwrap() }
+        PublicKey { point: self.0.into_affine_unchecked().unwrap() }
     }
 }
 
@@ -280,18 +281,18 @@ impl<E: Engine> AsMut<[u8]> for CompressedPublicKey<E> {
 
 impl<E: Engine> CompressedSignature<E> {
     fn empty() -> Self {
-        CompressedSignature( <E::G2Affine as CurveAffine>::Compressed::empty() )
+        CompressedSignature(<E::G2Affine as CurveAffine>::Compressed::empty())
     }
 
     pub fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
-        Ok(Signature{ point: self.0.into_affine()? })
+        Ok(Signature { point: self.0.into_affine()? })
     }
 
     /// Decompress a signature, without verifying that the resulting point is actually on the curve.
     /// Verifying is very slow, so if we know we've already done it (for example, if we're reading
     /// from disk a previously validated block), we can skip point verification.  Use with caution.
     pub fn decompress_unchecked(&self) -> Signature<E> {
-        Signature{ point: self.0.into_affine_unchecked().unwrap() }
+        Signature { point: self.0.into_affine_unchecked().unwrap() }
     }
 }
 
@@ -330,9 +331,7 @@ impl<E: Engine> AggregatePublicKey<E> {
     }
 
     pub fn get_key(&self) -> PublicKey<E> {
-        PublicKey {
-            point: self.point.into_affine()
-        }
+        PublicKey { point: self.point.into_affine() }
     }
 }
 
@@ -352,9 +351,7 @@ impl<E: Engine> AggregateSignature<E> {
     }
 
     pub fn get_signature(&self) -> Signature<E> {
-        Signature {
-            point: self.point.into_affine()
-        }
+        Signature { point: self.point.into_affine() }
     }
 }
 
@@ -390,7 +387,10 @@ mod tests {
         for i in 0..2 {
             for j in 0..2 {
                 for k in 0..2 {
-                    assert_eq!(pubkey[i].verify(message[j].as_bytes(), &signature[k]), (i == j) && (j == k));
+                    assert_eq!(
+                        pubkey[i].verify(message[j].as_bytes(), &signature[k]),
+                        (i == j) && (j == k)
+                    );
                 }
             }
         }
