@@ -21,10 +21,10 @@ pub fn get_bls_key_pair_from_seed(seed_string: &str) -> (BlsPublicKey, BlsSecret
 
     let mut seed32: [u32; 4] = [0; 4];
     for i in 0..4 {
-        seed32[i] = u32::from(seed[i * 4]) +
-            (u32::from(seed[i * 4 + 1]) << 8) +
-            (u32::from(seed[i * 4 + 2]) << 16) +
-            (u32::from(seed[i * 4 + 3]) << 24);
+        seed32[i] = u32::from(seed[i * 4])
+            + (u32::from(seed[i * 4 + 1]) << 8)
+            + (u32::from(seed[i * 4 + 2]) << 16)
+            + (u32::from(seed[i * 4 + 3]) << 24);
     }
     let mut rng = XorShiftRng::from_seed(seed32);
     let bls_secret_key = BlsSecretKey::generate_from_rng(&mut rng);

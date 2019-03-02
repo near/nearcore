@@ -54,8 +54,8 @@ mod tests {
         let bc = BlockChain::new(genesis.clone(), storage.clone());
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
-        let signer = InMemorySigner::default();
-        let sig = block1.sign(&signer);
+        let signer = Arc::new(InMemorySigner::default());
+        let sig = block1.sign(signer);
         block1.add_signature(&sig, 0);
         bc.insert_block(block1.clone());
         let best_block = bc.best_block();

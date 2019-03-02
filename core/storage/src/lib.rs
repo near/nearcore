@@ -6,22 +6,22 @@ extern crate hex_literal;
 extern crate log;
 extern crate primitives;
 
+use std::sync::Arc;
+use std::sync::RwLock;
+
 pub use kvdb::{DBTransaction, DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
 
+pub use crate::storages::{BlockChainStorage, GenericStorage};
+pub use crate::storages::beacon::BeaconChainStorage;
+use crate::storages::NUM_COLS;
+pub use crate::storages::shard::ShardChainStorage;
+pub use crate::trie::{DBChanges, Trie};
+pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator};
 
 pub mod storages;
 pub mod test_utils;
 pub mod trie;
-
-use crate::storages::NUM_COLS;
-use std::sync::Arc;
-pub use trie::update::{TrieUpdate, TrieUpdateIterator};
-pub use trie::{DBChanges, Trie};
-pub use storages::{BlockChainStorage, GenericStorage};
-pub use storages::beacon::BeaconChainStorage;
-pub use storages::shard::ShardChainStorage;
-use std::sync::RwLock;
 
 /// Initializes beacon and shard chain storages from the given path.
 pub fn create_storage(

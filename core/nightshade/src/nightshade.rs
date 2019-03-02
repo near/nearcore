@@ -3,7 +3,9 @@ use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use primitives::aggregate_signature::{AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature};
+use primitives::aggregate_signature::{
+    AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
+};
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
@@ -102,16 +104,12 @@ pub struct Proof {
 
 impl Proof {
     fn new(bare_state: BareState, mask: Vec<bool>, signature: BlsSignature) -> Self {
-        Self {
-            bare_state,
-            mask,
-            signature,
-        }
+        Self { bare_state, mask, signature }
     }
 
     pub fn verify(&self, public_keys: &Vec<BlsPublicKey>) -> Result<(), NSVerifyErr> {
         // Verify that this proof contains enough signature in order to be accepted as valid
-        let mask_total: usize = self.mask.iter().map(|&b| { b as usize }).sum();
+        let mask_total: usize = self.mask.iter().map(|&b| b as usize).sum();
         let total = self.mask.len();
 
         if mask_total <= total * 2 / 3 {
@@ -176,12 +174,7 @@ impl State {
     fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
         let bare_state = BareState::new(author, hash);
         let signature = signer.bls_sign(&bare_state.bs_encode());
-        Self {
-            bare_state,
-            primary_proof: None,
-            secondary_proof: None,
-            signature,
-        }
+        Self { bare_state, primary_proof: None, secondary_proof: None, signature }
     }
 
     /// Create state with empty triplet.
@@ -218,7 +211,8 @@ impl State {
 
     /// Returns whether an authority having this triplet should commit to this triplet outcome.
     fn can_commit(&self) -> bool {
-        self.bare_state.primary_confidence >= self.bare_state.secondary_confidence + COMMIT_THRESHOLD
+        self.bare_state.primary_confidence
+            >= self.bare_state.secondary_confidence + COMMIT_THRESHOLD
     }
 
     /// BlockHeader (Authority and Block) that this state is endorsing.
@@ -359,8 +353,9 @@ impl Nightshade {
     }
 
     pub fn update_state(&mut self, authority_id: AuthorityId, state: State) -> NSResult {
-        if self.is_adversary[authority_id] ||
-            incompatible_states(&self.states[authority_id], &state) {
+        if self.is_adversary[authority_id]
+            || incompatible_states(&self.states[authority_id], &state)
+        {
             self.is_adversary[authority_id] = true;
             return Err("Not processing adversaries updates".to_string());
         }
@@ -415,7 +410,11 @@ impl Nightshade {
                     }
                 }
 
-                let proof = Proof::new(my_state.bare_state.clone(), mask, aggregated_signature.get_signature());
+                let proof = Proof::new(
+                    my_state.bare_state.clone(),
+                    mask,
+                    aggregated_signature.get_signature(),
+                );
 
                 // Double check we already have enough proofs
                 assert_eq!(collected_proofs, self.best_state_counter);
@@ -471,9 +470,9 @@ mod tests {
     use super::*;
 
     fn generate_signers(total: usize) -> Vec<Arc<InMemorySigner>> {
-        (0..total).map(|i| {
-            Arc::new(InMemorySigner::from_seed(&format!("{}", i), &format!("{}", i)))
-        }).collect()
+        (0..total)
+            .map(|i| Arc::new(InMemorySigner::from_seed(&format!("{}", i), &format!("{}", i))))
+            .collect()
     }
 
     fn check_state_proofs(state: &State) {
@@ -482,20 +481,14 @@ mod tests {
     }
 
     fn proposal(author: AuthorityId) -> BlockProposal {
-        BlockProposal {
-            author,
-            hash: hash_struct(&author),
-        }
+        BlockProposal { author, hash: hash_struct(&author) }
     }
 
     #[test]
     fn bls_on_bare_states() {
         let signers = generate_signers(2);
-        let triplet = BareState {
-            primary_confidence: 0,
-            endorses: proposal(1),
-            secondary_confidence: 0,
-        };
+        let triplet =
+            BareState { primary_confidence: 0, endorses: proposal(1), secondary_confidence: 0 };
         // Aggregate signature
         let mut aggregated_signature = AggregateSignature::new();
         for signer in signers.iter() {
@@ -518,7 +511,7 @@ mod tests {
         let public_keys: Vec<BlsPublicKey> = signers.iter().map(|s| s.bls_public_key()).collect();
 
         let ns: Vec<_> = (0..num_authorities)
-            .map(|i|
+            .map(|i| {
                 Nightshade::new(
                     i,
                     num_authorities,
@@ -526,7 +519,8 @@ mod tests {
                     public_keys.clone(),
                     signers[i].clone(),
                 )
-            ).collect();
+            })
+            .collect();
 
         ns
     }
@@ -575,12 +569,12 @@ mod tests {
         nightshade_all_sync(10, 5);
     }
 
-    fn bare_state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> BareState {
-        BareState {
-            primary_confidence,
-            endorses: proposal(endorses),
-            secondary_confidence,
-        }
+    fn bare_state(
+        primary_confidence: i64,
+        endorses: AuthorityId,
+        secondary_confidence: i64,
+    ) -> BareState {
+        BareState { primary_confidence, endorses: proposal(endorses), secondary_confidence }
     }
 
     fn state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> State {
@@ -644,89 +638,89 @@ mod tests {
 
     // TODO: Tests don't work because of signature verification. Fix them.
 
-//    #[test]
-//    fn malicious_detection() {
-//        // Note: This test will become invalid after signatures are checked properly.
-//        let mut ns = Nightshade::new(1, 2, header(1));
-//        let s0 = State { bare_state: bare_state(1, 0, 0), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
-//        let s1 = State { bare_state: bare_state(1, 1, 0), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
-//        ns.update_state(0, s0);
-//        assert_eq!(ns.is_adversary[0], false);
-//        ns.update_state(0, s1);
-//        assert_eq!(ns.is_adversary[0], true);
-//    }
-//
-//    /// Create an instance of nightshade setting the states directly
-//    fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState>) -> Nightshade {
-//        let num_authorities = bare_states.len();
-//
-//        let mut ns = Nightshade::new(owner_id, num_authorities, header(owner_id));
-//
-//        ns.states = vec![];
-//        ns.best_state_counter = 0;
-//
-//        for bare_state in bare_states.iter() {
-//            let state = State { bare_state: bare_state.clone(), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
-//            ns.states.push(state);
-//
-//            if bare_state == &bare_states[owner_id] {
-//                ns.best_state_counter += 1;
-//            }
-//        }
-//
-//        ns
-//    }
-//
-//    /// Compare nightshades only by their states (believe on other authorities states including himself)
-//    fn nightshade_equal(ns0: &Nightshade, ns1: &Nightshade) -> bool {
-//        if ns1.num_authorities != ns0.num_authorities {
-//            return false;
-//        }
-//        let num_authorities = ns0.num_authorities;
-//        for i in 0..num_authorities {
-//            if ns0.states[i].bare_state != ns1.states[i].bare_state {
-//                return false;
-//            }
-//        }
-//        true
-//    }
-//
-//    #[test]
-//    fn simple_hardcoded_situation() {
-//        let mut ns = create_hardcoded_nightshade(2, vec![
-//            bare_state(0, 0, 0),
-//            bare_state(0, 2, 0),
-//            bare_state(0, 2, 0),
-//        ]);
-//
-//        assert_eq!(ns.best_state_counter, 2);
-//        ns.update_state(0, state(0, 2, 0));
-//        assert_eq!(ns.best_state_counter, 1);
-//
-//        assert_eq!(nightshade_equal(&ns, &create_hardcoded_nightshade(0, vec![
-//            bare_state(0, 2, 0),
-//            bare_state(0, 2, 0),
-//            bare_state(1, 2, 0),
-//        ])), true);
-//    }
-//
-//    #[test]
-//    fn correct_secondary_confidence() {
-//        // If we are at the state (4, B, 4)
-//        // and get update (5, A, 3)
-//        // the next state must be (5, A, 4)
-//        let mut ns = create_hardcoded_nightshade(2, vec![
-//            bare_state(0, 0, 0),
-//            bare_state(0, 0, 0),
-//            bare_state(4, 1, 4),
-//        ]);
-//
-//        ns.update_state(0, state(5, 0, 3));
-//
-//        assert_eq!(nightshade_equal(&ns, &create_hardcoded_nightshade(0, vec![
-//            bare_state(5, 0, 3),
-//            bare_state(0, 0, 0),
-//            bare_state(5, 0, 4),
-//        ])), true);
-//    }
+    //    #[test]
+    //    fn malicious_detection() {
+    //        // Note: This test will become invalid after signatures are checked properly.
+    //        let mut ns = Nightshade::new(1, 2, header(1));
+    //        let s0 = State { bare_state: bare_state(1, 0, 0), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
+    //        let s1 = State { bare_state: bare_state(1, 1, 0), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
+    //        ns.update_state(0, s0);
+    //        assert_eq!(ns.is_adversary[0], false);
+    //        ns.update_state(0, s1);
+    //        assert_eq!(ns.is_adversary[0], true);
+    //    }
+    //
+    //    /// Create an instance of nightshade setting the states directly
+    //    fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState>) -> Nightshade {
+    //        let num_authorities = bare_states.len();
+    //
+    //        let mut ns = Nightshade::new(owner_id, num_authorities, header(owner_id));
+    //
+    //        ns.states = vec![];
+    //        ns.best_state_counter = 0;
+    //
+    //        for bare_state in bare_states.iter() {
+    //            let state = State { bare_state: bare_state.clone(), primary_proof: None, secondary_bare_state: None, secondary_proof: None };
+    //            ns.states.push(state);
+    //
+    //            if bare_state == &bare_states[owner_id] {
+    //                ns.best_state_counter += 1;
+    //            }
+    //        }
+    //
+    //        ns
+    //    }
+    //
+    //    /// Compare nightshades only by their states (believe on other authorities states including himself)
+    //    fn nightshade_equal(ns0: &Nightshade, ns1: &Nightshade) -> bool {
+    //        if ns1.num_authorities != ns0.num_authorities {
+    //            return false;
+    //        }
+    //        let num_authorities = ns0.num_authorities;
+    //        for i in 0..num_authorities {
+    //            if ns0.states[i].bare_state != ns1.states[i].bare_state {
+    //                return false;
+    //            }
+    //        }
+    //        true
+    //    }
+    //
+    //    #[test]
+    //    fn simple_hardcoded_situation() {
+    //        let mut ns = create_hardcoded_nightshade(2, vec![
+    //            bare_state(0, 0, 0),
+    //            bare_state(0, 2, 0),
+    //            bare_state(0, 2, 0),
+    //        ]);
+    //
+    //        assert_eq!(ns.best_state_counter, 2);
+    //        ns.update_state(0, state(0, 2, 0));
+    //        assert_eq!(ns.best_state_counter, 1);
+    //
+    //        assert_eq!(nightshade_equal(&ns, &create_hardcoded_nightshade(0, vec![
+    //            bare_state(0, 2, 0),
+    //            bare_state(0, 2, 0),
+    //            bare_state(1, 2, 0),
+    //        ])), true);
+    //    }
+    //
+    //    #[test]
+    //    fn correct_secondary_confidence() {
+    //        // If we are at the state (4, B, 4)
+    //        // and get update (5, A, 3)
+    //        // the next state must be (5, A, 4)
+    //        let mut ns = create_hardcoded_nightshade(2, vec![
+    //            bare_state(0, 0, 0),
+    //            bare_state(0, 0, 0),
+    //            bare_state(4, 1, 4),
+    //        ]);
+    //
+    //        ns.update_state(0, state(5, 0, 3));
+    //
+    //        assert_eq!(nightshade_equal(&ns, &create_hardcoded_nightshade(0, vec![
+    //            bare_state(5, 0, 3),
+    //            bare_state(0, 0, 0),
+    //            bare_state(5, 0, 4),
+    //        ])), true);
+    //    }
 }

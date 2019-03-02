@@ -11,20 +11,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use configs::chain_spec::ChainSpec;
-use node_runtime::state_viewer::TrieViewer;
+use mempool::Pool;
 use node_runtime::{ApplyState, Runtime};
+use node_runtime::state_viewer::TrieViewer;
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::hash::CryptoHash;
-use primitives::merkle::{merklize, MerklePath};
+use primitives::merkle::{MerklePath, merklize};
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus, TransactionAddress
+    TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus
 };
 use primitives::types::{AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
-use storage::ShardChainStorage;
 use storage::{Trie, TrieUpdate};
-use mempool::Pool;
+use storage::ShardChainStorage;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -296,38 +296,20 @@ impl ShardClient {
 #[cfg(test)]
 mod tests {
     use node_runtime::test_utils::generate_test_chain_spec;
-    use primitives::signature::{sign, SecretKey};
+    use primitives::signer::InMemorySigner;
     use primitives::transaction::{
-        SendMoneyTransaction, SignedTransaction, TransactionBody, TransactionStatus,
-        FinalTransactionStatus, TransactionAddress
+        FinalTransactionStatus, SignedTransaction, TransactionAddress,
+        TransactionBody, TransactionStatus
     };
-    use primitives::types::Balance;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
-    fn get_test_client() -> (ShardClient, SecretKey) {
-        let (chain_spec, _, secret_key) = generate_test_chain_spec();
+    fn get_test_client() -> (ShardClient, Arc<InMemorySigner>) {
+        let (chain_spec, signer) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
         let shard_client = ShardClient::new(&chain_spec, shard_storage);
-        (shard_client, secret_key)
-    }
-
-    fn send_money_tx(
-        originator: &str,
-        receiver: &str,
-        amount: Balance,
-        secret_key: SecretKey,
-    ) -> SignedTransaction {
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: 1,
-            originator: originator.to_string(),
-            receiver: receiver.to_string(),
-            amount,
-        });
-        let hash = tx_body.get_hash();
-        let signature = sign(hash.as_ref(), &secret_key);
-        SignedTransaction::new(signature, tx_body)
+        (shard_client, signer)
     }
 
     #[test]
@@ -339,8 +321,8 @@ mod tests {
 
     #[test]
     fn test_transaction_failed() {
-        let (client, secret_key) = get_test_client();
-        let tx = send_money_tx("xyz.near", "bob.near", 100, secret_key);
+        let (client, signer) = get_test_client();
+        let tx = TransactionBody::send_money(1, "xyz.near", "bob.near", 100).sign(signer);
         let (block, (db_changes, _, tx_status, receipts)) =
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(&block, db_changes, tx_status, receipts);
@@ -351,8 +333,8 @@ mod tests {
 
     #[test]
     fn test_get_transaction_status_complete() {
-        let (client, secret_key) = get_test_client();
-        let tx = send_money_tx("alice.near", "bob.near", 10, secret_key);
+        let (client, signer) = get_test_client();
+        let tx = TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer);
         let (block, (db_changes, _, tx_status, new_receipts)) =
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(&block, db_changes, tx_status, new_receipts);

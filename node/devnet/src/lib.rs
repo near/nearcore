@@ -80,7 +80,6 @@ mod tests {
 
     use alphanet::testing_utils::wait;
     use primitives::block_traits::SignedBlock;
-    use primitives::test_utils::get_key_pair_from_seed;
     use primitives::transaction::TransactionBody;
 
     use super::*;
@@ -104,12 +103,11 @@ mod tests {
             start_from_client(client1, devnet_cfg, rpc_cfg);
         });
 
-        let alice = get_key_pair_from_seed("alice.near");
         client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&alice.1),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(client.signer.clone()),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_block().index() == 2, 50, 10000);

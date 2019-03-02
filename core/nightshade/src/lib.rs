@@ -1,11 +1,11 @@
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 extern crate bs58;
+extern crate serde;
 
 pub mod nightshade;
-mod verifier;
 pub mod nightshade_task;
+mod verifier;
 
 #[cfg(test)]
 mod fake_network;

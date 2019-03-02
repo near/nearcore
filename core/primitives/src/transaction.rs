@@ -2,13 +2,13 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use near_protos::Message as ProtoMessage;
 use near_protos::signed_transaction as transaction_proto;
+use near_protos::Message as ProtoMessage;
 
 use crate::logging;
 
-use super::hash::{CryptoHash, hash};
-use super::signature::{DEFAULT_SIGNATURE, PublicKey, Signature, verify};
+use super::hash::{hash, CryptoHash};
+use super::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use super::signer::TransactionSigner;
 use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, ShardId, StructSignature,

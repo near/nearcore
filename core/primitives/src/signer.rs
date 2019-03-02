@@ -20,7 +20,6 @@ pub trait BlockSigner: Sync + Send + TransactionSigner {
     fn account_id(&self) -> types::AccountId;
 }
 
-
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
     #[serde(with = "signature::bs58_pub_key_format")]

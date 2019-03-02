@@ -61,7 +61,7 @@ const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
-    // TODO: Multiple bls keys associated with the same account
+    // TODO: REMOVE THIS!
     #[serde(with = "bs58_serializer")]
     pub bls_public_key: BlsPublicKey,
     pub nonce: u64,
@@ -1306,7 +1306,7 @@ mod tests {
 
     #[test]
     fn test_100_accounts() {
-        let (mut chain_spec, _, _) = generate_test_chain_spec();
+        let (mut chain_spec, _) = generate_test_chain_spec();
         let public_key = get_key_pair().0;
         for i in 0..100 {
             chain_spec.accounts.push((format!("account{}", i), public_key.to_readable(), 10000, 0));

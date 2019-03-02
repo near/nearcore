@@ -30,6 +30,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub struct PeerManager<T> {
     pub all_peer_states: AllPeerStates,
+    pub node_info: PeerInfo,
     phantom: PhantomData<T>,
 }
 
@@ -125,13 +126,14 @@ impl<T: ChainStateRetriever> PeerManager<T> {
 
         // Spawn the task that listens to incoming connections if address is specified.
         if node_info.addr.is_some() {
+            let node_info1 = node_info.clone();
             let all_peer_states3 = all_peer_states.clone();
             let task = TcpListener::bind(&node_info.addr.unwrap())
                 .expect("Cannot listen to the address")
                 .incoming()
                 .for_each(move |socket| {
                     Peer::spawn_incoming_conn(
-                        node_info.clone(),
+                        node_info1.clone(),
                         socket,
                         all_peer_states3.clone(),
                         inc_msg_tx.clone(),
@@ -145,7 +147,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
             tokio::spawn(task);
         }
 
-        Self { all_peer_states, phantom: PhantomData }
+        Self { all_peer_states, node_info, phantom: PhantomData }
     }
 
     /// Ban this peer.
@@ -231,7 +233,7 @@ mod tests {
     use primitives::network::PeerInfo;
 
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
-    use crate::testing_utils::{wait, wait_all_peers_connected, MockChainStateRetriever};
+    use crate::testing_utils::{MockChainStateRetriever, wait, wait_all_peers_connected};
 
     #[test]
     fn test_two_peers_boot() {
