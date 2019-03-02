@@ -16,7 +16,7 @@ use primitives::chain::{ReceiptBlock, SignedShardBlock};
 use crate::ns_control_builder::get_control;
 
 // Create new block proposal. Send control signal to NightshadeTask and gossip Block around.
-fn spawn_start_proposal(
+fn spawn_start_next_proposal(
     client: Arc<Client>,
     block_index: u64,
     mempool_control_tx: Sender<MemPoolControl>,
@@ -31,6 +31,8 @@ fn spawn_start_proposal(
     tokio::spawn(mempool_reset);
 }
 
+
+
 pub fn spawn_block_producer(
     client: Arc<Client>,
     consensus_rx: Receiver<ConsensusBlockProposal>,
@@ -39,7 +41,7 @@ pub fn spawn_block_producer(
     out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
 ) {
     // Send proposal for the first block
-    spawn_start_proposal(client.clone(), 1, mempool_control_tx.clone());
+    spawn_start_next_proposal(client.clone(), 1, mempool_control_tx.clone());
 
     let task = consensus_rx
         .for_each(move |consensus_block_header| {
@@ -48,6 +50,8 @@ pub fn spawn_block_producer(
                 if let BlockProductionResult::Success(new_beacon_block, new_shard_block) =
                 client.try_produce_block(consensus_block_header.index, payload)
                     {
+
+
                         // TODO: here should be dealing with receipts for other shards.
                         let receipt_block = client.shard_client.get_receipt_block(new_shard_block.index(), new_shard_block.shard_id());
                         if let Some(receipt_block) = receipt_block {
@@ -68,7 +72,7 @@ pub fn spawn_block_producer(
                         );
 
                         // Send proposal for the next block
-                        spawn_start_proposal(client.clone(), next_index, mempool_control_tx.clone());
+                        spawn_start_next_proposal(client.clone(), next_index, mempool_control_tx.clone());
                     }
             } else {
                 // Assumption: This else should never be reached, if an authority achieves consensus on some block hash

@@ -22,6 +22,7 @@ use primitives::chain::ReceiptBlock;
 use primitives::types::AccountId;
 
 pub mod testing_utils;
+mod block_signer;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_testnet_configs();
