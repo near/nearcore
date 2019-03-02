@@ -1,16 +1,16 @@
-use std::time::{Duration, Instant};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use futures::{Future, Sink, Stream, future};
 use futures::future::{join_all, lazy};
 use futures::sync::mpsc;
+use futures::{future, Future, Sink, Stream};
 use log::error;
 use tokio::timer::Delay;
 
-use primitives::hash::CryptoHash;
-use primitives::signer::{InMemorySigner, BlockSigner};
-use primitives::signature::PublicKey;
 use primitives::aggregate_signature::BlsPublicKey;
+use primitives::hash::CryptoHash;
+use primitives::signature::PublicKey;
+use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 
 use crate::nightshade::ConsensusBlockProposal;
 
@@ -30,8 +30,10 @@ fn spawn_all(num_authorities: usize) {
         let mut out_gossips_rx_vec = vec![];
         let mut consensus_rx_vec = vec![];
 
-        let signers: Vec<Arc<InMemorySigner>> = (0..num_authorities).map(|_| Arc::new(InMemorySigner::default())).collect();
-        let (public_keys, bls_public_keys): (Vec<PublicKey>, Vec<BlsPublicKey>) = signers.iter().map(|signer| (signer.public_key(), signer.bls_public_key())).unzip();
+        let signers: Vec<Arc<InMemorySigner>> =
+            (0..num_authorities).map(|_| Arc::new(InMemorySigner::default())).collect();
+        let (public_keys, bls_public_keys): (Vec<PublicKey>, Vec<BlsPublicKey>) =
+            signers.iter().map(|signer| (signer.public_key(), signer.bls_public_key())).unzip();
 
         for owner_uid in 0..num_authorities {
             let (control_tx, control_rx) = mpsc::channel(1024);
@@ -45,8 +47,14 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let task: NightshadeTask =
-                NightshadeTask::new(signers[owner_uid].clone(), inc_gossips_rx, out_gossips_tx, control_rx, consensus_tx, retrieve_payload_tx);
+            let task: NightshadeTask = NightshadeTask::new(
+                signers[owner_uid].clone(),
+                inc_gossips_rx,
+                out_gossips_tx,
+                control_rx,
+                consensus_tx,
+                retrieve_payload_tx,
+            );
 
             tokio::spawn(task.for_each(|_| Ok(())));
 

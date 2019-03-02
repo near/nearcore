@@ -3,19 +3,19 @@ use std::time::Duration;
 use std::time::Instant;
 
 use elapsed::measure_time;
-use futures::Async;
 use futures::future::Future;
-use futures::Poll;
 use futures::sink::Sink;
-use futures::Stream;
 use futures::sync::mpsc;
 use futures::try_ready;
+use futures::Async;
+use futures::Poll;
+use futures::Stream;
 use log::*;
 use tokio::timer::Delay;
 
 use primitives::aggregate_signature::BlsPublicKey;
-use primitives::hash::{CryptoHash, hash_struct};
-use primitives::signature::{PublicKey, Signature, verify};
+use primitives::hash::{hash_struct, CryptoHash};
+use primitives::signature::{verify, PublicKey, Signature};
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
 
@@ -191,7 +191,7 @@ impl NightshadeTask {
             num_authorities,
             self.proposals[owner_uid].clone().unwrap().block_proposal,
             bls_public_keys,
-            self.signer.clone()
+            self.signer.clone(),
         ));
         self.consensus_reported = false;
 
@@ -236,7 +236,7 @@ impl NightshadeTask {
                 // Check if this proposal was already confirmed by the mempool
                 if self.confirmed_proposals[author] {
                     if let Err(e) =
-                    self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
+                        self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
                     {
                         warn!(target: "nightshade", "{}", e);
                     }
@@ -301,11 +301,9 @@ impl NightshadeTask {
         info!("Request payload confirmation: {:?}", signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
-        let task = self.retrieve_payload_tx
-            .clone()
-            .send((authority, hash))
-            .map(|_| ())
-            .map_err(move |_| error!("Failing requesting confirmation for ({},{:?})", authority, hash));
+        let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
+            move |_| error!("Failing requesting confirmation for ({},{:?})", authority, hash),
+        );
         tokio::spawn(task);
     }
 
@@ -354,11 +352,17 @@ impl NightshadeTask {
         self.nightshade_as_ref().state()
     }
 
-    fn owner_id(&self) -> AuthorityId { self.nightshade_as_ref().owner_id }
+    fn owner_id(&self) -> AuthorityId {
+        self.nightshade_as_ref().owner_id
+    }
 
     fn state_as_triplet(&self) -> (i64, AuthorityId, i64) {
         let state = self.state();
-        (state.bare_state.primary_confidence, state.bare_state.endorses.author, state.bare_state.secondary_confidence)
+        (
+            state.bare_state.primary_confidence,
+            state.bare_state.endorses.author,
+            state.bare_state.secondary_confidence,
+        )
     }
 }
 
@@ -371,12 +375,12 @@ impl Stream for NightshadeTask {
         loop {
             match self.control_receiver.poll() {
                 Ok(Async::Ready(Some(Control::Reset {
-                                         owner_uid,
-                                         block_index,
-                                         hash,
-                                         public_keys,
-                                         bls_public_keys,
-                                     }))) => {
+                    owner_uid,
+                    block_index,
+                    hash,
+                    public_keys,
+                    bls_public_keys,
+                }))) => {
                     info!(target: "nightshade", "Control channel received Reset");
                     self.init_nightshade(
                         owner_uid,
@@ -450,7 +454,10 @@ impl Stream for NightshadeTask {
                             tokio::spawn(
                                 self.consensus_sender
                                     .clone()
-                                    .send(ConsensusBlockProposal { proposal: outcome, index: self.block_index.unwrap() })
+                                    .send(ConsensusBlockProposal {
+                                        proposal: outcome,
+                                        index: self.block_index.unwrap(),
+                                    })
                                     .map(|_| ())
                                     .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                             );
@@ -492,9 +499,15 @@ pub fn spawn_nightshade_task(
     consensus_tx: mpsc::Sender<ConsensusBlockProposal>,
     control_rx: mpsc::Receiver<Control>,
     retrieve_payload_tx: mpsc::Sender<(AuthorityId, CryptoHash)>,
-)
-{
-    let task = NightshadeTask::new(signer, inc_gossip_rx, out_gossip_tx, control_rx, consensus_tx, retrieve_payload_tx);
+) {
+    let task = NightshadeTask::new(
+        signer,
+        inc_gossip_rx,
+        out_gossip_tx,
+        control_rx,
+        consensus_tx,
+        retrieve_payload_tx,
+    );
 
     tokio::spawn(task.for_each(|_| Ok(())));
 }

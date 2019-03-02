@@ -1,4 +1,3 @@
-
 /// FromBytes is like TryFrom<Vec<u8>>
 pub trait FromBytes: Sized {
     fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>>;

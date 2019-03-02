@@ -3,15 +3,13 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use configs::ChainSpec;
-use primitives::aggregate_signature::BlsSecretKey;
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{get_key_pair, PublicKey, SecretKey, sign};
+use primitives::signature::{get_key_pair, PublicKey};
 use primitives::signer::{InMemorySigner, TransactionSigner, BlockSigner};
 use primitives::test_utils::get_key_pair_from_seed;
-use primitives::traits::ToBytes;
 use primitives::transaction::{
-    AddBlsKeyTransaction, AddKeyTransaction, AsyncCall,
+    AddKeyTransaction, AsyncCall,
     Callback, CallbackInfo, CallbackResult,
     CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
     ReceiptTransaction, SignedTransaction,
@@ -43,7 +41,7 @@ pub fn default_code_hash() -> CryptoHash {
     hash(genesis_wasm)
 }
 
-pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
+pub fn generate_test_chain_spec() -> (ChainSpec, Arc<InMemorySigner>) {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let account_id = "alice.near";
     let signer = InMemorySigner::from_seed(&account_id, &account_id);
@@ -58,7 +56,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, InMemorySigner) {
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 10,
         boot_nodes: vec![],
-    }, signer)
+    }, Arc::new(signer))
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {
@@ -158,9 +156,7 @@ pub struct User {
     account_id: String,
     nonce: u64,
     trie: Arc<Trie>,
-    pub pub_key: PublicKey,
-    secret_key: SecretKey,
-    pub bls_secret_key: BlsSecretKey,
+    pub signer: Arc<InMemorySigner>,
 }
 
 impl User {
@@ -170,15 +166,14 @@ impl User {
         trie: Arc<Trie>,
         root: MerkleHash
     ) -> (Self, MerkleHash) {
-        let (pub_key, secret_key) = get_key_pair();
+        let signer = Arc::new(InMemorySigner::from_seed(&account_id, &account_id));
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut account: Account = get(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string())
         ).unwrap();
-        let bls_secret_key = BlsSecretKey::generate();
-        account.public_keys.push(pub_key);
-        account.bls_public_key = bls_secret_key.get_public_key();
+        account.public_keys.push(signer.public_key());
+        account.bls_public_key = signer.bls_public_key();
         set(
             &mut state_update,
             &account_id_to_bytes(COL_ACCOUNT, &account_id.to_string()),
@@ -192,9 +187,7 @@ impl User {
             account_id: account_id.to_string(),
             nonce: 1,
             trie,
-            pub_key,
-            secret_key,
-            bls_secret_key,
+            signer,
         }, new_root)
     }
 
@@ -203,9 +196,7 @@ impl User {
         root: CryptoHash,
         tx_body: TransactionBody
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let hash = tx_body.get_hash();
-        let signature = sign(hash.as_ref(), &self.secret_key);
-        let transaction = SignedTransaction::new(signature, tx_body);
+        let transaction = tx_body.sign(self.signer.clone());
         let apply_state = ApplyState {
             root,
             shard_id: 0,
@@ -317,22 +308,6 @@ impl User {
             nonce: self.nonce,
             originator: self.account_id.clone(),
             cur_key: key.0[..].to_vec()
-        });
-        self.nonce += 1;
-        self.send_tx(root, tx_body)
-    }
-
-    pub fn add_bls_key(
-        &mut self,
-        root: MerkleHash,
-    ) -> (MerkleHash, Vec<ApplyResult>) {
-        let new_key = self.bls_secret_key.get_public_key().to_bytes();
-        let proof_of_possession = self.bls_secret_key.get_proof_of_possession().to_bytes();
-        let tx_body = TransactionBody::AddBlsKey(AddBlsKeyTransaction {
-            nonce: self.nonce,
-            originator: self.account_id.clone(),
-            new_key,
-            proof_of_possession,
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
