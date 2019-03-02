@@ -250,7 +250,7 @@ mod tests {
                 1,
                 PeerInfo {
                     id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:4000").unwrap(),
+                    addr: Some(SocketAddr::from_str("127.0.0.1:4000").unwrap()),
                     account_id: None,
                 },
                 &vec![],
@@ -275,12 +275,12 @@ mod tests {
                 1,
                 PeerInfo {
                     id: hash_struct(&1),
-                    addr: SocketAddr::from_str("127.0.0.1:4001").unwrap(),
+                    addr: Some(SocketAddr::from_str("127.0.0.1:4001").unwrap()),
                     account_id: None,
                 },
                 &vec![PeerInfo {
                     id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:4000").unwrap(),
+                    addr: Some(SocketAddr::from_str("127.0.0.1:4000").unwrap()),
                     account_id: None,
                 }],
                 inc_msg_tx2,
@@ -339,7 +339,7 @@ mod tests {
                 if i != 0 {
                     boot_nodes.push(PeerInfo {
                         id: hash_struct(&(0 as usize)),
-                        addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
+                        addr: Some(SocketAddr::from_str("127.0.0.1:3000").unwrap()),
                         account_id: None,
                     });
                 }
@@ -349,7 +349,7 @@ mod tests {
                     if i == 0 { NUM_TASKS - 1 } else { 1 },
                     PeerInfo {
                         id: hash_struct(&i),
-                        addr: SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16),
+                        addr: Some(SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16)),
                         account_id: None,
                     },
                     &boot_nodes,
