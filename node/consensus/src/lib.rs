@@ -1,5 +1,5 @@
 //! This library contains tools for consensus that are not dependent on specific implementation of
-//! TxFlow or other gossip-based consensus protocol. It also provides simple pass-through consensus
+//! Nightshade or other gossip-based consensus protocol. It also provides simple pass-through consensus
 //! that can be used for DevNet.
 extern crate beacon;
 extern crate chrono;
@@ -16,3 +16,4 @@ extern crate typed_arena;
 
 pub mod adapters;
 pub mod passthrough;
+pub mod block_signer;
