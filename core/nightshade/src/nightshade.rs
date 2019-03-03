@@ -29,10 +29,10 @@ fn empty_cryptohash() -> CryptoHash {
 /// and penalize such behavior.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BlockProposal {
-    /// Authority proposing the block.
-    pub author: AuthorityId,
     /// Hash of the payload contained in the block.
     pub hash: CryptoHash,
+    /// Authority proposing the block.
+    pub author: AuthorityId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
