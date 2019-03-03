@@ -47,7 +47,11 @@ impl Node {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
             id: get_peer_id_from_seed(peer_id_seed),
-            addr: if addr.is_some() { Some(SocketAddr::from_str(addr.unwrap()).unwrap()) } else { None },
+            addr: if addr.is_some() {
+                Some(SocketAddr::from_str(addr.unwrap()).unwrap())
+            } else {
+                None
+            },
         };
         let mut base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         base_path.push(TMP_DIR);
