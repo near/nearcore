@@ -5,6 +5,7 @@ extern crate beacon;
 extern crate chrono;
 extern crate client;
 extern crate coroutines;
+#[macro_use]
 extern crate futures;
 #[macro_use]
 extern crate log;
