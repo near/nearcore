@@ -121,6 +121,7 @@ mod tests {
     use primitives::signer::InMemorySigner;
     use primitives::signer::TransactionSigner;
     use std::thread;
+    use std::time::Duration;
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -280,12 +281,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_multiple_nodes() {
         // Modify the following two variables to run more nodes or to exercise them for multiple
         // trials.
         let num_nodes = 2;
-        let num_trials = 1;
+        let num_trials = 10;
 
         let init_balance = 1_000_000_000;
         let mut account_names = vec![];
@@ -313,6 +313,7 @@ mod tests {
             node.start();
             nodes.push(node);
         }
+        //        thread::sleep(Duration::from_secs(10));
 
         // Execute N trials. In each trial we submit a transaction to a random node i, that sends
         // 1 token to a random node j. Then we wait for the balance change to propagate by checking
@@ -321,36 +322,37 @@ mod tests {
         let mut nonces = vec![1; num_nodes];
         let trial_duration = 10000;
         for trial in 0..num_trials {
+            println!("TRIAL #{}", trial);
             let i = rand::random::<usize>() % num_nodes;
             // Should be a different node.
             let mut j = rand::random::<usize>() % (num_nodes - 1);
             if j >= i {
                 j += 1;
             }
-            println!("Sending from {} to {}", account_names[i], account_names[j]);
-            nodes[i]
-                .client
-                .shard_client
-                .pool
-                .add_transaction(
-                    TransactionBody::send_money(
-                        nonces[i],
-                        account_names[i].as_str(),
-                        account_names[j].as_str(),
-                        1,
+            for k in 0..num_nodes {
+                nodes[k]
+                    .client
+                    .shard_client
+                    .pool
+                    .add_transaction(
+                        TransactionBody::send_money(
+                            nonces[i],
+                            account_names[i].as_str(),
+                            account_names[j].as_str(),
+                            1,
+                        )
+                        .sign(nodes[i].signer()),
                     )
-                    .sign(nodes[i].signer()),
-                )
-                .unwrap();
+                    .unwrap();
+            }
             nonces[i] += 1;
             expected_balances[i] -= 1;
             expected_balances[j] += 1;
 
             wait(
                 || {
-                    let mut state_update =
-                        nodes[num_nodes - 1].client.shard_client.get_state_update();
-                    let amt = nodes[num_nodes - 1]
+                    let mut state_update = nodes[j].client.shard_client.get_state_update();
+                    let amt = nodes[j]
                         .client
                         .shard_client
                         .trie_viewer

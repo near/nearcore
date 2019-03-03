@@ -388,8 +388,8 @@ impl Stream for NightshadeTask {
                     bls_public_keys,
                 }))) => {
                     info!(target: "nightshade",
-                          "Control channel received Reset for owner_uid={}, block_index={}",
-                          owner_uid, block_index);
+                          "Control channel received Reset for owner_uid={}, block_index={}, hash={:?}",
+                          owner_uid, block_index, hash);
                     self.init_nightshade(
                         owner_uid,
                         block_index,

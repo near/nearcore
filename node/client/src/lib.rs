@@ -224,6 +224,8 @@ impl Client {
             "The block was already imported, before we managed to produce it.\
              This should never happen, because block production is atomic."
         );
+        let has_transactions = !shard_block.body.transactions.is_empty();
+        let has_receipts = !shard_block.body.receipts.is_empty();
 
         info!(target: "client", "Producing block index: {:?}, account_id={:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
             block.body.header.index,
