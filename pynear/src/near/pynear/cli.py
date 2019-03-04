@@ -106,7 +106,7 @@ get_beacon_block_by_hash  {}
     def _get_rpc_client(command_args):
         keystore_path = getattr(command_args, 'keystore_path', None)
         if keystore_path is not None:
-            keystore = FileKeyStore(keystore_path)
+            keystore = FileKeyStore()
         else:
             keystore = InMemoryKeyStore()
             keystore.create_key_pair(seed='alice.near')
