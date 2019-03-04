@@ -4,6 +4,8 @@ use primitives::signer::{get_key_file, write_key_file};
 use primitives::test_utils::get_key_pair_from_seed;
 use std::path::PathBuf;
 use std::process;
+use primitives::signer::InMemorySigner;
+use primitives::signer::write_block_producer_key_file;
 
 fn get_key_store_path(matches: &ArgMatches) -> PathBuf {
     matches
@@ -27,11 +29,8 @@ fn sign_data(matches: &ArgMatches) {
 
 fn generate_key(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
-    let (public_key, secret_key) = match matches.value_of("test_seed") {
-        Some(seed_string) => get_key_pair_from_seed(&seed_string),
-        None => get_key_pair()
-    };
-    write_key_file(&key_store_path, public_key, secret_key);
+    let signer = InMemorySigner::from_seed("not_used", matches.value_of("test_seed").unwrap());
+    write_block_producer_key_file(&key_store_path.as_path(), signer.public_key, signer.secret_key, signer.bls_public_key, signer.bls_secret_key);
 }
 
 fn get_public_key(matches: &ArgMatches) {
