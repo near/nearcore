@@ -29,10 +29,10 @@ fn empty_cryptohash() -> CryptoHash {
 /// and penalize such behavior.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BlockProposal {
-    /// Authority proposing the block.
-    pub author: AuthorityId,
     /// Hash of the payload contained in the block.
     pub hash: CryptoHash,
+    /// Authority proposing the block.
+    pub author: AuthorityId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -606,12 +606,12 @@ mod tests {
     #[test]
     fn test_nightshade_basics() {
         let mut ns = create_nightshades(2);
-        let state0 = ns[0].state();
-        assert_eq!(state0.endorses().author, 0);
-        let state1 = ns[1].state().clone();
-        assert_eq!(ns[0].update_state(1, state1).is_ok(), true);
-        let state0 = ns[0].state();
-        assert_eq!(state0.endorses().author, 1);
+        let state1 = ns[1].state();
+        assert_eq!(state1.endorses().author, 1);
+        let state0 = ns[0].state().clone();
+        assert_eq!(ns[1].update_state(0, state0).is_ok(), true);
+        let state1 = ns[1].state();
+        assert_eq!(state1.endorses().author, 0);
     }
 
     #[test]
