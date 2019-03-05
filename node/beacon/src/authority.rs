@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 use std::iter;
 use std::mem;
+use std::sync::{Arc, RwLock};
 
 use log::Level::Debug;
 use rand::{rngs::StdRng, SeedableRng, seq::SliceRandom};
@@ -11,8 +12,11 @@ use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityMask, AuthorityStake, BlockId};
+use storage::BeaconChainStorage;
 
 use crate::beacon_chain::BeaconBlockChain;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 type Epoch = u64;
 type Slot = u64;
@@ -57,12 +61,17 @@ pub struct Authority {
     participation: HashMap<Slot, AuthorityMask>,
     /// Records the blocks that it processed for the given blocks.
     processed_blocks: HashMap<Epoch, HashSet<Slot>>,
+    /// the most recent epoch that has been processed
+    current_epoch: Epoch,
 
     // The following is a derived information which we do not want to recompute.
     /// Computed thresholds for each epoch.
     thresholds: HashMap<Epoch, u64>,
     /// Authorities that were accepted for the given slots.
     accepted_authorities: HashMap<Slot, Vec<AuthorityStake>>,
+    
+    /// beacon chain storage
+    storage: Arc<RwLock<BeaconChainStorage>>,
 }
 
 impl Authority {
@@ -81,51 +90,106 @@ impl Authority {
             ..=(epoch + 1) * self.authority_config.epoch_length // Without ..= it needs + 1.
     }
 
+    fn read_from_storage(&mut self) {
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+        let proposals = guard.get_proposal();
+        if !proposals.is_empty() {
+            self.proposals = proposals;
+            let participation = guard.get_participation();
+            self.participation = participation;
+            let processed_blocks = guard.get_processed_blocks();
+            self.processed_blocks = processed_blocks;
+            let thresholds = guard.get_threshold();
+            self.thresholds = thresholds;
+            let accepted_authorities = guard.get_accepted_authorities();
+            self.accepted_authorities = accepted_authorities;
+        }
+    }
+
+    fn prune_slot<V: Clone>(&self, data: &HashMap<Slot, V>) -> HashMap<Slot, V> {
+        data.iter()
+            .filter(|(&k, &_)| self.slot_to_epoch(k) >= self.current_epoch)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    fn prune_epoch<V: Clone>(&self, data: &HashMap<Epoch, V>) -> HashMap<Epoch, V> {
+        data.iter()
+            .filter(|(&k, &_)| k >= self.current_epoch)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    fn write_to_storage(&self) {
+        // prune old epochs
+        let proposals = self.prune_slot(&self.proposals);
+        let participation = self.prune_slot(&self.participation);
+        let processed_blocks = self.prune_epoch(&self.processed_blocks);
+        let thresholds = self.prune_epoch(&self.thresholds);
+        let accepted_authorities = self.prune_slot(&self.accepted_authorities);
+        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+        guard.set_proposal(&proposals);
+        guard.set_participation(&participation);
+        guard.set_processed_blocks(&processed_blocks);
+        guard.set_threshold(&thresholds);
+        guard.set_accepted_authorities(&accepted_authorities);
+    }
+
     /// Initializes authorities from the config and the past blocks in the beaconchain.
-    pub fn new(authority_config: AuthorityConfig, blockchain: &BeaconBlockChain) -> Self {
+    pub fn new(
+        authority_config: AuthorityConfig,
+        blockchain: &BeaconBlockChain,
+        storage: Arc<RwLock<BeaconChainStorage>>
+    ) -> Self {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
             authority_config,
             proposals: HashMap::new(),
             participation: HashMap::new(),
             processed_blocks: HashMap::new(),
+            current_epoch: 0,
             thresholds: HashMap::new(),
             accepted_authorities: HashMap::new(),
+            storage,
         };
-        // Initial authorities operate for the first two epochs.
-        let (accepted_authorities, threshold) = result.compute_threshold_accepted(
-            &CryptoHash::default(),
-            result.authority_config.initial_proposals.to_vec(),
-            vec![],
-        );
-        let mut slot = 0;
-        for epoch in 0..=1 {
-            result.thresholds.insert(epoch, threshold);
-            for slot_auth in &accepted_authorities {
-                slot += 1;
-                result.accepted_authorities.insert(slot, slot_auth.to_vec());
-            }
-        }
-        // Catch up with the blockchain. Note, the last block is allowed to progress while we
-        // are iterating.
-        // TODO: Take care of the fork being changed while we are iterating.
-        let mut index = 1;
-        let mut last_progress = 101;
-        while index <= blockchain.best_block().header().body.index {
-            if log_enabled!(target: "client", Debug) {
-                let best_block_index = blockchain.best_block().header().body.index;
-                let progress = index * 100 / best_block_index;
-                if progress != last_progress {
-                    debug!(target: "client", "Processing blocks {} out of {}", index, best_block_index);
-                    last_progress = progress;
+        result.read_from_storage();
+        if result.proposals.is_empty() {
+            // Initial authorities operate for the first two epochs.
+            let (accepted_authorities, threshold) = result.compute_threshold_accepted(
+                &CryptoHash::default(),
+                result.authority_config.initial_proposals.to_vec(),
+                vec![],
+            );
+            let mut slot = 0;
+            for epoch in 0..=1 {
+                result.thresholds.insert(epoch, threshold);
+                for slot_auth in &accepted_authorities {
+                    slot += 1;
+                    result.accepted_authorities.insert(slot, slot_auth.to_vec());
                 }
             }
-            let header = blockchain
-                .get_header(&BlockId::Number(index))
-                .expect("Blockchain missing past block");
-            result.process_block_header(&header);
-            index += 1;
+            // Catch up with the blockchain. Note, the last block is allowed to progress while we
+            // are iterating.
+            // TODO: Take care of the fork being changed while we are iterating.
+            let mut index = 1;
+            let mut last_progress = 101;
+            while index <= blockchain.best_block().header().body.index {
+                if log_enabled!(target: "client", Debug) {
+                    let best_block_index = blockchain.best_block().header().body.index;
+                    let progress = index * 100 / best_block_index;
+                    if progress != last_progress {
+                        debug!(target: "client", "Processing blocks {} out of {}", index, best_block_index);
+                        last_progress = progress;
+                    }
+                }
+                let header = blockchain
+                    .get_header(&BlockId::Number(index))
+                    .expect("Blockchain missing past block");
+                result.process_block_header(&header);
+                index += 1;
+            }
         }
+        
         result
     }
 
@@ -286,6 +350,8 @@ impl Authority {
             if all_slots_processed {
                 // Compute accepted authorities for epoch+2.
                 self.compute_accepted_authorities(epoch + 2);
+                self.current_epoch = epoch;
+                self.write_to_storage();
             }
         }
     }
@@ -439,5 +505,27 @@ mod test {
         assert_eq!(find_threshold(&[1000000000], 1000000000).unwrap(), 1);
         assert_eq!(find_threshold(&[1000, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).unwrap(), 1000);
         assert!(find_threshold(&[1, 1, 2], 100).is_err());
+    }
+
+    #[test]
+    fn test_write_to_storage() {
+        let chain_spec = get_test_chainspec(4, 2, 2);
+        let bc = test_blockchain(0, &chain_spec);
+        let mut authority = bc.authority.write().unwrap();
+        let block1 = SignedBeaconBlock::new(1, bc.chain.genesis_hash(), vec![], CryptoHash::default());
+        let mut header1 = block1.header();
+        header1.signature.authority_mask = vec![true, true];
+        let block2 = SignedBeaconBlock::new(2, header1.block_hash(), vec![], CryptoHash::default());
+        let mut header2 = block2.header();
+        header2.signature.authority_mask = vec![true, true];
+        authority.process_block_header(&header1);
+        authority.process_block_header(&header2);
+        // storage should not be empty
+        authority.read_from_storage();
+        assert!(!authority.proposals.is_empty());
+        assert!(!authority.participation.is_empty());
+        assert!(!authority.processed_blocks.is_empty());
+        assert!(!authority.thresholds.is_empty());
+        assert!(!authority.accepted_authorities.is_empty());
     }
 }
