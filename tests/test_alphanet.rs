@@ -3,13 +3,7 @@ use primitives::transaction::TransactionBody;
 use alphanet::testing_utils::wait;
 use alphanet::testing_utils::generate_test_chain_spec;
 
-#[test]
-fn test_multiple_nodes() {
-    // Modify the following two variables to run more nodes or to exercise them for multiple
-    // trials.
-    let num_nodes = 4;
-    let num_trials = 10;
-
+fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     let init_balance = 1_000_000_000;
     let mut account_names = vec![];
     let mut node_names = vec![];
@@ -88,6 +82,23 @@ fn test_multiple_nodes() {
             trial_duration,
         );
     }
+}
+
+
+// DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
+// If you add multiple tests and they start failing consider splitting it into several *.rs files
+// to ensure they are not run in parallel.
+
+#[test]
+fn test_multiple_nodes() {
+    run_multiple_nodes(4, 10);
+}
+
+/// This test should work after (#667) is fixed.
+#[test]
+#[ignore]
+fn test_multiple_nodes_10() {
+    run_multiple_nodes(10, 1);
 }
 
 

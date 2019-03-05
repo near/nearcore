@@ -3,11 +3,13 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use futures::sync::mpsc::channel;
-use futures::{future, Stream};
+use futures::future;
 
 use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
+use coroutines::client_task::ClientTask;
+use std::time::Duration;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -26,23 +28,33 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         // Create a task that receives new blocks from importer/producer
         // and send the authority information to consensus
         let (consensus_tx, consensus_rx) = channel(1024);
-        let (mempool_control_tx, mempool_control_rx) = channel(1024);
-        let (out_block_tx, out_block_rx) = channel(1024);
+        let (control_tx, control_rx) = channel(1024);
 
-        // Block producer is also responsible for re-submitting receipts from the previous block
-        // into the next block.
-        coroutines::ns_producer::spawn_block_producer(
+        let (_, retrieve_payload_rx) = channel(1024);
+        let (payload_announce_tx, _) = channel(1014);
+        let (payload_request_tx, _) = channel(1024);
+        let (_, payload_response_rx) = channel(1024);
+        let (_, inc_block_rx) = channel(1024);
+        let (out_block_tx, _) = channel(1024);
+
+        // Gossip interval is currently not used.
+        let gossip_interval = Duration::from_secs(1);
+        ClientTask::new(
+            gossip_interval,
             client.clone(),
+            inc_block_rx,
+            out_block_tx,
             consensus_rx,
-            mempool_control_tx,
-            out_block_tx
-        );
+            control_tx,
+            retrieve_payload_rx,
+            payload_request_tx,
+            payload_response_rx,
+            payload_announce_tx,
+        )
+        .spawn();
 
         // Spawn consensus tasks.
-        spawn_consensus(client.clone(), consensus_tx, mempool_control_rx, devnet_cfg.block_period);
-
-        // Spawn empty block announcement task.
-        tokio::spawn(out_block_rx.for_each(|(_, _)| { future::ok(())}));
+        spawn_consensus(client.clone(), consensus_tx, control_rx, devnet_cfg.block_period);
         Ok(())
     });
 
@@ -62,8 +74,8 @@ mod tests {
 
     use alphanet::testing_utils::wait;
     use primitives::block_traits::SignedBlock;
-    use primitives::transaction::TransactionBody;
     use primitives::signer::InMemorySigner;
+    use primitives::transaction::TransactionBody;
 
     use super::*;
     use std::time::Duration;

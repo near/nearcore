@@ -9,9 +9,7 @@ use futures::sync::mpsc::channel;
 
 use client::Client;
 use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
-use coroutines::importer::spawn_block_importer;
-use coroutines::ns_producer::spawn_block_producer;
-use mempool::pool_task::spawn_pool;
+use coroutines::client_task::ClientTask;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
@@ -52,25 +50,43 @@ pub fn start_from_client(
         let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
-        let (mempool_control_tx, mempool_control_rx) = channel(1024);
-        spawn_pool(
-            client.shard_client.pool.clone(),
-            mempool_control_rx,
-            control_tx,
-            retrieve_payload_rx,
-            payload_announce_tx,
-            payload_request_tx,
-            payload_response_rx,
-            network_cfg.gossip_interval,
-        );
+        //        let (mempool_control_tx, mempool_control_rx) = channel(1024);
+        //        spawn_pool(
+        //            client.shard_client.pool.clone(),
+        //            mempool_control_rx,
+        //            control_tx,
+        //            retrieve_payload_rx,
+        //            payload_announce_tx,
+        //            payload_request_tx,
+        //            payload_response_rx,
+        //            network_cfg.gossip_interval,
+        //        );
 
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
-        spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
-
-        // Launch block producer.
-        spawn_block_producer(client.clone(), consensus_rx, mempool_control_tx, out_block_tx);
+        //        spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
+        //
+        //        // Launch block producer.
+        //        spawn_block_producer(
+        //            client.clone(),
+        //            consensus_rx,
+        //            mempool_control_tx,
+        //            out_block_tx,
+        //        );
+        ClientTask::new(
+            network_cfg.gossip_interval,
+            client.clone(),
+            inc_block_rx,
+            out_block_tx,
+            consensus_rx,
+            control_tx,
+            retrieve_payload_rx,
+            payload_request_tx,
+            payload_response_rx,
+            payload_announce_tx,
+        )
+        .spawn();
 
         // Launch Nightshade task.
         spawn_nightshade_task(
@@ -140,8 +156,8 @@ mod tests {
             vec![alice.node_info.clone()],
             chain_spec,
         );
-        let alice_signer = alice.signer();
-        let bob_signer = bob.signer();
+        let _alice_signer = alice.signer();
+        let _bob_signer = bob.signer();
         alice
             .client
             .shard_client
