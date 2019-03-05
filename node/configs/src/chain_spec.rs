@@ -6,6 +6,7 @@ use serde_json;
 
 use primitives::network::PeerInfo;
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
+use std::io::Write;
 
 /// Specification of the blockchain in general.
 #[derive(Clone)]
@@ -55,6 +56,14 @@ pub fn get_default_chain_spec() -> ChainSpec {
     serde_json::from_slice(data)
         .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the default chain spec.")
+}
+
+pub fn save_chain_spec(chain_spec_path: &PathBuf, chain_spec: ChainSpec) {
+    let mut file = File::create(chain_spec_path).expect("Failed to create/write a chain spec file");
+    match file.write_all(serialize_chain_spec(chain_spec).as_bytes()) {
+        Err(err) => panic!("Failed to write a chain spec file {}", err),
+        _ => (),
+    }
 }
 
 pub fn read_or_default_chain_spec(chain_spec_path: &Option<PathBuf>) -> ChainSpec {

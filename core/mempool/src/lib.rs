@@ -147,6 +147,12 @@ impl Pool {
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
+        info!(target: "mempool", "Snapshotting payload, authority_id={:?}, #tx={}, #r={}, hash={:?}",
+              self.authority_id.read().expect(POISONED_LOCK_ERR),
+            snapshot.transactions.len(),
+            snapshot.receipts.len(),
+            h,
+        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h
     }
@@ -162,7 +168,22 @@ impl Pool {
         if hash == &CryptoHash::default() {
             return Some(ChainPayload::default());
         }
-        self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash)
+        let payload =
+            self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash);
+        if let Some(ref p) = payload {
+            info!(target: "mempool", "Popping snapshot, authority_id={:?}, #tx={}, #r={}, hash={:?}",
+                  self.authority_id.read().expect(POISONED_LOCK_ERR),
+                  p.transactions.len(),
+                  p.receipts.len(),
+                  hash,
+            );
+        } else {
+            info!(target: "mempool", "Failed to pop snapshot, authority_id={:?}, hash={:?}",
+                  self.authority_id.read().expect(POISONED_LOCK_ERR),
+                  hash,
+            );
+        }
+        payload
     }
 
     /// Request payload diff for given authority.
@@ -210,6 +231,13 @@ impl Pool {
             return Ok(());
         }
         let h = hash_struct(&payload);
+        info!(target: "mempool", "Adding payload snapshot, authority_id={:?}, #tx={}, #r={}, hash={:?} received from {:?}",
+              self.authority_id.read().expect(POISONED_LOCK_ERR),
+            payload.transactions.len(),
+            payload.receipts.len(),
+            h,
+            authority_id,
+        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, payload);
         self.ready_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, h));
         Ok(())

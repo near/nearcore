@@ -17,6 +17,8 @@ use primitives::network::PeerInfo;
 use primitives::signer::InMemorySigner;
 
 use crate::start_from_client;
+use primitives::signer::TransactionSigner;
+use primitives::signer::BlockSigner;
 
 const TMP_DIR: &str = "../../tmp/testnet";
 
@@ -124,5 +126,31 @@ where
         if ms_slept > max_wait_ms {
             panic!("Timed out waiting for the condition");
         }
+    }
+}
+
+/// Generates chainspec for running multiple nodes.
+pub fn generate_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
+    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
+    let mut accounts = vec![];
+    let mut initial_authorities = vec![];
+    for name in account_names {
+        let signer = InMemorySigner::from_seed(name.as_str(), name.as_str());
+        accounts.push((name.to_string(), signer.public_key().to_readable(), balance, 10));
+        initial_authorities.push((
+            name.to_string(),
+            signer.public_key().to_readable(),
+            signer.bls_public_key().to_readable(),
+            50,
+        ));
+    }
+    let num_authorities = account_names.len();
+    ChainSpec {
+        accounts,
+        initial_authorities,
+        genesis_wasm,
+        beacon_chain_epoch_length: 1,
+        beacon_chain_num_seats_per_slot: num_authorities as u64,
+        boot_nodes: vec![],
     }
 }
