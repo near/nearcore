@@ -142,17 +142,6 @@ mod tests {
         );
         let alice_signer = alice.signer();
         let bob_signer = bob.signer();
-        println!(
-            "Alice pk={:?}, bls pk={:?}",
-            alice_signer.public_key.to_readable(),
-            alice_signer.bls_public_key.to_readable()
-        );
-        println!(
-            "Bob pk={:?}, bls pk={:?}",
-            bob_signer.public_key.to_readable(),
-            bob_signer.bls_public_key.to_readable()
-        );
-
         alice
             .client
             .shard_client
