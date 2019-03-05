@@ -8,6 +8,4 @@ extern crate primitives;
 extern crate shard;
 extern crate tokio;
 
-pub mod importer;
-pub mod ns_control_builder;
-pub mod ns_producer;
+pub mod client_task;

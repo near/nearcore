@@ -16,14 +16,11 @@ use primitives::transaction::{SignedTransaction, verify_transaction_signature};
 use primitives::types::AuthorityId;
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
-use crate::pool_task::MemPoolControl;
+pub mod payload_gossip;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub mod pool_task;
-pub mod payload_gossip;
-
-/// mempool that stores transactions and receipts for a chain
+/// Mempool that stores transactions and receipts for a chain
 pub struct Pool {
     signer: Arc<BlockSigner>,
     transactions: RwLock<HashSet<SignedTransaction>>,
@@ -32,16 +29,16 @@ pub struct Pool {
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
     snapshots: RwLock<HashMap<CryptoHash, ChainPayload>>,
+    /// List of requested snapshots that can't be fetched yet.
+    pending_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
+    /// List of requested snapshots that are unblocked and can be confirmed.
+    ready_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
     /// Given MemPool's authority id.
     pub authority_id: RwLock<Option<AuthorityId>>,
     /// Number of authorities currently.
     num_authorities: RwLock<Option<usize>>,
     /// Map from hash of tx/receipt to hashset of authorities it is known.
     known_to: RwLock<HashMap<CryptoHash, HashSet<AuthorityId>>>,
-    /// List of requested snapshots that can't be fetched yet.
-    pending_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
-    /// List of requested snapshots that are unblocked and can be confirmed.
-    ready_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
 }
 
 impl Pool {
@@ -54,32 +51,12 @@ impl Pool {
             trie,
             state_viewer: TrieViewer {},
             snapshots: Default::default(),
+            pending_snapshots: Default::default(),
+            ready_snapshots: Default::default(),
             authority_id: Default::default(),
             num_authorities: Default::default(),
             known_to: Default::default(),
-            pending_snapshots: Default::default(),
-            ready_snapshots: Default::default(),
         }
-    }
-
-    /// Reset MemPool: clear snapshots, switch to new authorities and own authority id.
-    pub fn reset(&self, control: MemPoolControl) {
-        match control {
-            MemPoolControl::Reset { authority_id, num_authorities, block_index, .. } => {
-                info!(target: "mempool", "MemPool reset for authority_id={}, block_index={}",
-                      authority_id, block_index);
-                *self.authority_id.write().expect(POISONED_LOCK_ERR) = Some(authority_id);
-                *self.num_authorities.write().expect(POISONED_LOCK_ERR) = Some(num_authorities);
-            }
-            MemPoolControl::Stop => {
-                info!(target: "mempool", "MemPool stopped for authority_id={:?}",
-                      self.authority_id.read().expect(POISONED_LOCK_ERR));
-                *self.authority_id.write().expect(POISONED_LOCK_ERR) = None;
-                *self.num_authorities.write().expect(POISONED_LOCK_ERR) = None;
-            }
-        }
-        self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
-        self.known_to.write().expect(POISONED_LOCK_ERR).clear();
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
@@ -174,6 +151,11 @@ impl Pool {
             return CryptoHash::default();
         }
         let h = hash_struct(&snapshot);
+        info!(target: "mempool", "Snapshotting payload, #tx={}, #r={}, hash={:?}",
+            snapshot.transactions.len(),
+            snapshot.receipts.len(),
+            h,
+        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
         h
     }
@@ -189,7 +171,19 @@ impl Pool {
         if hash == &CryptoHash::default() {
             return Some(ChainPayload::default());
         }
-        self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash)
+        let payload = self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash);
+        if let Some(ref p) = payload {
+            info!(target: "mempool", "Popping snapshot, #tx={}, #r={}, hash={:?}",
+                  p.transactions.len(),
+                  p.receipts.len(),
+                  hash,
+            );
+        } else {
+            info!(target: "mempool", "Failed to pop snapshot, hash={:?}",
+                  hash,
+            );
+        }
+        payload
     }
 
     /// Request payload diff for given authority.
@@ -202,15 +196,14 @@ impl Pool {
             Ok(value.clone())
         } else {
             Err(format!(
-                "[{:?}] No such payload with hash {}",
-                self.authority_id.read().expect(POISONED_LOCK_ERR),
+                "No such payload with hash {}",
                 hash
             ))
         }
     }
 
     /// Prepares payload to gossip to peer authority.
-    pub fn prepare_payload_announce(&self) -> Vec<crate::payload_gossip::PayloadGossip> {
+    pub fn prepare_payload_gossip(&self) -> Vec<crate::payload_gossip::PayloadGossip> {
         if self.authority_id.read().expect(POISONED_LOCK_ERR).is_none() {
             return vec![];
         }
@@ -276,6 +269,12 @@ impl Pool {
             return Ok(());
         }
         let h = hash_struct(&payload);
+        info!(target: "mempool", "Adding payload snapshot, #tx={}, #r={}, hash={:?} received from {:?}",
+            payload.transactions.len(),
+            payload.receipts.len(),
+            h,
+            authority_id,
+        );
         self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, payload);
         self.ready_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, h));
         Ok(())
@@ -324,7 +323,8 @@ mod tests {
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        }).sign(signer);
+        })
+        .sign(signer);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);

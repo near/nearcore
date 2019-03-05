@@ -8,10 +8,8 @@ use std::sync::Arc;
 use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
-use coroutines::importer::spawn_block_importer;
-use coroutines::ns_producer::spawn_block_producer;
-use mempool::pool_task::spawn_pool;
+use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use coroutines::client_task::ClientTask;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
@@ -53,31 +51,26 @@ pub fn start_from_client(
         let (retrieve_payload_tx, retrieve_payload_rx) = channel(1024);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
-        let (mempool_control_tx, mempool_control_rx) = channel(1024);
-        spawn_pool(
-            client.shard_client.pool.clone(),
-            mempool_control_rx,
+
+        // Launch block syncing / importing.
+        let (inc_block_tx, inc_block_rx) = channel(1024);
+        let (out_block_tx, out_block_rx) = channel(1024);
+
+        // Launch Client task.
+        ClientTask::new(
+            client.clone(),
+            inc_block_rx,
+            out_block_tx,
+            consensus_rx,
             control_tx,
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
-            network_cfg.payload_gossip_interval,
-        );
-
-        // Launch block syncing / importing.
-        let (inc_block_tx, inc_block_rx) = channel(1024);
-        let (out_block_tx, out_block_rx) = channel(1024);
-        spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
-
-        // Launch block producer.
-        spawn_block_producer(
-            client.clone(),
-            consensus_rx,
-            mempool_control_tx,
-            out_block_tx,
-        );
+            network_cfg.gossip_interval,
+        )
+        .spawn();
 
         // Launch Nightshade task.
         spawn_nightshade_task(
@@ -123,7 +116,7 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, Node, wait};
+    use crate::testing_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -148,18 +141,14 @@ mod tests {
             vec![alice.node_info.clone()],
             chain_spec,
         );
-        let alice_signer = alice.signer();
-        let bob_signer = bob.signer();
-        println!("Alice pk={:?}, bls pk={:?}", alice_signer.public_key.to_readable(), alice_signer.bls_public_key.to_readable());
-        println!("Bob pk={:?}, bls pk={:?}", bob_signer.public_key.to_readable(), bob_signer.bls_public_key.to_readable());
-
+        let _alice_signer = alice.signer();
+        let _bob_signer = bob.signer();
         alice
             .client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
             )
             .unwrap();
 
@@ -246,12 +235,12 @@ mod tests {
         shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
-        bob.client
+        bob
+            .client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
             )
             .unwrap();
 
