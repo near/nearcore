@@ -59,6 +59,12 @@ impl Pool {
         }
     }
 
+    pub fn reset(&self, authority_id: Option<AuthorityId>, num_authorities: Option<usize>) {
+        *self.authority_id.write().expect(POISONED_LOCK_ERR) = authority_id;
+        *self.num_authorities.write().expect(POISONED_LOCK_ERR) = num_authorities;
+        self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
+    }
+
     pub fn get_state_update(&self) -> TrieUpdate {
         let root = self
             .storage

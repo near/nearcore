@@ -161,9 +161,8 @@ impl Stream for ClientTask {
 
         // First, send the control, if applicable.
         if let Some(index) = new_block_index {
-            let hash = self.client.shard_client.pool.snapshot_payload();
             let next_index = index + 1;
-            let control = self.get_control(next_index, hash);
+            let control = self.restart_pool_nightshade(next_index);
             tokio::spawn(
                 self.control_tx
                     .clone()
@@ -338,14 +337,16 @@ impl ClientTask {
         }
     }
 
-    /// Returns control.
-    fn get_control(&self, block_index: u64, proposal_hash: CryptoHash) -> Control {
+    /// Resets MemPool and returns NS control for next block.
+    fn restart_pool_nightshade(&self, block_index: BlockIndex) -> Control {
         // TODO: Get authorities for the correct block index. For now these are the same authorities
         // that built the first block. In other words use `block_index` instead of `mock_block_index`.
         let mock_block_index = 2;
         let (owner_uid, uid_to_authority_map) =
             self.client.get_uid_to_authority_map(mock_block_index);
+
         if owner_uid.is_none() {
+            self.client.shard_client.pool.reset(None, None);
             return Control::Stop;
         }
         let owner_uid = owner_uid.unwrap();
@@ -365,7 +366,9 @@ impl ClientTask {
             bls_public_keys.push(uid_to_authority_map[&i].bls_public_key.clone());
         }
 
-        Control::Reset { owner_uid, block_index, hash: proposal_hash, public_keys, bls_public_keys }
+        self.client.shard_client.pool.reset(Some(owner_uid), Some(num_authorities));
+        let hash = self.client.shard_client.pool.snapshot_payload();
+        Control::Reset { owner_uid, block_index, hash, public_keys, bls_public_keys }
     }
 
     fn gossip_payload(&self) {
@@ -395,9 +398,8 @@ impl ClientTask {
 
     /// Spawn a kick-off task.
     fn spawn_kickoff(&self) {
-        let hash = self.client.shard_client.pool.snapshot_payload();
         let next_index = self.client.beacon_chain.chain.best_block().index() + 1;
-        let control = self.get_control(next_index, hash);
+        let control = self.restart_pool_nightshade(next_index);
 
         // Send mempool control.
         let task =
