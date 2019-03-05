@@ -87,7 +87,8 @@ pub fn verify_path<T: Encode>(root: MerkleHash, path: &MerklePath, item: &T) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{Rng, SeedableRng, StdRng};
+    use rand::{SeedableRng, Rng};
+    use rand::rngs::StdRng;
 
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];
@@ -103,8 +104,7 @@ mod tests {
 
     #[test]
     fn test_merkle_path() {
-        let seed: &[_] = &[1, 2, 3, 4];
-        let mut rng: StdRng = SeedableRng::from_seed(seed);
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1);
         for _ in 0..10 {
             let len: u32 = rng.gen_range(1, 50);
             test_with_len(len, &mut rng);
