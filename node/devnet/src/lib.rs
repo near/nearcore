@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::sync::mpsc::channel;
 use futures::future;
+use futures::stream::Stream;
 
 use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
@@ -35,7 +36,7 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         let (payload_request_tx, _) = channel(1024);
         let (_, payload_response_rx) = channel(1024);
         let (_, inc_block_rx) = channel(1024);
-        let (out_block_tx, _) = channel(1024);
+        let (out_block_tx, out_block_rx) = channel(1024);
 
         // Gossip interval is currently not used.
         let gossip_interval = Duration::from_secs(1);
@@ -56,6 +57,9 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
 
         // Spawn consensus tasks.
         spawn_consensus(client.clone(), consensus_tx, control_rx, devnet_cfg.block_period);
+
+        // Spawn tasks to consume not used channels.
+        tokio::spawn(out_block_rx.for_each(move |_| { future::ok(()) }));
         Ok(())
     });
 
@@ -94,7 +98,7 @@ mod tests {
 
         let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
-        client_cfg.log_level = log::LevelFilter::Off;
+        client_cfg.log_level = log::LevelFilter::Info;
         let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
         let rpc_cfg = configs::RPCConfig::default();
 
@@ -134,5 +138,6 @@ mod tests {
                 .amount,
             110
         );
+        assert!(client.shard_client.pool.is_empty());
     }
 }

@@ -65,6 +65,10 @@ impl Pool {
         self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.transactions.read().expect(POISONED_LOCK_ERR).is_empty() && self.receipts.read().expect(POISONED_LOCK_ERR).is_empty()
+    }
+
     pub fn get_state_update(&self) -> TrieUpdate {
         let root = self
             .storage

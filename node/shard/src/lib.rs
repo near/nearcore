@@ -108,6 +108,7 @@ impl ShardClient {
     ) {
         self.trie.apply_changes(db_transaction).ok();
         self.chain.insert_block(block.clone());
+        self.pool.import_block(&block);
         self.storage
             .write()
             .expect(POISONED_LOCK_ERR)

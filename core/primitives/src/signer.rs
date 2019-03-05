@@ -109,7 +109,11 @@ pub fn get_block_producer_key_file(
 
     let mut key_files = fs::read_dir(key_store_path).unwrap();
     let key_file = key_files.next();
-    let key_file_string = if key_files.count() != 0 {
+    let key_files_count = key_files.count();
+    if key_files_count == 0 && key_file.is_none() {
+        panic!("No key file found in {:?}. Run `cargo run --package keystore -- keygen --test-seed alice.near` to set up testing keys.", key_store_path);
+    }
+    let key_file_string = if key_files_count > 0 {
         if let Some(p) = public_key {
             let key_file_path = key_store_path.join(Path::new(&p));
             fs::read_to_string(key_file_path).unwrap()
@@ -121,7 +125,13 @@ pub fn get_block_producer_key_file(
             process::exit(4);
         }
     } else {
-        fs::read_to_string(key_file.unwrap().unwrap().path()).unwrap()
+        let path = key_file.unwrap().unwrap().path();
+        match fs::read_to_string(path.clone()) {
+            Ok(content) => content,
+            Err(err) => {
+                panic!("Failed to read key file {:?} with error: {}", path, err);
+            }
+        }
     };
 
     serde_json::from_str(&key_file_string).unwrap()

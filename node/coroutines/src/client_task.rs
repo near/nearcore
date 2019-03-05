@@ -275,8 +275,8 @@ impl ClientTask {
         shard_block: SignedShardBlock,
     ) -> Option<BlockIndex> {
         if let BlockImportingResult::Success { new_index } =
-            self.client.try_import_blocks(beacon_block, shard_block)
-        {
+            self.client.try_import_blocks(beacon_block, shard_block) {
+
             info!(
                 "Successfully imported block(s) up to {}, account_id={:?}",
                 new_index, self.client.account_id
