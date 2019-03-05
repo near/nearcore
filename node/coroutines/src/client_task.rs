@@ -19,12 +19,9 @@ use primitives::chain::SignedShardBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::AuthorityId;
 use primitives::types::BlockIndex;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::Interval;
-
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub struct ClientTask {
     client: Arc<Client>,
@@ -270,10 +267,9 @@ impl ClientTask {
         let pool = &self.client.shard_client.pool;
         info!(
             target: "mempool",
-            "Payload confirmation for {} from {}, authority_id={:?}",
+            "Payload confirmation for {} from {}",
             hash,
             authority_id,
-            pool.authority_id.read().expect(POISONED_LOCK_ERR).deref(),
         );
         if !pool.contains_payload_snapshot(&hash) {
             tokio::spawn(
@@ -322,6 +318,7 @@ impl ClientTask {
         }
     }
 
+    /// Returns control.
     fn get_control(&self, block_index: u64, proposal_hash: CryptoHash) -> Control {
         // TODO: Get authorities for the correct block index. For now these are the same authorities
         // that built the first block. In other words use `block_index` instead of `mock_block_index`.
@@ -356,8 +353,7 @@ impl ClientTask {
         if let Some((authority_id, payload)) = pool.prepare_payload_announce() {
             info!(
                 target: "mempool",
-                "[{:?}] Payload confirmed from {}",
-                pool.authority_id.read().expect(POISONED_LOCK_ERR),
+                "Payload confirmed from {}",
                 authority_id
             );
             tokio::spawn(

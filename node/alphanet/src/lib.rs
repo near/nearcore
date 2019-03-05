@@ -10,9 +10,6 @@ use futures::sync::mpsc::channel;
 use client::Client;
 use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use coroutines::client_task::ClientTask;
-use coroutines::importer::spawn_block_importer;
-use coroutines::ns_producer::spawn_block_producer;
-use mempool::pool_task::spawn_pool;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
@@ -159,8 +156,8 @@ mod tests {
             vec![alice.node_info.clone()],
             chain_spec,
         );
-        let alice_signer = alice.signer();
-        let bob_signer = bob.signer();
+        let _alice_signer = alice.signer();
+        let _bob_signer = bob.signer();
         alice
             .client
             .shard_client
