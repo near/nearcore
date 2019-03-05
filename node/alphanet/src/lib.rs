@@ -276,4 +276,70 @@ mod tests {
             110
         );
     }
+
+    /// Creates two nodes, first authority node is ahead on blocks.
+    /// Post a transaction on the second authority.
+    /// Wait until the second authority syncs and check that transaction is applied.
+    #[test]
+    fn test_late_transaction() {
+        let chain_spec = configure_chain_spec();
+        let alice = Node::new(
+            "t2_alice",
+            "alice.near",
+            1,
+            Some("127.0.0.1:3002"),
+            3032,
+            vec![],
+            chain_spec.clone(),
+        );
+        let bob = Node::new(
+            "t2_bob",
+            "bob.near",
+            2,
+            Some("127.0.0.1:3003"),
+            3033,
+            vec![alice.node_info.clone()],
+            chain_spec.clone(),
+        );
+        let (mut beacon_block, mut shard_block) =
+            match alice.client.try_produce_block(1, ChainPayload::default()) {
+                BlockProductionResult::Success(beacon_block, shard_block) => {
+                    (beacon_block, shard_block)
+                }
+                _ => panic!("Should produce block"),
+            };
+        // Sign by bob to make this blocks valid.
+        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
+        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
+        alice.client.try_import_blocks(beacon_block, shard_block);
+
+        bob.client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
+                    .sign(alice.signer()),
+            )
+            .unwrap();
+
+        alice.start();
+        bob.start();
+
+        wait(|| {
+            alice.client.shard_client.chain.best_block().index() >= 3
+        }, 500, 10000);
+
+        // Check that non-authority synced into the same state.
+        let mut state_update = alice.client.shard_client.get_state_update();
+        assert_eq!(
+            alice
+                .client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"bob.near".to_string())
+                .unwrap()
+                .amount,
+            110
+        );
+    }
 }

@@ -165,10 +165,10 @@ impl Pool {
     }
 
     pub fn snapshot_payload(&self) -> CryptoHash {
+        // Put tx and receipts into an snapshot without erasing them.
         let transactions: Vec<_> =
-            self.transactions.write().expect(POISONED_LOCK_ERR).drain().collect();
-        self.known_to.write().expect(POISONED_LOCK_ERR).drain();
-        let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).drain().collect();
+            self.transactions.write().expect(POISONED_LOCK_ERR).iter().map(|x| x.clone()).collect();
+        let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).iter().map(|x| x.clone()).collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
             return CryptoHash::default();
@@ -229,13 +229,13 @@ impl Pool {
                             to_send.push(tx.clone());
                             known_to.insert(their_authority_id);
                         }
-                    },
+                    }
                     None => {
                         to_send.push(tx.clone());
                         let mut known_to = HashSet::new();
                         known_to.insert(their_authority_id);
                         locked_known_to.insert(tx.get_hash(), known_to);
-                    },
+                    }
                 }
             }
             if to_send.is_empty() {
