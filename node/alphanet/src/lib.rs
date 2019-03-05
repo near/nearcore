@@ -173,7 +173,7 @@ mod tests {
                     && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
-            60000,
+            600000,
         );
 
         // Check that transaction and it's receipt were included.
@@ -261,7 +261,7 @@ mod tests {
 
         wait(|| {
             charlie.client.shard_client.chain.best_block().index() >= 3
-        }, 500, 10000);
+        }, 500, 60000);
 
         // Check that non-authority synced into the same state.
         let mut state_update = charlie.client.shard_client.get_state_update();
@@ -327,7 +327,7 @@ mod tests {
 
         wait(|| {
             alice.client.shard_client.chain.best_block().index() >= 3
-        }, 500, 10000);
+        }, 500, 60000);
 
         // Check that non-authority synced into the same state.
         let mut state_update = alice.client.shard_client.get_state_update();
