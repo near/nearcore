@@ -61,8 +61,13 @@ impl Stream for ClientTask {
         loop {
             match self.consensus_rx.poll() {
                 Ok(Async::Ready(Some(c))) => {
-                    if let ind @ Some(_) = self.try_produce_block(c) {
-                        new_block_index = ind;
+                    if c.index == self.client.beacon_chain.chain.best_index() + 1 {
+                        if let ind @ Some(_) = self.try_produce_block(c) {
+                            new_block_index = ind;
+                        }
+                    } else {
+                        info!(target: "client", "Ignoring consensus for {} because current block index is {}",
+                              c.index, self.client.beacon_chain.chain.best_index());
                     }
                     continue;
                 }
