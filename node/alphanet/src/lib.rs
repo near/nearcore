@@ -122,27 +122,24 @@ mod tests {
     /// Waits until they produce block with transfer money tx.
     #[test]
     fn two_nodes() {
+        let (test_prefix, test_port) = ("two_nodes", 3000);
         let chain_spec = configure_chain_spec();
-        let alice = Node::new(
-            "t1_alice",
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
             "alice.near",
             1,
-            Some("127.0.0.1:3000"),
-            3030,
             vec![],
             chain_spec.clone(),
         );
-        let bob = Node::new(
-            "t1_bob",
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
             "bob.near",
             2,
-            Some("127.0.0.1:3001"),
-            3031,
             vec![alice.node_info.clone()],
             chain_spec,
         );
-        let _alice_signer = alice.signer();
-        let _bob_signer = bob.signer();
         alice
             .client
             .shard_client
@@ -194,31 +191,29 @@ mod tests {
     /// Check that third node got the same state.
     #[test]
     fn test_three_nodes_sync() {
+        let (test_prefix, test_port) = ("three_nodes_sync", 3010);
         let chain_spec = configure_chain_spec();
-        let alice = Node::new(
-            "t2_alice",
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
             "alice.near",
             1,
-            Some("127.0.0.1:3002"),
-            3032,
             vec![],
             chain_spec.clone(),
         );
-        let bob = Node::new(
-            "t2_bob",
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
             "bob.near",
             2,
-            Some("127.0.0.1:3003"),
-            3033,
             vec![alice.node_info.clone()],
             chain_spec.clone(),
         );
-        let charlie = Node::new(
-            "t2_charlie",
+        let charlie = Node::for_test_passive(
+            test_prefix,
+            test_port,
             "charlie.near",
             3,
-            None,
-            3034,
             vec![bob.node_info.clone()],
             chain_spec,
         );
@@ -271,22 +266,21 @@ mod tests {
     /// Wait until the second authority syncs and check that transaction is applied.
     #[test]
     fn test_late_transaction() {
+        let (test_prefix, test_port) = ("late_transaction", 3020);
         let chain_spec = configure_chain_spec();
-        let alice = Node::new(
-            "t2_alice",
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
             "alice.near",
             1,
-            Some("127.0.0.1:3002"),
-            3032,
             vec![],
             chain_spec.clone(),
         );
-        let bob = Node::new(
-            "t2_bob",
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
             "bob.near",
             2,
-            Some("127.0.0.1:3003"),
-            3033,
             vec![alice.node_info.clone()],
             chain_spec.clone(),
         );
