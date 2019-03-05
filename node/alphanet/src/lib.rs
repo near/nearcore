@@ -8,7 +8,7 @@ use std::sync::Arc;
 use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
+use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use coroutines::importer::spawn_block_importer;
 use coroutines::ns_producer::spawn_block_producer;
 use mempool::pool_task::spawn_pool;
@@ -70,12 +70,7 @@ pub fn start_from_client(
         spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
 
         // Launch block producer.
-        spawn_block_producer(
-            client.clone(),
-            consensus_rx,
-            mempool_control_tx,
-            out_block_tx,
-        );
+        spawn_block_producer(client.clone(), consensus_rx, mempool_control_tx, out_block_tx);
 
         // Launch Nightshade task.
         spawn_nightshade_task(
@@ -120,7 +115,7 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, Node, wait};
+    use crate::testing_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -147,16 +142,12 @@ mod tests {
         );
         let alice_signer = alice.signer();
         let bob_signer = bob.signer();
-        println!("Alice pk={:?}, bls pk={:?}", alice_signer.public_key.to_readable(), alice_signer.bls_public_key.to_readable());
-        println!("Bob pk={:?}, bls pk={:?}", bob_signer.public_key.to_readable(), bob_signer.bls_public_key.to_readable());
-
         alice
             .client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
             )
             .unwrap();
 
@@ -243,12 +234,12 @@ mod tests {
         shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
-        alice.client
+        alice
+            .client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
             )
             .unwrap();
 
@@ -256,9 +247,7 @@ mod tests {
         bob.start();
         charlie.start();
 
-        wait(|| {
-            charlie.client.shard_client.chain.best_block().index() >= 3
-        }, 500, 10000);
+        wait(|| charlie.client.shard_client.chain.best_block().index() >= 3, 500, 10000);
 
         // Check that non-authority synced into the same state.
         let mut state_update = charlie.client.shard_client.get_state_update();

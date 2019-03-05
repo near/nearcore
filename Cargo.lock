@@ -18,6 +18,7 @@ name = "alphanet"
 version = "0.1.0"
 dependencies = [
  "chain 0.0.1",
+ "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "client 0.1.0",
  "configs 0.1.0",
  "coroutines 0.1.0",
