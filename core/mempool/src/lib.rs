@@ -179,13 +179,15 @@ impl Pool {
         }
         let payload = self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash);
         if let Some(ref p) = payload {
-            info!(target: "mempool", "Popping snapshot, #tx={}, #r={}, hash={:?}",
+            info!(target: "mempool", "Popping snapshot, authority={:?}, #tx={}, #r={}, hash={:?}",
+                  self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
                   p.transactions.len(),
                   p.receipts.len(),
                   hash,
             );
         } else {
-            info!(target: "mempool", "Failed to pop snapshot, hash={:?}",
+            info!(target: "mempool", "Failed to pop snapshot, authority={:?}, hash={:?}",
+                  self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
                   hash,
             );
         }
@@ -275,7 +277,8 @@ impl Pool {
             return Ok(());
         }
         let h = hash_struct(&payload);
-        info!(target: "mempool", "Adding payload snapshot, #tx={}, #r={}, hash={:?} received from {:?}",
+        info!(target: "mempool", "Adding payload snapshot, authority={:?}, #tx={}, #r={}, hash={:?} received from {:?}",
+            self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
             payload.transactions.len(),
             payload.receipts.len(),
             h,

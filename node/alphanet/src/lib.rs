@@ -122,7 +122,7 @@ mod tests {
     /// Waits until they produce block with transfer money tx.
     #[test]
     fn two_nodes() {
-        let (test_prefix, test_port) = ("two_nodes", 3000);
+        let (test_prefix, test_port) = ("two_nodes", 7000);
         let chain_spec = configure_chain_spec();
         let alice = Node::for_test(
             test_prefix,
@@ -191,7 +191,7 @@ mod tests {
     /// Check that third node got the same state.
     #[test]
     fn test_three_nodes_sync() {
-        let (test_prefix, test_port) = ("three_nodes_sync", 3010);
+        let (test_prefix, test_port) = ("three_nodes_sync", 7010);
         let chain_spec = configure_chain_spec();
         let alice = Node::for_test(
             test_prefix,
@@ -266,7 +266,7 @@ mod tests {
     /// Wait until the second authority syncs and check that transaction is applied.
     #[test]
     fn test_late_transaction() {
-        let (test_prefix, test_port) = ("late_transaction", 3020);
+        let (test_prefix, test_port) = ("late_transaction", 7020);
         let chain_spec = configure_chain_spec();
         let alice = Node::for_test(
             test_prefix,

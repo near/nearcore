@@ -63,8 +63,13 @@ impl Stream for ClientTask {
         loop {
             match self.consensus_rx.poll() {
                 Ok(Async::Ready(Some(c))) => {
-                    if let ind @ Some(_) = self.try_produce_block(c) {
-                        new_block_index = ind;
+                    if c.index == self.client.beacon_chain.chain.best_index() + 1 {
+                        if let ind @ Some(_) = self.try_produce_block(c) {
+                            new_block_index = ind;
+                        }
+                    } else {
+                        info!(target: "client", "Ignoring consensus for {} because current block index is {}",
+                              c.index, self.client.beacon_chain.chain.best_index());
                     }
                     continue;
                 }
@@ -286,7 +291,8 @@ impl ClientTask {
         let pool = &self.client.shard_client.pool;
         info!(
             target: "mempool",
-            "Payload confirmation for {} from {}",
+            "Checking payload confirmation, authority_id={} for hash={} from other authority_id={}",
+            pool.authority_id.read().expect("Lock is poisoned").unwrap(),
             hash,
             authority_id,
         );
@@ -374,11 +380,6 @@ impl ClientTask {
     fn gossip_payload(&self) {
         let pool = &self.client.shard_client.pool;
         for payload_gossip in pool.prepare_payload_gossip() {
-            info!(
-                target: "mempool",
-                "Gossip payload to {}",
-                payload_gossip.receiver_id
-            );
             tokio::spawn(
                 self.out_payload_gossip_tx
                     .clone()

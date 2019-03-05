@@ -21,8 +21,8 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
             node_names[i].as_str(),
             account_names[i].as_str(),
             i as u32 + 1,
-            Some(format!("127.0.0.1:{}", 3000 + i).as_str()),
-            3030 + i as u16,
+            Some(format!("127.0.0.1:{}", 5000 + i).as_str()),
+            5030 + i as u16,
             boot_nodes,
             chain_spec.clone(),
         );
