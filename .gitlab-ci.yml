@@ -10,6 +10,7 @@ variables:
 
 .setup_rust: &setup_rust
     rustup default nightly
+    rustup component add clippy
 
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
