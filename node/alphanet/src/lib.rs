@@ -221,11 +221,13 @@ mod tests {
             None,
             3034,
             vec![bob.node_info.clone()],
-            chain_spec,
+            chain_spec.clone(),
         );
 
-        let (beacon_block, shard_block, shard_extra) =
+        let (mut beacon_block, mut shard_block, shard_extra) =
             alice.client.prepare_block(1, ChainPayload::default());
+        beacon_block.signature.authority_mask = vec![true; chain_spec.initial_authorities.len()];
+        shard_block.signature.authority_mask = vec![true; chain_spec.initial_authorities.len()];
         let (mut beacon_block, mut shard_block) =
             alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
         // Sign by bob to make this blocks valid.
