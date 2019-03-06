@@ -60,9 +60,8 @@ pub fn get_default_chain_spec() -> ChainSpec {
 
 pub fn save_chain_spec(chain_spec_path: &PathBuf, chain_spec: ChainSpec) {
     let mut file = File::create(chain_spec_path).expect("Failed to create/write a chain spec file");
-    match file.write_all(serialize_chain_spec(chain_spec).as_bytes()) {
-        Err(err) => panic!("Failed to write a chain spec file {}", err),
-        _ => (),
+    if let Err(err) = file.write_all(serialize_chain_spec(chain_spec).as_bytes()) {
+        panic!("Failed to write a chain spec file {}", err)
     }
 }
 

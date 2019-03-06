@@ -85,7 +85,7 @@ pub struct BeaconBlockHeaderResponse {
 impl From<BeaconBlockHeader> for BeaconBlockHeaderResponse {
     fn from(header: BeaconBlockHeader) -> Self {
         let authority_proposal = header.authority_proposal.into_iter()
-            .map(|x| x.into())
+            .map(std::convert::Into::into)
             .collect();
         BeaconBlockHeaderResponse {
             parent_hash: header.parent_hash,

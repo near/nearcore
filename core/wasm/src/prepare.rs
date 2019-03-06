@@ -114,10 +114,10 @@ impl<'a> ContractModule<'a> {
             .as_ref()
             .expect("On entry to the function `module` can't be `None`; qed");
 
-        let types = module.type_section().map(|ts| ts.types()).unwrap_or(&[]);
+        let types = module.type_section().map(elements::TypeSection::types).unwrap_or(&[]);
         let import_entries = module
             .import_section()
-            .map(|is| is.entries())
+            .map(elements::ImportSection::entries)
             .unwrap_or(&[]);
 
         let mut imported_mem_type = None;

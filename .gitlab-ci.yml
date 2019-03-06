@@ -38,6 +38,7 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
+    - rustup component add clippy
     - *setup_cache
     - *install_protos
     - *setup_python
