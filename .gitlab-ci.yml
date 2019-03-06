@@ -9,7 +9,7 @@ variables:
     CARGO_TARGET: x86_64-unknown-linux-gnu
 
 .setup_rust: &setup_rust
-    rustup default nightly
+    rustup default nightly &&
     rustup component add clippy
 
 .setup_cache: &setup_cache
