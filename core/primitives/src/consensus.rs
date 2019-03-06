@@ -2,6 +2,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use super::serialize::{Decode, Encode};
+use crate::hash::CryptoHash;
+use crate::types::AuthorityId;
+use crate::types::PartialSignature;
 
 pub type GenericResult = Result<(), &'static str>;
 
@@ -15,3 +18,6 @@ pub trait Payload: Clone + Send + Hash + Debug + Encode + Decode + 'static {
     // Creates empty payload.
     fn new() -> Self;
 }
+
+/// Partial BLS for the beacon and shard blocks.
+pub type JointBlocksBLS = (CryptoHash, CryptoHash, PartialSignature, PartialSignature, AuthorityId);

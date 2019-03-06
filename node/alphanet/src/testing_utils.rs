@@ -17,8 +17,8 @@ use primitives::network::PeerInfo;
 use primitives::signer::InMemorySigner;
 
 use crate::start_from_client;
-use primitives::signer::TransactionSigner;
 use primitives::signer::BlockSigner;
+use primitives::signer::TransactionSigner;
 
 const TMP_DIR: &str = "../../tmp/testnet";
 

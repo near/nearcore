@@ -50,30 +50,12 @@ pub fn start_from_client(
         let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
-        //        let (mempool_control_tx, mempool_control_rx) = channel(1024);
-        //        spawn_pool(
-        //            client.shard_client.pool.clone(),
-        //            mempool_control_rx,
-        //            control_tx,
-        //            retrieve_payload_rx,
-        //            payload_announce_tx,
-        //            payload_request_tx,
-        //            payload_response_rx,
-        //            network_cfg.gossip_interval,
-        //        );
 
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
-        //        spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
-        //
-        //        // Launch block producer.
-        //        spawn_block_producer(
-        //            client.clone(),
-        //            consensus_rx,
-        //            mempool_control_tx,
-        //            out_block_tx,
-        //        );
+        let (inc_final_signatures_tx, inc_final_signatures_rx) = channel(1024);
+        let (out_final_signatures_tx, out_final_signatures_rx) = channel(1024);
         ClientTask::new(
             network_cfg.gossip_interval,
             client.clone(),
@@ -85,6 +67,8 @@ pub fn start_from_client(
             payload_request_tx,
             payload_response_rx,
             payload_announce_tx,
+            out_final_signatures_tx,
+            inc_final_signatures_rx,
         )
         .spawn();
 
@@ -110,6 +94,8 @@ pub fn start_from_client(
             payload_announce_rx,
             payload_request_rx,
             payload_response_tx,
+            inc_final_signatures_tx,
+            out_final_signatures_rx
         );
 
         Ok(())
@@ -238,13 +224,10 @@ mod tests {
             chain_spec,
         );
 
+        let (beacon_block, shard_block, shard_extra) =
+            alice.client.prepare_block(1, ChainPayload::default());
         let (mut beacon_block, mut shard_block) =
-            match alice.client.try_produce_block(1, ChainPayload::default()) {
-                BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (beacon_block, shard_block)
-                }
-                _ => panic!("Should produce block"),
-            };
+            alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
         // Sign by bob to make this blocks valid.
         beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
         shard_block.add_signature(&shard_block.sign(bob.signer()), 1);

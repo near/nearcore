@@ -35,7 +35,7 @@ pub struct SignedTransactionInfo {
     pub result: TransactionResult,
 }
 
-type ShardBlockExtraInfo = (
+pub type ShardBlockExtraInfo = (
     storage::DBChanges,
     Vec<AuthorityStake>,
     Vec<TransactionResult>,

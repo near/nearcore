@@ -10,15 +10,21 @@ use futures::Poll;
 use futures::Stream;
 use nightshade::nightshade::ConsensusBlockProposal;
 use nightshade::nightshade_task::Control;
+use primitives::aggregate_signature::BlsSignature;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::chain::PayloadRequest;
 use primitives::chain::PayloadResponse;
 use primitives::chain::SignedShardBlock;
+use primitives::consensus::JointBlocksBLS;
 use primitives::hash::CryptoHash;
+use primitives::types::AccountId;
 use primitives::types::AuthorityId;
 use primitives::types::BlockIndex;
+use primitives::types::PartialSignature;
+use shard::ShardBlockExtraInfo;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::Interval;
@@ -45,6 +51,16 @@ pub struct ClientTask {
     payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
     /// Interval at which we announce the payload.
     payload_announce_int: Interval,
+    /// Sends partial signatures of beacon and shard blocks down this channel.
+    final_signatures_tx: Sender<JointBlocksBLS>,
+    /// Receives partial signatures of beacon and shard blocks from this channel.
+    final_signatures_rx: Receiver<JointBlocksBLS>,
+
+    // Internal containers.
+    /// Blocks for which the consensus was achieved for the set of transactions, but the computed
+    /// state was not yet double-signed with BLS.
+    unfinalized_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
+    unfinalized_shard_blocks: HashMap<CryptoHash, (SignedShardBlock, ShardBlockExtraInfo)>,
 }
 
 impl Stream for ClientTask {
@@ -57,13 +73,20 @@ impl Stream for ClientTask {
         let mut block_importing_ended = false;
         let mut retrieve_payload_ended = false;
         let mut payload_response_ended = false;
+        let mut final_signatures_ended = false;
         // We exit this loop when for each polled channel it has either ended or it is not ready.
         loop {
             match self.consensus_rx.poll() {
                 Ok(Async::Ready(Some(c))) => {
                     if c.index == self.client.beacon_chain.chain.best_index() + 1 {
-                        if let ind @ Some(_) = self.try_produce_block(c) {
-                            new_block_index = ind;
+                        let (beacon_block, shard_block, shard_extra) = self.prepare_block(c);
+                        let beacon_hash = beacon_block.hash;
+                        let shard_hash = shard_block.hash;
+                        self.unfinalized_beacon_blocks.insert(beacon_block.hash, beacon_block);
+                        self.unfinalized_shard_blocks
+                            .insert(shard_block.hash, (shard_block, shard_extra));
+                        if let idx @ Some(_) = self.try_import_produced(beacon_hash, shard_hash) {
+                            new_block_index = idx;
                         }
                     } else {
                         info!(target: "client", "Ignoring consensus for {} because current block index is {}",
@@ -143,6 +166,33 @@ impl Stream for ClientTask {
                 }
             }
 
+            match self.final_signatures_rx.poll() {
+                Ok(Async::Ready(Some((
+                    beacon_hash,
+                    shard_hash,
+                    beacon_sig,
+                    shard_sig,
+                    authority_id,
+                )))) => {
+                    if let idx @ Some(_) = self.try_add_signatures(
+                        beacon_hash,
+                        shard_hash,
+                        beacon_sig,
+                        shard_sig,
+                        authority_id,
+                    ) {
+                        new_block_index = idx;
+                    }
+                }
+                Ok(Async::Ready(None)) => {
+                    final_signatures_ended = true;
+                }
+                Ok(Async::NotReady) => (),
+                Err(_) => {
+                    continue;
+                }
+            }
+
             // If we reached here than each channel is either not ready or has ended.
             break;
         }
@@ -166,6 +216,7 @@ impl Stream for ClientTask {
             && block_importing_ended
             && retrieve_payload_ended
             && payload_response_ended
+            && final_signatures_ended
         {
             Ok(Async::Ready(None))
         } else {
@@ -186,6 +237,8 @@ impl ClientTask {
         payload_request_tx: Sender<PayloadRequest>,
         payload_response_rx: Receiver<PayloadResponse>,
         payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
+        final_signatures_tx: Sender<JointBlocksBLS>,
+        final_signatures_rx: Receiver<JointBlocksBLS>,
     ) -> Self {
         let res = Self {
             client,
@@ -198,6 +251,10 @@ impl ClientTask {
             payload_response_rx,
             payload_announce_tx,
             payload_announce_int: Interval::new_interval(gossip_interval),
+            unfinalized_beacon_blocks: Default::default(),
+            unfinalized_shard_blocks: Default::default(),
+            final_signatures_tx,
+            final_signatures_rx,
         };
         res.spawn_kickoff();
         res
@@ -205,10 +262,10 @@ impl ClientTask {
 
     /// Tries producing block from the given consensus. If succeeds returns index of the block with
     /// the highest index.
-    fn try_produce_block(
+    fn prepare_block(
         &mut self,
         consensus_block_header: ConsensusBlockProposal,
-    ) -> Option<BlockIndex> {
+    ) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
         info!(target: "consensus", "Producing block for account_id={:?}, index {}", self.client.account_id, consensus_block_header.index);
         let payload = match self
             .client
@@ -228,25 +285,63 @@ impl ClientTask {
                 );
             }
         };
-
-        if let BlockProductionResult::Success(produced_beacon_block, produced_shard_block) =
-            self.client.try_produce_block(consensus_block_header.index, payload)
-        {
-            // Send block announcement.
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            self.client.prepare_block(consensus_block_header.index, payload);
+        let (owner_uid, mapping) =
+            self.client.get_uid_to_authority_map(consensus_block_header.index);
+        if let Some(o) = owner_uid {
+            let beacon_signature = beacon_block.sign(self.client.signer.clone());
+            beacon_block.add_signature(&beacon_signature, o);
+            let shard_signature = shard_block.sign(self.client.signer.clone());
+            shard_block.add_signature(&shard_signature, o);
             tokio::spawn(
-                self.out_block_tx
+                self.final_signatures_tx
                     .clone()
-                    .send((produced_beacon_block, produced_shard_block))
+                    .send((
+                        beacon_block.hash,
+                        shard_block.hash,
+                        beacon_signature,
+                        shard_signature,
+                        o,
+                    ))
                     .map(|_| ())
-                    .map_err(
-                        |e| error!(target: "client", "Error sending block announcement: {}", e),
-                    ),
+                    .map_err(|e| error!(target: "client", "Error sending final BLS parts: {}", e)),
             );
-            let new_best_block = self.client.beacon_chain.chain.best_block();
-            Some(new_best_block.index())
-        } else {
-            None
         }
+        (beacon_block, shard_block, shard_extra)
+    }
+
+    /// Imports produced block.
+    fn try_import_produced(
+        &mut self,
+        beacon_hash: CryptoHash,
+        shard_hash: CryptoHash,
+    ) -> Option<u64> {
+        // Check if it has sufficient number of signatures.
+        let beacon_block = match self.unfinalized_beacon_blocks.get(&beacon_hash) {
+            Some(b) => b,
+            None => return None,
+        };
+        let idx = beacon_block.index();
+        let num_authorities = self.client.get_uid_to_authority_map(idx).1.len();
+        let present: usize =
+            beacon_block.signature.authority_mask.iter().map(|b| *b as usize).sum();
+        if present < 2 * num_authorities / 3 + 1 {
+            return None;
+        }
+
+        let beacon_block = self.unfinalized_beacon_blocks.remove(&beacon_hash).unwrap();
+        let (shard_block, shard_block_info) =
+            self.unfinalized_shard_blocks.remove(&shard_hash).unwrap();
+        tokio::spawn(
+            self.out_block_tx
+                .clone()
+                .send((beacon_block.clone(), shard_block.clone()))
+                .map(|_| ())
+                .map_err(|e| error!(target: "client", "Error sending block announcement: {}", e)),
+        );
+        self.client.try_import_produced(beacon_block, shard_block, shard_block_info);
+        Some(self.client.beacon_chain.chain.best_block().index())
     }
 
     /// Tries importing block. If succeeds returns index of the block with the highest index.
@@ -266,6 +361,43 @@ impl ClientTask {
         } else {
             None
         }
+    }
+
+    /// Try adding partial signatures to unfinalized block. If succeeds and the number of authorities
+    /// is sufficient returns  index of the block with the highest index.
+    fn try_add_signatures(
+        &mut self,
+        beacon_hash: CryptoHash,
+        shard_hash: CryptoHash,
+        beacon_sig: BlsSignature,
+        shard_sig: BlsSignature,
+        authority_id: AuthorityId,
+    ) -> Option<u64> {
+        let beacon_block = match self.unfinalized_beacon_blocks.get_mut(&beacon_hash) {
+            Some(b) => b,
+            _ => return None,
+        };
+
+        let (shard_block, _) = match self.unfinalized_shard_blocks.get_mut(&shard_hash) {
+            Some(b) => b,
+            _ => return None,
+        };
+        let block_index = beacon_block.index();
+        // Make sure this authority is actually supposed to sign this block.
+        let (_, mapping) = self.client.get_uid_to_authority_map(block_index);
+        let stake = match mapping.get(&authority_id) {
+            Some(s) => s,
+            None => return None,
+        };
+        // Make sure the signature is correct.
+        if !stake.bls_public_key.verify(beacon_hash.as_ref(), &beacon_sig)
+            || !stake.bls_public_key.verify(shard_hash.as_ref(), &shard_sig)
+        {
+            return None;
+        }
+        beacon_block.signature.add_signature(&beacon_sig, authority_id);
+        shard_block.signature.add_signature(&shard_sig, authority_id);
+        self.try_import_produced(beacon_hash, shard_hash)
     }
 
     fn get_or_request_payload(&self, authority_id: AuthorityId, hash: CryptoHash) {

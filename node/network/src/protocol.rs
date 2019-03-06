@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use futures::{stream, stream::Stream};
 use futures::future;
-use futures::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+use futures::Future;
+use futures::{stream, stream::Stream};
 use log::{error, info, warn};
 
 use client::Client;
@@ -21,6 +21,10 @@ use primitives::types::{AccountId, AuthorityId, PeerId};
 use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
+use primitives::consensus::JointBlocksBLS;
+use primitives::traits::FromBytes;
+use primitives::traits::ToBytes;
+use primitives::types::PartialSignature;
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -50,6 +54,7 @@ struct Protocol {
     inc_gossip_tx: Sender<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
     payload_response_tx: Sender<PayloadResponse>,
+    inc_final_signatures_tx: Sender<JointBlocksBLS>,
 }
 
 impl Protocol {
@@ -103,12 +108,14 @@ impl Protocol {
                             warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
                         }
                     }
-                },
+                }
                 Message::PayloadSnapshotRequest(request_id, hash) => {
                     if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
                         info!("Payload snapshot request from {} for {}", authority_id, hash);
                         match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
-                            Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                            Ok(payload) => {
+                                self.send_payload_response(&peer_id, request_id, payload)
+                            }
                             Err(err) => {
                                 self.peer_manager.suspect_malicious(&peer_id);
                                 warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
@@ -118,19 +125,39 @@ impl Protocol {
                         self.peer_manager.suspect_malicious(&peer_id);
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
-                },
+                }
                 Message::PayloadAnnounce(payload) => {
-                    forward_msg(self.payload_response_tx.clone(), PayloadResponse::General(payload));
+                    forward_msg(
+                        self.payload_response_tx.clone(),
+                        PayloadResponse::General(payload),
+                    );
                 }
                 Message::PayloadResponse(_request_id, payload) => {
                     // TODO: check request id.
                     if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
                         info!("Payload response from {} / {}", peer_id, authority_id);
-                        forward_msg(self.payload_response_tx.clone(), PayloadResponse::BlockProposal(authority_id, payload));
+                        forward_msg(
+                            self.payload_response_tx.clone(),
+                            PayloadResponse::BlockProposal(authority_id, payload),
+                        );
                     } else {
                         self.peer_manager.suspect_malicious(&peer_id);
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
+                }
+                Message::JointBlocksBLS((
+                    beacon_hash,
+                    shard_hash,
+                    beacon_sig,
+                    shard_sig,
+                    auth_id,
+                )) => {
+                    let beacon_sig = PartialSignature::from_bytes(&beacon_sig).unwrap();
+                    let shard_sig = PartialSignature::from_bytes(&shard_sig).unwrap();
+                    forward_msg(
+                        self.inc_final_signatures_tx.clone(),
+                        (beacon_hash, shard_hash, beacon_sig, shard_sig, auth_id),
+                    );
                 }
             },
             Err(e) => warn!(target: "network", "{}", e),
@@ -239,7 +266,8 @@ impl Protocol {
                 // TODO: make proper request ids.
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(authority_id) {
-                    let data = Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
+                    let data =
+                        Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
                 } else {
                     warn!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
@@ -263,16 +291,29 @@ impl Protocol {
         }
     }
 
-    fn send_payload_announce(
-        &self,
-        authority_id: AuthorityId,
-        payload: ChainPayload
-    ) {
+    fn send_payload_announce(&self, authority_id: AuthorityId, payload: ChainPayload) {
         if let Some(ch) = self.get_authority_channel(authority_id) {
             let data = Encode::encode(&Message::PayloadAnnounce(payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             warn!(target: "network", "[SND PLD ANC] Channel for {} not found, where account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
+        }
+    }
+
+    fn send_joint_block_bls_announce(&self, b: JointBlocksBLS) {
+        let (beacon_hash, shard_hash, beacon_sig, shard_sig, auth_id) = b;
+        let beacon_sig = beacon_sig.to_bytes();
+        let shard_sig = shard_sig.to_bytes();
+        let data = Encode::encode(&Message::JointBlocksBLS((
+            beacon_hash,
+            shard_hash,
+            beacon_sig,
+            shard_sig,
+            auth_id,
+        )))
+        .unwrap();
+        for ch in self.peer_manager.get_ready_channels() {
+            forward_msg(ch, PeerMessage::Message(data.to_vec()));
         }
     }
 }
@@ -287,7 +328,9 @@ impl Protocol {
 /// * `out_gossip_rx`: Channel where from protocol reads gossip that should be sent to other peers;
 /// * `inc_block_tx`: Channel where protocol places incoming blocks;
 /// * `out_blocks_rx`: Channel where from protocol reads blocks that should be sent for
-///   announcements.
+///   announcements;
+/// * `inc_final_signatures_tx`: Channel where protocol places incoming joint block BLS signatures;
+/// * `out_final_signatures_rx`: Channel where from protocol reads outgoing joint block BLS signatures.
 pub fn spawn_network(
     client: Arc<Client>,
     account_id: Option<AccountId>,
@@ -299,6 +342,8 @@ pub fn spawn_network(
     payload_announce_rx: Receiver<(AuthorityId, ChainPayload)>,
     payload_request_rx: Receiver<PayloadRequest>,
     payload_response_tx: Sender<PayloadResponse>,
+    inc_final_signatures_tx: Sender<JointBlocksBLS>,
+    out_final_signatures_rx: Receiver<JointBlocksBLS>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
@@ -315,7 +360,14 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_block_tx, payload_response_tx });
+    let protocol = Arc::new(Protocol {
+        client,
+        peer_manager,
+        inc_gossip_tx,
+        inc_block_tx,
+        payload_response_tx,
+        inc_final_signatures_tx,
+    });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -353,6 +405,13 @@ pub fn spawn_network(
     let protocol5 = protocol.clone();
     let task = payload_announce_rx.for_each(move |(authority_id, payload)| {
         protocol5.send_payload_announce(authority_id, payload);
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    let protocol6 = protocol.clone();
+    let task = out_final_signatures_rx.for_each(move |b| {
+        protocol6.send_joint_block_bls_announce(b);
         future::ok(())
     });
     tokio::spawn(task);

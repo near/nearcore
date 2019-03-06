@@ -27,6 +27,7 @@ use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
+use shard::ShardBlockExtraInfo;
 
 pub mod test_utils;
 
@@ -179,13 +180,8 @@ impl Client {
     }
 
     // Block producer code.
-    pub fn try_produce_block(&self, block_index: BlockIndex, payload: ChainPayload) -> BlockProductionResult {
+    pub fn prepare_block(&self, block_index: BlockIndex, payload: ChainPayload) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
         let current_index = self.beacon_chain.chain.best_block().index();
-        if block_index < current_index + 1 {
-            // The consensus is too late, the block was already imported.
-            return BlockProductionResult::LateConsensus { current_index };
-        }
-
         let last_block = self.beacon_chain.chain.best_block();
         let last_shard_block = self.shard_client.chain.best_block();
         let authorities = self
@@ -198,37 +194,35 @@ impl Client {
         // Get previous receipts:
         let receipt_block = self.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
         let receipt_blocks = receipt_block.map(|b| vec![b]).unwrap_or(vec![]);
-        let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
+        // transaction, authority_proposals, tx_results, new_receipts
+        let (mut shard_block, shard_block_extra) = self
             .shard_client
             .prepare_new_block(last_block.body.header.shard_block_hash, receipt_blocks, payload.transactions);
+        let authority_proposals = shard_block_extra.1.clone();
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
             authority_proposals,
             shard_block.block_hash(),
         );
-        // TODO(645): Remove this and fill in correctly when collecting final BLS.
-        block.signature.authority_mask.resize(authorities.len(), true);
-        shard_block.signature.authority_mask.resize(authorities.len(), true);
-        let shard_block_signature = shard_block.sign(self.signer.clone());
-        let block_signature = block.sign(self.signer.clone());
-        for (i, authority) in authorities.iter().enumerate() {
-            if authority.account_id == self.signer.account_id {
-                shard_block.add_signature(&shard_block_signature, i);
-                block.add_signature(&block_signature, i);
-            }
-        }
 
+        (block, shard_block, shard_block_extra)
+    }
+
+    /// Try importing blocks for which we have produced the state ourselves.
+    pub fn try_import_produced(&self, beacon_block: SignedBeaconBlock, mut shard_block: SignedShardBlock,
+    shard_block_extra: ShardBlockExtraInfo) -> (SignedBeaconBlock, SignedShardBlock) {
+        let (transaction, authority_proposals, tx_results, new_receipts) = shard_block_extra;
         assert!(
-            !self.beacon_chain.chain.is_known(&block.hash),
+            !self.beacon_chain.chain.is_known(&beacon_block.hash),
             "The block was already imported, before we managed to produce it.\
              This should never happen, because block production is atomic."
         );
 
         info!(target: "client", "Producing block index: {:?}, account_id={:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
-            block.body.header.index,
+            beacon_block.body.header.index,
             self.account_id,
-            block.hash,
+            beacon_block.hash,
             shard_block.hash,
             shard_block.body.transactions.len(),
             shard_block.body.receipts.len(),
@@ -249,14 +243,14 @@ impl Client {
             debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(new_receipts.values()));
         }
         self.shard_client.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
-        self.beacon_chain.chain.insert_block(block.clone());
+        self.beacon_chain.chain.insert_block(beacon_block.clone());
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
         assert_eq!(self.shard_client.chain.best_block().hash, shard_block.hash);
-        assert_eq!(self.beacon_chain.chain.best_block().hash, block.hash);
+        assert_eq!(self.beacon_chain.chain.best_block().hash, beacon_block.hash);
         // Update the authority.
-        self.update_authority(&block.header());
-        BlockProductionResult::Success(block, shard_block)
+        self.update_authority(&beacon_block.header());
+        (beacon_block, shard_block)
     }
 
     fn blocks_to_process(
