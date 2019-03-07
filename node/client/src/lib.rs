@@ -166,7 +166,7 @@ impl Client {
             vec![]
         } else {
             let best_index = self.beacon_chain.chain.best_index();
-            let max_pending_index = guard.values().map(|b| b.index()).max().unwrap();
+            let max_pending_index = guard.values().map(SignedBlock::index).max().unwrap();
             assert!(
                 max_pending_index <= best_index,
                 "Old pending blocks are expected to be pruned"
@@ -197,7 +197,7 @@ impl Client {
             .expect("Authorities should be present for given block to produce it");
         // Get previous receipts:
         let receipt_block = self.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
-        let receipt_blocks = receipt_block.map(|b| vec![b]).unwrap_or(vec![]);
+        let receipt_blocks = receipt_block.map(|b| vec![b]).unwrap_or_else(|| vec![]);
         let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
             .shard_client
             .prepare_new_block(last_block.body.header.shard_block_hash, receipt_blocks, payload.transactions);

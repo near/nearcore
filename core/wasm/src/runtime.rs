@@ -80,7 +80,7 @@ impl<'a> Runtime<'a> {
             Ok(self.memory
                 .view()[offset..(offset + len)]
                 .iter()
-                .map(|cell| cell.get())
+                .map(std::cell::Cell::get)
                 .collect())
         }
     }
