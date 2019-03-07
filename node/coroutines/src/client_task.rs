@@ -17,10 +17,12 @@ use primitives::chain::ChainPayload;
 use primitives::chain::PayloadRequest;
 use primitives::chain::PayloadResponse;
 use primitives::chain::SignedShardBlock;
-use primitives::consensus::JointBlocksBLS;
+use primitives::consensus::JointBlockBLS;
 use primitives::hash::CryptoHash;
+use primitives::signer::BlockSigner;
 use primitives::types::AccountId;
 use primitives::types::AuthorityId;
+use primitives::types::BlockId;
 use primitives::types::BlockIndex;
 use primitives::types::PartialSignature;
 use shard::ShardBlockExtraInfo;
@@ -52,9 +54,10 @@ pub struct ClientTask {
     /// Interval at which we announce the payload.
     payload_announce_int: Interval,
     /// Sends partial signatures of beacon and shard blocks down this channel.
-    final_signatures_tx: Sender<JointBlocksBLS>,
+    final_signatures_tx: Sender<JointBlockBLS>,
     /// Receives partial signatures of beacon and shard blocks from this channel.
-    final_signatures_rx: Receiver<JointBlocksBLS>,
+    final_signatures_rx: Receiver<JointBlockBLS>,
+    final_signatures_int: Interval,
 
     // Internal containers.
     /// Blocks for which the consensus was achieved for the set of transactions, but the computed
@@ -166,23 +169,73 @@ impl Stream for ClientTask {
                 }
             }
 
+            match self.final_signatures_int.poll() {
+                Ok(Async::Ready(Some(_))) => {
+                    for (beacon_hash, beacon_block) in self.unfinalized_beacon_blocks.iter() {
+                        let (owner_uid, _) =
+                            self.client.get_uid_to_authority_map(beacon_block.index());
+                        let owner_uid = match owner_uid {
+                            Some(id) => id,
+                            None => continue,
+                        };
+                        for (auth_id, auth_present) in
+                            beacon_block.signature.authority_mask.iter().enumerate()
+                        {
+                            if !*auth_present {
+                                tokio::spawn(
+                                    self.final_signatures_tx
+                                        .clone()
+                                        .send(JointBlockBLS::Request {
+                                            beacon_hash: *beacon_hash,
+                                            shard_hash: beacon_block.body.header.shard_block_hash,
+                                            sender_id: owner_uid,
+                                            receiver_id: auth_id,
+                                        })
+                                        .map(|_| ())
+                                        .map_err(
+                                            |e| error!(target: "client", "Error sending final BLS parts: {}", e),
+                                        ),
+                                );
+                            }
+                        }
+                    }
+                }
+                Ok(Async::Ready(None)) => {
+                    panic!("Interval stream is not expected to ever end");
+                }
+                Ok(Async::NotReady) => (),
+                Err(e) => {
+                    warn!(target: "client", "Interval stream error {}", e);
+                    continue;
+                }
+            }
+
             match self.final_signatures_rx.poll() {
-                Ok(Async::Ready(Some((
+                Ok(Async::Ready(Some(JointBlockBLS::General {
                     beacon_hash,
                     shard_hash,
                     beacon_sig,
                     shard_sig,
-                    authority_id,
-                )))) => {
+                    sender_id,
+                    receiver_id,
+                }))) => {
                     if let idx @ Some(_) = self.try_add_signatures(
                         beacon_hash,
                         shard_hash,
                         beacon_sig,
                         shard_sig,
-                        authority_id,
+                        sender_id,
                     ) {
                         new_block_index = idx;
                     }
+                }
+                Ok(Async::Ready(Some(JointBlockBLS::Request {
+                    beacon_hash,
+                    shard_hash,
+                    sender_id,
+                    receiver_id,
+                }))) => {
+                    self.reply_with_bls(beacon_hash, shard_hash, sender_id, receiver_id);
                 }
                 Ok(Async::Ready(None)) => {
                     final_signatures_ended = true;
@@ -191,6 +244,7 @@ impl Stream for ClientTask {
                 Err(_) => {
                     continue;
                 }
+                _ => (),
             }
 
             // If we reached here than each channel is either not ready or has ended.
@@ -237,8 +291,8 @@ impl ClientTask {
         payload_request_tx: Sender<PayloadRequest>,
         payload_response_rx: Receiver<PayloadResponse>,
         payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
-        final_signatures_tx: Sender<JointBlocksBLS>,
-        final_signatures_rx: Receiver<JointBlocksBLS>,
+        final_signatures_tx: Sender<JointBlockBLS>,
+        final_signatures_rx: Receiver<JointBlockBLS>,
     ) -> Self {
         let res = Self {
             client,
@@ -255,6 +309,7 @@ impl ClientTask {
             unfinalized_shard_blocks: Default::default(),
             final_signatures_tx,
             final_signatures_rx,
+            final_signatures_int: Interval::new_interval(gossip_interval),
         };
         res.spawn_kickoff();
         res
@@ -290,23 +345,31 @@ impl ClientTask {
         let (owner_uid, mapping) =
             self.client.get_uid_to_authority_map(consensus_block_header.index);
         if let Some(o) = owner_uid {
-            let beacon_signature = beacon_block.sign(self.client.signer.clone());
-            beacon_block.add_signature(&beacon_signature, o);
-            let shard_signature = shard_block.sign(self.client.signer.clone());
-            shard_block.add_signature(&shard_signature, o);
-            tokio::spawn(
-                self.final_signatures_tx
-                    .clone()
-                    .send((
-                        beacon_block.hash,
-                        shard_block.hash,
-                        beacon_signature,
-                        shard_signature,
-                        o,
-                    ))
-                    .map(|_| ())
-                    .map_err(|e| error!(target: "client", "Error sending final BLS parts: {}", e)),
-            );
+            let beacon_sig = beacon_block.sign(self.client.signer.clone());
+            beacon_block.add_signature(&beacon_sig, o);
+            let shard_sig = shard_block.sign(self.client.signer.clone());
+            shard_block.add_signature(&shard_sig, o);
+            for other_id in mapping.keys() {
+                if *other_id == o {
+                    continue;
+                }
+                tokio::spawn(
+                    self.final_signatures_tx
+                        .clone()
+                        .send(JointBlockBLS::General {
+                            beacon_hash: beacon_block.hash,
+                            shard_hash: shard_block.hash,
+                            beacon_sig: beacon_sig.clone(),
+                            shard_sig: shard_sig.clone(),
+                            sender_id: o,
+                            receiver_id: *other_id,
+                        })
+                        .map(|_| ())
+                        .map_err(
+                            |e| error!(target: "client", "Error sending final BLS parts: {}", e),
+                        ),
+                );
+            }
         }
         (beacon_block, shard_block, shard_extra)
     }
@@ -327,6 +390,7 @@ impl ClientTask {
         let present: usize =
             beacon_block.signature.authority_mask.iter().map(|b| *b as usize).sum();
         if present < 2 * num_authorities / 3 + 1 {
+            println!("AAAA {} vs {}", present, num_authorities);
             return None;
         }
 
@@ -357,6 +421,20 @@ impl ClientTask {
                 "Successfully imported block(s) up to {}, account_id={:?}",
                 new_index, self.client.account_id
             );
+            let mut beacons_to_remove = vec![];
+            let mut shards_to_remove = vec![];
+            for (h, b) in &self.unfinalized_beacon_blocks {
+                if b.index() <= new_index {
+                    beacons_to_remove.push(*h);
+                    shards_to_remove.push(b.body.header.shard_block_hash);
+                }
+            }
+            for h in beacons_to_remove {
+                self.unfinalized_beacon_blocks.remove(&h);
+            }
+            for h in shards_to_remove {
+                self.unfinalized_shard_blocks.remove(&h);
+            }
             Some(new_index)
         } else {
             None
@@ -499,6 +577,46 @@ impl ClientTask {
                     .send((authority_id, payload))
                     .map(|_| ())
                     .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
+            );
+        }
+    }
+
+    fn reply_with_bls(
+        &self,
+        beacon_hash: CryptoHash,
+        shard_hash: CryptoHash,
+        sender_id: AuthorityId,
+        receiver_id: AuthorityId,
+    ) {
+        if !self.unfinalized_shard_blocks.contains_key(&shard_hash)
+            && !self.client.shard_client.chain.is_known(&shard_hash)
+        {
+            return;
+        }
+        let block_idx = match self.unfinalized_beacon_blocks.get(&beacon_hash) {
+            Some(b) => b.index(),
+            None => match self.client.beacon_chain.chain.get_block(&BlockId::Hash(beacon_hash)) {
+                Some(b) => b.index(),
+                None => return,
+            },
+        };
+        let (owner_uid, mapping) = self.client.get_uid_to_authority_map(block_idx);
+        if let Some(o) = owner_uid {
+            let beacon_sig = self.client.signer.bls_sign(beacon_hash.as_ref());
+            let shard_sig = self.client.signer.bls_sign(shard_hash.as_ref());
+            tokio::spawn(
+                self.final_signatures_tx
+                    .clone()
+                    .send(JointBlockBLS::General {
+                        beacon_hash,
+                        shard_hash,
+                        beacon_sig,
+                        shard_sig,
+                        sender_id: receiver_id,
+                        receiver_id: sender_id,
+                    })
+                    .map(|_| ())
+                    .map_err(|e| error!(target: "client", "Error sending final BLS parts: {}", e)),
             );
         }
     }

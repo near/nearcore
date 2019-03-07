@@ -6,7 +6,7 @@ use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::aggregate_signature::BlsSignature;
-use primitives::consensus::JointBlocksBLS;
+use primitives::consensus::JointBlockBLSEncoded;
 use primitives::types::AuthorityId;
 
 pub type RequestId = u64;
@@ -58,5 +58,5 @@ pub enum Message {
     PayloadResponse(RequestId, ChainPayload),
 
     /// Partial BLS signatures of beacon and shard blocks.
-    JointBlocksBLS((CryptoHash, CryptoHash, Vec<u8>, Vec<u8>, AuthorityId)),
+    JointBlockBLS(JointBlockBLSEncoded),
 }

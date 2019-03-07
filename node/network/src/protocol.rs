@@ -21,7 +21,7 @@ use primitives::types::{AccountId, AuthorityId, PeerId};
 use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
-use primitives::consensus::JointBlocksBLS;
+use primitives::consensus::{JointBlockBLS,JointBlockBLSEncoded};
 use primitives::traits::FromBytes;
 use primitives::traits::ToBytes;
 use primitives::types::PartialSignature;
@@ -54,7 +54,7 @@ struct Protocol {
     inc_gossip_tx: Sender<Gossip>,
     inc_block_tx: Sender<CoupledBlock>,
     payload_response_tx: Sender<PayloadResponse>,
-    inc_final_signatures_tx: Sender<JointBlocksBLS>,
+    inc_final_signatures_tx: Sender<JointBlockBLS>,
 }
 
 impl Protocol {
@@ -145,18 +145,10 @@ impl Protocol {
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
                 }
-                Message::JointBlocksBLS((
-                    beacon_hash,
-                    shard_hash,
-                    beacon_sig,
-                    shard_sig,
-                    auth_id,
-                )) => {
-                    let beacon_sig = PartialSignature::from_bytes(&beacon_sig).unwrap();
-                    let shard_sig = PartialSignature::from_bytes(&shard_sig).unwrap();
+                Message::JointBlockBLS(b) => {
                     forward_msg(
                         self.inc_final_signatures_tx.clone(),
-                        (beacon_hash, shard_hash, beacon_sig, shard_sig, auth_id),
+                        JointBlockBLS::from(b)
                     );
                 }
             },
@@ -300,20 +292,19 @@ impl Protocol {
         }
     }
 
-    fn send_joint_block_bls_announce(&self, b: JointBlocksBLS) {
-        let (beacon_hash, shard_hash, beacon_sig, shard_sig, auth_id) = b;
-        let beacon_sig = beacon_sig.to_bytes();
-        let shard_sig = shard_sig.to_bytes();
-        let data = Encode::encode(&Message::JointBlocksBLS((
-            beacon_hash,
-            shard_hash,
-            beacon_sig,
-            shard_sig,
-            auth_id,
-        )))
-        .unwrap();
-        for ch in self.peer_manager.get_ready_channels() {
-            forward_msg(ch, PeerMessage::Message(data.to_vec()));
+    fn send_joint_block_bls_announce(&self, b: JointBlockBLS) {
+        let receiver_id = match b {
+            JointBlockBLS::Request {  receiver_id, ..} => receiver_id,
+            JointBlockBLS::General { receiver_id, .. } => receiver_id,
+        };
+        if let Some(ch) = self.get_authority_channel(receiver_id) {
+            let encoded = JointBlockBLSEncoded::from(b);
+            let data = Encode::encode(&Message::JointBlockBLS(encoded)).unwrap();
+            forward_msg(ch, PeerMessage::Message(data));
+        } else {
+            warn!(target: "network", "[SND BLS] Channel for {} not found, where account_id={:?} map={:?}", receiver_id, self.peer_manager.node_info.account_id,
+                self.client.get_uid_to_authority_map(1)
+            );
         }
     }
 }
@@ -342,8 +333,8 @@ pub fn spawn_network(
     payload_announce_rx: Receiver<(AuthorityId, ChainPayload)>,
     payload_request_rx: Receiver<PayloadRequest>,
     payload_response_tx: Sender<PayloadResponse>,
-    inc_final_signatures_tx: Sender<JointBlocksBLS>,
-    out_final_signatures_rx: Receiver<JointBlocksBLS>,
+    inc_final_signatures_tx: Sender<JointBlockBLS>,
+    out_final_signatures_rx: Receiver<JointBlockBLS>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);

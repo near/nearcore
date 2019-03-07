@@ -124,6 +124,7 @@ where
         thread::sleep(Duration::from_millis(check_interval_ms));
         ms_slept += check_interval_ms;
         if ms_slept > max_wait_ms {
+            println!("BBBB Slept {}; max_wait_ms {}", ms_slept, max_wait_ms);
             panic!("Timed out waiting for the condition");
         }
     }
