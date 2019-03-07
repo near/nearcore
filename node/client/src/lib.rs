@@ -130,7 +130,7 @@ impl Client {
         let shard_storage = shard_storages.pop().unwrap();
 
         let chain_spec = &config.chain_spec;
-        let shard_client = ShardClient::new(chain_spec, shard_storage);
+        let shard_client = ShardClient::new(signer.clone(), chain_spec, shard_storage);
         info!(target: "client", "Genesis root: {:?}", shard_client.genesis_hash());
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_chain = BeaconClient::new(genesis, &chain_spec, beacon_storage);

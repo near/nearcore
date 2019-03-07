@@ -37,6 +37,29 @@ pub struct Node {
 }
 
 impl Node {
+    pub fn for_test(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerInfo>, chain_spec: ChainSpec) -> Self {
+        let addr = format!("127.0.0.1:{}", test_port + peer_id);
+        Self::new(
+            &format!("{}_{}", test_prefix, account_id),
+            account_id,
+            u32::from(peer_id),
+            Some(&addr),
+            test_port + 1000 + peer_id,
+            boot_nodes,
+            chain_spec
+        )
+    }
+    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerInfo>, chain_spec: ChainSpec) -> Self {
+        Self::new(
+            &format!("{}_{}", test_prefix, account_id),
+            account_id,
+            u32::from(peer_id),
+            None,
+            test_port + 1000 + peer_id,
+            boot_nodes,
+            chain_spec
+        )
+    }
     pub fn new(
         name: &str,
         account_id: &str,
