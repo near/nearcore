@@ -58,6 +58,8 @@ pub enum BlockImportingResult {
     MissingParent { orphan_hash: CryptoHash, missing_indices: Vec<BlockIndex> },
     /// The block was not imported, because it is already in the blockchain.
     AlreadyImported,
+    /// The block is not formed correctly or doesn't have enough signatures
+    InvalidBlock,
 }
 
 pub struct Client {
@@ -305,9 +307,6 @@ impl Client {
         beacon_block: SignedBeaconBlock,
         shard_block: SignedShardBlock,
     ) -> BlockImportingResult {
-        if !Client::verify_block_hash(&beacon_block, &shard_block) {
-            return BlockImportingResult::AlreadyImported;
-        }
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
         let hash = beacon_block.block_hash();
@@ -317,6 +316,9 @@ impl Client {
               beacon_block.hash, shard_block.hash);
         if self.beacon_chain.chain.is_known(&hash) {
             return BlockImportingResult::AlreadyImported;
+        }
+        if !Client::verify_block_hash(&beacon_block, &shard_block) {
+            return BlockImportingResult::InvalidBlock;
         }
 
         if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains_key(&hash) {
@@ -334,6 +336,7 @@ impl Client {
         let best_block_hash = self.beacon_chain.chain.best_hash();
 
         let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
+        let mut bad_block: bool = false;
         // Loop until we run out of blocks to add.
         loop {
             // Only keep those blocks in `pending_blocks` that are still pending.
@@ -347,8 +350,7 @@ impl Client {
                 Some(b) => b,
                 None => break,
             };
-            let hash = next_beacon_block.block_hash();
-            if self.beacon_chain.chain.is_known(&hash) {
+            if self.beacon_chain.chain.is_known(&next_beacon_block.block_hash()) {
                 continue;
             }
 
@@ -366,18 +368,26 @@ impl Client {
                        next_shard_block.block_hash(), next_beacon_block.block_hash(),
                        next_beacon_block.signature.authority_count(),
                        next_shard_block.signature.authority_count());
-                // TODO: handle rejecting correctly
+                // TODO enable when we sign blocks with second BLS
+                if false {
+                    bad_block |= hash == next_beacon_block.block_hash();
+                    continue;
+                }
             }
 
             if self.shard_client.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
+                // Update the authority.
+                self.update_authority(&next_beacon_block.header());
+            } else {
+                bad_block |= hash == next_beacon_block.block_hash();
             }
-            // Update the authority.
-            self.update_authority(&next_beacon_block.header());
         }
         let new_best_block = self.beacon_chain.chain.best_block();
 
-        if new_best_block.block_hash() == best_block_hash {
+        if bad_block {
+            BlockImportingResult::InvalidBlock
+        } else if new_best_block.block_hash() == best_block_hash {
             BlockImportingResult::MissingParent {
                 orphan_hash: hash,
                 missing_indices: self.get_missing_indices(),
