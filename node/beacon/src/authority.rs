@@ -120,19 +120,19 @@ impl Authority {
             .collect()
     }
 
-    fn write_to_storage(&mut self) {
+    fn write_to_storage(&self) {
         // prune old epochs
-        self.proposals = self.prune_slot(&self.proposals);
-        self.participation = self.prune_slot(&self.participation);
-        self.processed_blocks = self.prune_epoch(&self.processed_blocks);
-        self.thresholds = self.prune_epoch(&self.thresholds);
-        self.accepted_authorities = self.prune_slot(&self.accepted_authorities);
+        let proposals = self.prune_slot(&self.proposals);
+        let participation = self.prune_slot(&self.participation);
+        let processed_blocks = self.prune_epoch(&self.processed_blocks);
+        let thresholds = self.prune_epoch(&self.thresholds);
+        let accepted_authorities = self.prune_slot(&self.accepted_authorities);
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        guard.set_proposal(&self.proposals);
-        guard.set_participation(&self.participation);
-        guard.set_processed_blocks(&self.processed_blocks);
-        guard.set_threshold(&self.thresholds);
-        guard.set_accepted_authorities(&self.accepted_authorities);
+        guard.set_proposal(&proposals);
+        guard.set_participation(&participation);
+        guard.set_processed_blocks(&processed_blocks);
+        guard.set_threshold(&thresholds);
+        guard.set_accepted_authorities(&accepted_authorities);
     }
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
