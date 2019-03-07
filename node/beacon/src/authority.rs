@@ -120,19 +120,19 @@ impl Authority {
             .collect()
     }
 
-    fn write_to_storage(&self) {
+    fn write_to_storage(&mut self) {
         // prune old epochs
-        let proposals = self.prune_slot(&self.proposals);
-        let participation = self.prune_slot(&self.participation);
-        let processed_blocks = self.prune_epoch(&self.processed_blocks);
-        let thresholds = self.prune_epoch(&self.thresholds);
-        let accepted_authorities = self.prune_slot(&self.accepted_authorities);
+        self.proposals = self.prune_slot(&self.proposals);
+        self.participation = self.prune_slot(&self.participation);
+        self.processed_blocks = self.prune_epoch(&self.processed_blocks);
+        self.thresholds = self.prune_epoch(&self.thresholds);
+        self.accepted_authorities = self.prune_slot(&self.accepted_authorities);
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        guard.set_proposal(&proposals);
-        guard.set_participation(&participation);
-        guard.set_processed_blocks(&processed_blocks);
-        guard.set_threshold(&thresholds);
-        guard.set_accepted_authorities(&accepted_authorities);
+        guard.set_proposal(&self.proposals);
+        guard.set_participation(&self.participation);
+        guard.set_processed_blocks(&self.processed_blocks);
+        guard.set_threshold(&self.thresholds);
+        guard.set_accepted_authorities(&self.accepted_authorities);
     }
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
@@ -386,6 +386,7 @@ mod test {
     use primitives::hash::CryptoHash;
     use primitives::signature::get_key_pair;
     use storage::test_utils::create_beacon_shard_storages;
+    use chain::test_utils::get_blockchain_storage;
 
     use crate::beacon_chain::BeaconClient;
 
@@ -520,12 +521,15 @@ mod test {
         header2.signature.authority_mask = vec![true, true];
         authority.process_block_header(&header1);
         authority.process_block_header(&header2);
-        // storage should not be empty
-        authority.read_from_storage();
-        assert!(!authority.proposals.is_empty());
-        assert!(!authority.participation.is_empty());
-        assert!(!authority.processed_blocks.is_empty());
-        assert!(!authority.thresholds.is_empty());
-        assert!(!authority.accepted_authorities.is_empty());
+        let next_authorities = authority.get_authorities(3);
+        assert!(next_authorities.is_ok());
+
+        let bc1 = BeaconClient::new(
+            block2.clone(),
+            &chain_spec,
+            get_blockchain_storage(bc.chain)
+        );
+        let authority = bc1.authority.write().unwrap();
+        assert_eq!(authority.get_authorities(3), next_authorities);
     }
 }
