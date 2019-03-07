@@ -42,7 +42,7 @@ impl Node {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
-            peer_id as u32,
+            u32::from(peer_id),
             Some(&addr),
             test_port + 1000 + peer_id,
             boot_nodes,
@@ -53,7 +53,7 @@ impl Node {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
-            peer_id as u32,
+            u32::from(peer_id),
             None,
             test_port + 1000 + peer_id,
             boot_nodes,

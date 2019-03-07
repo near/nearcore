@@ -142,7 +142,7 @@ impl Pool {
                 .write()
                 .expect(POISONED_LOCK_ERR)
                 .entry(hash)
-                .or_insert(HashSet::new())
+                .or_insert_with(HashSet::new)
                 .insert(author);
         }
         for receipt in payload.receipts {
@@ -154,8 +154,8 @@ impl Pool {
     pub fn snapshot_payload(&self) -> CryptoHash {
         // Put tx and receipts into an snapshot without erasing them.
         let transactions: Vec<_> =
-            self.transactions.write().expect(POISONED_LOCK_ERR).iter().map(|x| x.clone()).collect();
-        let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).iter().map(|x| x.clone()).collect();
+            self.transactions.write().expect(POISONED_LOCK_ERR).iter().cloned().collect();
+        let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).iter().cloned().collect();
         let snapshot = ChainPayload { transactions, receipts };
         if snapshot.is_empty() {
             return CryptoHash::default();
