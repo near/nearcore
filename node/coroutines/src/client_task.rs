@@ -173,7 +173,7 @@ impl Stream for ClientTask {
                 Ok(Async::Ready(Some(_))) => {
                     for (beacon_hash, beacon_block) in self.unfinalized_beacon_blocks.iter() {
                         let (owner_uid, _) =
-                            self.client.get_uid_to_authority_map(beacon_block.index());
+                            self.client.get_uid_to_authority_map(2);
                         let owner_uid = match owner_uid {
                             Some(id) => id,
                             None => continue,
@@ -343,7 +343,7 @@ impl ClientTask {
         let (mut beacon_block, mut shard_block, shard_extra) =
             self.client.prepare_block(consensus_block_header.index, payload);
         let (owner_uid, mapping) =
-            self.client.get_uid_to_authority_map(consensus_block_header.index);
+            self.client.get_uid_to_authority_map(2);
         if let Some(o) = owner_uid {
             let beacon_sig = beacon_block.sign(self.client.signer.clone());
             beacon_block.add_signature(&beacon_sig, o);
@@ -370,6 +370,8 @@ impl ClientTask {
                         ),
                 );
             }
+        } else {
+            panic!("AAAAA");
         }
         (beacon_block, shard_block, shard_extra)
     }
@@ -386,7 +388,7 @@ impl ClientTask {
             None => return None,
         };
         let idx = beacon_block.index();
-        let num_authorities = self.client.get_uid_to_authority_map(idx).1.len();
+        let num_authorities = self.client.get_uid_to_authority_map(2).1.len();
         let present: usize =
             beacon_block.signature.authority_mask.iter().map(|b| *b as usize).sum();
         if present < 2 * num_authorities / 3 + 1 {
@@ -462,7 +464,7 @@ impl ClientTask {
         };
         let block_index = beacon_block.index();
         // Make sure this authority is actually supposed to sign this block.
-        let (_, mapping) = self.client.get_uid_to_authority_map(block_index);
+        let (_, mapping) = self.client.get_uid_to_authority_map(2);
         let stake = match mapping.get(&authority_id) {
             Some(s) => s,
             None => return None,
@@ -600,7 +602,7 @@ impl ClientTask {
                 None => return,
             },
         };
-        let (owner_uid, mapping) = self.client.get_uid_to_authority_map(block_idx);
+        let (owner_uid, mapping) = self.client.get_uid_to_authority_map(2);
         if let Some(o) = owner_uid {
             let beacon_sig = self.client.signer.bls_sign(beacon_hash.as_ref());
             let shard_sig = self.client.signer.bls_sign(shard_hash.as_ref());

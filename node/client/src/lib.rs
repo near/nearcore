@@ -280,8 +280,8 @@ impl Client {
     /// the best block then it returns it, otherwise it returns None.
     pub fn try_import_blocks(
         &self,
-        beacon_block: SignedBeaconBlock,
-        shard_block: SignedShardBlock,
+        mut beacon_block: SignedBeaconBlock,
+        mut shard_block: SignedShardBlock,
     ) -> BlockImportingResult {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
