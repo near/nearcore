@@ -1,8 +1,9 @@
 import argparse
 import json
+import logging
 import sys
 
-from near.pynear.key_store import InMemoryKeyStore, FileKeyStore
+from near.pynear.key_store import FileKeyStore, InMemoryKeyStore
 from near.pynear.lib import NearLib
 
 
@@ -112,11 +113,17 @@ get_beacon_block_by_hash  {}
             keystore.create_key_pair(seed='alice.near')
 
         public_key = getattr(command_args, 'public_key', None)
+
+        logger = logging.getLogger()
+        if command_args.debug:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
+
         return NearLib(
             command_args.server_url,
             keystore,
             public_key,
-            command_args.debug,
         )
 
     def send_money(self):

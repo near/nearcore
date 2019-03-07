@@ -3,7 +3,7 @@ from __future__ import print_function
 import base64
 import hashlib
 import json
-import sys
+import logging
 
 import requests
 
@@ -42,7 +42,6 @@ class NearLib(object):
             server_url='http://localhost:3030/',
             keystore=None,
             public_key=None,
-            debug=False,
     ):
         self._server_url = server_url
         if keystore is None:
@@ -50,7 +49,6 @@ class NearLib(object):
         self.keystore = keystore
         self._public_key = public_key
         self._nonces = {}
-        self._debug = debug
 
     def _get_nonce(self, originator):
         if originator not in self._nonces:
@@ -64,14 +62,12 @@ class NearLib(object):
 
     def _call_rpc(self, method_name, params=None):
         data = params
-        if self._debug:
-            print(data)
+        logging.debug(data)
 
         try:
             connection = _post(self._server_url + method_name, data)
             raw = connection.read()
-            if self._debug:
-                print(raw)
+            logging.debug(raw)
             return json.loads(raw)
         except HTTPError as e:
             if e.code == 400:
