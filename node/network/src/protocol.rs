@@ -7,7 +7,7 @@ use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use log::{error, info, warn};
+use log::{error, info, warn, debug};
 
 use client::Client;
 use configs::NetworkConfig;
@@ -191,7 +191,7 @@ impl Protocol {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
+            debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
                   g.receiver_id,
                   self.peer_manager.node_info.account_id,
                   g.sender_id);
@@ -203,7 +203,7 @@ impl Protocol {
             let data = Encode::encode(&Message::PayloadGossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
+            debug!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
         }
     }
 
@@ -223,7 +223,7 @@ impl Protocol {
                     .unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
+            debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
     }
 
@@ -237,7 +237,7 @@ impl Protocol {
             let data = Encode::encode(&Message::BlockResponse(request_id, blocks)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
+            debug!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
     }
 
@@ -251,7 +251,7 @@ impl Protocol {
                     let data = Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
                 } else {
-                    warn!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
+                    debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
                 }
             }
         }
@@ -268,7 +268,7 @@ impl Protocol {
             let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found, account_id={:?}", peer_id, self.peer_manager.node_info.account_id);
+            debug!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found, account_id={:?}", peer_id, self.peer_manager.node_info.account_id);
         }
     }
 }
