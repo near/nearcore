@@ -11,7 +11,7 @@ use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityMask, AuthorityStake, BlockId, Epoch, Slot};
+use primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
 use storage::BeaconChainStorage;
 
 use crate::beacon_chain::BeaconBlockChain;
@@ -52,19 +52,6 @@ fn find_threshold(stakes: &[u64], num_seats: u64) -> Result<u64, String> {
 pub struct Authority {
     /// Authority configuration.
     authority_config: AuthorityConfig,
-    /// Proposals per slot in which they occur.
-    proposals: HashMap<Slot, Vec<AuthorityStake>>,
-    /// Participation of authorities per slot in which they have happened.
-    participation: HashMap<Slot, AuthorityMask>,
-    /// Records the blocks that it processed for the given blocks.
-    processed_blocks: HashMap<Epoch, HashSet<Slot>>,
-
-    // The following is a derived information which we do not want to recompute.
-    /// Computed thresholds for each epoch.
-    thresholds: HashMap<Epoch, u64>,
-    /// Authorities that were accepted for the given slots.
-    accepted_authorities: HashMap<Slot, Vec<AuthorityStake>>,
-    
     /// beacon chain storage
     storage: Arc<RwLock<BeaconChainStorage>>,
 }
@@ -85,51 +72,6 @@ impl Authority {
             ..=(epoch + 1) * self.authority_config.epoch_length // Without ..= it needs + 1.
     }
 
-    fn read_from_storage(&mut self) {
-        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        let proposals = guard.get_proposal();
-        if !proposals.is_empty() {
-            self.proposals = proposals;
-            let participation = guard.get_participation();
-            self.participation = participation;
-            let processed_blocks = guard.get_processed_blocks();
-            self.processed_blocks = processed_blocks;
-            let thresholds = guard.get_threshold();
-            self.thresholds = thresholds;
-            let accepted_authorities = guard.get_accepted_authorities();
-            self.accepted_authorities = accepted_authorities;
-        }
-    }
-
-    fn prune_slot<V: Clone>(&self, data: &HashMap<Slot, V>, epoch: Epoch) -> HashMap<Slot, V> {
-        data.iter()
-            .filter(|(&k, &_)| self.slot_to_epoch(k) >= epoch)
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    }
-
-    fn prune_epoch<V: Clone>(&self, data: &HashMap<Epoch, V>, epoch: Epoch) -> HashMap<Epoch, V> {
-        data.iter()
-            .filter(|(&k, &_)| k >= epoch)
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    }
-
-    fn write_to_storage(&self, current_epoch: Epoch) {
-        // prune old epochs
-        let proposals = self.prune_slot(&self.proposals, current_epoch);
-        let participation = self.prune_slot(&self.participation, current_epoch);
-        let processed_blocks = self.prune_epoch(&self.processed_blocks, current_epoch);
-        let thresholds = self.prune_epoch(&self.thresholds, current_epoch);
-        let accepted_authorities = self.prune_slot(&self.accepted_authorities, current_epoch);
-        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        guard.set_proposal(&proposals);
-        guard.set_participation(&participation);
-        guard.set_processed_blocks(&processed_blocks);
-        guard.set_threshold(&thresholds);
-        guard.set_accepted_authorities(&accepted_authorities);
-    }
-
     /// Initializes authorities from the config and the past blocks in the beaconchain.
     pub fn new(
         authority_config: AuthorityConfig,
@@ -139,15 +81,9 @@ impl Authority {
         // TODO: cache authorities in the Storage, to not need to process the whole chain.
         let mut result = Self {
             authority_config,
-            proposals: HashMap::new(),
-            participation: HashMap::new(),
-            processed_blocks: HashMap::new(),
-            thresholds: HashMap::new(),
-            accepted_authorities: HashMap::new(),
             storage,
         };
-        result.read_from_storage();
-        if result.proposals.is_empty() {
+        if result.storage.write().expect(POISONED_LOCK_ERR).is_authority_empty() {
             // Initial authorities operate for the first two epochs.
             let (accepted_authorities, threshold) = result.compute_threshold_accepted(
                 &CryptoHash::default(),
@@ -155,13 +91,17 @@ impl Authority {
                 vec![],
             );
             let mut slot = 0;
-            for epoch in 0..=1 {
-                result.thresholds.insert(epoch, threshold);
-                for slot_auth in &accepted_authorities {
-                    slot += 1;
-                    result.accepted_authorities.insert(slot, slot_auth.to_vec());
+            {
+                let mut storage = result.storage.write().expect(POISONED_LOCK_ERR);
+                for epoch in 0..=1 {
+                    storage.set_threshold(epoch, threshold);
+                    for slot_auth in &accepted_authorities {
+                        slot += 1;
+                        storage.set_accepted_authorities(slot, slot_auth.to_vec());
+                    }
                 }
             }
+            
             // Catch up with the blockchain. Note, the last block is allowed to progress while we
             // are iterating.
             // TODO: Take care of the fork being changed while we are iterating.
@@ -261,16 +201,25 @@ impl Authority {
     fn compute_accepted_authorities(&mut self, epoch: Epoch) {
         // Get threshold used for epoch-2. There might be no threshold if we have some missing
         // blocks in epoch-4.
-        if let Some(threshold) = { self.thresholds.get(&(epoch - 2)).cloned() } {
+        let mut storage = self.storage.write().expect(POISONED_LOCK_ERR);
+        if let Some(threshold) = storage.get_threshold(epoch - 2).cloned() {
             // First, compute the rollovers. Using Vec for rollovers to enforce determinism.
             let mut ordered_rollovers: Vec<AuthorityStake> = vec![];
             let mut indices = HashMap::new();
             let mut penalties = HashMap::new();
             for s in self.epoch_to_slots(epoch - 2) {
-                let accepted = self.accepted_authorities[&s].iter();
-                let participation = self.participation[&s].iter();
+                let accepted = storage
+                    .get_accepted_authorities(s)
+                    .cloned()
+                    .unwrap_or_else(|| vec![])
+                    .into_iter();
+                let participation = storage
+                    .get_participation(s)
+                    .cloned()
+                    .unwrap_or_else(|| vec![])
+                    .into_iter();
                 for (acc, participated) in accepted.zip(participation) {
-                    if *participated {
+                    if participated {
                         match indices.entry(acc.account_id.clone()) {
                             Entry::Occupied(e) => {
                                 let el: &mut AuthorityStake = &mut ordered_rollovers[*e.get()];
@@ -309,18 +258,22 @@ impl Authority {
             // Second, use the proposals and the rollovers.
             // TODO(#308): Use proper seed.
             let (mut accepted_authorities, new_threshold) = {
-                let proposals =
-                    self.epoch_to_slots(epoch - 2).flat_map(|s| self.proposals[&s].iter().cloned());
+                let mut proposals = vec![];
+                for s in self.epoch_to_slots(epoch - 2) {
+                    let new_proposals = storage.get_proposal(s).cloned().unwrap_or_else(|| vec![]);
+                    proposals.extend(new_proposals);
+                }
                 self.compute_threshold_accepted(
                     &CryptoHash::default(),
-                    proposals.collect(),
+                    proposals,
                     rollovers,
                 )
             };
-            self.thresholds.insert(epoch, new_threshold);
+            storage.set_threshold(epoch, new_threshold);
             let slots: Vec<_> = self.epoch_to_slots(epoch).collect();
-            self.accepted_authorities
-                .extend(slots.iter().cloned().zip(accepted_authorities.drain(..)));
+            storage.extend_accepted_authorities(
+                slots.iter().cloned().zip(accepted_authorities.drain(..)).collect()
+            );
         }
     }
 
@@ -328,33 +281,46 @@ impl Authority {
     pub fn process_block_header(&mut self, header: &SignedBeaconBlockHeader) {
         // Skip genesis block or if this block was already recorded.
         let slot = header.body.index;
-        if slot > 0 && !self.proposals.contains_key(&slot) {
-            self.proposals.insert(slot, header.body.authority_proposal.to_vec());
-            self.participation.insert(slot, header.signature.authority_mask.to_vec());
+        if slot > 0 && self.storage.write().expect(POISONED_LOCK_ERR).get_proposal(slot).is_none() {
+            let (all_slots_processed, epoch) = {
+                let mut storage = self.storage.write().expect(POISONED_LOCK_ERR);
+                storage.set_proposal(slot, header.body.authority_proposal.to_vec());
+                storage.set_participation(slot, header.signature.authority_mask.to_vec());
 
-            // Update the tracker of processed slots.
-            let epoch = self.slot_to_epoch(slot);
-            let all_slots_processed = {
-                let processed_slots =
-                    self.processed_blocks.entry(epoch).or_insert_with(HashSet::new);
+                // Update the tracker of processed slots.
+                let epoch = self.slot_to_epoch(slot);
+                let mut processed_slots = 
+                    if let Some(slots) = storage.get_processed_blocks(epoch) {
+                        slots.clone()
+                    } else {
+                        HashSet::new()
+                    };
                 processed_slots.insert(slot);
-                processed_slots.len() == self.authority_config.epoch_length as usize
+                let len = processed_slots.len();
+                storage.set_processed_blocks(epoch, processed_slots);
+                (len == self.authority_config.epoch_length as usize, epoch)
             };
+            
             // Check if we have processed all slots from the given epoch.
             if all_slots_processed {
                 // Compute accepted authorities for epoch+2.
                 self.compute_accepted_authorities(epoch + 2);
-                self.write_to_storage(epoch);
+                // TODO: enabling pruning when we remove hard-coded block index
+                //self.storage.write().expect(POISONED_LOCK_ERR).prune_authority_storage(
+                //    &|k| self.slot_to_epoch(k) >= epoch,
+                //    &|k| k >= epoch,
+                //);
             }
         }
     }
 
     /// Returns authorities for given block number.
     pub fn get_authorities(&self, slot: Slot) -> Result<Vec<AuthorityStake>, String> {
+        let mut storage = self.storage.write().expect(POISONED_LOCK_ERR);
         if slot == 0 {
             // Genesis block has no authorities.
             Ok(vec![])
-        } else if let Some(result) = self.accepted_authorities.get(&slot) {
+        } else if let Some(result) = storage.get_accepted_authorities(slot) {
             Ok(result.to_vec())
         } else {
             let epoch = self.slot_to_epoch(slot);
@@ -363,7 +329,7 @@ impl Authority {
                 slot,
                 epoch,
                 epoch as i64 -2,
-                self.processed_blocks.get(&slot).map(|m| m.len()).unwrap_or(0),
+                storage.get_processed_blocks(slot).map(|m| m.len()).unwrap_or(0),
                 self.authority_config.epoch_length,
             ))
         }

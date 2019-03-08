@@ -306,3 +306,30 @@ fn read_with_cache<'a, T: Decode + 'a>(
         }
     }
 }
+
+/// prune column based on index
+fn prune_index<T>(
+    storage: &KeyValueDB,
+    col: u32,
+    cache: &mut HashMap<Vec<u8>, T>,
+    filter: &Fn(u64) -> bool,
+) -> io::Result<()> {
+    let get_u64_from_key = |k: &[u8]| {
+        let mut buf: [u8; 8] = [0; 8];
+        buf.copy_from_slice(&k[4..]);
+        u64::from_le_bytes(buf)
+    };
+    let mut db_transaction = storage.transaction();
+    for (k, _) in storage.iter(Some(col)) {
+        let key = get_u64_from_key(&k);
+        if !filter(key) {
+            db_transaction.delete(Some(col), &k);
+        }
+    }
+    storage.write(db_transaction)?;
+    cache.retain(|k, _| {
+        let key = get_u64_from_key(k);
+        filter(key)
+    });
+    Ok(())
+}

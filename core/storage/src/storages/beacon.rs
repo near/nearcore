@@ -1,7 +1,7 @@
 use super::{
-    BlockChainStorage, GenericStorage, COL_PROPOSAL, 
-    COL_PARTICIPATION, COL_THRESHOLD, COL_ACCEPTED_AUTHORITY,
-    COL_PROCESSED_BLOCKS
+    BlockChainStorage, GenericStorage, read_with_cache, write_with_cache,
+    prune_index, extend_with_cache, COL_PROPOSAL, COL_PARTICIPATION, COL_THRESHOLD,
+    COL_ACCEPTED_AUTHORITY, COL_PROCESSED_BLOCKS
 };
 use crate::storages::ChainId;
 use crate::KeyValueDB;
@@ -16,6 +16,18 @@ use std::hash::Hash;
 /// we can add authority info.
 pub struct BeaconChainStorage {
     generic_storage: BlockChainStorage<SignedBeaconBlockHeader, SignedBeaconBlock>,
+    /// Proposals per slot in which they occur.
+    proposals: HashMap<Vec<u8>, Vec<AuthorityStake>>,
+    /// Participation of authorities per slot in which they have happened.
+    participation: HashMap<Vec<u8>, AuthorityMask>,
+    /// Records the blocks that it processed for the given blocks.
+    processed_blocks: HashMap<Vec<u8>, HashSet<Slot>>,
+
+    // The following is a derived information which we do not want to recompute.
+    /// Computed thresholds for each epoch.
+    thresholds: HashMap<Vec<u8>, u64>,
+    /// Authorities that were accepted for the given slots.
+    accepted_authorities: HashMap<Vec<u8>, Vec<AuthorityStake>>,
 }
 
 impl GenericStorage<SignedBeaconBlockHeader, SignedBeaconBlock> for BeaconChainStorage {
@@ -31,72 +43,173 @@ impl BeaconChainStorage {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
         Self { 
             generic_storage: BlockChainStorage::new(storage, ChainId::BeaconChain),
+            proposals: Default::default(),
+            participation: Default::default(),
+            processed_blocks: Default::default(),
+            thresholds: Default::default(),
+            accepted_authorities: Default::default(),
         }
     }
 
-    pub fn get_proposal(&mut self) -> HashMap<Slot, Vec<AuthorityStake>> {
-        read_one_column(self.generic_storage.storage.as_ref(), COL_PROPOSAL)
+    /// whether there is authority info in storage
+    pub fn is_authority_empty(&mut self) -> bool {
+        let proposals: HashMap<_, _> = self.generic_storage.storage.iter(Some(COL_PROPOSAL)).collect();
+        proposals.is_empty()
     }
 
-    pub fn set_proposal(&mut self, proposal: &HashMap<Slot, Vec<AuthorityStake>>) {
-        write_one_column(self.generic_storage.storage.as_ref(), COL_PROPOSAL, proposal);
+    pub fn prune_authority_storage(
+        &mut self,
+        slot_filter: &Fn(Slot) -> bool,
+        epoch_filter: &Fn(Epoch) -> bool,
+    ) {
+        prune_index(
+            self.generic_storage.storage.as_ref(),
+            COL_PROPOSAL,
+            &mut self.proposals,
+            slot_filter,
+        ).expect("Failed to prune storage");
+        prune_index(
+            self.generic_storage.storage.as_ref(),
+            COL_PARTICIPATION,
+            &mut self.participation,
+            slot_filter,
+        ).expect("Failed to prune storage");
+        prune_index(
+            self.generic_storage.storage.as_ref(),
+            COL_PROCESSED_BLOCKS,
+            &mut self.processed_blocks,
+            epoch_filter,
+        ).expect("Failed to prune storage");
+        prune_index(
+            self.generic_storage.storage.as_ref(),
+            COL_THRESHOLD,
+            &mut self.thresholds,
+            epoch_filter,
+        ).expect("Failed to prune storage");
+        prune_index(
+            self.generic_storage.storage.as_ref(),
+            COL_ACCEPTED_AUTHORITY,
+            &mut self.accepted_authorities,
+            slot_filter,
+        ).expect("Failed to prune storage");
     }
 
-    pub fn get_participation(&mut self) -> HashMap<Slot, AuthorityMask> {
-        read_one_column(self.generic_storage.storage.as_ref(), COL_PARTICIPATION)
+    pub fn get_proposal(&mut self, slot: Slot) -> Option<&Vec<AuthorityStake>> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_PROPOSAL,
+            &mut self.proposals,
+            &self.generic_storage.enc_index(slot)
+        ).expect("Failed to read from storage")
     }
 
-    pub fn set_participation(&mut self, participation: &HashMap<Slot, AuthorityMask>) {
-        write_one_column(self.generic_storage.storage.as_ref(), COL_PARTICIPATION, participation);
+    pub fn set_proposal(&mut self, slot: Slot, proposal: Vec<AuthorityStake>) {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_PROPOSAL,
+            &mut self.proposals,
+            &self.generic_storage.enc_index(slot),
+            proposal
+        ).expect("Failed to write to storage")
     }
 
-    pub fn get_processed_blocks(&mut self) -> HashMap<Epoch, HashSet<Slot>> {
-        read_one_column(self.generic_storage.storage.as_ref(), COL_PROCESSED_BLOCKS)
+    pub fn get_participation(&mut self, slot: Slot) -> Option<&AuthorityMask> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_PARTICIPATION,
+            &mut self.participation,
+            &self.generic_storage.enc_index(slot)
+        ).expect("Failed to read from storage")
     }
 
-    pub fn set_processed_blocks(&mut self, processed_blocks: &HashMap<Epoch, HashSet<Slot>>) {
-        write_one_column(self.generic_storage.storage.as_ref(), COL_PROCESSED_BLOCKS, processed_blocks);
+    pub fn set_participation(&mut self, slot: Slot, mask: AuthorityMask) {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_PARTICIPATION,
+            &mut self.participation,
+            &self.generic_storage.enc_index(slot),
+            mask
+        ).expect("Failed to write to storage")
     }
 
-    pub fn get_threshold(&mut self) -> HashMap<Epoch, u64> {
-        read_one_column(self.generic_storage.storage.as_ref(), COL_THRESHOLD)
+    pub fn get_processed_blocks(&mut self, epoch: Epoch) -> Option<&HashSet<Slot>> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_PROCESSED_BLOCKS,
+            &mut self.processed_blocks,
+            &self.generic_storage.enc_index(epoch)
+        ).expect("Failed to read from storage")
     }
 
-    pub fn set_threshold(&mut self, threshold: &HashMap<Epoch, u64>) {
-        write_one_column(self.generic_storage.storage.as_ref(), COL_THRESHOLD, threshold);
+    pub fn set_processed_blocks(
+        &mut self,
+        epoch: Epoch,
+        processed_blocks: HashSet<Slot>
+    ) {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_PROCESSED_BLOCKS,
+            &mut self.processed_blocks,
+            &self.generic_storage.enc_index(epoch),
+            processed_blocks,
+        ).expect("Failed to write to storage")
     }
 
-    pub fn get_accepted_authorities(&mut self) -> HashMap<Slot, Vec<AuthorityStake>> {
-        read_one_column(self.generic_storage.storage.as_ref(), COL_ACCEPTED_AUTHORITY)
+    pub fn get_threshold(&mut self, epoch: Epoch) -> Option<&u64> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_THRESHOLD,
+            &mut self.thresholds,
+            &self.generic_storage.enc_index(epoch)
+        ).expect("Failed to read from storage")
     }
 
-    pub fn set_accepted_authorities(&mut self, accepted_authorities: &HashMap<Slot, Vec<AuthorityStake>>) {
-        write_one_column(self.generic_storage.storage.as_ref(), COL_ACCEPTED_AUTHORITY, accepted_authorities);
+    pub fn set_threshold(&mut self, epoch: Epoch, threshold: u64) {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_THRESHOLD,
+            &mut self.thresholds,
+            &self.generic_storage.enc_index(epoch),
+            threshold,
+        ).expect("Failed to write to storage")
     }
-}
 
-fn read_one_column<K, V>(storage: &KeyValueDB, col: u32) -> HashMap<K, V>
-where 
-    K: Encode + Decode + Eq + Hash,
-    V: Encode + Decode 
-{
-    storage.iter(Some(col)).map(|(k, v)| {
-        let key: K = Decode::decode(&k).expect("failed to decode key");
-        let value: V = Decode::decode(&v).expect("failed to decode value");
-        (key, value)
-    }).collect()
-}
-
-fn write_one_column<K, V>(storage: &KeyValueDB, col: u32, data: &HashMap<K, V>)
-where
-    K: Encode + Decode + Eq + Hash,
-    V: Encode + Decode
-{
-    let mut db_transaction = storage.transaction();
-    for (k, v) in data.iter() {
-        let key = Encode::encode(k).expect("failed to encode key");
-        let value = Encode::encode(v).expect("failed to encode value");
-        db_transaction.put(Some(col), &key, &value);
+    pub fn get_accepted_authorities(&mut self, slot: Slot) -> Option<&Vec<AuthorityStake>> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_ACCEPTED_AUTHORITY,
+            &mut self.accepted_authorities,
+            &self.generic_storage.enc_index(slot)
+        ).expect("Failed to read from storage")
     }
-    storage.write(db_transaction).expect("failed to write to storage");
+
+    pub fn set_accepted_authorities(
+        &mut self,
+        slot: Slot,
+        authorities: Vec<AuthorityStake>
+    ) {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_ACCEPTED_AUTHORITY,
+            &mut self.accepted_authorities,
+            &self.generic_storage.enc_index(slot),
+            authorities,
+        ).expect("Failed to write to storage")
+    }
+
+    pub fn extend_accepted_authorities(
+        &mut self,
+        authorities: HashMap<Slot, Vec<AuthorityStake>>,
+    ) {
+        let updates = authorities
+            .into_iter()
+            .map(|(k, v)| (self.generic_storage.enc_index(k).to_vec(), v))
+            .collect();
+        extend_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_ACCEPTED_AUTHORITY,
+            &mut self.accepted_authorities,
+            updates
+        ).expect("Failed to write to storage");
+    }
 }
