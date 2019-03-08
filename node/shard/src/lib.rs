@@ -53,7 +53,6 @@ where
 #[allow(unused)]
 pub struct ShardClient {
     pub chain: Arc<chain::BlockChain<SignedShardBlockHeader, SignedShardBlock, ShardChainStorage>>,
-    pub receipts: RwLock<HashMap<BlockIndex, HashMap<ShardId, ReceiptBlock>>>,
     pub trie: Arc<Trie>,
     storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
@@ -80,7 +79,6 @@ impl ShardClient {
         let pool = Arc::new(Pool::new(signer, storage.clone(), trie.clone()));
         Self { 
             chain,
-            receipts: RwLock::new(HashMap::new()),
             trie,
             storage,
             runtime,
@@ -114,8 +112,13 @@ impl ShardClient {
             .expect(POISONED_LOCK_ERR)
             .extend_transaction_results_addresses(block, tx_result)
             .unwrap();
+        
         let index = block.index();
-        self.receipts.write().expect(POISONED_LOCK_ERR).insert(index, new_receipts);
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .extend_receipts(index, new_receipts)
+            .unwrap();
     }
 
     fn compute_receipt_blocks(
@@ -286,11 +289,11 @@ impl ShardClient {
         block_index: BlockIndex,
         shard_id: ShardId,
     ) -> Option<ReceiptBlock> {
-        self.receipts
-            .read()
+        self.storage
+            .write()
             .expect(POISONED_LOCK_ERR)
-            .get(&block_index)
-            .and_then(|m| m.get(&shard_id))
+            .receipt_block(block_index, shard_id)
+            .unwrap()
             .cloned()
     }
 }

@@ -56,9 +56,10 @@ const COL_BLOCK_INDICES: u32 = 3;
 const COL_STATE: u32 = 4;
 const COL_TRANSACTION_RESULTS: u32 = 5;
 const COL_TRANSACTION_ADDRESSES: u32 = 6;
+const COL_RECEIPT_BLOCK: u32 = 7;
 
 /// Number of columns per chain.
-pub const NUM_COLS: u32 = 7;
+pub const NUM_COLS: u32 = 8;
 
 /// Error that occurs when we try operating with genesis-specific columns, without setting the
 /// genesis in advance.
