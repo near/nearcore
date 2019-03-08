@@ -27,6 +27,8 @@ use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
+use primitives::hash::hash_struct;
+use primitives::aggregate_signature::BlsPublicKey;
 
 pub mod test_utils;
 
@@ -44,6 +46,7 @@ pub enum BlockProductionResult {
 }
 
 /// Result of client trying to import a block.
+#[derive(Debug)]
 pub enum BlockImportingResult {
     /// The block was successfully imported, and `new_index` is the new index. Note, the `new_index`
     /// can be greater by any amount than the index of the imported block, if it was a pending
@@ -52,9 +55,11 @@ pub enum BlockImportingResult {
     /// The block was not imported, because its parent is missing. Blocks with indices
     /// `missing_indices` should be fetched. This block might and might not have been already
     /// recorded as pending.
-    MissingParent { parent_hash: CryptoHash, missing_indices: Vec<BlockIndex> },
+    MissingParent { orphan_hash: CryptoHash, missing_indices: Vec<BlockIndex> },
     /// The block was not imported, because it is already in the blockchain.
     AlreadyImported,
+    /// The block is not formed correctly or doesn't have enough signatures
+    InvalidBlock,
 }
 
 pub struct Client {
@@ -281,6 +286,19 @@ impl Client {
         (part_add, part_pending)
     }
 
+    /// Checks that the cached hash matches the content of the block
+    pub fn verify_block_hash(beacon_block: &SignedBeaconBlock, shard_block: &SignedShardBlock) -> bool {
+        shard_block.hash == hash_struct(&shard_block.body.header) &&
+            beacon_block.hash == hash_struct(&beacon_block.body.header) &&
+            beacon_block.body.header.shard_block_hash == shard_block.hash
+    }
+
+    /// Gets BLS keys for validating GroupSignature at block_index
+    pub fn get_authority_keys(&self, block_index: u64) -> Vec<BlsPublicKey> {
+        let (_, authority_map) = self.get_uid_to_authority_map(block_index);
+        (0..authority_map.len()).map(|i| authority_map[&i].bls_public_key.clone()).collect()
+    }
+
     /// Attempts to import a beacon block. Fails to import if there are no known parent blocks.
     /// If succeeds might unlock more blocks that were waiting for this parent. If import changes
     /// the best block then it returns it, otherwise it returns None.
@@ -299,10 +317,26 @@ impl Client {
         if self.beacon_chain.chain.is_known(&hash) {
             return BlockImportingResult::AlreadyImported;
         }
+        if !Client::verify_block_hash(&beacon_block, &shard_block) {
+            return BlockImportingResult::InvalidBlock;
+        }
+        // TODO get_authority_keys panics if block index is too high
+        let bls_keys = self.get_authority_keys(beacon_block.index());
+        if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref()) ||
+            !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref()) {
+            error!(target: "client", "Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
+                   shard_block.block_hash(), beacon_block.block_hash(),
+                   beacon_block.signature.authority_count(),
+                   shard_block.signature.authority_count());
+            // TODO enable when we sign blocks with second BLS
+            if false {
+                return BlockImportingResult::InvalidBlock;
+            }
+        }
 
         if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains_key(&hash) {
             return BlockImportingResult::MissingParent {
-                parent_hash: hash,
+                orphan_hash: hash,
                 missing_indices: self.get_missing_indices(),
             };
         }
@@ -315,6 +349,7 @@ impl Client {
         let best_block_hash = self.beacon_chain.chain.best_hash();
 
         let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
+        let mut bad_block: bool = false;
         // Loop until we run out of blocks to add.
         loop {
             // Only keep those blocks in `pending_blocks` that are still pending.
@@ -328,8 +363,7 @@ impl Client {
                 Some(b) => b,
                 None => break,
             };
-            let hash = next_beacon_block.block_hash();
-            if self.beacon_chain.chain.is_known(&hash) {
+            if self.beacon_chain.chain.is_known(&next_beacon_block.block_hash()) {
                 continue;
             }
 
@@ -340,17 +374,22 @@ impl Client {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect(BEACON_SHARD_BLOCK_MATCH);
 
+
             if self.shard_client.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
+                // Update the authority.
+                self.update_authority(&next_beacon_block.header());
+            } else {
+                bad_block |= hash == next_beacon_block.block_hash();
             }
-            // Update the authority.
-            self.update_authority(&next_beacon_block.header());
         }
         let new_best_block = self.beacon_chain.chain.best_block();
 
-        if new_best_block.block_hash() == best_block_hash {
+        if bad_block {
+            BlockImportingResult::InvalidBlock
+        } else if new_best_block.block_hash() == best_block_hash {
             BlockImportingResult::MissingParent {
-                parent_hash: hash,
+                orphan_hash: hash,
                 missing_indices: self.get_missing_indices(),
             }
         } else {
