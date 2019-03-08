@@ -48,10 +48,11 @@ This repo contains the core NEAR Protocol node client.  It is written using the 
 
 ```bash
 $ curl https://sh.rustup.rs -sSf | sh
+# you may need to restart your shell here
 $ rustup component add clippy-preview
 ```
 
-You may need to activate the environment via `. ~/.cargo/env` to use `cargo`.
+You may need to activate the environment via `$ source ~/.cargo/env` to use `cargo`.
 
 
 ### Install dependencies
