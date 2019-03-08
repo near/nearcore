@@ -6,14 +6,11 @@ use super::{
 use crate::storages::ChainId;
 use crate::KeyValueDB;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::types::{AuthorityStake, AuthorityMask};
+use primitives::types::{AuthorityStake, AuthorityMask, Epoch, Slot};
 use primitives::serialize::{Encode, Decode};
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-
-type Epoch = u64;
-type Slot = u64;
 
 /// Beacon chain does not require additional behavior besides storing and retrieving blocks. Later,
 /// we can add authority info.

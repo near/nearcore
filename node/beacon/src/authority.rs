@@ -11,15 +11,12 @@ use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityMask, AuthorityStake, BlockId};
+use primitives::types::{AuthorityMask, AuthorityStake, BlockId, Epoch, Slot};
 use storage::BeaconChainStorage;
 
 use crate::beacon_chain::BeaconBlockChain;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-
-type Epoch = u64;
-type Slot = u64;
 
 fn find_threshold(stakes: &[u64], num_seats: u64) -> Result<u64, String> {
     let stakes_sum: u64 = stakes.iter().sum();
@@ -61,8 +58,6 @@ pub struct Authority {
     participation: HashMap<Slot, AuthorityMask>,
     /// Records the blocks that it processed for the given blocks.
     processed_blocks: HashMap<Epoch, HashSet<Slot>>,
-    /// the most recent epoch that has been processed
-    current_epoch: Epoch,
 
     // The following is a derived information which we do not want to recompute.
     /// Computed thresholds for each epoch.
@@ -106,27 +101,27 @@ impl Authority {
         }
     }
 
-    fn prune_slot<V: Clone>(&self, data: &HashMap<Slot, V>) -> HashMap<Slot, V> {
+    fn prune_slot<V: Clone>(&self, data: &HashMap<Slot, V>, epoch: Epoch) -> HashMap<Slot, V> {
         data.iter()
-            .filter(|(&k, &_)| self.slot_to_epoch(k) >= self.current_epoch)
+            .filter(|(&k, &_)| self.slot_to_epoch(k) >= epoch)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 
-    fn prune_epoch<V: Clone>(&self, data: &HashMap<Epoch, V>) -> HashMap<Epoch, V> {
+    fn prune_epoch<V: Clone>(&self, data: &HashMap<Epoch, V>, epoch: Epoch) -> HashMap<Epoch, V> {
         data.iter()
-            .filter(|(&k, &_)| k >= self.current_epoch)
+            .filter(|(&k, &_)| k >= epoch)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 
-    fn write_to_storage(&self) {
+    fn write_to_storage(&self, current_epoch: Epoch) {
         // prune old epochs
-        let proposals = self.prune_slot(&self.proposals);
-        let participation = self.prune_slot(&self.participation);
-        let processed_blocks = self.prune_epoch(&self.processed_blocks);
-        let thresholds = self.prune_epoch(&self.thresholds);
-        let accepted_authorities = self.prune_slot(&self.accepted_authorities);
+        let proposals = self.prune_slot(&self.proposals, current_epoch);
+        let participation = self.prune_slot(&self.participation, current_epoch);
+        let processed_blocks = self.prune_epoch(&self.processed_blocks, current_epoch);
+        let thresholds = self.prune_epoch(&self.thresholds, current_epoch);
+        let accepted_authorities = self.prune_slot(&self.accepted_authorities, current_epoch);
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         guard.set_proposal(&proposals);
         guard.set_participation(&participation);
@@ -350,8 +345,7 @@ impl Authority {
             if all_slots_processed {
                 // Compute accepted authorities for epoch+2.
                 self.compute_accepted_authorities(epoch + 2);
-                self.current_epoch = epoch;
-                self.write_to_storage();
+                self.write_to_storage(epoch);
             }
         }
     }
@@ -524,8 +518,12 @@ mod test {
         let next_authorities = authority.get_authorities(3);
         assert!(next_authorities.is_ok());
 
+        let genesis_block = SignedBeaconBlock::new(
+            0, CryptoHash::default(), vec![], CryptoHash::default()
+        );
+
         let bc1 = BeaconClient::new(
-            block2.clone(),
+            genesis_block,
             &chain_spec,
             get_blockchain_storage(bc.chain)
         );
