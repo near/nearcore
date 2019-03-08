@@ -91,7 +91,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
 
 #[test]
 fn test_multiple_nodes() {
-    run_multiple_nodes(4, 10);
+    run_multiple_nodes(7, 100);
 }
 
 /// This test should work after (#667) is fixed.

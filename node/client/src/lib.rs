@@ -28,6 +28,7 @@ use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIn
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 use shard::ShardBlockExtraInfo;
+use primitives::block_traits::SignedHeader;
 
 pub mod test_utils;
 
@@ -354,11 +355,16 @@ impl Client {
 
     // Authority-related code. Consider hiding it inside the shard chain.
     fn update_authority(&self, beacon_header: &SignedBeaconBlockHeader) {
+        // TODO: This is a temporary hack to ensure that all authorities are counted as participating
+        // on each block.
+        let mut hacked_header = beacon_header.clone();
+        let num_authorities = self.get_uid_to_authority_map(hacked_header.index()).1.len();
+        hacked_header.signature.authority_mask = vec![true; num_authorities];
         self.beacon_chain
             .authority
             .write()
             .expect(POISONED_LOCK_ERR)
-            .process_block_header(beacon_header);
+            .process_block_header(&hacked_header);
     }
 
     /// Returns own AuthorityId and AuthorityId to Authority Stake map for the given block number.
