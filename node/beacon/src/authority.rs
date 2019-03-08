@@ -142,7 +142,6 @@ impl Authority {
             proposals: HashMap::new(),
             participation: HashMap::new(),
             processed_blocks: HashMap::new(),
-            current_epoch: 0,
             thresholds: HashMap::new(),
             accepted_authorities: HashMap::new(),
             storage,
