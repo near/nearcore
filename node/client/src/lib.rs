@@ -320,6 +320,19 @@ impl Client {
         if !Client::verify_block_hash(&beacon_block, &shard_block) {
             return BlockImportingResult::InvalidBlock;
         }
+        // TODO get_authority_keys panics if block index is too high
+        let bls_keys = self.get_authority_keys(beacon_block.index());
+        if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref()) ||
+            !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref()) {
+            error!(target: "client", "Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
+                   shard_block.block_hash(), beacon_block.block_hash(),
+                   beacon_block.signature.authority_count(),
+                   shard_block.signature.authority_count());
+            // TODO enable when we sign blocks with second BLS
+            if false {
+                return BlockImportingResult::InvalidBlock;
+            }
+        }
 
         if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains_key(&hash) {
             return BlockImportingResult::MissingParent {
@@ -361,19 +374,6 @@ impl Client {
                 .remove(&next_beacon_block.body.header.shard_block_hash)
                 .expect(BEACON_SHARD_BLOCK_MATCH);
 
-            let bls_keys = self.get_authority_keys(next_beacon_block.index());
-            if !next_beacon_block.signature.verify(&bls_keys, next_beacon_block.hash.as_ref()) ||
-                !next_shard_block.signature.verify(&bls_keys, next_shard_block.hash.as_ref()) {
-                error!(target: "client", "Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
-                       next_shard_block.block_hash(), next_beacon_block.block_hash(),
-                       next_beacon_block.signature.authority_count(),
-                       next_shard_block.signature.authority_count());
-                // TODO enable when we sign blocks with second BLS
-                if false {
-                    bad_block |= hash == next_beacon_block.block_hash();
-                    continue;
-                }
-            }
 
             if self.shard_client.apply_block(next_shard_block) {
                 self.beacon_chain.chain.insert_block(next_beacon_block.clone());
