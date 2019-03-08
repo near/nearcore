@@ -36,6 +36,7 @@ pub struct PublicKey<E: Engine> {
 
 #[derive(Clone, Debug)]
 pub struct Signature<E: Engine> {
+    // A point on the G2 curve, but not necessarily in the correct G2 subgroup.
     point: E::G2Affine,
 }
 
@@ -122,6 +123,9 @@ impl<E: Engine> PublicKey<E> {
     }
 
     fn verify_internal(&self, message: &[u8], signature: &Signature<E>) -> bool {
+        if !signature.point.is_in_correct_subgroup_assuming_on_curve() {
+            return false
+        }
         let h = E::G2::hash(message).into_affine();
         let lhs = E::pairing(E::G1Affine::one(), signature.point);
         let rhs = E::pairing(self.point, h);
@@ -286,12 +290,12 @@ impl<E: Engine> CompressedSignature<E> {
     }
 
     pub fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
-        Ok(Signature { point: self.0.into_affine()? })
+        // Subgroup check is postponed until signature verification
+        Ok(Signature { point: self.0.into_affine_semi_checked()? })
     }
 
     /// Decompress a signature, without verifying that the resulting point is actually on the curve.
-    /// Verifying is very slow, so if we know we've already done it (for example, if we're reading
-    /// from disk a previously validated block), we can skip point verification.  Use with caution.
+    /// For compressed signatures, there is no performance gain.
     pub fn decompress_unchecked(&self) -> Signature<E> {
         Signature { point: self.0.into_affine_unchecked().unwrap() }
     }
