@@ -211,15 +211,15 @@ impl Authority {
                 let accepted = storage
                     .get_accepted_authorities(s)
                     .cloned()
-                    .unwrap_or_else(|| vec![])
+                    .unwrap_or_else(Vec::new)
                     .into_iter();
                 let participation = storage
                     .get_participation(s)
-                    .cloned()
-                    .unwrap_or_else(|| vec![])
-                    .into_iter();
+                    .map(|x| x.iter())
+                    .unwrap_or_else(|| [].iter());
+                    
                 for (acc, participated) in accepted.zip(participation) {
-                    if participated {
+                    if *participated {
                         match indices.entry(acc.account_id.clone()) {
                             Entry::Occupied(e) => {
                                 let el: &mut AuthorityStake = &mut ordered_rollovers[*e.get()];
