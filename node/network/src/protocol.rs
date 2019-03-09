@@ -157,9 +157,9 @@ impl Protocol {
     }
 
     fn get_authority_id_from_peer_id(&self, peer_id: &PeerId) -> Option<AuthorityId> {
-        if let Some(peer_info) = self.peer_manager.get_peer_info(peer_id) {
-            if let Some(account_id) = peer_info.account_id {
-                let (_, auth_map) = self.client.get_uid_to_authority_map(1);
+        self.peer_manager.get_peer_info(peer_id).and_then(|peer_info| {
+            peer_info.account_id.and_then(|account_id| {
+                let auth_map = self.client.get_recent_uid_to_authority_map();
                 auth_map.iter().find_map(|(authority_id, authority_stake)| {
                     if authority_stake.account_id == account_id {
                         Some(*authority_id as AuthorityId)
@@ -167,19 +167,12 @@ impl Protocol {
                         None
                     }
                 })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+            })
+        })
     }
 
     fn get_authority_channel(&self, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
-        // TODO: Currently it gets the same authority map for all block indices.
-        // Update authority map, once block production and block importing is in place.
-        //        let auth_map = self.client.get_recent_uid_to_authority_map();
-        let (_, auth_map) = self.client.get_uid_to_authority_map(1);
+        let auth_map = self.client.get_recent_uid_to_authority_map();
         auth_map
             .get(&authority_id)
             .map(|auth| auth.account_id.clone())
