@@ -40,7 +40,7 @@ pub fn default_code_hash() -> CryptoHash {
     hash(genesis_wasm)
 }
 
-pub fn generate_test_chain_spec() -> (ChainSpec, Arc<InMemorySigner>) {
+pub fn generate_test_chain_spec() -> (ChainSpec, Vec<Arc<InMemorySigner>>) {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let alice_signer = InMemorySigner::from_seed("alice.near", "alice.near");
     let bob_signer = InMemorySigner::from_seed("bob.near", "bob.near");
@@ -54,9 +54,9 @@ pub fn generate_test_chain_spec() -> (ChainSpec, Arc<InMemorySigner>) {
         initial_authorities: vec![("alice.near".to_string(), alice_signer.public_key().to_readable(), alice_signer.bls_public_key().to_readable(), 50)],
         genesis_wasm,
         beacon_chain_epoch_length: 2,
-        beacon_chain_num_seats_per_slot: 10,
+        beacon_chain_num_seats_per_slot: 1,
         boot_nodes: vec![],
-    }, Arc::new(alice_signer))
+    }, vec![Arc::new(alice_signer)])
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {

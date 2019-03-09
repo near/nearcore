@@ -1,10 +1,16 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::block_traits::SignedBlock;
+use crate::chain::SignedShardBlock;
+use crate::beacon::SignedBeaconBlock;
+use crate::hash::CryptoHash;
 use crate::signature::{PublicKey, SecretKey};
 use crate::signer::InMemorySigner;
 
@@ -42,3 +48,28 @@ impl InMemorySigner {
         }
     }
 }
+
+pub trait TestSignedBlock: SignedBlock {
+    fn sign_all(&mut self, signers: &Vec<Arc<InMemorySigner>>) {
+        for (i, signer) in signers.iter().enumerate() {
+            self.add_signature(&self.sign(signer.clone()), i);
+        }
+    }
+}
+
+impl SignedShardBlock {
+    pub fn empty(prev: &SignedShardBlock) -> Self {
+        SignedShardBlock::new(
+            prev.shard_id(),
+            prev.index() + 1,
+            prev.hash,
+            prev.merkle_root_state(),
+            vec![],
+            vec![],
+            CryptoHash::default(),
+        )
+    }
+}
+
+impl TestSignedBlock for SignedShardBlock {}
+impl TestSignedBlock for SignedBeaconBlock {}
