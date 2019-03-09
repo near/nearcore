@@ -307,7 +307,7 @@ impl NightshadeTask {
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
-            move |_| error!("Failing requesting confirmation for ({},{:?})", authority, hash),
+            move |_| error!("Failed to request confirmation for ({},{:?})", authority, hash),
         );
         tokio::spawn(task);
     }
@@ -388,8 +388,8 @@ impl Stream for NightshadeTask {
                     bls_public_keys,
                 }))) => {
                     info!(target: "nightshade",
-                          "Control channel received Reset for owner_uid={}, block_index={}",
-                          owner_uid, block_index);
+                          "Control channel received Reset for owner_uid={}, block_index={}, hash={:?}",
+                          owner_uid, block_index, hash);
                     self.init_nightshade(
                         owner_uid,
                         block_index,
@@ -459,16 +459,20 @@ impl Stream for NightshadeTask {
                         if let Some(outcome) = self.nightshade_as_ref().committed.clone() {
                             self.consensus_reported = true;
 
-                            tokio::spawn(
-                                self.consensus_sender
-                                    .clone()
-                                    .send(ConsensusBlockProposal {
-                                        proposal: outcome,
-                                        index: self.block_index.unwrap(),
-                                    })
-                                    .map(|_| ())
-                                    .map_err(|e| error!("Failed sending consensus: {:?}", e)),
-                            );
+                            if self.confirmed_proposals[outcome.author] {
+                                tokio::spawn(
+                                    self.consensus_sender
+                                        .clone()
+                                        .send(ConsensusBlockProposal {
+                                            proposal: outcome,
+                                            index: self.block_index.unwrap(),
+                                        })
+                                        .map(|_| ())
+                                        .map_err(|e| error!("Failed sending consensus: {:?}", e)),
+                                );
+                            } else {
+                                info!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", outcome.hash, outcome.author);
+                            }
                         }
                     }
                 }

@@ -77,8 +77,9 @@ class WalletAccount {
     }
 
     receiveMessage(event) {
-        if (event.origin != this._walletBaseUrl) {
+        if (!this._walletBaseUrl.startsWith(event.origin)) {
             // Only processing wallet messages.
+            console.log('Wallet account ignoring message from ' + event.origin);
             return;
         }
         let data;

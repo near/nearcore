@@ -65,6 +65,12 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .help("Delay in ms between gossiping peers info with known peers.")
             .default_value(DEFAULT_GOSSIP_INTERVAL_MS)
             .takes_value(true),
+        Arg::with_name("tx_gossip_interval_ms")
+            .long("tx-gossip-interval-ms")
+            .value_name("TRANSACTIONS GOSSIP_INTERVAL_MS")
+            .help("Delay in ms between gossiping transactions to peers.")
+            .default_value(DEFAULT_GOSSIP_INTERVAL_MS)
+            .takes_value(true),
         Arg::with_name("gossip_sample_size")
             .long("gossip-sample-size")
             .value_name("GOSSIP_SAMPLE_SIZE")

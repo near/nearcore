@@ -3,9 +3,10 @@ use crate::types::ReadableBlsPublicKey;
 use bs58;
 use pairing::{
     CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
-    PrimeFieldRepr,
+    PrimeFieldRepr, Rand,
 };
-use rand::{OsRng, Rand, Rng};
+use rand::Rng;
+use rand::rngs::OsRng;
 use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
@@ -35,6 +36,7 @@ pub struct PublicKey<E: Engine> {
 
 #[derive(Clone, Debug)]
 pub struct Signature<E: Engine> {
+    // A point on the G2 curve, but not necessarily in the correct G2 subgroup.
     point: E::G2Affine,
 }
 
@@ -121,6 +123,9 @@ impl<E: Engine> PublicKey<E> {
     }
 
     fn verify_internal(&self, message: &[u8], signature: &Signature<E>) -> bool {
+        if !signature.point.is_in_correct_subgroup_assuming_on_curve() {
+            return false
+        }
         let h = E::G2::hash(message).into_affine();
         let lhs = E::pairing(E::G1Affine::one(), signature.point);
         let rhs = E::pairing(self.point, h);
@@ -285,12 +290,12 @@ impl<E: Engine> CompressedSignature<E> {
     }
 
     pub fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
-        Ok(Signature { point: self.0.into_affine()? })
+        // Subgroup check is postponed until signature verification
+        Ok(Signature { point: self.0.into_affine_semi_checked()? })
     }
 
     /// Decompress a signature, without verifying that the resulting point is actually on the curve.
-    /// Verifying is very slow, so if we know we've already done it (for example, if we're reading
-    /// from disk a previously validated block), we can skip point verification.  Use with caution.
+    /// For compressed signatures, there is no performance gain.
     pub fn decompress_unchecked(&self) -> Signature<E> {
         Signature { point: self.0.into_affine_unchecked().unwrap() }
     }
@@ -373,11 +378,12 @@ pub type BlsAggregateSignature = AggregateSignature<Bls12>;
 mod tests {
     use super::*;
 
-    use rand::{SeedableRng, XorShiftRng};
+    use rand::{SeedableRng};
+    use rand_xorshift::XorShiftRng;
 
     #[test]
     fn sign_verify() {
-        let mut rng = XorShiftRng::from_seed([11111111, 22222222, 33333333, 44444444]);
+        let mut rng = XorShiftRng::seed_from_u64(1);
 
         let secret = (0..2).map(|_| BlsSecretKey::generate_from_rng(&mut rng)).collect::<Vec<_>>();
         let pubkey = (0..2).map(|i| secret[i].get_public_key()).collect::<Vec<_>>();
@@ -398,7 +404,7 @@ mod tests {
 
     #[test]
     fn proof_verify() {
-        let mut rng = XorShiftRng::from_seed([22222222, 33333333, 44444444, 55555555]);
+        let mut rng = XorShiftRng::seed_from_u64(2);
 
         let secret = (0..2).map(|_| BlsSecretKey::generate_from_rng(&mut rng)).collect::<Vec<_>>();
         let pubkey = (0..2).map(|i| secret[i].get_public_key()).collect::<Vec<_>>();
@@ -417,7 +423,7 @@ mod tests {
 
     #[test]
     fn aggregate_signature() {
-        let mut rng = XorShiftRng::from_seed([33333333, 44444444, 55555555, 66666666]);
+        let mut rng = XorShiftRng::seed_from_u64(3);
 
         let secret = (0..10).map(|_| BlsSecretKey::generate_from_rng(&mut rng)).collect::<Vec<_>>();
 

@@ -329,7 +329,7 @@ impl Authority {
                 slot,
                 epoch,
                 epoch as i64 -2,
-                storage.get_processed_blocks(slot).map(|m| m.len()).unwrap_or(0),
+                storage.get_processed_blocks(slot).map(HashSet::len).unwrap_or(0),
                 self.authority_config.epoch_length,
             ))
         }

@@ -8,10 +8,8 @@ use std::sync::Arc;
 use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
-use coroutines::importer::spawn_block_importer;
-use coroutines::ns_producer::spawn_block_producer;
-use mempool::pool_task::spawn_pool;
+use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use coroutines::client_task::ClientTask;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
@@ -44,38 +42,35 @@ pub fn start_from_client(
         // Create all the consensus channels.
         let (inc_gossip_tx, inc_gossip_rx) = channel(1024);
         let (out_gossip_tx, out_gossip_rx) = channel(1024);
+        let (inc_payload_gossip_tx, inc_payload_gossip_rx) = channel(1024);
+        let (out_payload_gossip_tx, out_payload_gossip_rx) = channel(1024);
         let (consensus_tx, consensus_rx) = channel(1024);
         let (control_tx, control_rx) = channel(1024);
 
         // Launch tx gossip / payload sync.
         let (retrieve_payload_tx, retrieve_payload_rx) = channel(1024);
-        let (payload_announce_tx, payload_announce_rx) = channel(1014);
         let (payload_request_tx, payload_request_rx) = channel(1024);
         let (payload_response_tx, payload_response_rx) = channel(1024);
-        let (mempool_control_tx, mempool_control_rx) = channel(1024);
-        spawn_pool(
-            client.shard_client.pool.clone(),
-            mempool_control_rx,
-            control_tx,
-            retrieve_payload_rx,
-            payload_announce_tx,
-            payload_request_tx,
-            payload_response_rx,
-            network_cfg.gossip_interval,
-        );
 
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
-        spawn_block_importer(client.clone(), inc_block_rx, mempool_control_tx.clone());
 
-        // Launch block producer.
-        spawn_block_producer(
+        // Launch Client task.
+        ClientTask::new(
             client.clone(),
-            consensus_rx,
-            mempool_control_tx,
+            inc_block_rx,
             out_block_tx,
-        );
+            consensus_rx,
+            control_tx,
+            retrieve_payload_rx,
+            payload_request_tx,
+            payload_response_rx,
+            inc_payload_gossip_rx,
+            out_payload_gossip_tx,
+            network_cfg.gossip_interval,
+        )
+        .spawn();
 
         // Launch Nightshade task.
         spawn_nightshade_task(
@@ -96,9 +91,10 @@ pub fn start_from_client(
             out_gossip_rx,
             inc_block_tx,
             out_block_rx,
-            payload_announce_rx,
             payload_request_rx,
             payload_response_tx,
+            inc_payload_gossip_tx,
+            out_payload_gossip_rx,
         );
 
         Ok(())
@@ -120,43 +116,36 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, Node, wait};
+    use crate::testing_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
     #[test]
     fn two_nodes() {
+        let (test_prefix, test_port) = ("two_nodes", 7000);
         let chain_spec = configure_chain_spec();
-        let alice = Node::new(
-            "t1_alice",
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
             "alice.near",
             1,
-            Some("127.0.0.1:3000"),
-            3030,
             vec![],
             chain_spec.clone(),
         );
-        let bob = Node::new(
-            "t1_bob",
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
             "bob.near",
             2,
-            Some("127.0.0.1:3001"),
-            3031,
             vec![alice.node_info.clone()],
             chain_spec,
         );
-        let alice_signer = alice.signer();
-        let bob_signer = bob.signer();
-        println!("Alice pk={:?}, bls pk={:?}", alice_signer.public_key.to_readable(), alice_signer.bls_public_key.to_readable());
-        println!("Bob pk={:?}, bls pk={:?}", bob_signer.public_key.to_readable(), bob_signer.bls_public_key.to_readable());
-
         alice
             .client
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
             )
             .unwrap();
 
@@ -170,7 +159,7 @@ mod tests {
                     && bob.client.shard_client.chain.best_block().index() >= 2
             },
             500,
-            60000,
+            600000,
         );
 
         // Check that transaction and it's receipt were included.
@@ -202,31 +191,29 @@ mod tests {
     /// Check that third node got the same state.
     #[test]
     fn test_three_nodes_sync() {
+        let (test_prefix, test_port) = ("three_nodes_sync", 7010);
         let chain_spec = configure_chain_spec();
-        let alice = Node::new(
-            "t2_alice",
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
             "alice.near",
             1,
-            Some("127.0.0.1:3002"),
-            3032,
             vec![],
             chain_spec.clone(),
         );
-        let bob = Node::new(
-            "t2_bob",
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
             "bob.near",
             2,
-            Some("127.0.0.1:3003"),
-            3033,
             vec![alice.node_info.clone()],
             chain_spec.clone(),
         );
-        let charlie = Node::new(
-            "t2_charlie",
+        let charlie = Node::for_test_passive(
+            test_prefix,
+            test_port,
             "charlie.near",
             3,
-            None,
-            3034,
             vec![bob.node_info.clone()],
             chain_spec,
         );
@@ -243,7 +230,71 @@ mod tests {
         shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
-        alice.client
+        bob
+            .client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+            )
+            .unwrap();
+
+        alice.start();
+        bob.start();
+        charlie.start();
+
+        wait(|| charlie.client.shard_client.chain.best_block().index() >= 3, 500, 60000);
+
+        // Check that non-authority synced into the same state.
+        let mut state_update = charlie.client.shard_client.get_state_update();
+        assert_eq!(
+            charlie
+                .client
+                .shard_client
+                .trie_viewer
+                .view_account(&mut state_update, &"bob.near".to_string())
+                .unwrap()
+                .amount,
+            110
+        );
+    }
+
+    /// Creates two nodes, first authority node is ahead on blocks.
+    /// Post a transaction on the second authority.
+    /// Wait until the second authority syncs and check that transaction is applied.
+    #[test]
+    fn test_late_transaction() {
+        let (test_prefix, test_port) = ("late_transaction", 7020);
+        let chain_spec = configure_chain_spec();
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
+            "alice.near",
+            1,
+            vec![],
+            chain_spec.clone(),
+        );
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
+            "bob.near",
+            2,
+            vec![alice.node_info.clone()],
+            chain_spec.clone(),
+        );
+        let (mut beacon_block, mut shard_block) =
+            match alice.client.try_produce_block(1, ChainPayload::default()) {
+                BlockProductionResult::Success(beacon_block, shard_block) => {
+                    (beacon_block, shard_block)
+                }
+                _ => panic!("Should produce block"),
+            };
+        // Sign by bob to make this blocks valid.
+        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
+        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
+        alice.client.try_import_blocks(beacon_block, shard_block);
+
+        bob.client
             .shard_client
             .pool
             .add_transaction(
@@ -254,16 +305,15 @@ mod tests {
 
         alice.start();
         bob.start();
-        charlie.start();
 
         wait(|| {
-            charlie.client.shard_client.chain.best_block().index() >= 3
-        }, 500, 10000);
+            alice.client.shard_client.chain.best_block().index() >= 3
+        }, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        let mut state_update = charlie.client.shard_client.get_state_update();
+        let mut state_update = alice.client.shard_client.get_state_update();
         assert_eq!(
-            charlie
+            alice
                 .client
                 .shard_client
                 .trie_viewer
