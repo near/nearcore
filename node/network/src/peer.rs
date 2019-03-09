@@ -2,14 +2,14 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::DerefMut;
-use std::sync::RwLockWriteGuard;
 use std::sync::{Arc, RwLock};
+use std::sync::RwLockWriteGuard;
 use std::time::{Duration, Instant};
 
+use futures::{Async, Future, Poll, Sink, try_ready};
 use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Sender};
-use futures::{try_ready, Async, Future, Poll, Sink};
-use log::{info, warn};
+use log::{debug, info, warn};
 use serde_derive::{Deserialize, Serialize};
 use tokio::codec::Framed;
 use tokio::net::tcp::ConnectFuture;
@@ -400,7 +400,7 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                     }
                     // Connection returned error. Should try again later.
                     Err(e) => {
-                        warn!(target: "network", "Failed to connect to a known peer {}", e);
+                        debug!(target: "network", "Failed to connect to a known peer {}", e);
                         Unconnected {
                             info: info.clone(),
                             connect_timer: get_delay(self.reconnect_delay),

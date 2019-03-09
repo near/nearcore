@@ -5,7 +5,7 @@ use std::time::Duration;
 use clap::{Arg, ArgMatches};
 
 use crate::ClientConfig;
-use primitives::network::PeerInfo;
+use primitives::network::NodeAddr;
 use primitives::{hash::hash, types::PeerId};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:3000";
@@ -18,7 +18,7 @@ const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
 pub struct NetworkConfig {
     pub listen_addr: Option<SocketAddr>,
     pub peer_id: PeerId,
-    pub boot_nodes: Vec<PeerInfo>,
+    pub boot_nodes: Vec<NodeAddr>,
     pub reconnect_delay: Duration,
     pub gossip_interval: Duration,
     pub gossip_sample_size: usize,
@@ -101,13 +101,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
     let mut boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
-            let addr_id: Vec<_> = addr_id.split('/').collect();
-            let (addr, id) = (addr_id[0], addr_id[1]);
-            PeerInfo {
-                addr: Some(addr.parse::<SocketAddr>().expect("Cannot parse address")),
-                id: String::into(id.to_string()),
-                account_id: None,
-            }
+            NodeAddr::parse(&addr_id).expect("Cannot parse address")
         })
         .clone()
         .collect();
