@@ -27,6 +27,7 @@ impl BeaconClient {
 #[cfg(test)]
 mod tests {
     use chain::BlockChain;
+    use chain::test_utils::get_blockchain_storage;
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
@@ -44,6 +45,19 @@ mod tests {
         let bc = BlockChain::new(genesis.clone(), storage);
         assert_eq!(bc.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
         assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_genesis() {
+        let storage = create_beacon_shard_storages().0;
+        let genesis =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
+        let bc = BlockChain::new(genesis.clone(), storage);
+        let storage = get_blockchain_storage(bc);
+        let invalid_genesis_block = 
+            SignedBeaconBlock::new(1, CryptoHash::default(), vec![], CryptoHash::default());
+        let _ = BlockChain::new(invalid_genesis_block, storage);
     }
 
     #[test]

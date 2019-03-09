@@ -132,6 +132,13 @@ where
     }
 
     pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
+        // check whether we already have a genesis. If we do, then
+        // the genesis must match the existing one in storage
+        if let Some(genesis_hash) = self.genesis_hash {
+            if genesis_hash != genesis.block_hash() {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid genesis"));
+            }
+        }
         self.genesis_hash = Some(genesis.block_hash());
         if self.block(&genesis.block_hash())?.is_none() {
             // Only add genesis block if it was not added before. It might have been added before
