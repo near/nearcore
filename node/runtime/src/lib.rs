@@ -351,7 +351,6 @@ impl Runtime {
         runtime_ext: &mut RuntimeExt,
         return_data: ReturnData,
         callback_info: &Option<CallbackInfo>,
-        sender_id: &AccountId,
         receiver_id: &AccountId,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let callback_info = match callback_info {
@@ -406,7 +405,7 @@ impl Runtime {
         if let Some(callback_res) = callback_res {
             let new_receipt = ReceiptTransaction::new(
                 receiver_id.clone(),
-                sender_id.clone(),
+                callback_info.receiver.clone(),
                 runtime_ext.create_nonce(),
                 ReceiptBody::Callback(callback_res),
             );
@@ -458,18 +457,20 @@ impl Runtime {
             mana_accounting.mana_refund = wasm_res.mana_left;
             logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
-            let return_data = wasm_res.return_data
-                .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
-            Self::return_data_to_receipts(
-                &mut runtime_ext,
-                return_data,
-                &async_call.callback,
-                sender_id,
-                receiver_id,
-            ).and_then(|receipts| {
-                receiver.amount = balance;
-                Ok(receipts)
-            })
+            wasm_res.return_data
+                .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))
+                .and_then(|data|
+                    Self::return_data_to_receipts(
+                        &mut runtime_ext,
+                        data,
+                        &async_call.callback,
+                        receiver_id,
+                    )
+                )
+                .and_then(|receipts| {
+                    receiver.amount = balance;
+                    Ok(receipts)
+                })
         };
         set(
             state_update,
@@ -544,7 +545,6 @@ impl Runtime {
                                     &mut runtime_ext,
                                     data,
                                     &callback.callback,
-                                    sender_id,
                                     receiver_id,
                                 )
                             )
