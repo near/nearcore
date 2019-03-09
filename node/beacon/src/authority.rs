@@ -305,11 +305,10 @@ impl Authority {
             if all_slots_processed {
                 // Compute accepted authorities for epoch+2.
                 self.compute_accepted_authorities(epoch + 2);
-                // TODO: enabling pruning when we remove hard-coded block index
-                //self.storage.write().expect(POISONED_LOCK_ERR).prune_authority_storage(
-                //    &|k| self.slot_to_epoch(k) >= epoch,
-                //    &|k| k >= epoch,
-                //);
+                self.storage.write().expect(POISONED_LOCK_ERR).prune_authority_storage(
+                    &|k| self.slot_to_epoch(k) >= epoch,
+                    &|k| k >= epoch,
+                );
             }
         }
     }

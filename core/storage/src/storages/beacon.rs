@@ -7,10 +7,8 @@ use crate::storages::ChainId;
 use crate::KeyValueDB;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::types::{AuthorityStake, AuthorityMask, Epoch, Slot};
-use primitives::serialize::{Encode, Decode};
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
 
 /// Beacon chain does not require additional behavior besides storing and retrieving blocks. Later,
 /// we can add authority info.
@@ -52,7 +50,7 @@ impl BeaconChainStorage {
     }
 
     /// whether there is authority info in storage
-    pub fn is_authority_empty(&mut self) -> bool {
+    pub fn is_authority_empty(&self) -> bool {
         let proposals: HashMap<_, _> = self.generic_storage.storage.iter(Some(COL_PROPOSAL)).collect();
         proposals.is_empty()
     }
