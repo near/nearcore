@@ -41,6 +41,12 @@ pub struct PeerInfo {
     pub account_id: Option<AccountId>,
 }
 
+impl PeerInfo {
+    pub fn addr_port(&self) -> Option<u16> {
+        self.addr.map(|addr| addr.port())
+    }
+}
+
 impl PartialEq for PeerInfo {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id

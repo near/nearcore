@@ -2,11 +2,9 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::ops::Deref;
-use std::sync::Arc;
-use std::sync::RwLock;
-use std::time::Duration;
-use std::time::Instant;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use futures::future;
 use futures::future::Future;
@@ -23,7 +21,7 @@ use tokio::timer::Interval;
 use primitives::network::{NodeAddr, PeerInfo};
 use primitives::types::{AccountId, PeerId};
 
-use crate::peer::{AllPeerStates, ChainStateRetriever, Peer, PeerMessage, PeerState};
+use crate::peer::{AllPeerStates, ChainStateRetriever, get_peer_info, Peer, PeerMessage, PeerState};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -96,7 +94,8 @@ impl<T: ChainStateRetriever> PeerManager<T> {
         let task = Interval::new_interval(gossip_interval)
             .for_each(move |_| {
                 let guard = all_peer_states2.read().expect(POISONED_LOCK_ERR);
-                let peers_info: Vec<_> = guard.keys().cloned().collect();
+                let peers_info: Vec<_> = guard.values().filter_map(
+                    |state| get_peer_info(state.write().expect(POISONED_LOCK_ERR).deref_mut()).cloned()).collect();
                 let mut rng = thread_rng();
                 let sampled_peers = guard
                     .iter()
@@ -161,40 +160,34 @@ impl<T: ChainStateRetriever> PeerManager<T> {
 
     /// Get `peer_id` peer information.
     pub fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerInfo> {
-        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, _)| {
-            if info.id == *peer_id {
-                Some(info.clone())
-            } else {
-                None
-            }
-        })
+        if let Some(state) = self.all_peer_states.read().expect(POISONED_LOCK_ERR).get(peer_id) {
+            return get_peer_info(&state.read().expect(POISONED_LOCK_ERR)).cloned();
+        }
+        None
     }
 
     /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.
     pub fn get_peer_channel(&self, peer_id: &PeerId) -> Option<Sender<PeerMessage>> {
-        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
-            if info.id == *peer_id {
-                match state.read().expect(POISONED_LOCK_ERR).deref() {
-                    PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                    _ => None,
-                }
-            } else {
-                None
+        if let Some(state) = self.all_peer_states.read().expect(POISONED_LOCK_ERR).get(peer_id) {
+            if let PeerState::Ready { out_msg_tx, .. } = state.read().expect(POISONED_LOCK_ERR).deref() {
+                return Some(out_msg_tx.clone())
             }
-        })
+        }
+        None
     }
 
     /// Get channel for the given `account_id`, if the corresponding peer is `Ready`.
     pub fn get_account_channel(&self, account_id: AccountId) -> Option<Sender<PeerMessage>> {
-        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(info, state)| {
-            if info.account_id.as_ref() == Some(&account_id) {
-                match state.read().expect(POISONED_LOCK_ERR).deref() {
-                    PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                    _ => None,
+        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(_, state)| {
+            let state_guard = state.read().expect(POISONED_LOCK_ERR);
+            if let Some(info) = get_peer_info(&state_guard) {
+                if info.account_id.as_ref() == Some(&account_id) {
+                    if let PeerState::Ready { out_msg_tx, .. } = state_guard.deref() {
+                        return Some(out_msg_tx.clone())
+                    }
                 }
-            } else {
-                None
             }
+            None
         })
     }
 
