@@ -308,8 +308,8 @@ mod tests {
 
     use super::*;
 
-    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, Arc<InMemorySigner>) {
-        let (chain_spec, signer) = generate_test_chain_spec();
+    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, Vec<Arc<InMemorySigner>>) {
+        let (chain_spec, signers) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
         let trie = Arc::new(Trie::new(shard_storage.clone()));
         let runtime = Runtime {};
@@ -323,20 +323,20 @@ mod tests {
         trie.apply_changes(db_changes).expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
         let _ = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
-        (shard_storage, trie, signer)
+        (shard_storage, trie, signers)
     }
 
     #[test]
     fn test_import_block() {
-        let (storage, trie, signer) = get_test_chain();
-        let pool = Pool::new(signer.clone(), storage, trie);
+        let (storage, trie, signers) = get_test_chain();
+        let pool = Pool::new(signers[0].clone(), storage, trie);
         let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
         })
-        .sign(signer);
+        .sign(signers[0].clone());
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);

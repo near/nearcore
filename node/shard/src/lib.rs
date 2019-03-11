@@ -310,11 +310,11 @@ mod tests {
 
     use super::*;
 
-    fn get_test_client() -> (ShardClient, Arc<InMemorySigner>) {
-        let (chain_spec, signer) = generate_test_chain_spec();
+    fn get_test_client() -> (ShardClient, Vec<Arc<InMemorySigner>>) {
+        let (chain_spec, signers) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
-        let shard_client = ShardClient::new(signer.clone(), &chain_spec, shard_storage);
-        (shard_client, signer)
+        let shard_client = ShardClient::new(signers[0].clone(), &chain_spec, shard_storage);
+        (shard_client, signers)
     }
 
     #[test]
@@ -326,8 +326,8 @@ mod tests {
 
     #[test]
     fn test_transaction_failed() {
-        let (client, signer) = get_test_client();
-        let tx = TransactionBody::send_money(1, "xyz.near", "bob.near", 100).sign(signer);
+        let (client, signers) = get_test_client();
+        let tx = TransactionBody::send_money(1, "xyz.near", "bob.near", 100).sign(signers[0].clone());
         let (block, (db_changes, _, tx_status, receipts)) =
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(&block, db_changes, tx_status, receipts);
@@ -338,8 +338,8 @@ mod tests {
 
     #[test]
     fn test_get_transaction_status_complete() {
-        let (client, signer) = get_test_client();
-        let tx = TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer);
+        let (client, signers) = get_test_client();
+        let tx = TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signers[0].clone());
         let (block, (db_changes, _, tx_status, new_receipts)) =
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(&block, db_changes, tx_status, new_receipts);

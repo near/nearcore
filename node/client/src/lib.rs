@@ -165,17 +165,14 @@ impl Client {
     fn get_missing_indices(&self) -> Vec<BlockIndex> {
         // Use `pending_beacon_blocks` because currently beacon blocks and shard blocks are tied
         // 1 to 1.
-        let guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
+        let mut guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
+        // Prune outdated pending blocks.
+        let best_index = self.beacon_chain.chain.best_index();
+        guard.retain(|_, v| v.index() > best_index);
         if guard.is_empty() {
             /// There are no pending blocks.
             vec![]
         } else {
-            let best_index = self.beacon_chain.chain.best_index();
-            let max_pending_index = guard.values().map(SignedBlock::index).max().unwrap();
-            assert!(
-                max_pending_index <= best_index,
-                "Old pending blocks are expected to be pruned"
-            );
             guard
                 .values()
                 .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })
@@ -473,5 +470,45 @@ impl Client {
     /// Fetch transaction / receipts by hash from mempool.
     pub fn fetch_payload(&self, _transaction_hashes: Vec<CryptoHash>, _receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
         Ok(ChainPayload { transactions: vec![], receipts: vec![] })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use node_runtime::test_utils::generate_test_chain_spec;
+    use primitives::block_traits::SignedBlock;
+    use primitives::test_utils::TestSignedBlock;
+
+    use crate::test_utils::get_client_from_cfg;
+
+    use super::*;
+
+    fn make_coupled_blocks(prev_beacon_block: &SignedBeaconBlock, prev_shard_block: &SignedShardBlock, count: u32, signers: &Vec<Arc<InMemorySigner>>) -> Vec<(SignedBeaconBlock, SignedShardBlock)> {
+        let (mut beacon_block, mut shard_block) = (prev_beacon_block.clone(), prev_shard_block.clone());
+        let mut result = vec![];
+        for _ in 0..count {
+            let mut new_shard_block = SignedShardBlock::empty(&shard_block);
+            new_shard_block.sign_all(signers);
+            let mut new_beacon_block = SignedBeaconBlock::new(beacon_block.index() + 1, beacon_block.hash, vec![], new_shard_block.hash);
+            new_beacon_block.sign_all(signers);
+            println!("sigs: {:?}", new_beacon_block.signature.authority_mask);
+            beacon_block = new_beacon_block.clone();
+            shard_block = new_shard_block.clone();
+            result.push((new_beacon_block, new_shard_block));
+        }
+        result
+    }
+
+    #[test]
+    fn test_block_catchup() {
+        let (chain_spec, signers) = generate_test_chain_spec();
+        let client = get_client_from_cfg(&chain_spec, signers[0].clone());
+
+        let blocks = make_coupled_blocks(
+            &client.beacon_chain.chain.best_block(), &client.shard_client.chain.best_block(), 10, &signers);
+        for i in (0..10).rev() {
+            client.try_import_blocks(blocks[i].0.clone(), blocks[i].1.clone());
+        }
+        assert_eq!(client.beacon_chain.chain.best_index(), 10);
     }
 }
