@@ -351,7 +351,6 @@ impl Runtime {
         runtime_ext: &mut RuntimeExt,
         return_data: ReturnData,
         callback_info: &Option<CallbackInfo>,
-        sender_id: &AccountId,
         receiver_id: &AccountId,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let callback_info = match callback_info {
@@ -406,7 +405,7 @@ impl Runtime {
         if let Some(callback_res) = callback_res {
             let new_receipt = ReceiptTransaction::new(
                 receiver_id.clone(),
-                sender_id.clone(),
+                callback_info.receiver.clone(),
                 runtime_ext.create_nonce(),
                 ReceiptBody::Callback(callback_res),
             );
@@ -464,7 +463,6 @@ impl Runtime {
                 &mut runtime_ext,
                 return_data,
                 &async_call.callback,
-                sender_id,
                 receiver_id,
             ).and_then(|receipts| {
                 receiver.amount = balance;
@@ -544,7 +542,6 @@ impl Runtime {
                                     &mut runtime_ext,
                                     data,
                                     &callback.callback,
-                                    sender_id,
                                     receiver_id,
                                 )
                             )
