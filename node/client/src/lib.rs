@@ -193,12 +193,13 @@ impl Client {
 
         let last_block = self.beacon_chain.chain.best_block();
         let last_shard_block = self.shard_client.chain.best_block();
+        let next_index = current_index + 1;
         let authorities = self
             .beacon_chain
             .authority
             .read()
             .expect(POISONED_LOCK_ERR)
-            .get_authorities(last_block.body.header.index + 1)
+            .get_authorities(next_index)
             .expect("Authorities should be present for given block to produce it");
         // Get previous receipts:
         let receipt_block = self.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
@@ -418,8 +419,9 @@ impl Client {
             .read()
             .expect(POISONED_LOCK_ERR)
             .get_authorities(block_index)
-            .unwrap_or_else(|_| {
-                panic!("Failed to get authorities for block index {}", block_index)
+            .unwrap_or_else(|e| {
+                warn!("Failed to get authorities for block index {}: {}", block_index, e);
+                vec![]
             });
 
         let mut id_to_authority_map = HashMap::new();

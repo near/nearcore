@@ -58,8 +58,15 @@ const COL_TRANSACTION_RESULTS: u32 = 5;
 const COL_TRANSACTION_ADDRESSES: u32 = 6;
 const COL_RECEIPT_BLOCK: u32 = 7;
 
+// Columns used by the beacon chain only.
+const COL_PROPOSAL: u32 = 8;
+const COL_PARTICIPATION: u32 = 9;
+const COL_PROCESSED_BLOCKS: u32 = 10;
+const COL_THRESHOLD: u32 = 11;
+const COL_ACCEPTED_AUTHORITY: u32 = 12;
+
 /// Number of columns per chain.
-pub const NUM_COLS: u32 = 8;
+pub const NUM_COLS: u32 = 13;
 
 /// Error that occurs when we try operating with genesis-specific columns, without setting the
 /// genesis in advance.
@@ -306,4 +313,31 @@ fn read_with_cache<'a, T: Decode + 'a>(
             }
         }
     }
+}
+
+/// prune column based on index
+fn prune_index<T>(
+    storage: &KeyValueDB,
+    col: u32,
+    cache: &mut HashMap<Vec<u8>, T>,
+    filter: &Fn(u64) -> bool,
+) -> io::Result<()> {
+    let get_u64_from_key = |k: &[u8]| {
+        let mut buf: [u8; 8] = [0; 8];
+        buf.copy_from_slice(&k[4..]);
+        u64::from_le_bytes(buf)
+    };
+    let mut db_transaction = storage.transaction();
+    for (k, _) in storage.iter(Some(col)) {
+        let key = get_u64_from_key(&k);
+        if !filter(key) {
+            db_transaction.delete(Some(col), &k);
+        }
+    }
+    storage.write(db_transaction)?;
+    cache.retain(|k, _| {
+        let key = get_u64_from_key(k);
+        filter(key)
+    });
+    Ok(())
 }
