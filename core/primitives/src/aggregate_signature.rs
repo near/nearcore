@@ -48,6 +48,11 @@ pub struct CompressedPublicKey<E: Engine>(<E::G1Affine as CurveAffine>::Compress
 #[derive(Clone)]
 pub struct CompressedSignature<E: Engine>(<E::G2Affine as CurveAffine>::Compressed);
 
+// For those times when time is more important than space, UncompressedSignature is 192 bytes, twice
+// as large as CompressedSignature but much faster (about 250x) to decode.
+#[derive(Clone)]
+pub struct UncompressedSignature<E: Engine>(<E::G2Affine as CurveAffine>::Uncompressed);
+
 impl<E: Engine> SecretKey<E> {
     /// Generate a new secret key from the OS rng.  Panics if OS is unable to provide randomness
     pub fn generate() -> Self {
@@ -153,6 +158,10 @@ impl<E: Engine> Signature<E> {
         CompressedSignature(self.point.into_compressed())
     }
 
+    pub fn encode_uncompressed(&self) -> UncompressedSignature<E> {
+        UncompressedSignature(self.point.into_uncompressed())
+    }
+
     pub fn empty() -> Self {
         Signature { point: E::G2Affine::zero() }
     }
@@ -223,43 +232,30 @@ impl fmt::Display for LengthError {
 
 impl<E: Engine> FromBytes for PublicKey<E> {
     fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<Error>> {
-        let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
-        if v.len() != expected {
-            return Err(From::from(LengthError(expected, v.len())));
-        }
-        let mut compressed = CompressedPublicKey::empty();
-        compressed.as_mut().copy_from_slice(v.as_ref());
-        Ok(compressed.decompress()?)
+        Ok(CompressedPublicKey::from_bytes(v)?.decompress()?)
     }
 }
 
 impl<E: Engine> ToBytes for Signature<E> {
     fn to_bytes(&self) -> Vec<u8> {
-        self.compress().as_ref().to_vec()
+        self.compress().to_bytes()
     }
 }
 
 impl<E: Engine> FromBytes for Signature<E> {
     fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
-        let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
-        if v.len() != expected {
-            return Err(From::from(LengthError(expected, v.len())));
-        }
-        let mut compressed = CompressedSignature::empty();
-        compressed.as_mut().copy_from_slice(v.as_ref());
-        Ok(compressed.decompress()?)
+        Ok(CompressedSignature::from_bytes(v)?.decode()?)
     }
 }
 
 impl<E: Engine> Base58Encoded for SecretKey<E> {}
 impl<E: Engine> Base58Encoded for PublicKey<E> {}
 impl<E: Engine> Base58Encoded for Signature<E> {}
+impl<E: Engine> Base58Encoded for CompressedPublicKey<E> {}
+impl<E: Engine> Base58Encoded for CompressedSignature<E> {}
+impl<E: Engine> Base58Encoded for UncompressedSignature<E> {}
 
 impl<E: Engine> CompressedPublicKey<E> {
-    fn empty() -> Self {
-        CompressedPublicKey(<E::G1Affine as CurveAffine>::Compressed::empty())
-    }
-
     pub fn decompress(&self) -> Result<PublicKey<E>, GroupDecodingError> {
         Ok(PublicKey { point: self.0.into_affine()? })
     }
@@ -284,20 +280,28 @@ impl<E: Engine> AsMut<[u8]> for CompressedPublicKey<E> {
     }
 }
 
-impl<E: Engine> CompressedSignature<E> {
-    fn empty() -> Self {
-        CompressedSignature(<E::G2Affine as CurveAffine>::Compressed::empty())
+impl<E: Engine> ToBytes for CompressedPublicKey<E> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
     }
+}
 
-    pub fn decompress(&self) -> Result<Signature<E>, GroupDecodingError> {
+impl<E: Engine> FromBytes for CompressedPublicKey<E> {
+    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
+        if v.len() != expected {
+            return Err(From::from(LengthError(expected, v.len())));
+        }
+        let mut encoded = <E::G1Affine as CurveAffine>::Compressed::empty();
+        encoded.as_mut().copy_from_slice(v.as_ref());
+        Ok(Self(encoded))
+    }
+}
+
+impl<E: Engine> CompressedSignature<E> {
+    pub fn decode(&self) -> Result<Signature<E>, GroupDecodingError> {
         // Subgroup check is postponed until signature verification
         Ok(Signature { point: self.0.into_affine_semi_checked()? })
-    }
-
-    /// Decompress a signature, without verifying that the resulting point is actually on the curve.
-    /// For compressed signatures, there is no performance gain.
-    pub fn decompress_unchecked(&self) -> Signature<E> {
-        Signature { point: self.0.into_affine_unchecked().unwrap() }
     }
 }
 
@@ -310,6 +314,61 @@ impl<E: Engine> AsRef<[u8]> for CompressedSignature<E> {
 impl<E: Engine> AsMut<[u8]> for CompressedSignature<E> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.0.as_mut()
+    }
+}
+
+impl<E: Engine> ToBytes for CompressedSignature<E> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
+    }
+}
+
+impl<E: Engine> FromBytes for CompressedSignature<E> {
+    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
+        if v.len() != expected {
+            return Err(From::from(LengthError(expected, v.len())));
+        }
+        let mut encoded = <E::G2Affine as CurveAffine>::Compressed::empty();
+        encoded.as_mut().copy_from_slice(v.as_ref());
+        Ok(Self(encoded))
+    }
+}
+
+impl<E: Engine> UncompressedSignature<E> {
+    pub fn decode(&self) -> Result<Signature<E>, GroupDecodingError> {
+        // Subgroup check is postponed until signature verification
+        Ok(Signature { point: self.0.into_affine_semi_checked()? })
+    }
+}
+
+impl<E: Engine> AsRef<[u8]> for UncompressedSignature<E> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl<E: Engine> AsMut<[u8]> for UncompressedSignature<E> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+impl<E: Engine> ToBytes for UncompressedSignature<E> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
+    }
+}
+
+impl<E: Engine> FromBytes for UncompressedSignature<E> {
+    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        let expected = <<E::G2Affine as CurveAffine>::Uncompressed as EncodedPoint>::size();
+        if v.len() != expected {
+            return Err(From::from(LengthError(expected, v.len())));
+        }
+        let mut encoded = <E::G2Affine as CurveAffine>::Uncompressed::empty();
+        encoded.as_mut().copy_from_slice(v.as_ref());
+        Ok(Self(encoded))
     }
 }
 
@@ -373,6 +432,28 @@ pub type BlsPublicKey = PublicKey<Bls12>;
 pub type BlsSignature = Signature<Bls12>;
 pub type BlsAggregatePublicKey = AggregatePublicKey<Bls12>;
 pub type BlsAggregateSignature = AggregateSignature<Bls12>;
+
+pub mod uncompressed_bs58_signature_serializer {
+    use crate::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
+    use crate::traits::Base58Encoded;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(sig: &BlsSignature, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        serializer.serialize_str(&sig.encode_uncompressed().to_base58())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<BlsSignature, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let uncompressed = UncompressedSignature::<Bls12>::from_base58(&s).unwrap();
+        Ok(uncompressed.decode().unwrap())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -450,5 +531,25 @@ mod tests {
         // Blank signature does validate on empty pubkey set for any message.  It does seem a little
         // odd, but it's consistent.
         assert!(blank_pk.verify(message.as_bytes(), &blank_signature));
+    }
+
+    #[test]
+    fn encoding() {
+        let mut rng = XorShiftRng::seed_from_u64(4);
+
+        let secret = BlsSecretKey::generate_from_rng(&mut rng);
+        let pubkey = secret.get_public_key();
+        let message = "Hello, world!";
+        let signature = secret.sign(message.as_bytes());
+
+        let compressed = signature.compress();
+        let uncompressed =signature.encode_uncompressed();
+        let compressed_bytes = compressed.to_bytes();
+        let uncompressed_bytes = uncompressed.to_bytes();
+
+        assert_eq!(CompressedSignature::from_bytes(&compressed_bytes).unwrap().decode().unwrap(), signature);
+        assert_eq!(UncompressedSignature::from_bytes(&uncompressed_bytes).unwrap().decode().unwrap(), signature);
+        assert!(CompressedSignature::<Bls12>::from_bytes(&uncompressed_bytes).is_err());
+        assert!(UncompressedSignature::<Bls12>::from_bytes(&compressed_bytes).is_err());
     }
 }

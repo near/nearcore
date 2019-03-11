@@ -1,12 +1,16 @@
 use super::{extend_with_cache, read_with_cache, StorageResult};
 use super::{BlockChainStorage, GenericStorage};
 use super::{ChainId, KeyValueDB};
-use super::{COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS};
-use primitives::chain::SignedShardBlock;
-use primitives::chain::SignedShardBlockHeader;
+use super::{
+    COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS,
+    COL_RECEIPT_BLOCK
+};
+use primitives::chain::{
+    SignedShardBlock, SignedShardBlockHeader, ReceiptBlock
+};
 use primitives::hash::CryptoHash;
-use primitives::transaction::TransactionAddress;
-use primitives::transaction::TransactionResult;
+use primitives::transaction::{TransactionAddress, TransactionResult};
+use primitives::types::{BlockIndex, ShardId};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -16,6 +20,7 @@ pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
     transaction_results: HashMap<Vec<u8>, TransactionResult>,
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
+    receipts: HashMap<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -33,6 +38,7 @@ impl ShardChainStorage {
             generic_storage: BlockChainStorage::new(storage, ChainId::ShardChain(shard_id)),
             transaction_results: Default::default(),
             transaction_addresses: Default::default(),
+            receipts: Default::default(),
         }
     }
 
@@ -125,5 +131,36 @@ impl ShardChainStorage {
             }
         }
         self.generic_storage.storage.write(db_transaction)
+    }
+
+    #[inline]
+    pub fn receipt_block(
+        &mut self,
+        index: BlockIndex,
+        shard_id: ShardId
+    ) -> StorageResult<&ReceiptBlock> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_RECEIPT_BLOCK,
+            &mut self.receipts,
+            &self.generic_storage.enc_index(index)
+        ).map(|receipts| {
+            receipts.and_then(|r| r.get(&shard_id))
+        })
+    }
+
+    pub fn extend_receipts(
+        &mut self,
+        index: BlockIndex,
+        receipts: HashMap<ShardId, ReceiptBlock>,
+    ) -> io::Result<()> {
+        let mut value = HashMap::new();
+        value.insert(self.generic_storage.enc_index(index).to_vec(), receipts);
+        extend_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_RECEIPT_BLOCK,
+            &mut self.receipts,
+            value,
+        )
     }
 }

@@ -345,11 +345,9 @@ impl ClientTask {
 
     /// Resets MemPool and returns NS control for next block.
     fn restart_pool_nightshade(&self, block_index: BlockIndex) -> Control {
-        // TODO: Get authorities for the correct block index. For now these are the same authorities
-        // that built the first block. In other words use `block_index` instead of `mock_block_index`.
-        let mock_block_index = 2;
+        let index = self.client.beacon_chain.chain.best_index() + 1;
         let (owner_uid, uid_to_authority_map) =
-            self.client.get_uid_to_authority_map(mock_block_index);
+            self.client.get_uid_to_authority_map(index);
 
         if owner_uid.is_none() {
             self.client.shard_client.pool.reset(None, None);
