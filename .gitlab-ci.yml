@@ -38,14 +38,14 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
-    - rustup component add clippy
+    #- rustup component add clippy
     - *setup_cache
     - *install_protos
     - *setup_python
     - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
     script:
     - rustc --version && cargo --version
-    - ./scripts/run_clippy.sh
+    #- ./scripts/run_clippy.sh
     - *build_wasm
     - cargo build --benches --all
     - cargo test --all --verbose

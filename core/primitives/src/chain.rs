@@ -44,20 +44,37 @@ pub struct SignedShardBlock {
 pub struct ReceiptBlock {
     pub header: SignedShardBlockHeader,
     pub path: MerklePath,
+    // receipts should not be empty
     pub receipts: Vec<ReceiptTransaction>,
+    // hash is the hash of receipts. It is
+    // sufficient to uniquely identify the 
+    // receipt block because of the uniqueness
+    // of nonce in receipts
+    pub hash: CryptoHash,
 }
 
 impl PartialEq for ReceiptBlock {
     fn eq(&self, other: &ReceiptBlock) -> bool {
-        self.header.hash == other.header.hash
-            && self.path == other.path
-            && self.receipts == other.receipts
+        self.hash == other.hash
     }
 }
 
 impl Hash for ReceiptBlock {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(hash_struct(&self).as_ref());
+        state.write(self.hash.as_ref());
+    }
+}
+
+impl ReceiptBlock {
+    pub fn new(
+        header: SignedShardBlockHeader,
+        path: MerklePath,
+        receipts: Vec<ReceiptTransaction>
+    ) -> Self {
+        let hash = hash_struct(&receipts);
+        ReceiptBlock {
+            header, path, receipts, hash
+        }
     }
 }
 
