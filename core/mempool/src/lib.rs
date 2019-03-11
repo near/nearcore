@@ -107,12 +107,11 @@ impl Pool {
     }
 
     pub fn add_receipt(&self, receipt: ReceiptBlock) -> Result<(), String> {
-        // TODO: cache hash of receipt
         if let Ok(Some(_)) = self
             .storage
             .write()
             .expect(POISONED_LOCK_ERR)
-            .transaction_address(&hash_struct(&receipt))
+            .transaction_address(&receipt.hash)
         {
             return Ok(());
         }
