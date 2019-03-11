@@ -91,7 +91,7 @@ fn bls_decompress_signature(bench: &mut Bencher) {
     let compressed = signature.compress();
 
     bench.iter(|| {
-        compressed.decompress().unwrap();
+        compressed.decode().unwrap();
     });
 }
 
@@ -104,15 +104,15 @@ fn bls_decompress_pubkey_unchecked(bench: &mut Bencher) {
     });
 }
 
-fn bls_decompress_signature_unchecked(bench: &mut Bencher) {
+fn bls_decode_uncompressed_signature(bench: &mut Bencher) {
     let key = BlsSecretKey::generate();
     let message = "Hello, world!";
     let signature = key.sign(message.as_bytes());
-    let compressed = signature.compress();
+    let encoded = signature.encode_uncompressed();
 
     bench.iter(|| {
-        compressed.decompress_unchecked();
-    });
+        encoded.decode().ok();
+    })
 }
 
 benchmark_group!(
@@ -125,7 +125,7 @@ benchmark_group!(
     bls_aggregate_pubkey_slow,
     bls_decompress_signature,
     bls_decompress_pubkey,
-    bls_decompress_signature_unchecked,
     bls_decompress_pubkey_unchecked,
+    bls_decode_uncompressed_signature,
 );
 benchmark_main!(benches);

@@ -103,11 +103,7 @@ pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
         hash: CryptoHash::default(),
         signature: GroupSignature::default(),
     };
-    ReceiptBlock {
-        header,
-        path: vec![],
-        receipts
-    }
+    ReceiptBlock::new(header, vec![], receipts)
 }
 
 impl Runtime {

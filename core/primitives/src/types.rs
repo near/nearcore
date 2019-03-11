@@ -40,6 +40,11 @@ pub type ShardId = u32;
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
 
+/// epoch for authority
+pub type Epoch = u64;
+/// slot for authority
+pub type Slot = u64;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
     #[serde(with = "bs58_serializer")]
