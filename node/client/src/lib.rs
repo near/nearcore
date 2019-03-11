@@ -160,12 +160,14 @@ impl Client {
     fn get_missing_indices(&self) -> Vec<BlockIndex> {
         // Use `pending_beacon_blocks` because currently beacon blocks and shard blocks are tied
         // 1 to 1.
-        let guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
+        let mut guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
+        // Prune outdated pending blocks.
+        let best_index = self.beacon_chain.chain.best_index();
+        guard.retain(|_, v| v.index() > best_index);
         if guard.is_empty() {
             /// There are no pending blocks.
             vec![]
         } else {
-            let best_index = self.beacon_chain.chain.best_index();
             guard
                 .values()
                 .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })
