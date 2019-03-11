@@ -131,7 +131,7 @@ impl ShardClient {
             .into_iter()
             .zip(
                 receipts.into_iter().zip(receipt_merkle_paths.into_iter()).map(
-                    |(receipts, path)| ReceiptBlock { header: block.header(), receipts, path },
+                    |(receipts, path)| ReceiptBlock::new(block.header(), path, receipts),
                 ),
             )
             .collect()
