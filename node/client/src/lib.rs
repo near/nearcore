@@ -43,8 +43,6 @@ pub enum BlockProductionResult {
     /// The consensus was achieved after the block with the given index was already imported.
     /// The beacon and the shard chains are currently at index `current_index`.
     LateConsensus { current_index: BlockIndex },
-    /// Cannot found authority for next index, possibly due to pruning
-    AuthorityNotFound { next_index: BlockIndex}
 }
 
 /// Result of client trying to import a block.
@@ -196,18 +194,13 @@ impl Client {
         let last_block = self.beacon_chain.chain.best_block();
         let last_shard_block = self.shard_client.chain.best_block();
         let next_index = current_index + 1;
-        let authorities = match self
+        let authorities = self
             .beacon_chain
             .authority
             .read()
             .expect(POISONED_LOCK_ERR)
-            .get_authorities(next_index) {
-                Ok(authority) => authority,
-                Err(e) => {
-                    warn!("Cannot find authority for index {}: {}", next_index, e);
-                    return BlockProductionResult::AuthorityNotFound { next_index }
-                }
-            };
+            .get_authorities(next_index)
+            .expect("Authorities should be present for given block to produce it");
         // Get previous receipts:
         let receipt_block = self.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
         let receipt_blocks = receipt_block.map(|b| vec![b]).unwrap_or_else(|| vec![]);
