@@ -6,28 +6,28 @@ use std::net::SocketAddr;
 use std::convert::TryFrom;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NodeAddr {
+pub struct PeerAddr {
     pub id: PeerId,
     pub addr: SocketAddr,
 }
 
-impl NodeAddr {
+impl PeerAddr {
     pub fn parse(addr_id: &str) -> Result<Self, String> {
         let addr_id: Vec<_> = addr_id.split('/').collect();
         let (addr, id) = (addr_id[0], addr_id[1]);
-        Ok(NodeAddr {
+        Ok(PeerAddr {
             id: String::into(id.to_string()),
             addr: addr.parse::<SocketAddr>().map_err(|e| format!("Error parsing address {:?}: {:?}", addr, e))?,
         })
     }
 }
 
-impl TryFrom<PeerInfo> for NodeAddr {
+impl TryFrom<PeerInfo> for PeerAddr {
     type Error = String;
 
     fn try_from(peer_info: PeerInfo) -> Result<Self, Self::Error> {
         match peer_info.addr {
-            Some(addr) => Ok(NodeAddr { id: peer_info.id, addr }),
+            Some(addr) => Ok(PeerAddr { id: peer_info.id, addr }),
             None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info))
         }
     }
@@ -77,8 +77,8 @@ impl Borrow<PeerId> for PeerInfo {
     }
 }
 
-impl From<NodeAddr> for PeerInfo {
-    fn from(node_addr: NodeAddr) -> Self {
+impl From<PeerAddr> for PeerInfo {
+    fn from(node_addr: PeerAddr) -> Self {
         PeerInfo { id: node_addr.id, addr: Some(node_addr.addr), account_id: None }
     }
 }

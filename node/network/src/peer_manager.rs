@@ -18,7 +18,7 @@ use rand::thread_rng;
 use tokio::net::TcpListener;
 use tokio::timer::Interval;
 
-use primitives::network::{NodeAddr, PeerInfo};
+use primitives::network::{PeerAddr, PeerInfo};
 use primitives::types::{AccountId, PeerId};
 
 use crate::peer::{AllPeerStates, ChainStateRetriever, get_peer_info, Peer, PeerMessage, PeerState};
@@ -48,7 +48,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
         gossip_interval: Duration,
         gossip_sample_size: usize,
         node_info: PeerInfo,
-        boot_nodes: &Vec<NodeAddr>,
+        boot_nodes: &Vec<PeerAddr>,
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
         out_msg_rx: Receiver<(PeerId, Vec<u8>)>,
         chain_state_retriever: T,
@@ -57,7 +57,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
         // Spawn peers that represent boot nodes.
         Peer::spawn_from_known(
             node_info.clone(),
-            boot_nodes.to_vec().drain(..).map(std::convert::Into::into).collect(),
+            boot_nodes.iter().cloned().map(std::convert::Into::into).collect(),
             all_peer_states.clone(),
             &mut all_peer_states.write().expect(POISONED_LOCK_ERR),
             inc_msg_tx.clone(),
@@ -222,7 +222,7 @@ mod tests {
     use tokio::util::StreamExt;
 
     use primitives::hash::hash_struct;
-    use primitives::network::{NodeAddr, PeerInfo};
+    use primitives::network::{PeerAddr, PeerInfo};
 
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
     use crate::testing_utils::{MockChainStateRetriever, wait, wait_all_peers_connected};
@@ -270,7 +270,7 @@ mod tests {
                     addr: Some(SocketAddr::from_str("127.0.0.1:4001").unwrap()),
                     account_id: None,
                 },
-                &vec![NodeAddr {
+                &vec![PeerAddr {
                     id: hash_struct(&0),
                     addr: SocketAddr::from_str("127.0.0.1:4000").unwrap()
                 }],
@@ -328,7 +328,7 @@ mod tests {
             let task = futures::lazy(move || {
                 let mut boot_nodes = vec![];
                 if i != 0 {
-                    boot_nodes.push(NodeAddr {
+                    boot_nodes.push(PeerAddr {
                         id: hash_struct(&(0 as usize)),
                         addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
                     });

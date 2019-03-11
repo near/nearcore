@@ -5,7 +5,7 @@ use std::time::Duration;
 use clap::{Arg, ArgMatches};
 
 use crate::ClientConfig;
-use primitives::network::NodeAddr;
+use primitives::network::PeerAddr;
 use primitives::{hash::hash, types::PeerId};
 
 const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
@@ -17,7 +17,7 @@ const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
 pub struct NetworkConfig {
     pub listen_addr: Option<SocketAddr>,
     pub peer_id: PeerId,
-    pub boot_nodes: Vec<NodeAddr>,
+    pub boot_nodes: Vec<PeerAddr>,
     pub reconnect_delay: Duration,
     pub gossip_interval: Duration,
     pub gossip_sample_size: usize,
@@ -98,7 +98,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
     let mut boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
-            NodeAddr::parse(&addr_id).expect("Cannot parse address")
+            PeerAddr::parse(&addr_id).expect("Cannot parse address")
         })
         .clone()
         .collect();
