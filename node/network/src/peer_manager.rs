@@ -200,6 +200,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
     }
 
     /// Get channels of all peers that are `Ready`.
+    #[allow(dead_code)]
     pub fn get_ready_channels(&self) -> Vec<Sender<PeerMessage>> {
         self.all_peer_states
             .read()

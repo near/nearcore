@@ -2,13 +2,13 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::DerefMut;
-use std::sync::RwLockWriteGuard;
 use std::sync::{Arc, RwLock};
+use std::sync::RwLockWriteGuard;
 use std::time::{Duration, Instant};
 
+use futures::{Async, Future, Poll, Sink, try_ready};
 use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Sender};
-use futures::{try_ready, Async, Future, Poll, Sink};
 use log::{info, warn};
 use serde_derive::{Deserialize, Serialize};
 use tokio::codec::Framed;
@@ -18,11 +18,12 @@ use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 use tokio_serde_cbor::Codec;
 
+use primitives::chain::ChainState;
 use primitives::network::PeerInfo;
 use primitives::serialize::Encode;
 use primitives::types::PeerId;
 
-use super::message::{ChainState, ConnectedInfo, Message, PROTOCOL_VERSION};
+use super::message::{ConnectedInfo, Message, PROTOCOL_VERSION};
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -334,6 +335,7 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                                     };
                                 }
                             };
+                            self.on_peer_connected(handshake.clone());
                             // Re-insert new entry with updated info.
                             let val = all_peer_states.remove(&handshake.info).unwrap();
                             all_peer_states.insert(handshake.info.clone(), val);

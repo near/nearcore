@@ -303,7 +303,7 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
-        info!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
+        debug!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
@@ -387,7 +387,7 @@ impl Stream for NightshadeTask {
                     public_keys,
                     bls_public_keys,
                 }))) => {
-                    info!(target: "nightshade",
+                    debug!(target: "nightshade",
                           "Control channel received Reset for owner_uid={}, block_index={}, hash={:?}",
                           owner_uid, block_index, hash);
                     self.init_nightshade(
@@ -400,7 +400,7 @@ impl Stream for NightshadeTask {
                     break;
                 }
                 Ok(Async::Ready(Some(Control::Stop))) => {
-                    info!(target: "nightshade", "Control channel received Stop");
+                    debug!(target: "nightshade", "Control channel received Stop");
                     if self.nightshade.is_some() {
                         self.nightshade = None;
                         // On the next call of poll if we still don't have the state this task will be
@@ -411,7 +411,7 @@ impl Stream for NightshadeTask {
                     // is NotReady this will automatically park the task.
                 }
                 Ok(Async::Ready(Some(Control::PayloadConfirmation(authority_id, hash)))) => {
-                    info!(target: "nightshade", "Received confirmation for ({}, {:?})", authority_id, hash);
+                    debug!(target: "nightshade", "Received confirmation for ({}, {:?})", authority_id, hash);
                     // Check that we got confirmation for the current proposal
                     // and not for a proposal in a previous block index
                     if let Some(signed_block) = &self.proposals[authority_id] {
@@ -425,7 +425,7 @@ impl Stream for NightshadeTask {
                     }
                 }
                 Ok(Async::Ready(None)) => {
-                    info!(target: "nightshade", "Control channel was dropped");
+                    debug!(target: "nightshade", "Control channel was dropped");
                     return Ok(Async::Ready(None));
                 }
                 Ok(Async::NotReady) => {
@@ -471,7 +471,7 @@ impl Stream for NightshadeTask {
                                         .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                                 );
                             } else {
-                                info!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", outcome.hash, outcome.author);
+                                warn!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", outcome.hash, outcome.author);
                             }
                         }
                     }

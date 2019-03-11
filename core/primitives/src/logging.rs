@@ -1,6 +1,7 @@
+use std::fmt::Debug;
+
 use bs58;
 use serde::Serialize;
-use std::fmt::Debug;
 
 const HASH_LENGTH_STR_BYTES: usize = 44;
 const SIGNATURE_LENGTH_BYTES: usize = 64;
@@ -69,6 +70,7 @@ pub fn pretty_serializable<T: Serialize>(s: &T) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     static HI_NEAR: &str = "Привет, NEAR";
 
     #[test]

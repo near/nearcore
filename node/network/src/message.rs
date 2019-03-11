@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
 use primitives::beacon::SignedBeaconBlock;
-use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
+use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock, ChainState};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 
@@ -12,12 +12,6 @@ pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
-
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
-pub struct ChainState {
-    pub genesis_hash: CryptoHash,
-    pub last_index: u64,
-}
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct ConnectedInfo {
@@ -37,8 +31,6 @@ pub enum Message {
 
     /// Announce of new block.
     BlockAnnounce(Box<CoupledBlock>),
-    /// Request for list of blocks.
-    BlockRequest(RequestId, Vec<CryptoHash>),
     /// Fetch range of blocks by index.
     BlockFetchRequest(RequestId, u64, u64),
     /// Response with list of blocks.
