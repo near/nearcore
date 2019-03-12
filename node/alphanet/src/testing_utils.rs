@@ -13,7 +13,7 @@ use configs::network::get_peer_id_from_seed;
 use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
-use primitives::network::PeerInfo;
+use primitives::network::{PeerAddr, PeerInfo};
 use primitives::signer::InMemorySigner;
 
 use crate::start_from_client;
@@ -37,8 +37,8 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn for_test(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerInfo>, chain_spec: ChainSpec) -> Self {
-        let addr = format!("127.0.0.1:{}", test_port + peer_id);
+    pub fn for_test(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec) -> Self {
+        let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
@@ -49,7 +49,9 @@ impl Node {
             chain_spec
         )
     }
-    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerInfo>, chain_spec: ChainSpec) -> Self {
+
+    /// Create full node that does not accept incoming connections.
+    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec) -> Self {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
@@ -66,7 +68,7 @@ impl Node {
         peer_id_seed: u32,
         addr: Option<&str>,
         rpc_port: u16,
-        boot_nodes: Vec<PeerInfo>,
+        boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
     ) -> Self {
         let node_info = PeerInfo {
@@ -124,6 +126,11 @@ impl Node {
             start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
         });
         thread::sleep(Duration::from_secs(1));
+    }
+
+    pub fn node_addr(&self) -> PeerAddr {
+        let addr = self.network_cfg.listen_addr.expect("Node doesn't have an address");
+        PeerAddr::parse(&format!("127.0.0.1:{}/{}", addr.port(), self.network_cfg.peer_id)).expect("Failed to parse")
     }
 }
 

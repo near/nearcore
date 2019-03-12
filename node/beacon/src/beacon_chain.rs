@@ -17,9 +17,9 @@ pub struct BeaconClient {
 
 impl BeaconClient {
     pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: Arc<RwLock<BeaconChainStorage>>) -> Self {
-        let chain = chain::BlockChain::new(genesis, storage);
+        let chain = chain::BlockChain::new(genesis, storage.clone());
         let authority_config = get_authority_config(chain_spec);
-        let authority = RwLock::new(Authority::new(authority_config, &chain));
+        let authority = RwLock::new(Authority::new(authority_config, &chain, storage));
         BeaconClient { chain, authority }
     }
 }
