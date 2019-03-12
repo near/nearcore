@@ -1,34 +1,36 @@
+use std::sync::Arc;
+use std::time::Duration;
+use std::collections::HashMap;
+use std::cmp::max;
+
+use futures::Async;
+use futures::future::Future;
+use futures::Poll;
+use futures::sink::Sink;
+use futures::Stream;
+use futures::sync::mpsc::Receiver;
+use futures::sync::mpsc::Sender;
+use tokio::timer::Interval;
+
 use client::BlockImportingResult;
 use client::BlockProductionResult;
 use client::Client;
-use futures::future::Future;
-use futures::sink::Sink;
-use futures::sync::mpsc::Receiver;
-use futures::sync::mpsc::Sender;
-use futures::Async;
-use futures::Poll;
-use futures::Stream;
+use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade::ConsensusBlockProposal;
 use nightshade::nightshade_task::Control;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::ChainPayload;
-use primitives::chain::PayloadRequest;
-use primitives::chain::PayloadResponse;
-use primitives::chain::SignedShardBlock;
+use primitives::chain::{PayloadRequest, PayloadResponse, SignedShardBlock};
+use primitives::chain::ChainState;
 use primitives::hash::CryptoHash;
-use primitives::types::AuthorityId;
-use primitives::types::BlockIndex;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::timer::Interval;
+use primitives::types::{AuthorityId, BlockIndex, PeerId};
 
 pub struct ClientTask {
     client: Arc<Client>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
-    incoming_block_rx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
+    incoming_block_rx: Receiver<(PeerId, (SignedBeaconBlock, SignedShardBlock))>,
     /// Outgoing blocks produced by this peer that can be imported by other peers.
-    out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
+    out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
     /// Consensus created by the current instance of Nightshade or pass-through consensus.
     consensus_rx: Receiver<ConsensusBlockProposal>,
     /// Control that we send to the consensus task.
@@ -39,12 +41,24 @@ pub struct ClientTask {
     payload_request_tx: Sender<PayloadRequest>,
     /// Responses from the peers with the payload.
     payload_response_rx: Receiver<PayloadResponse>,
+    /// Gossips for payloads.
+    inc_payload_gossip_rx: Receiver<PayloadGossip>,
+    /// Incoming information about chain from other peers.
+    inc_chain_state_rx: Receiver<(PeerId, ChainState)>,
+    /// Sending requests for blocks to peers.
+    out_block_fetch_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
 
     // Periodic tasks.
-    /// Channel into which we announce payloads.
-    payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
-    /// Interval at which we announce the payload.
-    payload_announce_int: Interval,
+    /// Channel into which we gossip payloads.
+    out_payload_gossip_tx: Sender<PayloadGossip>,
+    /// Interval at which we gossip payloads.
+    payload_gossip_interval: Interval,
+
+    /// Last block index per peer. Might not be the real block index the peer is it, in the cases:
+    /// The value is underestimated if when the remote node managed to progress several blocks
+    /// ahead without us knowing it. The value is overestimated when we send an announcement or reply
+    /// to peer state which gets lost over the network.
+    assumed_peer_last_index: HashMap<PeerId, BlockIndex>,
 }
 
 impl Stream for ClientTask {
@@ -57,6 +71,8 @@ impl Stream for ClientTask {
         let mut block_importing_ended = false;
         let mut retrieve_payload_ended = false;
         let mut payload_response_ended = false;
+        let mut payload_gossip_ended = false;
+        let mut peer_sync_ended = false;
         // We exit this loop when for each polled channel it has either ended or it is not ready.
         loop {
             match self.consensus_rx.poll() {
@@ -75,15 +91,29 @@ impl Stream for ClientTask {
                     block_production_ended = true;
                 }
                 Ok(Async::NotReady) => (),
-                Err(_) => {
+                Err(()) => {
                     warn!(target: "client", "Error reading from consensus stream");
                     continue;
                 }
             }
 
+            match self.inc_chain_state_rx.poll() {
+                Ok(Async::Ready(Some((peer_id, chain_state)))) => {
+                    self.process_peer_state(peer_id, chain_state);
+                },
+                Ok(Async::Ready(None)) => {
+                    peer_sync_ended = true;
+                },
+                Ok(Async::NotReady) => (),
+                Err(()) => {
+                    warn!(target: "client", "Error reading from peer sync");
+                    continue;
+                }
+            }
+
             match self.incoming_block_rx.poll() {
-                Ok(Async::Ready(Some(b))) => {
-                    if let ind @ Some(_) = self.try_import_block(b.0, b.1) {
+                Ok(Async::Ready(Some((peer_id, (beacon_block, shard_block))))) => {
+                    if let ind @ Some(_) = self.try_import_block(peer_id, beacon_block, shard_block) {
                         new_block_index = ind;
                     }
                     continue;
@@ -92,7 +122,7 @@ impl Stream for ClientTask {
                     block_importing_ended = true;
                 }
                 Ok(Async::NotReady) => (),
-                Err(_) => {
+                Err(()) => {
                     warn!(target: "client", "Error reading from incoming blocks");
                     continue;
                 }
@@ -107,7 +137,7 @@ impl Stream for ClientTask {
                     retrieve_payload_ended = true;
                 }
                 Ok(Async::NotReady) => (),
-                Err(_) => {
+                Err(()) => {
                     warn!(target: "client", "Error reading retrieve payload channel");
                     continue;
                 }
@@ -122,23 +152,38 @@ impl Stream for ClientTask {
                     payload_response_ended = true;
                 }
                 Ok(Async::NotReady) => (),
-                Err(_) => {
+                Err(()) => {
                     warn!(target: "client", "Error reading payload response channel");
                     continue;
                 }
             }
 
-            match self.payload_announce_int.poll() {
+            match self.inc_payload_gossip_rx.poll() {
+                Ok(Async::Ready(Some(p))) => {
+                    self.process_payload_gossip(p);
+                    continue;
+                }
+                Ok(Async::Ready(None)) => {
+                    payload_gossip_ended = true;
+                }
+                Ok(Async::NotReady) => (),
+                Err(()) => {
+                    warn!(target: "client", "Error reading payload gossip channel");
+                    continue;
+                }
+            }
+
+            match self.payload_gossip_interval.poll() {
                 Ok(Async::Ready(Some(_))) => {
-                    self.announce_payload();
+                    self.gossip_payload();
                     continue;
                 }
                 Ok(Async::Ready(None)) => {
                     panic!("Interval stream is not expected to ever end");
                 }
                 Ok(Async::NotReady) => (),
-                Err(e) => {
-                    warn!(target: "client", "Interval stream error {}", e);
+                Err(err) => {
+                    warn!(target: "client", "Interval stream error: {}", err);
                     continue;
                 }
             }
@@ -148,10 +193,9 @@ impl Stream for ClientTask {
         }
 
         // First, send the control, if applicable.
-        if let Some(ind) = new_block_index {
-            let hash = self.client.shard_client.pool.snapshot_payload();
-            let next_index = ind + 1;
-            let control = self.get_control(next_index, hash);
+        if let Some(index) = new_block_index {
+            let next_index = index + 1;
+            let control = self.restart_pool_nightshade(next_index);
             tokio::spawn(
                 self.control_tx
                     .clone()
@@ -166,6 +210,8 @@ impl Stream for ClientTask {
             && block_importing_ended
             && retrieve_payload_ended
             && payload_response_ended
+            && payload_gossip_ended
+            && peer_sync_ended
         {
             Ok(Async::Ready(None))
         } else {
@@ -176,16 +222,19 @@ impl Stream for ClientTask {
 
 impl ClientTask {
     pub fn new(
-        gossip_interval: Duration,
         client: Arc<Client>,
-        incoming_block_rx: Receiver<(SignedBeaconBlock, SignedShardBlock)>,
-        out_block_tx: Sender<(SignedBeaconBlock, SignedShardBlock)>,
+        incoming_block_rx: Receiver<(PeerId, (SignedBeaconBlock, SignedShardBlock))>,
+        out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
         consensus_rx: Receiver<ConsensusBlockProposal>,
         control_tx: Sender<Control>,
         retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
         payload_request_tx: Sender<PayloadRequest>,
         payload_response_rx: Receiver<PayloadResponse>,
-        payload_announce_tx: Sender<(AuthorityId, ChainPayload)>,
+        inc_payload_gossip_rx: Receiver<PayloadGossip>,
+        out_payload_gossip_tx: Sender<PayloadGossip>,
+        inc_chain_state_rx: Receiver<(PeerId, ChainState)>,
+        out_block_fetch_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
+        gossip_interval: Duration,
     ) -> Self {
         let res = Self {
             client,
@@ -196,8 +245,12 @@ impl ClientTask {
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
-            payload_announce_tx,
-            payload_announce_int: Interval::new_interval(gossip_interval),
+            inc_payload_gossip_rx,
+            out_payload_gossip_tx,
+            inc_chain_state_rx,
+            out_block_fetch_tx,
+            payload_gossip_interval: Interval::new_interval(gossip_interval),
+            assumed_peer_last_index: Default::default(),
         };
         res.spawn_kickoff();
         res
@@ -209,7 +262,7 @@ impl ClientTask {
         &mut self,
         consensus_block_header: ConsensusBlockProposal,
     ) -> Option<BlockIndex> {
-        info!(target: "consensus", "Producing block for account_id={:?}, index {}", self.client.account_id, consensus_block_header.index);
+        info!(target: "client", "Producing block for account_id={:?}, index {}", self.client.account_id, consensus_block_header.index);
         let payload = match self
             .client
             .shard_client
@@ -232,16 +285,7 @@ impl ClientTask {
         if let BlockProductionResult::Success(produced_beacon_block, produced_shard_block) =
             self.client.try_produce_block(consensus_block_header.index, payload)
         {
-            // Send block announcement.
-            tokio::spawn(
-                self.out_block_tx
-                    .clone()
-                    .send((produced_beacon_block, produced_shard_block))
-                    .map(|_| ())
-                    .map_err(
-                        |e| error!(target: "client", "Error sending block announcement: {}", e),
-                    ),
-            );
+            self.announce_block(produced_beacon_block, produced_shard_block);
             let new_best_block = self.client.beacon_chain.chain.best_block();
             Some(new_best_block.index())
         } else {
@@ -250,29 +294,78 @@ impl ClientTask {
     }
 
     /// Tries importing block. If succeeds returns index of the block with the highest index.
+    /// If some blocks are missing, requests network to fetch them.
     fn try_import_block(
         &mut self,
+        peer_id: PeerId,
         beacon_block: SignedBeaconBlock,
         shard_block: SignedShardBlock,
     ) -> Option<BlockIndex> {
-        if let BlockImportingResult::Success { new_index } =
-            self.client.try_import_blocks(beacon_block, shard_block)
-        {
-            info!(
-                "Successfully imported block(s) up to {}, account_id={:?}",
-                new_index, self.client.account_id
-            );
-            Some(new_index)
-        } else {
-            None
+        self.assumed_peer_last_index.insert(peer_id, beacon_block.index());
+        // TODO: clonning here sucks, is there a better way?
+        match self.client.try_import_blocks(beacon_block.clone(), shard_block.clone()) {
+            BlockImportingResult::Success { new_index } => {
+                info!(target: "client",
+                    "Successfully imported block(s) up to {}, account_id={:?}",
+                    new_index, self.client.account_id
+                );
+                self.announce_block(beacon_block, shard_block);
+                Some(new_index)
+            },
+            BlockImportingResult::MissingParent { missing_indices, .. } => {
+                warn!(target: "client", "Missing indicies {:?}, account_id={:?}", missing_indices, self.client.account_id);
+                let (from_index, til_index) = (missing_indices.iter().min().unwrap(), missing_indices.iter().max().unwrap());
+                tokio::spawn(
+                    self.out_block_fetch_tx.clone().send((peer_id, *from_index, *til_index)).map(|_| ()).map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
+                );
+                None
+            },
+            // TODO: if block is invalid, we can extend `out_block_fetch_tx` channel to also handle banning actions.
+            _ => None
         }
+    }
+
+    fn process_peer_state(&mut self, peer_id: PeerId, chain_state: ChainState) {
+        self.assumed_peer_last_index.insert(peer_id, chain_state.last_index);
+        if chain_state.last_index > self.client.beacon_chain.chain.best_index() {
+            // TODO: we should keep track of already fetching stuff.
+            info!(target: "client", "Missing blocks {}..{} (from {}) for {}",
+                  self.client.beacon_chain.chain.best_index(),
+                  chain_state.last_index, peer_id,
+                  self.client.account_id);
+            tokio::spawn(
+                self.out_block_fetch_tx
+                    .clone()
+                    .send((peer_id, self.client.beacon_chain.chain.best_index() + 1, chain_state.last_index))
+                    .map(|_| ())
+                    .map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
+            );
+        }
+    }
+
+    fn announce_block(&mut self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
+        let peer_ids = self.assumed_peer_last_index.iter().filter_map(|(peer_id, last_index)| {
+            if *last_index < beacon_block.index() { Some(*peer_id) } else { None }
+        }).collect();
+        for last_index in self.assumed_peer_last_index.values_mut() {
+            *last_index = max(*last_index, beacon_block.index());
+        }
+        info!("Announcing block {} to {:?}, peer_last_index: {:?}", beacon_block.index(), peer_ids, self.assumed_peer_last_index);
+        tokio::spawn(
+            self.out_block_tx
+                .clone()
+                .send((peer_ids, (beacon_block, shard_block)))
+                .map(|_| ())
+                .map_err(|e| error!(target: "client", "Error sending block announcement: {}", e))
+        );
     }
 
     fn get_or_request_payload(&self, authority_id: AuthorityId, hash: CryptoHash) {
         let pool = &self.client.shard_client.pool;
-        info!(
-            target: "mempool",
-            "Payload confirmation for {} from {}",
+        debug!(
+            target: "client",
+            "Checking payload confirmation, authority_id={} for hash={} from other authority_id={}",
+            pool.authority_id.read().expect("Lock is poisoned").unwrap(),
             hash,
             authority_id,
         );
@@ -323,14 +416,14 @@ impl ClientTask {
         }
     }
 
-    /// Returns control.
-    fn get_control(&self, block_index: u64, proposal_hash: CryptoHash) -> Control {
-        // TODO: Get authorities for the correct block index. For now these are the same authorities
-        // that built the first block. In other words use `block_index` instead of `mock_block_index`.
-        let mock_block_index = 2;
+    /// Resets MemPool and returns NS control for next block.
+    fn restart_pool_nightshade(&self, block_index: BlockIndex) -> Control {
+        let index = self.client.beacon_chain.chain.best_index() + 1;
         let (owner_uid, uid_to_authority_map) =
-            self.client.get_uid_to_authority_map(mock_block_index);
+            self.client.get_uid_to_authority_map(index);
+
         if owner_uid.is_none() {
+            self.client.shard_client.pool.reset(None, None);
             return Control::Stop;
         }
         let owner_uid = owner_uid.unwrap();
@@ -339,7 +432,7 @@ impl ClientTask {
         let mut public_keys = vec![];
         let mut bls_public_keys = vec![];
         for i in 0..num_authorities {
-            info!(
+            debug!(
                 "Authority #{}: account_id={:?} me={} block_index={}",
                 i,
                 uid_to_authority_map[&i].account_id,
@@ -350,32 +443,35 @@ impl ClientTask {
             bls_public_keys.push(uid_to_authority_map[&i].bls_public_key.clone());
         }
 
-        Control::Reset { owner_uid, block_index, hash: proposal_hash, public_keys, bls_public_keys }
+        self.client.shard_client.pool.reset(Some(owner_uid), Some(num_authorities));
+        let hash = self.client.shard_client.pool.snapshot_payload();
+        Control::Reset { owner_uid, block_index, hash, public_keys, bls_public_keys }
     }
 
-    fn announce_payload(&self) {
+    fn gossip_payload(&self) {
         let pool = &self.client.shard_client.pool;
-        if let Some((authority_id, payload)) = pool.prepare_payload_announce() {
-            info!(
-                target: "mempool",
-                "Payload confirmed from {}",
-                authority_id
-            );
+        for payload_gossip in pool.prepare_payload_gossip() {
             tokio::spawn(
-                self.payload_announce_tx
+                self.out_payload_gossip_tx
                     .clone()
-                    .send((authority_id, payload))
+                    .send(payload_gossip)
                     .map(|_| ())
                     .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
             );
         }
     }
 
+    fn process_payload_gossip(&self, payload_gossip: PayloadGossip) {
+        let pool = &self.client.shard_client.pool;
+        if let Err(err) = pool.add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id) {
+            warn!(target: "client", "Failed to process payload gossip: {}", err);
+        }
+    }
+
     /// Spawn a kick-off task.
     fn spawn_kickoff(&self) {
-        let hash = self.client.shard_client.pool.snapshot_payload();
         let next_index = self.client.beacon_chain.chain.best_block().index() + 1;
-        let control = self.get_control(next_index, hash);
+        let control = self.restart_pool_nightshade(next_index);
 
         // Send mempool control.
         let task =

@@ -1,7 +1,9 @@
 import os
+import sys
 
 import delegator
 import pytest
+import subprocess
 from retrying import retry
 
 from near.pynear.lib import NearLib
@@ -9,7 +11,7 @@ from near.pynear.lib import NearLib
 
 @retry(stop_max_attempt_number=5, wait_fixed=1000)
 def check_devnet_health(process, nearlib):
-    if not process.is_alive:
+    if not delegator.pid_exists(process.pid):
         return False
 
     return nearlib.check_health()
@@ -36,7 +38,7 @@ def make_devnet(request, get_incrementing_number):
         command = "{devnet_exe} -d {base_dir} --rpc_port {port} " \
                   "--test-block-period 5" \
             .format(devnet_exe=devnet_exe, base_dir=base_dir, port=port)
-        process = delegator.run(command, block=False)
+        process = subprocess.Popen(command.split(' '),  stdout=sys.stdout, stderr=sys.stdout)
         request.addfinalizer(process.kill)
         nearlib = NearLib("http://localhost:{}/".format(port))
         assert check_devnet_health(process, nearlib)

@@ -2,7 +2,7 @@
       import { near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
-      import {hello as wrapped_hello, setKeyValue as wrapped_setKeyValue, getValueByKey as wrapped_getValueByKey, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, returnHiWithLogs as wrapped_returnHiWithLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove} from "./main";
+      import {hello as wrapped_hello, setKeyValue as wrapped_setKeyValue, getValueByKey as wrapped_getValueByKey, setValue as wrapped_setValue, getValue as wrapped_getValue, getAllKeys as wrapped_getAllKeys, benchmark as wrapped_benchmark, benchmark_storage as wrapped_benchmark_storage, benchmark_sum_n as wrapped_benchmark_sum_n, generateLogs as wrapped_generateLogs, returnHiWithLogs as wrapped_returnHiWithLogs, triggerAssert as wrapped_triggerAssert, testSetRemove as wrapped_testSetRemove, callPromise as wrapped_callPromise, callbackWithName as wrapped_callbackWithName, getLastResult as wrapped_getLastResult} from "./main";
 
       // Runtime functions
       @external("env", "return_value")
@@ -12,7 +12,8 @@
       @external("env", "input_read_into")
       declare function input_read_into(ptr: usize): void;
     
-import {contractContext as contractContext,globalStorage as globalStorage,near as near} from "./near";
+import {contractContext as contractContext,globalStorage as globalStorage,ContractPromise as ContractPromise,ContractPromiseResult as ContractPromiseResult,near as near} from "./near";
+import {PromiseArgs as PromiseArgs,InputPromiseArgs as InputPromiseArgs,MyCallbackResult as MyCallbackResult,MyContractPromiseResult as MyContractPromiseResult,ResultWrappedMyCallbackResult as ResultWrappedMyCallbackResult} from "./model.near";
 export class __near_ArgsParser_hello extends ThrowingJSONHandler {
         buffer: Uint8Array;
         decoder: JSONDecoder<__near_ArgsParser_hello>;
@@ -738,4 +739,168 @@ export function near_func_testSetRemove(): void {
 wrapped_testSetRemove(
 handler.__near_param_value
 );
+}
+import { __near_decode_PromiseArgs } from "./model.near";
+export class __near_ArgsParser_callPromise extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_callPromise>;
+        handledRoot: boolean = false;
+      
+__near_param_args: PromiseArgs;
+setNull(name: string): void {
+if (name == "args") {
+        this.__near_param_args = <PromiseArgs>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+if (name == "args") {
+          this.__near_param_args = <PromiseArgs>__near_decode_PromiseArgs(this.buffer, this.decoder.state);
+          return false;
+        }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_callPromise(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_callPromise();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_callPromise>(handler);
+      handler.decoder.deserialize(json);
+wrapped_callPromise(
+handler.__near_param_args
+);
+}
+export class __near_ArgsParser_callbackWithName extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_callbackWithName>;
+        handledRoot: boolean = false;
+      
+__near_param_args: PromiseArgs;
+setNull(name: string): void {
+if (name == "args") {
+        this.__near_param_args = <PromiseArgs>null;
+        return;
+      }
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+if (name == "args") {
+          this.__near_param_args = <PromiseArgs>__near_decode_PromiseArgs(this.buffer, this.decoder.state);
+          return false;
+        }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+import { __near_encode_MyCallbackResult } from "./model.near";
+export function near_func_callbackWithName(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_callbackWithName();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_callbackWithName>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_callbackWithName(
+handler.__near_param_args
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushObject("result");
+          __near_encode_MyCallbackResult(<MyCallbackResult>result, encoder);
+          encoder.popObject();
+        } else {
+          encoder.setNull("result");
+        }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
+}
+export class __near_ArgsParser_getLastResult extends ThrowingJSONHandler {
+        buffer: Uint8Array;
+        decoder: JSONDecoder<__near_ArgsParser_getLastResult>;
+        handledRoot: boolean = false;
+      
+setNull(name: string): void {
+
+      super.setNull(name);
+    }
+
+      pushObject(name: string): bool {
+if (!this.handledRoot) {
+      assert(name == null);
+      this.handledRoot = true;
+      return true;
+    } else {
+      assert(name != null);
+    }
+
+        return super.pushObject(name);
+      }
+
+      pushArray(name: string): bool {
+
+        return super.pushArray(name);
+      }
+}
+export function near_func_getLastResult(): void {
+      let json = new Uint8Array(input_read_len());
+      input_read_into(json.buffer.data);
+      let handler = new __near_ArgsParser_getLastResult();
+      handler.buffer = json;
+      handler.decoder = new JSONDecoder<__near_ArgsParser_getLastResult>(handler);
+      handler.decoder.deserialize(json);
+let result = wrapped_getLastResult(
+
+);
+
+        let encoder = new JSONEncoder();
+        encoder.pushObject(null);
+      
+if (result != null) {
+          encoder.pushObject("result");
+          __near_encode_MyCallbackResult(<MyCallbackResult>result, encoder);
+          encoder.popObject();
+        } else {
+          encoder.setNull("result");
+        }
+
+        encoder.popObject();
+        return_value(near.bufferWithSize(encoder.serialize()).buffer.data);
+      
 }

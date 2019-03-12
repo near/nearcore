@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use primitives::aggregate_signature::{
     AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
+    uncompressed_bs58_signature_serializer,
 };
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
@@ -165,7 +166,7 @@ pub struct State {
     /// Proof for `secondary_bare_state`.
     pub secondary_proof: Option<Proof>,
     /// Signature of the authority emitting this state
-    #[serde(with = "bs58_serializer")]
+    #[serde(with = "uncompressed_bs58_signature_serializer")]
     pub signature: BlsSignature,
 }
 
