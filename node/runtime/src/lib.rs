@@ -379,7 +379,7 @@ impl Runtime {
             ReturnData::Promise(PromiseId::Callback(id)) => {
                 let callback = runtime_ext.callbacks.get_mut(&id).expect("callback must exist");
                 if callback.callback.is_some() {
-                    unreachable!("callback already has callback");
+                    unreachable!("callback already has a callback");
                 } else {
                     callback.callback = Some(callback_info.clone());
                 }
@@ -390,16 +390,18 @@ impl Runtime {
                 match receipt.body {
                     ReceiptBody::NewCall(ref mut call) => {
                         if call.callback.is_some() {
-                            return Err("receipt already has callback".to_string());
+                            return Err("don't return original promise that already has a callback".to_string());
                         } else {
                             call.callback = Some(callback_info.clone());
                         }
                     }
-                    _ => unreachable!("receipt body is not new call")
+                    _ => unreachable!("receipt body is not a new call")
                 }
                 None
             }
-            _ => return Err("return data is a non-callback promise".to_string())
+            ReturnData::Promise(PromiseId::Joiner(_)) => {
+                return Err("don't return a joined promise (using promise_and or Promise.all)".to_string())
+            }
         };
         let mut receipts = runtime_ext.get_receipts();
         if let Some(callback_res) = callback_res {
