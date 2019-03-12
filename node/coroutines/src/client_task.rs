@@ -54,8 +54,11 @@ pub struct ClientTask {
     /// Interval at which we gossip payloads.
     payload_gossip_interval: Interval,
 
-    /// Last block index per peer.
-    peer_last_index: HashMap<PeerId, BlockIndex>,
+    /// Last block index per peer. Might not be the real block index the peer is it, in the cases:
+    /// The value is underestimated if when the remote node managed to progress several blocks
+    /// ahead without us knowing it. The value is overestimated when we send an announcement or reply
+    /// to peer state which gets lost over the network.
+    assumed_peer_last_index: HashMap<PeerId, BlockIndex>,
 }
 
 impl Stream for ClientTask {
@@ -247,7 +250,7 @@ impl ClientTask {
             inc_chain_state_rx,
             out_block_fetch_tx,
             payload_gossip_interval: Interval::new_interval(gossip_interval),
-            peer_last_index: Default::default(),
+            assumed_peer_last_index: Default::default(),
         };
         res.spawn_kickoff();
         res
@@ -298,7 +301,7 @@ impl ClientTask {
         beacon_block: SignedBeaconBlock,
         shard_block: SignedShardBlock,
     ) -> Option<BlockIndex> {
-        self.peer_last_index.insert(peer_id, beacon_block.index());
+        self.assumed_peer_last_index.insert(peer_id, beacon_block.index());
         // TODO: clonning here sucks, is there a better way?
         match self.client.try_import_blocks(beacon_block.clone(), shard_block.clone()) {
             BlockImportingResult::Success { new_index } => {
@@ -323,7 +326,7 @@ impl ClientTask {
     }
 
     fn process_peer_state(&mut self, peer_id: PeerId, chain_state: ChainState) {
-        self.peer_last_index.insert(peer_id, chain_state.last_index);
+        self.assumed_peer_last_index.insert(peer_id, chain_state.last_index);
         if chain_state.last_index > self.client.beacon_chain.chain.best_index() {
             // TODO: we should keep track of already fetching stuff.
             info!(target: "client", "Missing blocks {}..{} (from {}) for {}",
@@ -341,13 +344,13 @@ impl ClientTask {
     }
 
     fn announce_block(&mut self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
-        let peer_ids = self.peer_last_index.iter().filter_map(|(peer_id, last_index)| {
+        let peer_ids = self.assumed_peer_last_index.iter().filter_map(|(peer_id, last_index)| {
             if *last_index < beacon_block.index() { Some(*peer_id) } else { None }
         }).collect();
-        for (_, last_index) in self.peer_last_index.iter_mut() {
+        for last_index in self.assumed_peer_last_index.values_mut() {
             *last_index = max(*last_index, beacon_block.index());
         }
-        info!("Announcing block {} to {:?}, peer_last_index: {:?}", beacon_block.index(), peer_ids, self.peer_last_index);
+        info!("Announcing block {} to {:?}, peer_last_index: {:?}", beacon_block.index(), peer_ids, self.assumed_peer_last_index);
         tokio::spawn(
             self.out_block_tx
                 .clone()
