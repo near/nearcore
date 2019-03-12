@@ -12209,9 +12209,9 @@ class WalletAccount {
     }
 
     receiveMessage(event) {
-        if (event.source.location.href != this._walletBaseUrl + '/embed/') {
+        if (!this._walletBaseUrl.startsWith(event.origin)) {
             // Only processing wallet messages.
-            console.log('Wallet account ignoring message from ' + event.source.location.href);
+            console.log('Wallet account ignoring message from ' + event.origin);
             return;
         }
         let data;
