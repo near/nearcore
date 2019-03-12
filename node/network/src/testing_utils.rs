@@ -4,9 +4,9 @@ use std::sync::RwLock;
 use std::thread;
 use std::time::Duration;
 
+use primitives::chain::ChainState;
 use primitives::hash::CryptoHash;
 
-use crate::message::ChainState;
 use crate::peer::{ChainStateRetriever, PeerState};
 use crate::peer_manager::PeerManager;
 

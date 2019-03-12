@@ -205,3 +205,9 @@ pub enum PayloadResponse {
     General(ChainPayload),
     BlockProposal(AuthorityId, ChainPayload),
 }
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
+pub struct ChainState {
+    pub genesis_hash: CryptoHash,
+    pub last_index: u64,
+}

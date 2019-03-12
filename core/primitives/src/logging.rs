@@ -1,6 +1,7 @@
+use std::fmt::Debug;
+
 use bs58;
 use serde::Serialize;
-use std::fmt::Debug;
 
 const VECTOR_MAX_LENGTH: usize = 5;
 const STRING_PRINT_LEN: usize = 128;
@@ -67,6 +68,7 @@ pub fn pretty_serializable<T: Serialize>(s: &T) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     static HI_NEAR: &str = "Привет, NEAR";
 
     #[test]

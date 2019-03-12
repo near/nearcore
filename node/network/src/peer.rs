@@ -19,11 +19,12 @@ use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 use tokio_serde_cbor::Codec;
 
+use primitives::chain::ChainState;
 use primitives::network::PeerInfo;
 use primitives::serialize::Encode;
 use primitives::types::{AccountId, PeerId};
 
-use super::message::{ChainState, ConnectedInfo, Message, PROTOCOL_VERSION};
+use super::message::{ConnectedInfo, Message, PROTOCOL_VERSION};
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -356,6 +357,7 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                                     };
                                 }
                             };
+                            self.on_peer_connected(handshake.clone());
                             // Re-insert new entry with updated info.
                             let val = all_peer_states.remove(&handshake.peer_id).unwrap();
                             all_peer_states.insert(handshake.peer_id, val);

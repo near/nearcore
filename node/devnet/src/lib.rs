@@ -37,6 +37,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         let (_, payload_response_rx) = channel(1024);
         let (_, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (_, inc_chain_state_rx) = channel(1024);
+        let (out_block_fetch_tx, _) = channel(1024);
 
         // Gossip interval is currently not used.
         let gossip_interval = Duration::from_secs(1);
@@ -51,6 +53,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             payload_response_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
+            inc_chain_state_rx,
+            out_block_fetch_tx,
             gossip_interval,
         )
         .spawn();

@@ -173,6 +173,7 @@ impl Client {
             /// There are no pending blocks.
             vec![]
         } else {
+            let best_index = self.beacon_chain.chain.best_index();
             guard
                 .values()
                 .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })

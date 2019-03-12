@@ -55,6 +55,8 @@ pub fn start_from_client(
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (inc_chain_state_tx, inc_chain_state_rx) = channel(1024);
+        let (out_block_fetch_tx, out_block_fetch_rx) = channel(1024);
 
         // Launch Client task.
         ClientTask::new(
@@ -68,6 +70,8 @@ pub fn start_from_client(
             payload_response_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
+            inc_chain_state_rx,
+            out_block_fetch_tx,
             network_cfg.gossip_interval,
         )
         .spawn();
@@ -95,6 +99,8 @@ pub fn start_from_client(
             payload_response_tx,
             inc_payload_gossip_tx,
             out_payload_gossip_rx,
+            inc_chain_state_tx,
+            out_block_fetch_rx,
         );
 
         Ok(())
@@ -322,5 +328,56 @@ mod tests {
                 .amount,
             110
         );
+    }
+
+    /// Creates two authority nodes, run them for 10 blocks.
+    /// Two non-authorities join later and must catch up.
+    #[test]
+    fn test_new_nodes_catchup() {
+        let (test_prefix, test_port) = ("new_node_catchup", 7030);
+        let chain_spec = configure_chain_spec();
+        let alice = Node::for_test(
+            test_prefix,
+            test_port,
+            "alice.near",
+            1,
+            vec![],
+            chain_spec.clone(),
+        );
+        let bob = Node::for_test(
+            test_prefix,
+            test_port,
+            "bob.near",
+            2,
+            vec![alice.node_addr()],
+            chain_spec.clone(),
+        );
+        let charlie = Node::for_test(
+            test_prefix,
+            test_port,
+            "charlie.near",
+            3,
+            vec![bob.node_addr()],
+            chain_spec.clone(),
+        );
+        let dan = Node::for_test(
+            test_prefix,
+            test_port,
+            "dan.near",
+            4,
+            vec![charlie.node_addr()],
+            chain_spec,
+        );
+
+        alice.start();
+        bob.start();
+
+        wait(|| alice.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+
+        charlie.start();
+        dan.start();
+        wait(|| charlie.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| dan.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+
     }
 }

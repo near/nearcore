@@ -14,12 +14,12 @@ use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse};
+use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse, ChainState};
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
-use primitives::types::{AccountId, AuthorityId, PeerId};
+use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
 
-use crate::message::{ChainState, ConnectedInfo, CoupledBlock, Message, RequestId};
+use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 
@@ -50,8 +50,9 @@ struct Protocol {
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
-    inc_block_tx: Sender<CoupledBlock>,
+    inc_block_tx: Sender<(PeerId, CoupledBlock)>,
     payload_response_tx: Sender<PayloadResponse>,
+    inc_chain_state_tx: Sender<(PeerId, ChainState)>,
 }
 
 impl Protocol {
@@ -59,7 +60,7 @@ impl Protocol {
         match Decode::decode(&data) {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
-                    info!("Peer {} connected.", peer_id);
+                    info!("Peer {} connected to {} with {:?}", peer_id, self.peer_manager.node_info.id, connected_info);
                     self.on_new_peer(peer_id, connected_info);
                 }
                 Message::Transaction(tx) => {
@@ -75,16 +76,7 @@ impl Protocol {
                 Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
                 Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
                 Message::BlockAnnounce(block) => {
-                    forward_msg(self.inc_block_tx.clone(), *block);
-                }
-                Message::BlockRequest(request_id, hashes) => {
-                    match self.client.fetch_blocks(hashes) {
-                        Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
-                        Err(err) => {
-                            self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
-                        }
-                    }
+                    forward_msg(self.inc_block_tx.clone(), (peer_id, *block));
                 }
                 Message::BlockFetchRequest(request_id, from_index, til_index) => {
                     match self.client.fetch_blocks_range(from_index, til_index) {
@@ -95,8 +87,8 @@ impl Protocol {
                         }
                     }
                 }
-                Message::BlockResponse(_request_id, blocks) => {
-                    forward_msgs(self.inc_block_tx.clone(), blocks);
+                Message::BlockResponse(_request_id, mut blocks) => {
+                    forward_msgs(self.inc_block_tx.clone(), blocks.drain(..).map(|b| (peer_id, b)).collect());
                 }
                 Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
                     match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
@@ -142,18 +134,7 @@ impl Protocol {
         {
             self.peer_manager.ban_peer(&peer_id);
         }
-        // Make a separate Sync agent that constantly runs and is being called from here?
-        // as we really need one per shard we keeping track + beacon chain.
-        if connected_info.chain_state.last_index > self.client.beacon_chain.chain.best_index() {
-            info!(target: "network", "Fetching blocks {}..{} from {}",
-                  self.client.beacon_chain.chain.best_index(),
-                  connected_info.chain_state.last_index, peer_id);
-            self.send_block_fetch_request(
-                &peer_id,
-                self.client.beacon_chain.chain.best_index() + 1,
-                connected_info.chain_state.last_index,
-            );
-        }
+        forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }
 
     fn get_authority_id_from_peer_id(&self, peer_id: &PeerId) -> Option<AuthorityId> {
@@ -200,14 +181,16 @@ impl Protocol {
         }
     }
 
-    fn send_block_announce(&self, b: CoupledBlock) {
+    fn send_block_announce(&self, peer_ids: Vec<PeerId>, b: CoupledBlock) {
         let data = Encode::encode(&Message::BlockAnnounce(Box::new(b))).unwrap();
-        for ch in self.peer_manager.get_ready_channels() {
-            forward_msg(ch, PeerMessage::Message(data.to_vec()));
+        for peer_id in peer_ids.iter() {
+            if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
+                forward_msg(ch, PeerMessage::Message(data.to_vec()));
+            }
         }
     }
 
-    fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: u64, til_index: u64) {
+    fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: BlockIndex, til_index: BlockIndex) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             // TODO: make proper request ids.
             let request_id = 1;
@@ -283,12 +266,14 @@ pub fn spawn_network(
     network_cfg: NetworkConfig,
     inc_gossip_tx: Sender<Gossip>,
     out_gossip_rx: Receiver<Gossip>,
-    inc_block_tx: Sender<CoupledBlock>,
-    out_block_rx: Receiver<CoupledBlock>,
+    inc_block_tx: Sender<(PeerId, CoupledBlock)>,
+    out_block_rx: Receiver<(Vec<PeerId>, CoupledBlock)>,
     payload_request_rx: Receiver<PayloadRequest>,
     payload_response_tx: Sender<PayloadResponse>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     out_payload_gossip_rx: Receiver<PayloadGossip>,
+    inc_chain_state_tx: Sender<(PeerId, ChainState)>,
+    out_block_fetch_rx: Receiver<(PeerId, BlockIndex, BlockIndex)>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
@@ -305,7 +290,7 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx });
+    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -333,8 +318,8 @@ pub fn spawn_network(
 
     // Spawn a task that encodes and sends outgoing block announcements.
     let protocol3 = protocol.clone();
-    let task = out_block_rx.for_each(move |b| {
-        protocol3.send_block_announce(b);
+    let task = out_block_rx.for_each(move |(peer_ids, b)| {
+        protocol3.send_block_announce(peer_ids, b);
         future::ok(())
     });
     tokio::spawn(task);
@@ -343,6 +328,14 @@ pub fn spawn_network(
     let protocol4 = protocol.clone();
     let task = payload_request_rx.for_each(move |r| {
         protocol4.send_payload_request(r);
+        future::ok(())
+    });
+    tokio::spawn(task);
+
+    // Spawn a task that send block fetch requests.
+    let protocol5 = protocol.clone();
+    let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
+       protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
         future::ok(())
     });
     tokio::spawn(task);
