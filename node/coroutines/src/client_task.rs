@@ -44,9 +44,9 @@ pub struct ClientTask {
     /// Gossips for payloads.
     inc_payload_gossip_rx: Receiver<PayloadGossip>,
     /// Incoming information about chain from other peers.
-    inc_peer_rx: Receiver<(PeerId, ChainState)>,
+    inc_chain_state_rx: Receiver<(PeerId, ChainState)>,
     /// Sending requests for blocks to peers.
-    out_peer_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
+    out_block_fetch_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
 
     // Periodic tasks.
     /// Channel into which we gossip payloads.
@@ -94,7 +94,7 @@ impl Stream for ClientTask {
                 }
             }
 
-            match self.inc_peer_rx.poll() {
+            match self.inc_chain_state_rx.poll() {
                 Ok(Async::Ready(Some((peer_id, chain_state)))) => {
                     self.process_peer_state(peer_id, chain_state);
                 },
@@ -229,8 +229,8 @@ impl ClientTask {
         payload_response_rx: Receiver<PayloadResponse>,
         inc_payload_gossip_rx: Receiver<PayloadGossip>,
         out_payload_gossip_tx: Sender<PayloadGossip>,
-        inc_peer_rx: Receiver<(PeerId, ChainState)>,
-        out_peer_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
+        inc_chain_state_rx: Receiver<(PeerId, ChainState)>,
+        out_block_fetch_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
         gossip_interval: Duration,
     ) -> Self {
         let res = Self {
@@ -244,8 +244,8 @@ impl ClientTask {
             payload_response_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
-            inc_peer_rx,
-            out_peer_tx,
+            inc_chain_state_rx,
+            out_block_fetch_tx,
             payload_gossip_interval: Interval::new_interval(gossip_interval),
             peer_last_index: Default::default(),
         };
@@ -313,11 +313,11 @@ impl ClientTask {
                 warn!(target: "client", "Missing indicies {:?}, account_id={:?}", missing_indices, self.client.account_id);
                 let (from_index, til_index) = (missing_indices.iter().min().unwrap(), missing_indices.iter().max().unwrap());
                 tokio::spawn(
-                    self.out_peer_tx.clone().send((peer_id, *from_index, *til_index)).map(|_| ()).map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
+                    self.out_block_fetch_tx.clone().send((peer_id, *from_index, *til_index)).map(|_| ()).map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
                 );
                 None
             },
-            // TODO: if block is invalid, we can extend `out_peer_tx` channel to also handle banning actions.
+            // TODO: if block is invalid, we can extend `out_block_fetch_tx` channel to also handle banning actions.
             _ => None
         }
     }
@@ -331,7 +331,7 @@ impl ClientTask {
                   chain_state.last_index, peer_id,
                   self.client.account_id);
             tokio::spawn(
-                self.out_peer_tx
+                self.out_block_fetch_tx
                     .clone()
                     .send((peer_id, self.client.beacon_chain.chain.best_index() + 1, chain_state.last_index))
                     .map(|_| ())

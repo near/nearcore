@@ -52,7 +52,7 @@ struct Protocol {
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, CoupledBlock)>,
     payload_response_tx: Sender<PayloadResponse>,
-    inc_peer_tx: Sender<(PeerId, ChainState)>,
+    inc_chain_state_tx: Sender<(PeerId, ChainState)>,
 }
 
 impl Protocol {
@@ -134,7 +134,7 @@ impl Protocol {
         {
             self.peer_manager.ban_peer(&peer_id);
         }
-        forward_msg(self.inc_peer_tx.clone(), (peer_id, connected_info.chain_state));
+        forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }
 
     fn get_authority_id_from_peer_id(&self, peer_id: &PeerId) -> Option<AuthorityId> {
@@ -272,8 +272,8 @@ pub fn spawn_network(
     payload_response_tx: Sender<PayloadResponse>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     out_payload_gossip_rx: Receiver<PayloadGossip>,
-    inc_peer_tx: Sender<(PeerId, ChainState)>,
-    out_peer_rx: Receiver<(PeerId, BlockIndex, BlockIndex)>,
+    inc_chain_state_tx: Sender<(PeerId, ChainState)>,
+    out_block_fetch_rx: Receiver<(PeerId, BlockIndex, BlockIndex)>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
@@ -290,7 +290,7 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_peer_tx });
+    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -334,7 +334,7 @@ pub fn spawn_network(
 
     // Spawn a task that send block fetch requests.
     let protocol5 = protocol.clone();
-    let task = out_peer_rx.for_each(move |(peer_id, from_index, til_index)| {
+    let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
        protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
         future::ok(())
     });

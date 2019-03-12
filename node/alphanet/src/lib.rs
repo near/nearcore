@@ -55,8 +55,8 @@ pub fn start_from_client(
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
-        let (inc_peer_tx, inc_peer_rx) = channel(1024);
-        let (out_peer_tx, out_peer_rx) = channel(1024);
+        let (inc_chain_state_tx, inc_chain_state_rx) = channel(1024);
+        let (out_block_fetch_tx, out_block_fetch_rx) = channel(1024);
 
         // Launch Client task.
         ClientTask::new(
@@ -70,8 +70,8 @@ pub fn start_from_client(
             payload_response_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
-            inc_peer_rx,
-            out_peer_tx,
+            inc_chain_state_rx,
+            out_block_fetch_tx,
             network_cfg.gossip_interval,
         )
         .spawn();
@@ -99,8 +99,8 @@ pub fn start_from_client(
             payload_response_tx,
             inc_payload_gossip_tx,
             out_payload_gossip_rx,
-            inc_peer_tx,
-            out_peer_rx,
+            inc_chain_state_tx,
+            out_block_fetch_rx,
         );
 
         Ok(())
