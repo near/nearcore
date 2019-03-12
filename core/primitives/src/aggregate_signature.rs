@@ -538,7 +538,7 @@ mod tests {
         let mut rng = XorShiftRng::seed_from_u64(4);
 
         let secret = BlsSecretKey::generate_from_rng(&mut rng);
-        let pubkey = secret.get_public_key();
+        let _pubkey = secret.get_public_key();
         let message = "Hello, world!";
         let signature = secret.sign(message.as_bytes());
 

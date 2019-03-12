@@ -81,6 +81,10 @@ export class DecoderState {
     lastKey: string = null;
 }
 
+function strFromBytes(buffer: Uint8Array): string {
+  return String.fromUTF8(buffer.buffer.data, buffer.byteLength);
+}
+
 export class JSONDecoder<JSONHandlerT extends JSONHandler> {
 
     handler: JSONHandlerT;
@@ -100,7 +104,7 @@ export class JSONDecoder<JSONHandlerT extends JSONHandler> {
             this.state.lastKey = null;
         }
 
-        assert(this.parseValue(), "Cannot parse JSON");
+        assert(this.parseValue(), "Cannot parse JSON: `" + strFromBytes(buffer) + "`");
         // TODO: Error if input left
     }
 
@@ -201,7 +205,6 @@ export class JSONDecoder<JSONHandlerT extends JSONHandler> {
         for (;;) {
             let byte = this.readChar();
             assert(byte >= 0x20, "Unexpected control character");
-            // TODO: Make sure unicode handled properly
             if (byte == '"'.charCodeAt(0)) {
                 stringParts.push(
                     String.fromUTF8(this.state.buffer.buffer.data + savedIndex, this.state.readIndex - savedIndex - 1));

@@ -26,7 +26,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
             boot_nodes,
             chain_spec.clone(),
         );
-        boot_nodes = vec![node.node_info.clone()];
+        boot_nodes = vec![node.node_addr()];
         node.start();
         nodes.push(node);
     }

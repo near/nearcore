@@ -143,7 +143,7 @@ mod tests {
             test_port,
             "bob.near",
             2,
-            vec![alice.node_info.clone()],
+            vec![alice.node_addr()],
             chain_spec,
         );
         alice
@@ -212,7 +212,7 @@ mod tests {
             test_port,
             "bob.near",
             2,
-            vec![alice.node_info.clone()],
+            vec![alice.node_addr()],
             chain_spec.clone(),
         );
         let charlie = Node::for_test_passive(
@@ -220,7 +220,7 @@ mod tests {
             test_port,
             "charlie.near",
             3,
-            vec![bob.node_info.clone()],
+            vec![bob.node_addr()],
             chain_spec,
         );
 
@@ -285,7 +285,7 @@ mod tests {
             test_port,
             "bob.near",
             2,
-            vec![alice.node_info.clone()],
+            vec![alice.node_addr()],
             chain_spec.clone(),
         );
         let (mut beacon_block, mut shard_block) =
@@ -349,7 +349,7 @@ mod tests {
             test_port,
             "bob.near",
             2,
-            vec![alice.node_info.clone()],
+            vec![alice.node_addr()],
             chain_spec.clone(),
         );
         let charlie = Node::for_test(
@@ -357,7 +357,7 @@ mod tests {
             test_port,
             "charlie.near",
             3,
-            vec![bob.node_info.clone()],
+            vec![bob.node_addr()],
             chain_spec.clone(),
         );
         let dan = Node::for_test(
@@ -365,7 +365,7 @@ mod tests {
             test_port,
             "dan.near",
             4,
-            vec![charlie.node_info.clone()],
+            vec![charlie.node_addr()],
             chain_spec,
         );
 

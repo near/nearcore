@@ -1,7 +1,9 @@
 import "allocator/arena";
 export { memory };
 
-import { contractContext, globalStorage, near } from "./near";
+import { contractContext, globalStorage, ContractPromise, ContractPromiseResult, near } from "./near";
+
+import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult, ResultWrappedMyCallbackResult } from "./model.near";
 
 export function hello(name: string): string {
 
@@ -85,7 +87,55 @@ export function triggerAssert(): void {
 }
 
 export function testSetRemove(value: string): void {
-    globalStorage.setItem("test", value);
-    globalStorage.removeItem("test");
-    assert(globalStorage.getItem("test") == null, "Item must be empty");
+  globalStorage.setItem("test", value);
+  globalStorage.removeItem("test");
+  assert(globalStorage.getItem("test") == null, "Item must be empty");
 }
+
+// For testing promises
+
+export function callPromise(args: PromiseArgs): void {
+  let inputArgs: InputPromiseArgs = { args: args.args };
+  let promise = ContractPromise.create(
+      args.receiver,
+      args.methodName,
+      inputArgs.encode(),
+      args.additionalMana);
+  if (args.callback) {
+    inputArgs.args = args.callbackArgs;
+    promise = promise.then(
+        args.callback,
+        inputArgs.encode(),
+        args.callbackAdditionalMana);
+  }
+  promise.returnAsResult();
+}
+
+function strFromBytes(buffer: Uint8Array): string {
+  return String.fromUTF8(buffer.buffer.data, buffer.byteLength);
+}
+
+export function callbackWithName(args: PromiseArgs): MyCallbackResult {
+  let contractResults = ContractPromise.getResults();
+  let allRes = new Array<MyContractPromiseResult>(contractResults.length);
+  for (let i = 0; i < contractResults.length; ++i) {
+    allRes[i] = new MyContractPromiseResult();
+    allRes[i].ok = contractResults[i].success;
+    if (allRes[i].ok) {
+      allRes[i].r = ResultWrappedMyCallbackResult.decode(contractResults[i].buffer).result;
+    }
+  } 
+  let result: MyCallbackResult = {
+    rs: allRes,
+    n: contractContext.contractName,
+  }
+  let bytes = result.encode();
+  near.log(strFromBytes(bytes));
+  globalStorage.setBytes("lastResult", bytes);
+  return result;
+}
+
+export function getLastResult(): MyCallbackResult {
+  return MyCallbackResult.decode(globalStorage.getBytes("lastResult"));
+}
+

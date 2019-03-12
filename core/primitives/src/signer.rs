@@ -116,7 +116,12 @@ pub fn get_block_producer_key_file(
     let key_file_string = if key_files_count > 0 {
         if let Some(p) = public_key {
             let key_file_path = key_store_path.join(Path::new(&p));
-            fs::read_to_string(key_file_path).unwrap()
+            match fs::read_to_string(key_file_path.clone()) {
+                Ok(content) => content,
+                Err(err) => {
+                    panic!("Failed to read key file {:?} with error: {}", key_file_path, err);
+                }
+            }
         } else {
             println!(
                 "Public key must be specified when there is more than one \
