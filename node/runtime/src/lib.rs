@@ -400,7 +400,7 @@ impl Runtime {
                 None
             }
             ReturnData::Promise(PromiseId::Joiner(_)) => {
-                return Err("don't return a joined promise".to_string())
+                return Err("don't return a joined promise (using promise_and or Promise.all)".to_string())
             }
         };
         let mut receipts = runtime_ext.get_receipts();
