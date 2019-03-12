@@ -111,6 +111,7 @@ pub struct ApplyResult {
     pub authority_proposals: Vec<AuthorityStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
+    pub largest_tx_nonce: u64,
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option<T> {
@@ -863,6 +864,7 @@ impl Runtime {
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
+        let mut largest_tx_nonce = 0;
         for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
             tx_result.push(Self::process_receipt(
                 self,
@@ -874,6 +876,10 @@ impl Runtime {
             ));
         }
         for transaction in transactions {
+            let nonce = transaction.body.get_nonce();
+            if nonce > largest_tx_nonce {
+                largest_tx_nonce = nonce;
+            }
             tx_result.push(Self::process_transaction(
                 self,
                 &mut state_update,
@@ -891,6 +897,7 @@ impl Runtime {
             shard_id,
             new_receipts,
             tx_result,
+            largest_tx_nonce,
         }
     }
 

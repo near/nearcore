@@ -1,9 +1,9 @@
-use super::{extend_with_cache, read_with_cache, StorageResult};
+use super::{extend_with_cache, read_with_cache, write_with_cache, StorageResult};
 use super::{BlockChainStorage, GenericStorage};
 use super::{ChainId, KeyValueDB};
 use super::{
     COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS,
-    COL_RECEIPT_BLOCK
+    COL_RECEIPT_BLOCK, COL_TX_NONCE,
 };
 use primitives::chain::{
     SignedShardBlock, SignedShardBlockHeader, ReceiptBlock
@@ -21,6 +21,8 @@ pub struct ShardChainStorage {
     transaction_results: HashMap<Vec<u8>, TransactionResult>,
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
     receipts: HashMap<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
+    // records the largest transaction nonce in a given block
+    tx_nonce: HashMap<Vec<u8>, u64>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -39,6 +41,7 @@ impl ShardChainStorage {
             transaction_results: Default::default(),
             transaction_addresses: Default::default(),
             receipts: Default::default(),
+            tx_nonce: Default::default(),
         }
     }
 
@@ -161,6 +164,25 @@ impl ShardChainStorage {
             COL_RECEIPT_BLOCK,
             &mut self.receipts,
             value,
+        )
+    }
+
+    pub fn tx_nonce(&mut self, index: BlockIndex) -> StorageResult<&u64> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TX_NONCE,
+            &mut self.tx_nonce,
+            &self.generic_storage.enc_index(index)
+        )
+    }
+
+    pub fn insert_tx_nonce(&mut self, index: BlockIndex, nonce: u64) -> io::Result<()> {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TX_NONCE,
+            &mut self.tx_nonce,
+            &self.generic_storage.enc_index(index),
+            nonce
         )
     }
 }

@@ -2,6 +2,7 @@ use alphanet::testing_utils::Node;
 use primitives::transaction::TransactionBody;
 use alphanet::testing_utils::wait;
 use alphanet::testing_utils::generate_test_chain_spec;
+use std::cmp::max;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     let init_balance = 1_000_000_000;
@@ -62,7 +63,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
                 )
                 .unwrap();
         }
-        nonces[i] += 1;
+        nonces[i] = max(nonces[i] + 1, nodes[i].client.shard_client.get_last_block_nonce() + 1);
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 
