@@ -5,10 +5,9 @@ use std::time::Duration;
 use clap::{Arg, ArgMatches};
 
 use crate::ClientConfig;
-use primitives::network::PeerInfo;
+use primitives::network::PeerAddr;
 use primitives::{hash::hash, types::PeerId};
 
-const DEFAULT_ADDR: &str = "127.0.0.1:3000";
 const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
 const DEFAULT_GOSSIP_INTERVAL_MS: &str = "50";
 const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
@@ -18,7 +17,7 @@ const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
 pub struct NetworkConfig {
     pub listen_addr: Option<SocketAddr>,
     pub peer_id: PeerId,
-    pub boot_nodes: Vec<PeerInfo>,
+    pub boot_nodes: Vec<PeerAddr>,
     pub reconnect_delay: Duration,
     pub gossip_interval: Duration,
     pub gossip_sample_size: usize,
@@ -30,7 +29,6 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .long("addr")
             .value_name("ADDR")
             .help("Address that network service listens on")
-            .default_value(DEFAULT_ADDR)
             .takes_value(true),
         Arg::with_name("boot_nodes")
             .short("b")
@@ -91,9 +89,8 @@ pub fn get_peer_id_from_seed(seed: u32) -> PeerId {
 }
 
 pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
-    // TODO: make addr optional cmd argument.
     let listen_addr =
-        Some(matches.value_of("addr").unwrap().parse::<SocketAddr>().expect("Cannot parse address"));
+        matches.value_of("addr").map(|value| value.parse::<SocketAddr>().expect("Cannot parse address"));
     let test_network_key_seed =
         matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap()).unwrap_or(0);
 
@@ -101,13 +98,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
     let mut boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
-            let addr_id: Vec<_> = addr_id.split('/').collect();
-            let (addr, id) = (addr_id[0], addr_id[1]);
-            PeerInfo {
-                addr: Some(addr.parse::<SocketAddr>().expect("Cannot parse address")),
-                id: String::into(id.to_string()),
-                account_id: None,
-            }
+            PeerAddr::parse(&addr_id).expect("Cannot parse address")
         })
         .clone()
         .collect();
