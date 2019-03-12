@@ -376,6 +376,8 @@ mod tests {
 
         charlie.start();
         dan.start();
+        wait(|| charlie.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| dan.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
 
     }
 }
