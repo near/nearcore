@@ -6,6 +6,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use near_protos::network as network_proto;
 use protobuf::{SingularPtrField, RepeatedField};
@@ -25,6 +26,12 @@ impl PeerAddr {
             id: String::into(id.to_string()),
             addr: addr.parse::<SocketAddr>().map_err(|e| format!("Error parsing address {:?}: {:?}", addr, e))?,
         })
+    }
+}
+
+impl Display for PeerAddr {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}/{}", self.addr, self.id)
     }
 }
 
