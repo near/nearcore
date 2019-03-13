@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::borrow::Borrow;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -33,12 +34,32 @@ pub struct ShardBlock {
     pub receipts: Vec<ReceiptBlock>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
 }
+
+impl Borrow<CryptoHash> for SignedShardBlock {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
+impl Hash for SignedShardBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.hash.as_ref());
+    }
+}
+
+impl PartialEq for SignedShardBlock {
+    fn eq(&self, other: &SignedShardBlock) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Eq for SignedShardBlock {}
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ReceiptBlock {
