@@ -23,7 +23,9 @@ use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus
 };
-use primitives::types::{AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
+use primitives::types::{
+    AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId, AccountId
+};
 use storage::{Trie, TrieUpdate, GenericStorage, ShardChainStorage};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -39,7 +41,7 @@ pub struct ShardBlockExtraInfo {
     pub db_changes: storage::DBChanges,
     pub authority_proposals: Vec<AuthorityStake>,
     pub tx_results: Vec<TransactionResult>,
-    pub largest_tx_nonce: u64,
+    pub largest_tx_nonce: HashMap<AccountId, u64>,
     pub new_receipts: HashMap<ShardId, ReceiptBlock>,
 } 
 
@@ -102,7 +104,7 @@ impl ShardClient {
         block: &SignedShardBlock,
         db_transaction: storage::DBChanges,
         tx_results: Vec<TransactionResult>,
-        largest_tx_nonce: u64,
+        largest_tx_nonce: HashMap<AccountId, u64>,
         new_receipts: HashMap<ShardId, ReceiptBlock>,
     ) {
         self.trie.apply_changes(db_transaction).ok();
@@ -113,7 +115,7 @@ impl ShardClient {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         guard.extend_transaction_results_addresses(block, tx_results).unwrap();
         guard.extend_receipts(index, new_receipts).unwrap();
-        guard.insert_tx_nonce(index, largest_tx_nonce).unwrap();
+        guard.extend_tx_nonce(index, largest_tx_nonce).unwrap();
     }
 
     fn compute_receipt_blocks(
@@ -299,8 +301,8 @@ impl ShardClient {
             .cloned()
     }
 
-    /// get the largest transaction nonce from last block
-    pub fn get_last_block_nonce(&self) -> u64 {
+    /// get the largest transaction nonce for account from last block
+    pub fn get_last_block_nonce(&self, account_id: AccountId) -> Option<u64> {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         let last_index = guard
             .blockchain_storage_mut()
@@ -309,9 +311,9 @@ impl ShardClient {
             .unwrap()
             .index();
         if last_index == 0 {
-            return 0;
+            return None;
         }
-        *guard.tx_nonce(last_index).unwrap().unwrap()
+        guard.tx_nonce(last_index, account_id).unwrap().cloned()
     }
 }
 
@@ -337,12 +339,20 @@ mod tests {
     }
 
     impl ShardClient {
-        // add a number of test blocks
-        fn add_blocks(&mut self, signer: Arc<InMemorySigner>, num_blocks: u32) -> (u64, CryptoHash) {
+        // add a number of test blocks. Each block contains one transaction that sends money
+        // from sender to receiver. Sender and receiver are assumed to exist.
+        fn add_blocks(
+            &mut self,
+            sender: &str,
+            receiver: &str,
+            sender_signer: Arc<InMemorySigner>,
+            num_blocks: u32,
+        ) -> (u64, CryptoHash) {
             let mut prev_hash = self.genesis_hash();
             let mut nonce = 1;
             for _ in 0..num_blocks {
-                let tx = TransactionBody::send_money(nonce, "alice.near", "bob.near", 1).sign(signer.clone());
+                let tx = TransactionBody::send_money(nonce, sender, receiver, 1)
+                    .sign(sender_signer.clone());
                 let (block, block_extra) =
                     self.prepare_new_block(prev_hash, vec![], vec![tx.clone()]);
                 prev_hash = block.hash;
@@ -445,7 +455,13 @@ mod tests {
             CryptoHash::default(),
         );
         let db_changes = HashMap::default();
-        client.insert_block(&block, db_changes, vec![TransactionResult::default()], 0, HashMap::new());
+        client.insert_block(
+            &block,
+            db_changes,
+            vec![TransactionResult::default()],
+            HashMap::new(),
+            HashMap::new()
+        );
         let address = client.get_transaction_address(&hash);
         let expected = TransactionAddress { block_hash: block.hash, index: 0 };
         assert_eq!(address, Some(expected.clone()));
@@ -456,11 +472,13 @@ mod tests {
     #[test]
     fn test_tx_nonce() {
         let (mut client, signers) = get_test_client();
-        let (nonce, _) = client.add_blocks(signers[0].clone(), 5);
+        let (nonce, _) = client.add_blocks(
+            "alice.near", "bob.near", signers[0].clone(), 5, 
+        );
         let tx_nonce = client.storage
             .write()
             .expect(POISONED_LOCK_ERR)
-            .tx_nonce(5)
+            .tx_nonce(5, "alice.near".to_string())
             .unwrap()
             .unwrap()
             .clone();
@@ -468,14 +486,27 @@ mod tests {
     }
 
     #[test]
-    fn test_mempool_invalid_tx() {
+    fn test_mempool_add_tx() {
         let (mut client, signers) = get_test_client();
-        client.add_blocks(signers[0].clone(), 5);
-        let tx = TransactionBody::send_money(
-            2, "alice.near", "bob.near", 1
-        ).sign(signers[0].clone());
+        let create_transaction = |sender, receiver, signer, nonce| {
+            TransactionBody::send_money(
+            nonce, sender, receiver, 1
+            ).sign(signer)
+        };
+        client.add_blocks("alice.near", "bob.near", signers[0].clone(), 5);
+        client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
+        let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 2);
         client.pool.add_transaction(tx).unwrap();
         assert!(client.pool.is_empty());
+        let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 6);
+        client.pool.add_transaction(tx).unwrap();
+        assert_eq!(client.pool.len(), 1);
+        let tx = create_transaction("bob.near", "alice.near", signers[1].clone(), 1);
+        client.pool.add_transaction(tx).unwrap();
+        assert_eq!(client.pool.len(), 1);
+        let tx = create_transaction("bob.near", "alice.near", signers[1].clone(), 2);
+        client.pool.add_transaction(tx).unwrap();
+        assert_eq!(client.pool.len(), 2);
     }
 
     #[test]

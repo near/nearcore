@@ -73,6 +73,15 @@ impl Pool {
         && self.receipts.read().expect(POISONED_LOCK_ERR).is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        let mut length = 0;
+        let guard = self.transactions.read().expect(POISONED_LOCK_ERR);
+        length += guard.iter().fold(0, |acc, (_, v)| acc + v.len());
+        let guard = self.receipts.read().expect(POISONED_LOCK_ERR);
+        length += guard.len();
+        length
+    }
+
     pub fn get_state_update(&self) -> TrieUpdate {
         let root = self
             .storage
@@ -90,9 +99,10 @@ impl Pool {
         {
             // validate transaction
             let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+            let sender = transaction.body.get_originator();
             let last_block_index = guard.blockchain_storage_mut().best_block().unwrap().unwrap().index();
             if last_block_index > 0 {
-                let old_tx_nonce = *guard.tx_nonce(last_block_index).unwrap().unwrap();
+                let old_tx_nonce = *guard.tx_nonce(last_block_index, sender).unwrap().unwrap_or(&0);
                 if transaction.body.get_nonce() <= old_tx_nonce {
                     return Ok(());
                 }

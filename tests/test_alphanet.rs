@@ -63,7 +63,15 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
                 )
                 .unwrap();
         }
-        nonces[i] = max(nonces[i] + 1, nodes[i].client.shard_client.get_last_block_nonce() + 1);
+        nonces[i] = max(
+            nonces[i] + 1,
+            nodes[i]
+                .client
+                .shard_client
+                .get_last_block_nonce(account_names[i].clone())
+                .unwrap_or_else(|| 0) 
+                + 1
+        );
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 

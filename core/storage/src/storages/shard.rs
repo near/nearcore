@@ -10,7 +10,7 @@ use primitives::chain::{
 };
 use primitives::hash::CryptoHash;
 use primitives::transaction::{TransactionAddress, TransactionResult};
-use primitives::types::{BlockIndex, ShardId};
+use primitives::types::{BlockIndex, ShardId, AccountId};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -21,8 +21,8 @@ pub struct ShardChainStorage {
     transaction_results: HashMap<Vec<u8>, TransactionResult>,
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
     receipts: HashMap<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
-    // records the largest transaction nonce in a given block
-    tx_nonce: HashMap<Vec<u8>, u64>,
+    // records the largest transaction nonce per account in a given block
+    tx_nonce: HashMap<Vec<u8>, HashMap<AccountId, u64>>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -157,32 +157,31 @@ impl ShardChainStorage {
         index: BlockIndex,
         receipts: HashMap<ShardId, ReceiptBlock>,
     ) -> io::Result<()> {
-        let mut value = HashMap::new();
-        value.insert(self.generic_storage.enc_index(index).to_vec(), receipts);
-        extend_with_cache(
+        write_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_RECEIPT_BLOCK,
             &mut self.receipts,
-            value,
+            &self.generic_storage.enc_index(index),
+            receipts,
         )
     }
 
-    pub fn tx_nonce(&mut self, index: BlockIndex) -> StorageResult<&u64> {
+    pub fn tx_nonce(&mut self, index: BlockIndex, account_id: AccountId) -> StorageResult<&u64> {
         read_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TX_NONCE,
             &mut self.tx_nonce,
             &self.generic_storage.enc_index(index)
-        )
+        ).map(|tx_nonces| tx_nonces.and_then(|map| map.get(&account_id)))
     }
 
-    pub fn insert_tx_nonce(&mut self, index: BlockIndex, nonce: u64) -> io::Result<()> {
+    pub fn extend_tx_nonce(&mut self, index: BlockIndex, tx_nonces: HashMap<AccountId, u64>) -> io::Result<()> {
         write_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TX_NONCE,
             &mut self.tx_nonce,
             &self.generic_storage.enc_index(index),
-            nonce
+            tx_nonces,
         )
     }
 }
