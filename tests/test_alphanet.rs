@@ -1,7 +1,17 @@
+use alphanet::testing_utils::generate_test_chain_spec;
+use alphanet::testing_utils::wait;
 use alphanet::testing_utils::Node;
 use primitives::transaction::TransactionBody;
-use alphanet::testing_utils::wait;
-use alphanet::testing_utils::generate_test_chain_spec;
+
+fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
+    let i = rand::random::<usize>() % num_nodes;
+    // Should be a different node.
+    let mut j = rand::random::<usize>() % (num_nodes - 1);
+    if j >= i {
+        j += 1;
+    }
+    (i, j)
+}
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     let init_balance = 1_000_000_000;
@@ -33,43 +43,37 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     //        thread::sleep(Duration::from_secs(10));
 
     // Execute N trials. In each trial we submit a transaction to a random node i, that sends
-    // 1 token to a random node j. Then we wait for the balance change to propagate by checking
+    // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
     // the balance of j on node k.
     let mut expected_balances = vec![init_balance; num_nodes];
     let mut nonces = vec![1; num_nodes];
     let trial_duration = 10000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
-        let i = rand::random::<usize>() % num_nodes;
-        // Should be a different node.
-        let mut j = rand::random::<usize>() % (num_nodes - 1);
-        if j >= i {
-            j += 1;
-        }
-        for k in 0..num_nodes {
-            nodes[k]
-                .client
-                .shard_client
-                .pool
-                .add_transaction(
-                    TransactionBody::send_money(
-                        nonces[i],
-                        account_names[i].as_str(),
-                        account_names[j].as_str(),
-                        1,
-                    )
-                    .sign(nodes[i].signer()),
+        let (i, j) = sample_two_nodes(num_nodes);
+        let (k, r) = sample_two_nodes(num_nodes);
+        nodes[k]
+            .client
+            .shard_client
+            .pool
+            .add_transaction(
+                TransactionBody::send_money(
+                    nonces[i],
+                    account_names[i].as_str(),
+                    account_names[j].as_str(),
+                    1,
                 )
-                .unwrap();
-        }
+                .sign(nodes[i].signer()),
+            )
+            .unwrap();
         nonces[i] += 1;
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 
         wait(
             || {
-                let mut state_update = nodes[j].client.shard_client.get_state_update();
-                let amt = nodes[j]
+                let mut state_update = nodes[r].client.shard_client.get_state_update();
+                let amt = nodes[r]
                     .client
                     .shard_client
                     .trie_viewer
@@ -84,14 +88,13 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     }
 }
 
-
 // DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
 // If you add multiple tests and they start failing consider splitting it into several *.rs files
 // to ensure they are not run in parallel.
 
 #[test]
 fn test_multiple_nodes() {
-    run_multiple_nodes(4, 10);
+    run_multiple_nodes(7, 10);
 }
 
 /// This test should work after (#667) is fixed.
@@ -100,5 +103,3 @@ fn test_multiple_nodes() {
 fn test_multiple_nodes_10() {
     run_multiple_nodes(10, 1);
 }
-
-
