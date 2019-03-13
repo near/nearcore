@@ -31,6 +31,7 @@ test-utils = []
 [[bench]]
 name = "trie_bench"
 harness = false
+required-features = ["test-utils"]
 
 [[bench]]
 name = "storage_bench"

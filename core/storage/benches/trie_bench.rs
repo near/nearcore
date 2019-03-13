@@ -6,6 +6,7 @@ extern crate storage;
 use bencher::Bencher;
 use rand::random;
 
+#[cfg(feature = "test-utils")]
 use storage::test_utils::create_trie;
 use storage::Trie;
 
