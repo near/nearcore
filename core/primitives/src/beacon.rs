@@ -43,7 +43,7 @@ impl Borrow<CryptoHash> for SignedBeaconBlock {
 
 impl Hash for SignedBeaconBlock {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.hash.as_ref());
+        self.hash.hash(state)
     }
 }
 

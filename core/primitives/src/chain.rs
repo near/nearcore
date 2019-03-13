@@ -49,7 +49,7 @@ impl Borrow<CryptoHash> for SignedShardBlock {
 
 impl Hash for SignedShardBlock {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.hash.as_ref());
+        self.hash.hash(state);
     }
 }
 
@@ -82,7 +82,7 @@ impl PartialEq for ReceiptBlock {
 
 impl Hash for ReceiptBlock {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.hash.as_ref());
+        self.hash.hash(state)
     }
 }
 
