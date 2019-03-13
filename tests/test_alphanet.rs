@@ -13,13 +13,11 @@ fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
     (i, j)
 }
 
-fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
+fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     let init_balance = 1_000_000_000;
     let mut account_names = vec![];
-    let mut node_names = vec![];
     for i in 0..num_nodes {
         account_names.push(format!("near.{}", i));
-        node_names.push(format!("node_{}", i));
     }
     let chain_spec = generate_test_chain_spec(&account_names, init_balance);
 
@@ -27,14 +25,13 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.
     for i in 0..num_nodes {
-        let node = Node::new(
-            node_names[i].as_str(),
+        let node = Node::for_test(
+            test_prefix,
+            test_port,
             account_names[i].as_str(),
-            i as u32 + 1,
-            Some(format!("127.0.0.1:{}", 5000 + i).as_str()),
-            5030 + i as u16,
+            i as u16 + 1,
             boot_nodes,
-            chain_spec.clone(),
+            chain_spec.clone()
         );
         boot_nodes = vec![node.node_addr()];
         node.start();
@@ -92,14 +89,13 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
 // If you add multiple tests and they start failing consider splitting it into several *.rs files
 // to ensure they are not run in parallel.
 
+
 #[test]
-fn test_multiple_nodes() {
-    run_multiple_nodes(7, 10);
+fn test_4_10_multiple_nodes() {
+    run_multiple_nodes(4, 10, "4_10", 3200);
 }
 
-/// This test should work after (#667) is fixed.
 #[test]
-#[ignore]
-fn test_multiple_nodes_10() {
-    run_multiple_nodes(10, 1);
+fn test_7_10_multiple_nodes() {
+    run_multiple_nodes(7, 10, "7_10", 3300);
 }
