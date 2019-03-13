@@ -473,7 +473,7 @@ impl Client {
 
     /// Fetch transaction / receipts by hash from mempool.
     pub fn fetch_payload(&self, _transaction_hashes: Vec<CryptoHash>, _receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
-        Ok(ChainPayload { transactions: vec![], receipts: vec![] })
+        Ok(ChainPayload::new(vec![], vec![]))
     }
 }
 

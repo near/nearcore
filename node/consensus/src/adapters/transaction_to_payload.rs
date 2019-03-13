@@ -34,7 +34,7 @@ mod tests {
             let (payload_tx, payload_rx) = channel(1024);
             spawn_task(
                 transaction_rx,
-                |t| ChainPayload { transactions: vec![t], receipts: vec![] },
+                |t| ChainPayload::new(vec![t], vec![]),
                 payload_tx,
             );
             let mut transactions = vec![];
