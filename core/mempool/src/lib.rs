@@ -107,10 +107,6 @@ impl Pool {
                     return Ok(());
                 }
             }
-            if let Ok(Some(_)) = guard.transaction_address(&transaction.get_hash())
-            {
-                return Ok(());
-            }
         }
         
         let mut state_update = self.get_state_update();
@@ -124,16 +120,12 @@ impl Pool {
             ));
         }
         self.known_to.write().expect(POISONED_LOCK_ERR).insert(transaction.get_hash(), HashSet::new());
-        let mut guard = self.transactions.write().expect(POISONED_LOCK_ERR);
-        match guard.entry(transaction.body.get_originator()) {
-            Entry::Occupied(mut e) => {
-                e.get_mut().insert(transaction.body.get_nonce(), transaction);
-            }
-            Entry::Vacant(e) => {
-                let map = e.insert(BTreeMap::new());
-                map.insert(transaction.body.get_nonce(), transaction);
-            }
-        }
+        self.transactions
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .entry(transaction.body.get_originator())
+            .or_insert_with(BTreeMap::new)
+            .insert(transaction.body.get_nonce(), transaction);
         Ok(())
     }
 
@@ -187,8 +179,8 @@ impl Pool {
             self.transactions
                 .write()
                 .expect(POISONED_LOCK_ERR)
-                .iter()
-                .flat_map::<Vec<_>, _>(|(_, v)| v.values().collect())
+                .values()
+                .flat_map::<Vec<_>, _>(|v| v.values().collect())
                 .cloned()
                 .collect();
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).iter().cloned().collect();
@@ -265,8 +257,8 @@ impl Pool {
             for tx in self.transactions
                 .read()
                 .expect(POISONED_LOCK_ERR)
-                .iter()
-                .flat_map(|(_, map)| map.values()) {
+                .values()
+                .flat_map(|map| map.values()) {
                 let mut locked_known_to = self.known_to.write().expect(POISONED_LOCK_ERR);
                 match locked_known_to.get_mut(&tx.get_hash()) {
                     Some(known_to) => {
