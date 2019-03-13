@@ -95,7 +95,8 @@ fn test_4_10_multiple_nodes() {
     run_multiple_nodes(4, 10, "4_10", 3200);
 }
 
-#[test]
-fn test_7_10_multiple_nodes() {
-    run_multiple_nodes(7, 10, "7_10", 3300);
-}
+// TODO(#718)
+//#[test]
+//fn test_7_10_multiple_nodes() {
+//    run_multiple_nodes(7, 10, "7_10", 3300);
+//}
