@@ -257,6 +257,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use crate::test_utils::create_trie;
 

@@ -337,6 +337,7 @@ impl Authority {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod test {
     use configs::ChainSpec;
     use primitives::aggregate_signature::BlsSecretKey;

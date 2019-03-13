@@ -27,7 +27,7 @@ configs = { path = "../configs" }
 primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 shard = { path = "../shard" }
-storage = { path = "../../core/storage", features=["test-utils"] }
+storage = { path = "../../core/storage" }
 nightshade = { path = "../../core/nightshade" }
 mempool = { path = "../../core/mempool" }
 

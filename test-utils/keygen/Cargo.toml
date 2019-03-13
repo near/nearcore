@@ -8,4 +8,4 @@ edition = "2018"
 base64 = "0.10.0"
 clap = "2.32.0"
 
-primitives = { path = "../../core/primitives" }
+primitives = { path = "../../core/primitives", features=["test-utils"] }

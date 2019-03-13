@@ -312,6 +312,7 @@ pub fn system_create_account(
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use primitives::hash::hash;
     use primitives::serialize::Encode;

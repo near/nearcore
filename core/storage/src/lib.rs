@@ -20,6 +20,7 @@ pub use crate::trie::{DBChanges, Trie};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator};
 
 pub mod storages;
+#[cfg(feature = "test-utils")]
 pub mod test_utils;
 pub mod trie;
 

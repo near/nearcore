@@ -795,6 +795,7 @@ impl<'a> Iterator for TrieIterator<'a> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use super::*;
     use crate::test_utils::create_trie;

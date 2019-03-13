@@ -24,6 +24,9 @@ protobuf = "2.2.4"
 
 near-protos = { path = "../protos" }
 
+[features]
+test-utils = []
+
 [dev-dependencies]
 bencher = "0.1.5"
 serde_json = "1.0"

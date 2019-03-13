@@ -25,6 +25,7 @@ impl BeaconClient {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use chain::BlockChain;
     use chain::test_utils::get_blockchain_storage;

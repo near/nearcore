@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+#[cfg(feature = "test-utils")]
 pub mod test_utils;
 
 /// General BlockChain container.

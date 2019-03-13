@@ -45,6 +45,7 @@ use crate::system::{
 };
 use storage::TrieUpdate;
 
+#[cfg(feature = "test-utils")]
 pub mod test_utils;
 pub mod state_viewer;
 mod tx_stakes;
@@ -953,6 +954,7 @@ impl Runtime {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use primitives::hash::hash;
     use primitives::signature::{get_key_pair};

@@ -174,6 +174,7 @@ impl TrieViewer {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use primitives::types::AccountId;
     use std::collections::HashMap;

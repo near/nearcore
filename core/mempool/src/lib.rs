@@ -298,6 +298,7 @@ impl Pool {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use node_runtime::{Runtime, test_utils::generate_test_chain_spec};
     use primitives::hash::CryptoHash;

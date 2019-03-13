@@ -30,6 +30,7 @@ use storage::create_storage;
 use primitives::hash::hash_struct;
 use primitives::aggregate_signature::BlsPublicKey;
 
+#[cfg(feature = "test-utils")]
 pub mod test_utils;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -478,6 +479,7 @@ impl Client {
 }
 
 #[cfg(test)]
+#[cfg(feature = "test-utils")]
 mod tests {
     use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::block_traits::SignedBlock;

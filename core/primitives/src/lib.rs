@@ -23,8 +23,9 @@ pub mod network;
 pub mod serialize;
 pub mod signature;
 pub mod signer;
-pub mod test_utils;
 pub mod traits;
 pub mod transaction;
 pub mod types;
 pub mod utils;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
