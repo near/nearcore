@@ -14,8 +14,6 @@ use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
 
-pub mod testing_utils;
-
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
     start_from_configs(client_cfg, network_cfg, rpc_cfg);
@@ -122,7 +120,7 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, wait, Node};
+    use testlib::alphanet_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.

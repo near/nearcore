@@ -37,7 +37,8 @@ members = [
     "protos/builder",
     "node/runtime",
     "node/shard",
-    "test-utils/keygen"
+    "test-utils/keygen",
+    "test-utils/testlib",
 ]
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",
@@ -56,6 +57,7 @@ node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
 configs = { path = "./node/configs" }
 client = { path = "./node/client" }
+testlib = { path = "./test-utils/testlib" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

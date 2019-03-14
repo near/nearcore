@@ -1,6 +1,6 @@
-use alphanet::testing_utils::generate_test_chain_spec;
-use alphanet::testing_utils::wait;
-use alphanet::testing_utils::Node;
+use testlib::alphanet_utils::generate_test_chain_spec;
+use testlib::alphanet_utils::wait;
+use testlib::alphanet_utils::Node;
 use primitives::transaction::TransactionBody;
 
 fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
