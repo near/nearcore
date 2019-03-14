@@ -81,7 +81,7 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
 
-    use alphanet::testing_utils::wait;
+    use testlib::alphanet_utils::wait;
     use primitives::block_traits::SignedBlock;
     use primitives::signer::InMemorySigner;
     use primitives::transaction::TransactionBody;
