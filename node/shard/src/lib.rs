@@ -26,7 +26,7 @@ use primitives::transaction::{
 use primitives::types::{
     AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId, AccountId
 };
-use storage::{Trie, TrieUpdate, GenericStorage, ShardChainStorage};
+use storage::{Trie, TrieUpdate, ShardChainStorage};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -115,7 +115,7 @@ impl ShardClient {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         guard.extend_transaction_results_addresses(block, tx_results).unwrap();
         guard.extend_receipts(index, new_receipts).unwrap();
-        guard.extend_tx_nonce(index, largest_tx_nonce).unwrap();
+        guard.extend_tx_nonce(largest_tx_nonce).unwrap();
     }
 
     fn compute_receipt_blocks(
@@ -302,18 +302,13 @@ impl ShardClient {
     }
 
     /// get the largest transaction nonce for account from last block
-    pub fn get_last_block_nonce(&self, account_id: AccountId) -> Option<u64> {
-        let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-        let last_index = guard
-            .blockchain_storage_mut()
-            .best_block()
+    pub fn get_account_nonce(&self, account_id: AccountId) -> Option<u64> {
+        self.storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .tx_nonce(account_id)
             .unwrap()
-            .unwrap()
-            .index();
-        if last_index == 0 {
-            return None;
-        }
-        guard.tx_nonce(last_index, account_id).unwrap().cloned()
+            .cloned()
     }
 }
 
@@ -326,6 +321,7 @@ mod tests {
         TransactionBody, TransactionStatus
     };
     use storage::test_utils::create_beacon_shard_storages;
+    use storage::GenericStorage;
     use rand::thread_rng;
     use rand::prelude::SliceRandom;
 
@@ -348,8 +344,14 @@ mod tests {
             sender_signer: Arc<InMemorySigner>,
             num_blocks: u32,
         ) -> (u64, CryptoHash) {
-            let mut prev_hash = self.genesis_hash();
-            let mut nonce = 1;
+            let mut prev_hash = *self.storage
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .blockchain_storage_mut()
+                .best_block_hash()
+                .unwrap()
+                .unwrap();
+            let mut nonce = self.get_account_nonce(sender.to_string()).unwrap_or_else(|| 0) + 1;
             for _ in 0..num_blocks {
                 let tx = TransactionBody::send_money(nonce, sender, receiver, 1)
                     .sign(sender_signer.clone());
@@ -478,7 +480,7 @@ mod tests {
         let tx_nonce = client.storage
             .write()
             .expect(POISONED_LOCK_ERR)
-            .tx_nonce(5, "alice.near".to_string())
+            .tx_nonce("alice.near".to_string())
             .unwrap()
             .unwrap()
             .clone();
@@ -497,6 +499,7 @@ mod tests {
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 2);
         client.pool.add_transaction(tx).unwrap();
+        println!("{}", client.pool.len());
         assert!(client.pool.is_empty());
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 6);
         client.pool.add_transaction(tx).unwrap();

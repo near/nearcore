@@ -21,8 +21,8 @@ pub struct ShardChainStorage {
     transaction_results: HashMap<Vec<u8>, TransactionResult>,
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
     receipts: HashMap<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
-    // records the largest transaction nonce per account in a given block
-    tx_nonce: HashMap<Vec<u8>, HashMap<AccountId, u64>>,
+    // records the largest transaction nonce per account
+    tx_nonce: HashMap<Vec<u8>, u64>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -166,22 +166,25 @@ impl ShardChainStorage {
         )
     }
 
-    pub fn tx_nonce(&mut self, index: BlockIndex, account_id: AccountId) -> StorageResult<&u64> {
+    pub fn tx_nonce(&mut self, account_id: AccountId) -> StorageResult<&u64> {
         read_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TX_NONCE,
             &mut self.tx_nonce,
-            &self.generic_storage.enc_index(index)
-        ).map(|tx_nonces| tx_nonces.and_then(|map| map.get(&account_id)))
+            &self.generic_storage.enc_slice(&account_id.into_bytes()),
+        )
     }
 
-    pub fn extend_tx_nonce(&mut self, index: BlockIndex, tx_nonces: HashMap<AccountId, u64>) -> io::Result<()> {
-        write_with_cache(
+    pub fn extend_tx_nonce(&mut self, tx_nonces: HashMap<AccountId, u64>) -> io::Result<()> {
+        let updates: HashMap<_, _> = tx_nonces
+            .into_iter()
+            .map(|(k, v)| (self.generic_storage.enc_slice(&k.into_bytes()).to_vec(), v))
+            .collect();
+        extend_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TX_NONCE,
             &mut self.tx_nonce,
-            &self.generic_storage.enc_index(index),
-            tx_nonces,
+            updates,
         )
     }
 }

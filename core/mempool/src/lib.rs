@@ -1,14 +1,13 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::collections::{HashMap, HashSet, BTreeMap, hash_map::Entry};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::sync::{Arc, RwLock};
 
 use log::info;
 
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
-use primitives::block_traits::SignedBlock;
 use primitives::consensus::Payload;
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::merkle::verify_path;
@@ -76,7 +75,7 @@ impl Pool {
     pub fn len(&self) -> usize {
         let mut length = 0;
         let guard = self.transactions.read().expect(POISONED_LOCK_ERR);
-        length += guard.iter().fold(0, |acc, (_, v)| acc + v.len());
+        length += guard.values().map(BTreeMap::len).sum::<usize>();
         let guard = self.receipts.read().expect(POISONED_LOCK_ERR);
         length += guard.len();
         length
@@ -100,12 +99,10 @@ impl Pool {
             // validate transaction
             let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
             let sender = transaction.body.get_originator();
-            let last_block_index = guard.blockchain_storage_mut().best_block().unwrap().unwrap().index();
-            if last_block_index > 0 {
-                let old_tx_nonce = *guard.tx_nonce(last_block_index, sender).unwrap().unwrap_or(&0);
-                if transaction.body.get_nonce() <= old_tx_nonce {
-                    return Ok(());
-                }
+            // get the largest nonce from sender before this block
+            let old_tx_nonce = *guard.tx_nonce(sender).unwrap().unwrap_or(&0);
+            if transaction.body.get_nonce() <= old_tx_nonce {
+                return Ok(());
             }
         }
         
@@ -258,7 +255,7 @@ impl Pool {
                 .read()
                 .expect(POISONED_LOCK_ERR)
                 .values()
-                .flat_map(|map| map.values()) {
+                .flat_map(BTreeMap::values) {
                 let mut locked_known_to = self.known_to.write().expect(POISONED_LOCK_ERR);
                 match locked_known_to.get_mut(&tx.get_hash()) {
                     Some(known_to) => {
@@ -377,7 +374,7 @@ mod tests {
         let (storage, trie, signers) = get_test_chain();
         let pool = Pool::new(signers[0].clone(), storage, trie);
         let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: 0,
+            nonce: 1,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,

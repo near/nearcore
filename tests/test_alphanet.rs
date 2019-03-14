@@ -2,7 +2,6 @@ use alphanet::testing_utils::Node;
 use primitives::transaction::TransactionBody;
 use alphanet::testing_utils::wait;
 use alphanet::testing_utils::generate_test_chain_spec;
-use std::cmp::max;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     let init_balance = 1_000_000_000;
@@ -37,7 +36,6 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
     // 1 token to a random node j. Then we wait for the balance change to propagate by checking
     // the balance of j on node k.
     let mut expected_balances = vec![init_balance; num_nodes];
-    let mut nonces = vec![1; num_nodes];
     let trial_duration = 10000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
@@ -48,13 +46,19 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
             j += 1;
         }
         for k in 0..num_nodes {
+            let nonce = nodes[i]
+                .client
+                .shard_client
+                .get_account_nonce(account_names[i].clone())
+                .unwrap_or_default()
+                + 1;
             nodes[k]
                 .client
                 .shard_client
                 .pool
                 .add_transaction(
                     TransactionBody::send_money(
-                        nonces[i],
+                        nonce,
                         account_names[i].as_str(),
                         account_names[j].as_str(),
                         1,
@@ -63,15 +67,6 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize) {
                 )
                 .unwrap();
         }
-        nonces[i] = max(
-            nonces[i] + 1,
-            nodes[i]
-                .client
-                .shard_client
-                .get_last_block_nonce(account_names[i].clone())
-                .unwrap_or_else(|| 0) 
-                + 1
-        );
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 
