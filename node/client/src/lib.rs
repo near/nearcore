@@ -37,10 +37,9 @@ const BEACON_SHARD_BLOCK_MATCH: &str =
     "Expected to have shard block present when processing beacon block";
 
 /// Result of client trying to produce a block from a given consensus.
-#[allow(clippy::large_enum_variant)] // This enum is no different from `Option`.
 pub enum BlockProductionResult {
     /// The blocks were successfully produced.
-    Success(SignedBeaconBlock, SignedShardBlock),
+    Success(Box<SignedBeaconBlock>, Box<SignedShardBlock>),
     /// The consensus was achieved after the block with the given index was already imported.
     /// The beacon and the shard chains are currently at index `current_index`.
     LateConsensus { current_index: BlockIndex },
@@ -283,7 +282,7 @@ impl Client {
         self.update_authority(&block.header());
         // Try apply pending blocks that were unlocked by this block, if any.
         self.try_apply_pending_blocks();
-        BlockProductionResult::Success(block, shard_block)
+        BlockProductionResult::Success(Box::new(block), Box::new(shard_block))
     }
 
     fn blocks_to_process(&self) -> (Vec<SignedBeaconBlock>, HashSet<SignedBeaconBlock>) {
@@ -574,7 +573,7 @@ mod tests {
     impl BlockProductionResult {
         pub fn unwrap(self) -> (SignedBeaconBlock, SignedShardBlock) {
             match self {
-                BlockProductionResult::Success(bb, sb) => (bb, sb),
+                BlockProductionResult::Success(bb, sb) => (*bb, *sb),
                 _ => panic!("Expected to produce a block"),
             }
         }
