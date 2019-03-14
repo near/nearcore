@@ -16,3 +16,6 @@ primitives = { path = "../../core/primitives" }
 storage = { path = "../../core/storage" }
 chain = { path = "../../core/chain" }
 configs = { path = "../configs" }
+
+[dev-dependencies]
+node-runtime = { path = "../runtime" }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use primitives::beacon::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
+use primitives::beacon::{BeaconBlockHeader, SignedBeaconBlockHeader};
 use near_protos::serde::b64_format as protos_b64_format;
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
@@ -101,10 +101,10 @@ pub struct BeaconBlockResponse {
     pub header: BeaconBlockHeaderResponse,
 }
 
-impl From<BeaconBlock> for BeaconBlockResponse {
-    fn from(block: BeaconBlock) -> Self {
+impl From<BeaconBlockHeader> for BeaconBlockResponse {
+    fn from(header: BeaconBlockHeader) -> Self {
         BeaconBlockResponse {
-            header: block.header.into()
+            header: header.into()
         }
     }
 }
@@ -117,12 +117,12 @@ pub struct SignedBeaconBlockResponse {
     pub signature: GroupSignature,
 }
 
-impl From<SignedBeaconBlock> for SignedBeaconBlockResponse {
-    fn from(block: SignedBeaconBlock) -> Self {
+impl From<SignedBeaconBlockHeader> for SignedBeaconBlockResponse {
+    fn from(header: SignedBeaconBlockHeader) -> Self {
         SignedBeaconBlockResponse {
-            body: block.body.into(),
-            hash: block.hash,
-            signature: block.signature,
+            body: header.body.into(),
+            hash: header.hash,
+            signature: header.signature,
         }
     }
 }

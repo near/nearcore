@@ -115,21 +115,24 @@ impl HttpApi {
     }
 
     pub fn view_latest_beacon_block(&self) -> Result<SignedBeaconBlockResponse, ()> {
-        Ok(self.client.beacon_chain.chain.best_block().into())
+        Ok(self.client.beacon_client.chain.best_block_header().into())
     }
 
     pub fn get_beacon_block_by_hash(
         &self,
         r: &GetBlockByHashRequest,
     ) -> Result<SignedBeaconBlockResponse, &str> {
-        match self.client.beacon_chain.chain.get_block(&BlockId::Hash(r.hash)) {
+        match self.client.beacon_client.chain.get_header(&BlockId::Hash(r.hash)) {
             Some(block) => Ok(block.into()),
             None => Err("block not found"),
         }
     }
 
     pub fn view_latest_shard_block(&self) -> Result<SignedShardBlockResponse, ()> {
-        Ok(self.client.shard_client.chain.best_block().into())
+        match self.client.shard_client.chain.best_block() {
+            Some(block) => Ok(block.into()),
+            None => Err(()),
+        }
     }
 
     pub fn get_shard_block_by_hash(
@@ -159,9 +162,9 @@ impl HttpApi {
         &self,
         r: &GetBlocksByIndexRequest,
     ) -> Result<SignedBeaconBlocksResponse, String> {
-        let start = r.start.unwrap_or_else(|| self.client.beacon_chain.chain.best_index());
+        let start = r.start.unwrap_or_else(|| self.client.beacon_client.chain.best_index());
         let limit = r.limit.unwrap_or(25);
-        self.client.beacon_chain.chain.get_blocks_by_index(start, limit).map(|blocks| {
+        self.client.beacon_client.chain.get_headers_by_index(start, limit).map(|blocks| {
             SignedBeaconBlocksResponse {
                 blocks: blocks.into_iter().map(std::convert::Into::into).collect(),
             }
