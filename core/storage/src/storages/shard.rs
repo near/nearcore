@@ -21,7 +21,7 @@ pub struct ShardChainStorage {
     transaction_results: HashMap<Vec<u8>, TransactionResult>,
     transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
     receipts: HashMap<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
-    // records the largest transaction nonce per account
+    // Records the largest transaction nonce per account
     tx_nonce: HashMap<Vec<u8>, u64>,
 }
 

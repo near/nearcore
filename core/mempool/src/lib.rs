@@ -47,8 +47,8 @@ impl Pool {
     pub fn new(signer: Arc<BlockSigner>, storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
         Pool {
             signer,
-            transactions: RwLock::new(HashMap::new()),
-            receipts: RwLock::new(HashSet::new()),
+            transactions: Default::default(),
+            receipts: Default::default(),
             storage,
             trie,
             state_viewer: TrieViewer {},
