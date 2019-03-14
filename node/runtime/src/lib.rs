@@ -616,7 +616,6 @@ impl Runtime {
                                 state_update,
                                 async_call.amount,
                                 &async_call.callback,
-                                &receipt.originator,
                                 &receipt.receiver,
                                 &receipt.nonce,
                                 &mut receiver
