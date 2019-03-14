@@ -8,7 +8,7 @@ extern crate primitives;
 extern crate serde;
 
 use std::{cmp, env, fs};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
@@ -71,8 +71,8 @@ pub struct Client {
 
     // TODO: The following logic might need to be hidden somewhere.
     /// Stores blocks that cannot be added yet.
-    pending_beacon_blocks: RwLock<HashMap<CryptoHash, SignedBeaconBlock>>,
-    pending_shard_blocks: RwLock<HashMap<CryptoHash, SignedShardBlock>>,
+    pending_beacon_blocks: RwLock<HashSet<SignedBeaconBlock>>,
+    pending_shard_blocks: RwLock<HashSet<SignedShardBlock>>,
 }
 
 fn configure_logging(log_level: log::LevelFilter) {
@@ -145,8 +145,8 @@ impl Client {
             signer,
             shard_client,
             beacon_chain,
-            pending_beacon_blocks: RwLock::new(HashMap::new()),
-            pending_shard_blocks: RwLock::new(HashMap::new()),
+            pending_beacon_blocks: RwLock::new(HashSet::new()),
+            pending_shard_blocks: RwLock::new(HashSet::new()),
         }
     }
 
@@ -168,14 +168,14 @@ impl Client {
         let mut guard = self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR);
         // Prune outdated pending blocks.
         let best_index = self.beacon_chain.chain.best_index();
-        guard.retain(|_, v| v.index() > best_index);
+        guard.retain(|v| v.index() > best_index);
         if guard.is_empty() {
-            /// There are no pending blocks.
+            // There are no pending blocks.
             vec![]
         } else {
             let best_index = self.beacon_chain.chain.best_index();
             guard
-                .values()
+                .iter()
                 .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })
                 .collect()
         }
@@ -274,21 +274,21 @@ impl Client {
 
     fn blocks_to_process(
         &self,
-    ) -> (Vec<SignedBeaconBlock>, HashMap<CryptoHash, SignedBeaconBlock>) {
+    ) -> (Vec<SignedBeaconBlock>, HashSet<SignedBeaconBlock>) {
         let mut part_add = vec![];
-        let mut part_pending = HashMap::default();
-        for (hash, other) in self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).drain() {
+        let mut part_pending = HashSet::new();
+        for other in self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).drain() {
             if self.beacon_chain.chain.is_known(&other.body.header.parent_hash)
                 && (self.shard_client.chain.is_known(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
                         .read()
                         .expect(POISONED_LOCK_ERR)
-                        .contains_key(&other.body.header.shard_block_hash))
+                        .contains(&other.body.header.shard_block_hash))
             {
                 part_add.push(other);
             } else {
-                part_pending.insert(hash, other);
+                part_pending.insert(other);
             }
         }
         (part_add, part_pending)
@@ -342,7 +342,7 @@ impl Client {
             }
         }
 
-        if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains_key(&hash) {
+        if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains(&hash) {
             return BlockImportingResult::MissingParent {
                 orphan_hash: hash,
                 missing_indices: self.get_missing_indices(),
@@ -352,8 +352,8 @@ impl Client {
         self.pending_shard_blocks
             .write()
             .expect(POISONED_LOCK_ERR)
-            .insert(shard_block.hash, shard_block);
-        self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(hash, beacon_block);
+            .insert(shard_block);
+        self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(beacon_block);
         let best_block_hash = self.beacon_chain.chain.best_hash();
 
         let mut blocks_to_add: Vec<SignedBeaconBlock> = vec![];
@@ -379,7 +379,7 @@ impl Client {
                 .pending_shard_blocks
                 .write()
                 .expect(POISONED_LOCK_ERR)
-                .remove(&next_beacon_block.body.header.shard_block_hash)
+                .take(&next_beacon_block.body.header.shard_block_hash)
                 .expect(BEACON_SHARD_BLOCK_MATCH);
 
 
@@ -479,7 +479,7 @@ impl Client {
 
     /// Fetch transaction / receipts by hash from mempool.
     pub fn fetch_payload(&self, _transaction_hashes: Vec<CryptoHash>, _receipt_hashes: Vec<CryptoHash>) -> Result<ChainPayload, String> {
-        Ok(ChainPayload { transactions: vec![], receipts: vec![] })
+        Ok(ChainPayload::new(vec![], vec![]))
     }
 }
 

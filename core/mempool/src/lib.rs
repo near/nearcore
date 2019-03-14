@@ -9,7 +9,7 @@ use log::info;
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::consensus::Payload;
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
 use primitives::signer::BlockSigner;
 use primitives::transaction::{SignedTransaction, verify_transaction_signature};
@@ -30,7 +30,7 @@ pub struct Pool {
     storage: Arc<RwLock<ShardChainStorage>>,
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
-    snapshots: RwLock<HashMap<CryptoHash, ChainPayload>>,
+    snapshots: RwLock<HashSet<ChainPayload>>,
     /// List of requested snapshots that can't be fetched yet.
     pending_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
     /// List of requested snapshots that are unblocked and can be confirmed.
@@ -181,17 +181,17 @@ impl Pool {
                 .cloned()
                 .collect();
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).iter().cloned().collect();
-        let snapshot = ChainPayload { transactions, receipts };
+        let snapshot = ChainPayload::new(transactions, receipts);
         if snapshot.is_empty() {
             return CryptoHash::default();
         }
-        let h = hash_struct(&snapshot);
+        let h = snapshot.get_hash();
         info!(target: "mempool", "Snapshotting payload, #tx={}, #r={}, hash={:?}",
             snapshot.transactions.len(),
             snapshot.receipts.len(),
             h,
         );
-        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
+        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(snapshot);
         h
     }
 
@@ -199,14 +199,14 @@ impl Pool {
         if hash == &CryptoHash::default() {
             return true;
         }
-        self.snapshots.read().expect(POISONED_LOCK_ERR).contains_key(hash)
+        self.snapshots.read().expect(POISONED_LOCK_ERR).contains(hash)
     }
 
     pub fn pop_payload_snapshot(&self, hash: &CryptoHash) -> Option<ChainPayload> {
         if hash == &CryptoHash::default() {
             return Some(ChainPayload::default());
         }
-        let payload = self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash);
+        let payload = self.snapshots.write().expect(POISONED_LOCK_ERR).take(hash);
         if let Some(ref p) = payload {
             info!(target: "mempool", "Popping snapshot, authority={:?}, #tx={}, #r={}, hash={:?}",
                   self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
@@ -275,7 +275,7 @@ impl Pool {
             if to_send.is_empty() {
                 continue;
             }
-            let payload = ChainPayload { transactions: to_send, receipts: vec![] };
+            let payload = ChainPayload::new(to_send, vec![]);
             result.push(crate::payload_gossip::PayloadGossip::new(
                 authority_id,
                 their_authority_id,
@@ -318,7 +318,7 @@ impl Pool {
         if payload.is_empty() {
             return Ok(());
         }
-        let h = hash_struct(&payload);
+        let h = payload.get_hash();
         info!(target: "mempool", "Adding payload snapshot, authority={:?}, #tx={}, #r={}, hash={:?} received from {:?}",
             self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
             payload.transactions.len(),
@@ -326,7 +326,7 @@ impl Pool {
             h,
             authority_id,
         );
-        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, payload);
+        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(payload);
         self.ready_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, h));
         Ok(())
     }

@@ -548,7 +548,7 @@ impl SignedTransaction {
 
 impl Hash for SignedTransaction {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.hash.as_ref())
+        self.hash.hash(state)
     }
 }
 
