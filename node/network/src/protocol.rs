@@ -38,8 +38,8 @@ impl ChainStateRetriever for ClientChainStateRetriever {
     #[inline]
     fn get_chain_state(&self) -> ChainState {
         ChainState {
-            genesis_hash: self.client.beacon_chain.chain.genesis_hash(),
-            last_index: self.client.beacon_chain.chain.best_block().index(),
+            genesis_hash: self.client.beacon_client.chain.genesis_hash(),
+            last_index: self.client.beacon_client.chain.best_block().index(),
         }
     }
 }
@@ -130,7 +130,7 @@ impl Protocol {
     }
 
     fn on_new_peer(&self, peer_id: PeerId, connected_info: ConnectedInfo) {
-        if connected_info.chain_state.genesis_hash != self.client.beacon_chain.chain.genesis_hash()
+        if connected_info.chain_state.genesis_hash != self.client.beacon_client.chain.genesis_hash()
         {
             self.peer_manager.ban_peer(&peer_id);
         }

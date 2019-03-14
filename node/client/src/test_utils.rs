@@ -23,7 +23,7 @@ pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: Arc<InMemorySigner>) 
         account_id: signer.account_id.clone(),
         signer,
         shard_client,
-        beacon_chain,
+        beacon_client: beacon_chain,
         pending_beacon_blocks: RwLock::new(HashSet::new()),
         pending_shard_blocks: RwLock::new(HashSet::new()),
     }

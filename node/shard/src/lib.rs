@@ -201,7 +201,7 @@ impl ShardClient {
             );
             true
         } else {
-            error!("Received Invalid block. It's a scam");
+            error!("Received Invalid block.");
             false
         }
     }
