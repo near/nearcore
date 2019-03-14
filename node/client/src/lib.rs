@@ -369,8 +369,8 @@ impl Client {
         self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(beacon_block);
         let best_block_hash = self.beacon_client.chain.best_hash();
 
-        let new_best_block = self.beacon_client.chain.best_block();
         self.try_apply_pending_blocks();
+        let new_best_block = self.beacon_client.chain.best_block();
 
         if new_best_block.block_hash() == best_block_hash {
             BlockImportingResult::MissingParent {
