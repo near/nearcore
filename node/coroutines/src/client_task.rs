@@ -77,13 +77,13 @@ impl Stream for ClientTask {
         loop {
             match self.consensus_rx.poll() {
                 Ok(Async::Ready(Some(c))) => {
-                    if c.index == self.client.beacon_chain.chain.best_index() + 1 {
+                    if c.index == self.client.beacon_client.chain.best_index() + 1 {
                         if let ind @ Some(_) = self.try_produce_block(c) {
                             new_block_index = ind;
                         }
                     } else {
                         info!(target: "client", "Ignoring consensus for {} because current block index is {}",
-                              c.index, self.client.beacon_chain.chain.best_index());
+                              c.index, self.client.beacon_client.chain.best_index());
                     }
                     continue;
                 }
@@ -285,8 +285,8 @@ impl ClientTask {
         if let BlockProductionResult::Success(produced_beacon_block, produced_shard_block) =
             self.client.try_produce_block(consensus_block_header.index, payload)
         {
-            self.announce_block(produced_beacon_block, produced_shard_block);
-            let new_best_block = self.client.beacon_chain.chain.best_block();
+            self.announce_block(*produced_beacon_block, *produced_shard_block);
+            let new_best_block = self.client.beacon_client.chain.best_block();
             Some(new_best_block.index())
         } else {
             None
@@ -327,16 +327,16 @@ impl ClientTask {
 
     fn process_peer_state(&mut self, peer_id: PeerId, chain_state: ChainState) {
         self.assumed_peer_last_index.insert(peer_id, chain_state.last_index);
-        if chain_state.last_index > self.client.beacon_chain.chain.best_index() {
+        if chain_state.last_index > self.client.beacon_client.chain.best_index() {
             // TODO: we should keep track of already fetching stuff.
             info!(target: "client", "Missing blocks {}..{} (from {}) for {}",
-                  self.client.beacon_chain.chain.best_index(),
+                  self.client.beacon_client.chain.best_index(),
                   chain_state.last_index, peer_id,
                   self.client.account_id);
             tokio::spawn(
                 self.out_block_fetch_tx
                     .clone()
-                    .send((peer_id, self.client.beacon_chain.chain.best_index() + 1, chain_state.last_index))
+                    .send((peer_id, self.client.beacon_client.chain.best_index() + 1, chain_state.last_index))
                     .map(|_| ())
                     .map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
             );
@@ -418,7 +418,7 @@ impl ClientTask {
 
     /// Resets MemPool and returns NS control for next block.
     fn restart_pool_nightshade(&self, block_index: BlockIndex) -> Control {
-        let index = self.client.beacon_chain.chain.best_index() + 1;
+        let index = self.client.beacon_client.chain.best_index() + 1;
         let (owner_uid, uid_to_authority_map) =
             self.client.get_uid_to_authority_map(index);
 
@@ -470,7 +470,7 @@ impl ClientTask {
 
     /// Spawn a kick-off task.
     fn spawn_kickoff(&self) {
-        let next_index = self.client.beacon_chain.chain.best_block().index() + 1;
+        let next_index = self.client.beacon_client.chain.best_block().index() + 1;
         let control = self.restart_pool_nightshade(next_index);
 
         // Send mempool control.

@@ -17,13 +17,13 @@ pub fn spawn_consensus(
     control_rx: Receiver<Control>,
     block_period: Duration,
 ) {
-    let initial_beacon_block_index = client.beacon_chain.chain.best_index();
+    let initial_beacon_block_index = client.beacon_client.chain.best_index();
     let task = Interval::new_interval(block_period)
         .fold(
             (control_rx, initial_beacon_block_index),
             move |(control_rx, mut beacon_block_index), _| {
                 // First check previous block was produced.
-                if client.beacon_chain.chain.best_index() >= beacon_block_index {
+                if client.beacon_client.chain.best_index() >= beacon_block_index {
                     let hash = client.shard_client.pool.snapshot_payload();
                     let last_shard_block = client.shard_client.chain.best_block();
                     let receipt_block = client.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());

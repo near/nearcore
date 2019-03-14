@@ -225,7 +225,7 @@ mod tests {
         let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
                 BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (beacon_block, shard_block)
+                    (*beacon_block, *shard_block)
                 }
                 _ => panic!("Should produce block"),
             };
@@ -289,7 +289,7 @@ mod tests {
         let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
                 BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (beacon_block, shard_block)
+                    (*beacon_block, *shard_block)
                 }
                 _ => panic!("Should produce block"),
             };
