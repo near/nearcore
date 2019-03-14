@@ -10,7 +10,7 @@ extern crate serde_derive;
 extern crate storage;
 extern crate wasm;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -111,6 +111,7 @@ pub struct ApplyResult {
     pub authority_proposals: Vec<AuthorityStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
+    pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option<T> {
@@ -863,6 +864,7 @@ impl Runtime {
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
+        let mut largest_tx_nonce = HashMap::new();
         for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
             tx_result.push(Self::process_receipt(
                 self,
@@ -874,6 +876,20 @@ impl Runtime {
             ));
         }
         for transaction in transactions {
+            let sender = transaction.body.get_originator();
+            let nonce = transaction.body.get_nonce();
+            match largest_tx_nonce.entry(sender) {
+                Entry::Occupied(mut e) => {
+                    let largest_nonce = e.get_mut();
+                    if *largest_nonce < nonce {
+                        *largest_nonce = nonce;
+                    }
+                }
+                Entry::Vacant(e) => {
+                    e.insert(nonce);
+                }
+            };
+
             tx_result.push(Self::process_transaction(
                 self,
                 &mut state_update,
@@ -891,6 +907,7 @@ impl Runtime {
             shard_id,
             new_receipts,
             tx_result,
+            largest_tx_nonce,
         }
     }
 

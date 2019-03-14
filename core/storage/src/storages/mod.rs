@@ -57,16 +57,17 @@ const COL_STATE: u32 = 4;
 const COL_TRANSACTION_RESULTS: u32 = 5;
 const COL_TRANSACTION_ADDRESSES: u32 = 6;
 const COL_RECEIPT_BLOCK: u32 = 7;
+const COL_TX_NONCE: u32 = 8;
 
 // Columns used by the beacon chain only.
-const COL_PROPOSAL: u32 = 8;
-const COL_PARTICIPATION: u32 = 9;
-const COL_PROCESSED_BLOCKS: u32 = 10;
-const COL_THRESHOLD: u32 = 11;
-const COL_ACCEPTED_AUTHORITY: u32 = 12;
+const COL_PROPOSAL: u32 = 9;
+const COL_PARTICIPATION: u32 = 10;
+const COL_PROCESSED_BLOCKS: u32 = 11;
+const COL_THRESHOLD: u32 = 12;
+const COL_ACCEPTED_AUTHORITY: u32 = 13;
 
 /// Number of columns per chain.
-pub const NUM_COLS: u32 = 13;
+pub const NUM_COLS: u32 = 14;
 
 /// Error that occurs when we try operating with genesis-specific columns, without setting the
 /// genesis in advance.

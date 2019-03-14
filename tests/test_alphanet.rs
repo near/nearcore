@@ -43,19 +43,24 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
     // the balance of j on node k.
     let mut expected_balances = vec![init_balance; num_nodes];
-    let mut nonces = vec![1; num_nodes];
     let trial_duration = 10000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
+        let nonce = nodes[i]
+                .client
+                .shard_client
+                .get_account_nonce(account_names[i].clone())
+                .unwrap_or_default()
+                + 1;
         nodes[k]
             .client
             .shard_client
             .pool
             .add_transaction(
                 TransactionBody::send_money(
-                    nonces[i],
+                    nonce,
                     account_names[i].as_str(),
                     account_names[j].as_str(),
                     1,
@@ -63,7 +68,6 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
                 .sign(nodes[i].signer()),
             )
             .unwrap();
-        nonces[i] += 1;
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 

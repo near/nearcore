@@ -205,13 +205,13 @@ impl Client {
         if let Some(receipt) = receipt_block {
             receipts.push(receipt);
         }
-        let (mut shard_block, (transaction, authority_proposals, tx_results, new_receipts)) = self
+        let (mut shard_block, shard_block_extra) = self
             .shard_client
             .prepare_new_block(last_block.body.header.shard_block_hash, receipts, payload.transactions);
         let mut block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
-            authority_proposals,
+            shard_block_extra.authority_proposals,
             shard_block.block_hash(),
         );
         // TODO(645): Remove this and fill in correctly when collecting final BLS.
@@ -244,18 +244,24 @@ impl Client {
             let block_receipts = get_all_receipts(shard_block.body.receipts.iter());
             let mut tx_with_results: Vec<String> = block_receipts
                 .iter()
-                .zip(&tx_results[..block_receipts.len()])
+                .zip(&shard_block_extra.tx_results[..block_receipts.len()])
                 .map(|(receipt, result)| format!("{:#?} -> {:#?}", receipt, result))
                 .collect();
             tx_with_results.extend(shard_block.body.transactions
                 .iter()
-                .zip(&tx_results[block_receipts.len()..])
+                .zip(&shard_block_extra.tx_results[block_receipts.len()..])
                 .map(|(tx, result)| format!("{:#?} -> {:#?}", tx, result))
             );
             debug!(target: "client", "Input Transactions: [{}]", tx_with_results.join("\n"));
-            debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(new_receipts.values()));
+            debug!(target: "client", "Output Transactions: {:#?}", get_all_receipts(shard_block_extra.new_receipts.values()));
         }
-        self.shard_client.insert_block(&shard_block.clone(), transaction, tx_results, new_receipts);
+        self.shard_client.insert_block(
+            &shard_block.clone(),
+            shard_block_extra.db_changes,
+            shard_block_extra.tx_results,
+            shard_block_extra.largest_tx_nonce,
+            shard_block_extra.new_receipts
+        );
         self.beacon_chain.chain.insert_block(block.clone());
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
