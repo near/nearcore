@@ -82,7 +82,7 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
         } else {
             transactions = batches.remove(0);
         }
-        let payload = ChainPayload { transactions, receipts: prev_receipt_blocks };
+        let payload = ChainPayload::new(transactions, prev_receipt_blocks);
         if let BlockProductionResult::Success(_beacon_block, shard_block) =
             client.try_produce_block(next_block_idx, payload)
         {

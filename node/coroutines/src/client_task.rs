@@ -285,7 +285,7 @@ impl ClientTask {
         if let BlockProductionResult::Success(produced_beacon_block, produced_shard_block) =
             self.client.try_produce_block(consensus_block_header.index, payload)
         {
-            self.announce_block(produced_beacon_block, produced_shard_block);
+            self.announce_block(*produced_beacon_block, *produced_shard_block);
             Some(self.client.beacon_client.chain.best_index())
         } else {
             None

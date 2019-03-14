@@ -123,8 +123,8 @@ impl HttpApi {
         r: &GetBlockByHashRequest,
     ) -> Result<SignedBeaconBlockResponse, &str> {
         match self.client.beacon_client.chain.get_header(&BlockId::Hash(r.hash)) {
-            Some(block) => Ok(block.into()),
-            None => Err("block not found"),
+            Some(header) => Ok(header.into()),
+            None => Err("header not found"),
         }
     }
 
@@ -164,9 +164,9 @@ impl HttpApi {
     ) -> Result<SignedBeaconBlocksResponse, String> {
         let start = r.start.unwrap_or_else(|| self.client.beacon_client.chain.best_index());
         let limit = r.limit.unwrap_or(25);
-        self.client.beacon_client.chain.get_headers_by_index(start, limit).map(|blocks| {
+        self.client.beacon_client.chain.get_headers_by_index(start, limit).map(|headers| {
             SignedBeaconBlocksResponse {
-                blocks: blocks.into_iter().map(std::convert::Into::into).collect(),
+                blocks: headers.into_iter().map(std::convert::Into::into).collect(),
             }
         })
     }

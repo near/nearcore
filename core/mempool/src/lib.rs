@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::sync::{Arc, RwLock};
 
 use log::info;
@@ -9,11 +9,11 @@ use log::info;
 use node_runtime::state_viewer::TrieViewer;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::consensus::Payload;
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
 use primitives::signer::BlockSigner;
 use primitives::transaction::{SignedTransaction, verify_transaction_signature};
-use primitives::types::AuthorityId;
+use primitives::types::{AuthorityId, AccountId};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 pub mod payload_gossip;
@@ -23,12 +23,14 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 /// Mempool that stores transactions and receipts for a chain
 pub struct Pool {
     signer: Arc<BlockSigner>,
-    transactions: RwLock<HashSet<SignedTransaction>>,
+    // transactions need to be grouped by account, and within each account,
+    // ordered by nonce so that runtime will not ignore some of the transactions
+    transactions: RwLock<HashMap<AccountId, BTreeMap<u64, SignedTransaction>>>,
     receipts: RwLock<HashSet<ReceiptBlock>>,
     storage: Arc<RwLock<ShardChainStorage>>,
     trie: Arc<Trie>,
     state_viewer: TrieViewer,
-    snapshots: RwLock<HashMap<CryptoHash, ChainPayload>>,
+    snapshots: RwLock<HashSet<ChainPayload>>,
     /// List of requested snapshots that can't be fetched yet.
     pending_snapshots: RwLock<Vec<(AuthorityId, CryptoHash)>>,
     /// List of requested snapshots that are unblocked and can be confirmed.
@@ -45,8 +47,8 @@ impl Pool {
     pub fn new(signer: Arc<BlockSigner>, storage: Arc<RwLock<ShardChainStorage>>, trie: Arc<Trie>) -> Self {
         Pool {
             signer,
-            transactions: RwLock::new(HashSet::new()),
-            receipts: RwLock::new(HashSet::new()),
+            transactions: Default::default(),
+            receipts: Default::default(),
             storage,
             trie,
             state_viewer: TrieViewer {},
@@ -66,7 +68,17 @@ impl Pool {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.transactions.read().expect(POISONED_LOCK_ERR).is_empty() && self.receipts.read().expect(POISONED_LOCK_ERR).is_empty()
+        self.transactions.read().expect(POISONED_LOCK_ERR).is_empty() 
+        && self.receipts.read().expect(POISONED_LOCK_ERR).is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        let mut length = 0;
+        let guard = self.transactions.read().expect(POISONED_LOCK_ERR);
+        length += guard.values().map(BTreeMap::len).sum::<usize>();
+        let guard = self.receipts.read().expect(POISONED_LOCK_ERR);
+        length += guard.len();
+        length
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
@@ -83,14 +95,17 @@ impl Pool {
     }
 
     pub fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        if let Ok(Some(_)) = self
-            .storage
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .transaction_address(&transaction.get_hash())
         {
-            return Ok(());
+            // validate transaction
+            let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
+            let sender = transaction.body.get_originator();
+            // get the largest nonce from sender before this block
+            let old_tx_nonce = *guard.tx_nonce(sender).unwrap().unwrap_or(&0);
+            if transaction.body.get_nonce() <= old_tx_nonce {
+                return Ok(());
+            }
         }
+        
         let mut state_update = self.get_state_update();
         let originator = transaction.body.get_originator();
         let public_keys =
@@ -102,7 +117,12 @@ impl Pool {
             ));
         }
         self.known_to.write().expect(POISONED_LOCK_ERR).insert(transaction.get_hash(), HashSet::new());
-        self.transactions.write().expect(POISONED_LOCK_ERR).insert(transaction);
+        self.transactions
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .entry(transaction.body.get_originator())
+            .or_insert_with(BTreeMap::new)
+            .insert(transaction.body.get_nonce(), transaction);
         Ok(())
     }
 
@@ -153,19 +173,25 @@ impl Pool {
     pub fn snapshot_payload(&self) -> CryptoHash {
         // Put tx and receipts into an snapshot without erasing them.
         let transactions: Vec<_> =
-            self.transactions.write().expect(POISONED_LOCK_ERR).iter().cloned().collect();
+            self.transactions
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .values()
+                .flat_map::<Vec<_>, _>(|v| v.values().collect())
+                .cloned()
+                .collect();
         let receipts: Vec<_> = self.receipts.write().expect(POISONED_LOCK_ERR).iter().cloned().collect();
-        let snapshot = ChainPayload { transactions, receipts };
+        let snapshot = ChainPayload::new(transactions, receipts);
         if snapshot.is_empty() {
             return CryptoHash::default();
         }
-        let h = hash_struct(&snapshot);
+        let h = snapshot.get_hash();
         info!(target: "mempool", "Snapshotting payload, #tx={}, #r={}, hash={:?}",
             snapshot.transactions.len(),
             snapshot.receipts.len(),
             h,
         );
-        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, snapshot);
+        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(snapshot);
         h
     }
 
@@ -173,14 +199,14 @@ impl Pool {
         if hash == &CryptoHash::default() {
             return true;
         }
-        self.snapshots.read().expect(POISONED_LOCK_ERR).contains_key(hash)
+        self.snapshots.read().expect(POISONED_LOCK_ERR).contains(hash)
     }
 
     pub fn pop_payload_snapshot(&self, hash: &CryptoHash) -> Option<ChainPayload> {
         if hash == &CryptoHash::default() {
             return Some(ChainPayload::default());
         }
-        let payload = self.snapshots.write().expect(POISONED_LOCK_ERR).remove(hash);
+        let payload = self.snapshots.write().expect(POISONED_LOCK_ERR).take(hash);
         if let Some(ref p) = payload {
             info!(target: "mempool", "Popping snapshot, authority={:?}, #tx={}, #r={}, hash={:?}",
                   self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
@@ -225,7 +251,11 @@ impl Pool {
                 continue;
             }
             let mut to_send = vec![];
-            for tx in self.transactions.read().expect(POISONED_LOCK_ERR).iter() {
+            for tx in self.transactions
+                .read()
+                .expect(POISONED_LOCK_ERR)
+                .values()
+                .flat_map(BTreeMap::values) {
                 let mut locked_known_to = self.known_to.write().expect(POISONED_LOCK_ERR);
                 match locked_known_to.get_mut(&tx.get_hash()) {
                     Some(known_to) => {
@@ -245,7 +275,7 @@ impl Pool {
             if to_send.is_empty() {
                 continue;
             }
-            let payload = ChainPayload { transactions: to_send, receipts: vec![] };
+            let payload = ChainPayload::new(to_send, vec![]);
             result.push(crate::payload_gossip::PayloadGossip::new(
                 authority_id,
                 their_authority_id,
@@ -259,7 +289,16 @@ impl Pool {
     pub fn import_block(&self, block: &SignedShardBlock) {
         for transaction in block.body.transactions.iter() {
             self.known_to.write().expect(POISONED_LOCK_ERR).remove(&transaction.get_hash());
-            self.transactions.write().expect(POISONED_LOCK_ERR).remove(transaction);
+            let mut guard = self.transactions.write().expect(POISONED_LOCK_ERR);
+            let mut remove_map = false;
+            let sender = transaction.body.get_originator();
+            if let Some(map) = guard.get_mut(&sender) {
+                map.remove(&transaction.body.get_nonce());
+                remove_map = map.is_empty();
+            }
+            if remove_map {
+                guard.remove(&sender);
+            }
         }
         for receipt in block.body.receipts.iter() {
             self.receipts.write().expect(POISONED_LOCK_ERR).remove(receipt);
@@ -279,7 +318,7 @@ impl Pool {
         if payload.is_empty() {
             return Ok(());
         }
-        let h = hash_struct(&payload);
+        let h = payload.get_hash();
         info!(target: "mempool", "Adding payload snapshot, authority={:?}, #tx={}, #r={}, hash={:?} received from {:?}",
             self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap(),
             payload.transactions.len(),
@@ -287,7 +326,7 @@ impl Pool {
             h,
             authority_id,
         );
-        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(h, payload);
+        self.snapshots.write().expect(POISONED_LOCK_ERR).insert(payload);
         self.ready_snapshots.write().expect(POISONED_LOCK_ERR).push((authority_id, h));
         Ok(())
     }
@@ -308,7 +347,11 @@ mod tests {
 
     use super::*;
 
-    fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, Vec<Arc<InMemorySigner>>) {
+    fn get_test_chain() -> (
+        Arc<RwLock<ShardChainStorage>>,
+        Arc<Trie>,
+        Vec<Arc<InMemorySigner>>
+    ) {
         let (chain_spec, signers) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
         let trie = Arc::new(Trie::new(shard_storage.clone()));
@@ -331,7 +374,7 @@ mod tests {
         let (storage, trie, signers) = get_test_chain();
         let pool = Pool::new(signers[0].clone(), storage, trie);
         let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: 0,
+            nonce: 1,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,

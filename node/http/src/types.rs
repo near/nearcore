@@ -97,21 +97,8 @@ impl From<BeaconBlockHeader> for BeaconBlockHeaderResponse {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct BeaconBlockResponse {
-    pub header: BeaconBlockHeaderResponse,
-}
-
-impl From<BeaconBlockHeader> for BeaconBlockResponse {
-    fn from(header: BeaconBlockHeader) -> Self {
-        BeaconBlockResponse {
-            header: header.into()
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedBeaconBlockResponse {
-    pub body: BeaconBlockResponse,
+    pub header: BeaconBlockHeaderResponse,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
     pub signature: GroupSignature,
@@ -120,7 +107,7 @@ pub struct SignedBeaconBlockResponse {
 impl From<SignedBeaconBlockHeader> for SignedBeaconBlockResponse {
     fn from(header: SignedBeaconBlockHeader) -> Self {
         SignedBeaconBlockResponse {
-            body: header.body.into(),
+            header: header.body.into(),
             hash: header.hash,
             signature: header.signature,
         }

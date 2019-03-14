@@ -10,7 +10,7 @@ extern crate serde_derive;
 extern crate storage;
 extern crate wasm;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -111,6 +111,7 @@ pub struct ApplyResult {
     pub authority_proposals: Vec<AuthorityStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
+    pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
 
 fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option<T> {
@@ -379,7 +380,7 @@ impl Runtime {
             ReturnData::Promise(PromiseId::Callback(id)) => {
                 let callback = runtime_ext.callbacks.get_mut(&id).expect("callback must exist");
                 if callback.callback.is_some() {
-                    unreachable!("callback already has callback");
+                    unreachable!("callback already has a callback");
                 } else {
                     callback.callback = Some(callback_info.clone());
                 }
@@ -390,16 +391,18 @@ impl Runtime {
                 match receipt.body {
                     ReceiptBody::NewCall(ref mut call) => {
                         if call.callback.is_some() {
-                            return Err("receipt already has callback".to_string());
+                            return Err("don't return original promise that already has a callback".to_string());
                         } else {
                             call.callback = Some(callback_info.clone());
                         }
                     }
-                    _ => unreachable!("receipt body is not new call")
+                    _ => unreachable!("receipt body is not a new call")
                 }
                 None
             }
-            _ => return Err("return data is a non-callback promise".to_string())
+            ReturnData::Promise(PromiseId::Joiner(_)) => {
+                return Err("don't return a joined promise (using promise_and or Promise.all)".to_string())
+            }
         };
         let mut receipts = runtime_ext.get_receipts();
         if let Some(callback_res) = callback_res {
@@ -861,6 +864,7 @@ impl Runtime {
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
+        let mut largest_tx_nonce = HashMap::new();
         for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
             tx_result.push(Self::process_receipt(
                 self,
@@ -872,6 +876,20 @@ impl Runtime {
             ));
         }
         for transaction in transactions {
+            let sender = transaction.body.get_originator();
+            let nonce = transaction.body.get_nonce();
+            match largest_tx_nonce.entry(sender) {
+                Entry::Occupied(mut e) => {
+                    let largest_nonce = e.get_mut();
+                    if *largest_nonce < nonce {
+                        *largest_nonce = nonce;
+                    }
+                }
+                Entry::Vacant(e) => {
+                    e.insert(nonce);
+                }
+            };
+
             tx_result.push(Self::process_transaction(
                 self,
                 &mut state_update,
@@ -889,6 +907,7 @@ impl Runtime {
             shard_id,
             new_receipts,
             tx_result,
+            largest_tx_nonce,
         }
     }
 
