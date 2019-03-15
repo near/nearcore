@@ -3,28 +3,27 @@
 ## NEAR Protocol - scalable and usable blockchain
 
 ![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
-<a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 [![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
+<a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 
 NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
 
-Through sharding it will linearly scale with number of validation nodes on the network.
+Through sharding, it will linearly scale with the number of validation nodes on the network.
 
 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
 finally makes using a blockchain protocol easy for both developers and consumers.
 
 ## Quick start
 
-[Check out quick start documentation](https://docs.nearprotocol.com/#/quick_start), specifically:
-  - [Running DevNet](https://docs.nearprotocol.com/#/quick_start#run--interact-with-devnet)
-  - [Running TestNet](https://docs.nearprotocol.com/#/quick_start#running-testnet-locally)
-  - [Build an ERC-20 contract](https://docs.nearprotocol.com/#/tutorials/erc20)
+[Check out quick start documentation](https://docs.nearprotocol.com/quick_start), specifically:
+  - [Running DevNet](https://docs.nearprotocol.com/quick_start/advanced)
+  - [Running AlphaNet](https://docs.nearprotocol.com/quick_start/expert)
+  - [Build an ERC-20 contract](https://docs.nearprotocol.com/tutorials/token)
   
 Develop and deploy contracts without any setup required using [NEARStudio](https://studio.nearprotocol.com):
 
 [![NEAR Studio Demo](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
-
 
 
 ## Status
