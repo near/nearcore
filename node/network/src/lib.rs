@@ -6,4 +6,4 @@ mod peer_manager;
 mod protocol;
 #[cfg(test)]
 mod testing_utils;
-mod middleware;
+mod proxy;

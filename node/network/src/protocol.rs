@@ -23,6 +23,8 @@ use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 
+use crate::proxy::{Proxy, ProxyHandler, dropout::Dropout};
+
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
     client: Arc<Client>,
@@ -48,6 +50,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
+    proxy: Arc<Proxy<Dropout>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, CoupledBlock)>,
@@ -246,9 +249,13 @@ impl Protocol {
         }
     }
 
+    /// Pass message through active proxies handlers and result messages are sent over channel `ch`.
+    /// Take owner of `message`.
     fn send_message(&self, ch: Sender<PeerMessage>, message: &Message) {
-        let data = Encode::encode(message).unwrap();
-        forward_msg(ch, PeerMessage::Message(data));
+        for msg in self.proxy.pipe(message) {
+            let data = Encode::encode(&msg).unwrap();
+            forward_msg(ch, PeerMessage::Message(data));
+        }
     }
 }
 
@@ -293,7 +300,8 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx });
+    let proxy = Arc::new(Proxy::new());
+    let protocol = Arc::new(Protocol { client, peer_manager, proxy, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
