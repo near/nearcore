@@ -2,7 +2,9 @@
     "name": "hello-wasm",
     "version": "0.0.1",
     "dependencies": {
-        "assemblyscript": "git+https://github.com/nearprotocol/assemblyscript.git#38b020e19696e08c612004134a9b76ac33688364"
+        "assemblyscript": "git+https://github.com/nearprotocol/assemblyscript.git",
+        "assemblyscript-json": "github:nearprotocol/assemblyscript-json",
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
     },
     "scripts": {
         "build": "./build.sh"
