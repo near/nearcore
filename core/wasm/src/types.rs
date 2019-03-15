@@ -105,9 +105,6 @@ pub enum RuntimeError {
     PrivateMethod,
     /// Creating a callback with an empty method name.
     EmptyMethodName,
-    /// Creating a promise with an empty method name and 0 amount.
-    /// It's considered useless waste of mana
-    EmptyMethodNameWithZeroAmount,
     /// Panic with message
     Panic(String),
 }
@@ -145,7 +142,6 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::InvalidAccountId => write!(f, "Invalid AccountID"),
             RuntimeError::PrivateMethod => write!(f, "Creating a promise with a private method"),
             RuntimeError::EmptyMethodName => write!(f, "Creating a callback with an empty method name"),
-            RuntimeError::EmptyMethodNameWithZeroAmount => write!(f, "Creating a promise with an empty method name and 0 amount"),
             RuntimeError::Panic(ref msg) => write!(f, "Panic: {}", msg),
         }
     }

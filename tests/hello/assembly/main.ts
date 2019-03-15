@@ -121,7 +121,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   for (let i = 0; i < contractResults.length; ++i) {
     allRes[i] = new MyContractPromiseResult();
     allRes[i].ok = contractResults[i].success;
-    if (allRes[i].ok) {
+    if (allRes[i].ok && contractResults[i].buffer.length > 0) {
       allRes[i].r = ResultWrappedMyCallbackResult.decode(contractResults[i].buffer).result;
     }
   } 
