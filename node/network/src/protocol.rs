@@ -7,22 +7,22 @@ use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use futures::Future;
 use futures::{stream, stream::Stream};
-use log::{error, info, warn, debug};
+use log::{debug, error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
-use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
+use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse, ChainState};
+use primitives::chain::{ChainPayload, ChainState, PayloadRequest, PayloadResponse};
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
-use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
+use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
 use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
-use primitives::consensus::{JointBlockBLS,JointBlockBLSEncoded};
+use primitives::consensus::JointBlockBLS;
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -62,7 +62,10 @@ impl Protocol {
         match Decode::decode(&data) {
             Ok(m) => match m {
                 Message::Connected(connected_info) => {
-                    info!("Peer {} connected to {} with {:?}", peer_id, self.peer_manager.node_info.id, connected_info);
+                    info!(
+                        "Peer {} connected to {} with {:?}",
+                        peer_id, self.peer_manager.node_info.id, connected_info
+                    );
                     self.on_new_peer(peer_id, connected_info);
                 }
                 Message::Transaction(tx) => {
@@ -76,7 +79,9 @@ impl Protocol {
                     }
                 }
                 Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
-                Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
+                Message::PayloadGossip(gossip) => {
+                    forward_msg(self.inc_payload_gossip_tx.clone(), *gossip)
+                }
                 Message::BlockAnnounce(block) => {
                     forward_msg(self.inc_block_tx.clone(), (peer_id, *block));
                 }
@@ -90,7 +95,10 @@ impl Protocol {
                     }
                 }
                 Message::BlockResponse(_request_id, mut blocks) => {
-                    forward_msgs(self.inc_block_tx.clone(), blocks.drain(..).map(|b| (peer_id, b)).collect());
+                    forward_msgs(
+                        self.inc_block_tx.clone(),
+                        blocks.drain(..).map(|b| (peer_id, b)).collect(),
+                    );
                 }
                 Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
                     match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
@@ -117,7 +125,7 @@ impl Protocol {
                         self.peer_manager.suspect_malicious(&peer_id);
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
-                },
+                }
                 Message::PayloadResponse(_request_id, payload) => {
                     // TODO: check request id.
                     if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
@@ -130,13 +138,10 @@ impl Protocol {
                         self.peer_manager.suspect_malicious(&peer_id);
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
-                },
+                }
                 Message::JointBlockBLS(b) => {
-                    forward_msg(
-                        self.inc_final_signatures_tx.clone(),
-                        JointBlockBLS::from(b)
-                    );
-                },
+                    forward_msg(self.inc_final_signatures_tx.clone(), b);
+                }
             },
             Err(e) => warn!(target: "network", "{}", e),
         };
@@ -203,7 +208,12 @@ impl Protocol {
         }
     }
 
-    fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: BlockIndex, til_index: BlockIndex) {
+    fn send_block_fetch_request(
+        &self,
+        peer_id: &PeerId,
+        from_index: BlockIndex,
+        til_index: BlockIndex,
+    ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             // TODO: make proper request ids.
             let request_id = 1;
@@ -264,12 +274,11 @@ impl Protocol {
 
     fn send_joint_block_bls_announce(&self, b: JointBlockBLS) {
         let receiver_id = match b {
-            JointBlockBLS::Request {  receiver_id, ..} => receiver_id,
+            JointBlockBLS::Request { receiver_id, .. } => receiver_id,
             JointBlockBLS::General { receiver_id, .. } => receiver_id,
         };
         if let Some(ch) = self.get_authority_channel(receiver_id) {
-            let encoded = JointBlockBLSEncoded::from(b);
-            let data = Encode::encode(&Message::JointBlockBLS(encoded)).unwrap();
+            let data = Encode::encode(&Message::JointBlockBLS(b)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND BLS] Channel for {} not found, where account_id={:?} map={:?}", receiver_id, self.peer_manager.node_info.account_id,
@@ -378,7 +387,7 @@ pub fn spawn_network(
     // Spawn a task that send block fetch requests.
     let protocol5 = protocol.clone();
     let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
-       protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
+        protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
         future::ok(())
     });
     tokio::spawn(task);

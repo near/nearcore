@@ -6,7 +6,7 @@ use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock, ChainState};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use primitives::consensus::JointBlockBLSEncoded;
+use primitives::consensus::JointBlockBLS;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
@@ -49,5 +49,5 @@ pub enum Message {
     PayloadResponse(RequestId, ChainPayload),
 
     /// Partial BLS signatures of beacon and shard blocks.
-    JointBlockBLS(JointBlockBLSEncoded),
+    JointBlockBLS(JointBlockBLS),
 }
