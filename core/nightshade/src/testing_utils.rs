@@ -173,10 +173,12 @@ macro_rules! ns_eq {
 /// update_state!(ns, 0, (2, 0, 1));
 /// ```
 macro_rules! update_state {
-    ($nightshade:expr, $owner_id:expr, ($a:expr, $b:expr, $c:expr)) => {
-        let s = state($owner_id, bare_state($a, $b, $c), $nightshade.num_authorities);
-        $nightshade.update_state($owner_id, s)
-    };
+    ($nightshade:expr, $owner_id:expr, ($a:expr, $b:expr, $c:expr)) => {{
+        {
+            let s = state($owner_id, bare_state($a, $b, $c), $nightshade.num_authorities);
+            $nightshade.update_state($owner_id, s)
+        }
+    }};
 }
 
 #[cfg(test)]
