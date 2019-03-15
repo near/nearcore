@@ -71,7 +71,9 @@ impl GroupSignature {
         }
         let mut new_sig = BlsAggregateSignature::new();
         new_sig.aggregate(&signature);
-        new_sig.aggregate(&self.signature);
+        if self.signature != BlsSignature::default() {
+            new_sig.aggregate(&self.signature);
+        }
         self.signature = new_sig.get_signature();
         self.authority_mask[authority_id] = true;
     }

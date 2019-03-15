@@ -409,8 +409,7 @@ impl ClientTask {
         };
         let idx = beacon_block.index();
         let num_authorities = self.client.get_uid_to_authority_map(idx).1.len();
-        let present: usize =
-            beacon_block.signature.authority_mask.iter().map(|b| *b as usize).sum();
+        let present = beacon_block.signature.authority_count();
         if present < 2 * num_authorities / 3 + 1 {
             info!(target: "client", "Not enough signatures for {} at {} ({} / {})", idx, self.client.account_id, present, num_authorities);
             return None;

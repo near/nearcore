@@ -229,14 +229,12 @@ mod tests {
 
         let (mut beacon_block, mut shard_block, shard_extra) =
             alice.client.prepare_block(ChainPayload::default());
-        beacon_block.signature.authority_mask = vec![true; chain_spec.initial_authorities.len()];
-        shard_block.signature.authority_mask = vec![true; chain_spec.initial_authorities.len()];
-        let (mut beacon_block, mut shard_block) =
-            alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
-        // Sign by bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
-        alice.client.try_import_blocks(beacon_block, shard_block);
+        // Sign by alice & bob to make this blocks valid.
+        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 0);
+        shard_block.add_signature(&shard_block.sign(bob.signer()), 0);
+        beacon_block.add_signature(&beacon_block.sign(alice.signer()), 1);
+        shard_block.add_signature(&shard_block.sign(alice.signer()), 1);
+        alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob
             .client
@@ -292,9 +290,11 @@ mod tests {
         );
         let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
         alice.client.try_import_produced(beacon_block.clone(), shard_block.clone(), shard_extra);
-        // Sign by bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
+        // Sign by alice & bob to make this blocks valid.
+        beacon_block.add_signature(&beacon_block.sign(alice.signer()), 1);
+        shard_block.add_signature(&shard_block.sign(alice.signer()), 1);
+        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 0);
+        shard_block.add_signature(&shard_block.sign(bob.signer()), 0);
         alice.client.try_import_blocks(beacon_block, shard_block);
 
         bob.client

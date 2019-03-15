@@ -330,7 +330,7 @@ impl Client {
             || !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref())
         {
             error!(target: "client", "Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
-                   shard_block.block_hash(), beacon_block.block_hash(),
+                   beacon_block.block_hash(), shard_block.block_hash(),
                    beacon_block.signature.authority_count(),
                    shard_block.signature.authority_count());
             // TODO enable when we sign blocks with second BLS
@@ -527,7 +527,6 @@ mod tests {
                 new_shard_block.hash,
             );
             new_beacon_block.sign_all(signers);
-            println!("sigs: {:?}", new_beacon_block.signature.authority_mask);
             beacon_block = new_beacon_block.clone();
             shard_block = new_shard_block.clone();
             result.push((new_beacon_block, new_shard_block));
