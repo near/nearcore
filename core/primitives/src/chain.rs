@@ -8,6 +8,7 @@ use super::hash::{hash_struct, CryptoHash};
 use super::merkle::MerklePath;
 use super::transaction::{ReceiptTransaction, SignedTransaction};
 use super::types::{AuthorityId, GroupSignature, MerkleHash, PartialSignature, ShardId};
+use near_protos::chain as chain_proto;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -210,4 +211,24 @@ pub enum PayloadResponse {
 pub struct ChainState {
     pub genesis_hash: CryptoHash,
     pub last_index: u64,
+}
+
+impl From<chain_proto::ChainState> for ChainState {
+    fn from(proto: chain_proto::ChainState) -> Self {
+        ChainState {
+            genesis_hash: proto.genesis_hash.into(),
+            last_index: proto.last_index,
+        }
+    }
+}
+
+impl Into<chain_proto::ChainState> for ChainState {
+    fn into(self) -> chain_proto::ChainState {
+        chain_proto::ChainState {
+            genesis_hash: self.genesis_hash.into(),
+            last_index: self.last_index,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }

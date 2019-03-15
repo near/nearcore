@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+import "protos/chain.proto";
+
+message PeerInfo {
+    bytes id = 1;
+    oneof addr {
+        bool no_addr = 2;
+        string some_addr = 3;
+    }
+    oneof account_id {
+        bool no_account_id = 4;
+        string some_account_id = 5;
+    }
+}
+
+message ConnectedInfo {
+    ChainState chain_state = 1;
+}
+
+message HandShake {
+    uint32 version = 1;
+    bytes peer_id = 2;
+    oneof account_id {
+        bool no_account_id = 3;
+        string some_account_id = 4;
+    }
+    oneof listen_port {
+        bool no_listen_port = 5;
+        uint32 some_listen_port = 6;
+    }
+    repeated PeerInfo peers_info = 7;
+    ConnectedInfo connected_info = 8;
+}
+
+message InfoGossip {
+    repeated PeerInfo info_gossip = 1;
+}
+
+message PeerMessage {
+    oneof m {
+        HandShake hand_shake = 1;
+        InfoGossip info_gossip = 2;
+        bytes message = 3;
+    }
+}

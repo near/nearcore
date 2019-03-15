@@ -11,20 +11,21 @@ use futures::{Async, Future, Poll, Sink, try_ready};
 use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Sender};
 use log::{debug, info, warn};
-use serde_derive::{Deserialize, Serialize};
 use tokio::codec::Framed;
 use tokio::net::tcp::ConnectFuture;
 use tokio::net::TcpStream;
 use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
-use tokio_serde_cbor::Codec;
 
 use primitives::chain::ChainState;
-use primitives::network::PeerInfo;
+use primitives::network::{
+    PeerInfo, Handshake, PeerMessage, PeersInfo, ConnectedInfo
+};
 use primitives::serialize::Encode;
-use primitives::types::{AccountId, PeerId};
+use primitives::types::PeerId;
 
-use super::message::{ConnectedInfo, Message, PROTOCOL_VERSION};
+use super::message::{Message, PROTOCOL_VERSION};
+use super::codec::Codec;
 
 /// How long do we wait for connection to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -37,37 +38,12 @@ const RESPONSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(1000);
 const STATE_ERR: &str = "Some fields are expected to be not None at the given state";
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-pub struct Handshake {
-    /// Protocol version.
-    pub version: u32,
-    /// Sender's peer id.
-    pub peer_id: PeerId,
-    /// Sender's account id, if present.
-    pub account_id: Option<AccountId>,
-    /// Sender's listening addr.
-    pub listen_port: Option<u16>,
-    /// Sender's information about known peers.
-    pub peers_info: PeersInfo,
-    /// Connected info message that peer receives.
-    pub connected_info: ConnectedInfo,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-pub enum PeerMessage {
-    Handshake(Handshake),
-    InfoGossip(PeersInfo),
-    Message(Vec<u8>),
-}
-
-pub type PeersInfo = Vec<PeerInfo>;
-
 /// Note, the peer that establishes the connection is the one that sends the handshake.
 pub enum PeerState {
     /// Someone unknown has established connection with us and we are waiting for them to send us
     /// the handshake.
     IncomingConnection {
-        stream: Option<Framed<TcpStream, Codec<PeerMessage, PeerMessage>>>,
+        stream: Option<Framed<TcpStream, Codec>>,
         hand_timeout: Delay,
         // Whether it should terminate ASAP. We keep this flag in the state to ensure we it is under
         // the same lock as the state.
@@ -86,7 +62,7 @@ pub enum PeerState {
     /// We connected and sent them the handshake, now we are waiting for the reply.
     Connected {
         info: PeerInfo,
-        stream: Option<SplitStream<Framed<TcpStream, Codec<PeerMessage, PeerMessage>>>>,
+        stream: Option<SplitStream<Framed<TcpStream, Codec>>>,
         out_msg_tx: Sender<PeerMessage>,
         hand_timeout: Delay,
         evicted: bool,
@@ -94,7 +70,7 @@ pub enum PeerState {
     /// We have performed the handshake exchange and are now ready to exchange other messages.
     Ready {
         info: PeerInfo,
-        stream: SplitStream<Framed<TcpStream, Codec<PeerMessage, PeerMessage>>>,
+        stream: SplitStream<Framed<TcpStream, Codec>>,
         out_msg_tx: Sender<PeerMessage>,
         evicted: bool,
     },
@@ -221,9 +197,9 @@ impl<T: ChainStateRetriever> Peer<T> {
 fn framed_stream_to_channel_with_handshake(
     node_info: &PeerInfo,
     peers_info: Vec<PeerInfo>,
-    framed_stream: Framed<TcpStream, Codec<PeerMessage, PeerMessage>>,
+    framed_stream: Framed<TcpStream, Codec>,
     chain_state: ChainState,
-) -> (Sender<PeerMessage>, SplitStream<Framed<TcpStream, Codec<PeerMessage, PeerMessage>>>) {
+) -> (Sender<PeerMessage>, SplitStream<Framed<TcpStream, Codec>>) {
     let (sink, stream) = framed_stream.split();
     let (out_msg_tx, out_msg_rx) = channel(1024);
     let handshake = PeerMessage::Handshake(Handshake {
@@ -249,11 +225,6 @@ fn framed_stream_to_channel_with_handshake(
         .map(|_| ());
     tokio::spawn(hand_task.then(|_| fwd_task));
     (out_msg_tx, stream)
-}
-
-/// Converts CBOR Error to IO Error.
-fn cbor_err(err: tokio_serde_cbor::Error) -> Error {
-    Error::new(ErrorKind::InvalidData, format!("Error decoding message: {}", err))
 }
 
 /// Converts Timer Error to IO Error.
@@ -441,7 +412,7 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                 Connected { info, stream, out_msg_tx, hand_timeout, .. } =>
                 // Wait for the handshake reply.
                 {
-                    match stream.as_mut().expect(STATE_ERR).poll().map_err(cbor_err) {
+                    match stream.as_mut().expect(STATE_ERR).poll() {
                         // The connection was closed. Try again later.
                         Ok(Async::Ready(None)) => Unconnected {
                             info: info.clone(),
@@ -491,7 +462,7 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                         }
                     }
                 }
-                Ready { info, stream, .. } => match stream.poll().map_err(cbor_err) {
+                Ready { info, stream, .. } => match stream.poll() {
                     // Connection was closed. Reconnect later.
                     Ok(Async::Ready(None)) => Unconnected {
                         info: info.clone(),
