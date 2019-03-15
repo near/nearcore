@@ -162,23 +162,23 @@ where
         guard.blockchain_storage_mut().header(&hash).unwrap().cloned()
     }
 
-    pub fn get_blocks_by_indices(&self, start: u64, limit: u64) -> Result<Vec<B>, String> {
+    pub fn get_blocks_by_indices(&self, start: u64, limit: u64) -> Vec<B> {
         let mut blocks = vec![];
         for i in start..=(start + limit) {
             if let Some(block) = self.get_block(&BlockId::Number(i)) {
                 blocks.push(block)
             }
         }
-        Ok(blocks)
+        blocks
     }
 
-    pub fn get_headers_by_indices(&self, start: u64, limit: u64) -> Result<Vec<B::SignedHeader>, String> {
+    pub fn get_headers_by_indices(&self, start: u64, limit: u64) -> Vec<B::SignedHeader> {
         let mut headers = vec![];
         for i in start..=(start + limit) {
             if let Some(header) = self.get_header(&BlockId::Number(i)) {
                 headers.push(header)
             }
         }
-        Ok(headers)
+        headers
     }
 }

@@ -151,10 +151,9 @@ impl HttpApi {
     ) -> Result<SignedShardBlocksResponse, String> {
         let start = r.start.unwrap_or_else(|| self.client.shard_client.chain.best_index());
         let limit = r.limit.unwrap_or(25);
-        self.client.shard_client.chain.get_blocks_by_indices(start, limit).map(|blocks| {
-            SignedShardBlocksResponse {
-                blocks: blocks.into_iter().map(std::convert::Into::into).collect(),
-            }
+        let blocks = self.client.shard_client.chain.get_blocks_by_indices(start, limit);
+        Ok(SignedShardBlocksResponse {
+            blocks: blocks.into_iter().map(std::convert::Into::into).collect(),
         })
     }
 
@@ -164,10 +163,9 @@ impl HttpApi {
     ) -> Result<SignedBeaconBlocksResponse, String> {
         let start = r.start.unwrap_or_else(|| self.client.beacon_client.chain.best_index());
         let limit = r.limit.unwrap_or(25);
-        self.client.beacon_client.chain.get_headers_by_indices(start, limit).map(|headers| {
-            SignedBeaconBlocksResponse {
-                blocks: headers.into_iter().map(std::convert::Into::into).collect(),
-            }
+        let headers = self.client.beacon_client.chain.get_headers_by_indices(start, limit);
+        Ok(SignedBeaconBlocksResponse {
+            blocks: headers.into_iter().map(std::convert::Into::into).collect(),
         })
     }
 
