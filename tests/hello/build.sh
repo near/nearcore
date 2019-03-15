@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 PATH=$(npm bin):$PATH
 cp node_modules/near-runtime-ts/near.ts ./assembly
 mkdir -p ./assembly/json
