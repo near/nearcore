@@ -3,7 +3,7 @@
 
 use clap::{App, Arg};
 use std::path::PathBuf;
-use crate::alphanet_utils::generate_test_chain_spec;
+use testlib::alphanet_utils::generate_test_chain_spec;
 use configs::chain_spec::save_chain_spec;
 
 fn main() {

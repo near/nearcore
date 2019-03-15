@@ -121,7 +121,6 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 
 #[cfg(test)]
 mod tests {
-    use client::BlockProductionResult;
     use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
@@ -229,7 +228,7 @@ mod tests {
         );
 
         let (mut beacon_block, mut shard_block, shard_extra) =
-            alice.client.prepare_block(1, ChainPayload::default());
+            alice.client.prepare_block(ChainPayload::default());
         beacon_block.signature.authority_mask = vec![true; chain_spec.initial_authorities.len()];
         shard_block.signature.authority_mask = vec![true; chain_spec.initial_authorities.len()];
         let (mut beacon_block, mut shard_block) =
@@ -291,7 +290,7 @@ mod tests {
             vec![alice.node_addr()],
             chain_spec.clone(),
         );
-        let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(1, ChainPayload::default());
+        let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
         alice.client.try_import_produced(beacon_block.clone(), shard_block.clone(), shard_extra);
         // Sign by bob to make this blocks valid.
         beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);

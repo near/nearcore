@@ -6,9 +6,7 @@ use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock, ChainState};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use primitives::aggregate_signature::BlsSignature;
 use primitives::consensus::JointBlockBLSEncoded;
-use primitives::types::AuthorityId;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);

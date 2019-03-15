@@ -30,7 +30,6 @@ use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIn
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 use shard::ShardBlockExtraInfo;
-use primitives::block_traits::SignedHeader;
 
 pub mod test_utils;
 
@@ -184,11 +183,9 @@ impl Client {
     }
 
     // Block producer code.
-    pub fn prepare_block(&self, block_index: BlockIndex, payload: ChainPayload) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
+    pub fn prepare_block(&self, payload: ChainPayload) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
         let last_block = self.beacon_client.chain.best_block();
-        let current_index = last_block.index();
         let last_shard_block = self.shard_client.chain.best_block();
-        let next_index = current_index + 1;
         let mut receipts = payload.receipts;
         // Get previous receipts from the same shard:
         let receipt_block = self
@@ -197,12 +194,12 @@ impl Client {
         if let Some(receipt) = receipt_block {
             receipts.push(receipt);
         }
-        let (mut shard_block, shard_block_extra) = self.shard_client.prepare_new_block(
+        let (shard_block, shard_block_extra) = self.shard_client.prepare_new_block(
             last_block.body.header.shard_block_hash,
             receipts,
             payload.transactions,
         );
-        let mut block = SignedBeaconBlock::new(
+        let block = SignedBeaconBlock::new(
             last_block.body.header.index + 1,
             last_block.block_hash(),
             shard_block_extra.authority_proposals.clone(),
@@ -216,7 +213,7 @@ impl Client {
     pub fn try_import_produced(
         &self,
         beacon_block: SignedBeaconBlock,
-        mut shard_block: SignedShardBlock,
+        shard_block: SignedShardBlock,
         shard_block_extra: ShardBlockExtraInfo
     ) -> (SignedBeaconBlock, SignedShardBlock) {
         assert!(
@@ -311,8 +308,8 @@ impl Client {
     /// the best block then it returns it, otherwise it returns None.
     pub fn try_import_blocks(
         &self,
-        mut beacon_block: SignedBeaconBlock,
-        mut shard_block: SignedShardBlock,
+        beacon_block: SignedBeaconBlock,
+        shard_block: SignedShardBlock,
     ) -> BlockImportingResult {
         // Check if this block was either already added, or it is already pending, or it has
         // invalid signature.
@@ -612,26 +609,26 @@ mod tests {
         let bob_client = get_client_from_cfg(&chain_spec, Arc::new(bob_signer));
 
         // First produce several blocks by Alice and Bob.
-        for i in 1..=5 {
-            let (beacon_block, mut shard_block, shard_extra) = alice_client.prepare_block(i, ChainPayload::new(vec![], vec![]));
+        for _ in 1..=5 {
+            let (beacon_block, shard_block, shard_extra) = alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
             alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
-            let (beacon_block, mut shard_block, shard_extra) = bob_client.prepare_block(i, ChainPayload::new(vec![], vec![]));
+            let (beacon_block, shard_block, shard_extra) = bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
             bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
         }
 
         // Then Bob produces several blocks and Alice tries to import them except the first one.
-        let (beacon_block, mut shard_block, shard_extra) =
-            bob_client.prepare_block(6, ChainPayload::new(vec![], vec![]));
+        let (beacon_block, shard_block, shard_extra) =
+            bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
         bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
-        for i in 7..=10 {
-            let (beacon_block, mut shard_block, shard_extra) =
-                bob_client.prepare_block(i, ChainPayload::new(vec![], vec![]));
+        for _ in 7..=10 {
+            let (beacon_block, shard_block, shard_extra) =
+                bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
             let (bb, sb) = bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
             alice_client.try_import_blocks(bb, sb);
         }
 
         // Lastly, alice produces the missing block and is expected to progess to block 10.
-        let (beacon_block, mut shard_block, shard_extra) = alice_client.prepare_block(6, ChainPayload::new(vec![], vec![]));
+        let (beacon_block, shard_block, shard_extra) = alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
         alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
         assert_eq!(alice_client.beacon_client.chain.best_index(), 10);
         assert_eq!(alice_client.shard_client.chain.best_index(), 10);

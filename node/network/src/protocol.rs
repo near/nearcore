@@ -23,9 +23,6 @@ use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 use primitives::consensus::{JointBlockBLS,JointBlockBLSEncoded};
-use primitives::traits::FromBytes;
-use primitives::traits::ToBytes;
-use primitives::types::PartialSignature;
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -275,8 +272,8 @@ impl Protocol {
             let data = Encode::encode(&Message::JointBlockBLS(encoded)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            warn!(target: "network", "[SND BLS] Channel for {} not found, where account_id={:?} map={:?}", receiver_id, self.peer_manager.node_info.account_id,
-                self.client.get_uid_to_authority_map(1)
+            debug!(target: "network", "[SND BLS] Channel for {} not found, where account_id={:?} map={:?}", receiver_id, self.peer_manager.node_info.account_id,
+                self.client.get_recent_uid_to_authority_map()
             );
         }
     }

@@ -18,8 +18,6 @@ use primitives::signer::BlockSigner;
 use primitives::signer::InMemorySigner;
 use primitives::signer::TransactionSigner;
 
-use alphanet::start_from_client;
-
 const TMP_DIR: &str = "../../tmp/testnet";
 
 pub fn configure_chain_spec() -> ChainSpec {

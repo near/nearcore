@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use bencher::{benchmark_group, benchmark_main, Bencher};
+use bencher::{Bencher, benchmark_group, benchmark_main};
 use serde_json::Value;
 
-use client::{BlockProductionResult, Client};
+use client::Client;
 use configs::{ChainSpec, ClientConfig};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
@@ -74,7 +74,6 @@ fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySign
 fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
     let mut prev_receipt_blocks = vec![];
     let mut transactions;
-    let mut next_block_idx = client.shard_client.chain.best_index() + 1;
     loop {
         if batches.is_empty() {
             if prev_receipt_blocks.is_empty() {
@@ -89,7 +88,7 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
         }
         let payload = ChainPayload::new(transactions, prev_receipt_blocks);
         let (beacon_block, shard_block, shard_extra) =
-            client.prepare_block(next_block_idx, payload);
+            client.prepare_block(payload);
         let (_beacon_block, shard_block) =
             client.try_import_produced(beacon_block, shard_block, shard_extra);
         prev_receipt_blocks = client
@@ -97,8 +96,6 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
             .get_receipt_block(shard_block.index(), shard_block.shard_id())
             .map(|b| vec![b])
             .unwrap_or(vec![]);
-
-        next_block_idx += 1;
     }
 }
 
