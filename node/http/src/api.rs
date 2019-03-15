@@ -115,7 +115,7 @@ impl HttpApi {
     }
 
     pub fn view_latest_beacon_block(&self) -> Result<SignedBeaconBlockResponse, ()> {
-        Ok(self.client.beacon_client.chain.best_block_header().into())
+        Ok(self.client.beacon_client.chain.best_header().into())
     }
 
     pub fn get_beacon_block_by_hash(

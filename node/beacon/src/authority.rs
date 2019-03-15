@@ -106,9 +106,9 @@ impl Authority {
             // TODO: Take care of the fork being changed while we are iterating.
             let mut index = 1;
             let mut last_progress = 101;
-            while index <= blockchain.best_block_header().body.index {
+            while index <= blockchain.best_header().body.index {
                 if log_enabled!(target: "client", Debug) {
-                    let best_block_index = blockchain.best_block_header().body.index;
+                    let best_block_index = blockchain.best_header().body.index;
                     let progress = index * 100 / best_block_index;
                     if progress != last_progress {
                         debug!(target: "client", "Processing blocks {} out of {}", index, best_block_index);

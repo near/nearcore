@@ -48,7 +48,7 @@ where
         guard.blockchain_storage_mut().block(&hash).unwrap().cloned()
     }
 
-    pub fn best_block_header(&self) -> B::SignedHeader {
+    pub fn best_header(&self) -> B::SignedHeader {
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
         let hash = *guard.blockchain_storage_mut().best_block_hash().unwrap().unwrap();
         guard.blockchain_storage_mut().header(&hash).unwrap().unwrap().clone()
@@ -56,7 +56,7 @@ where
 
     #[inline]
     pub fn best_index(&self) -> u64 {
-        self.best_block_header().index()
+        self.best_header().index()
     }
 
     #[inline]

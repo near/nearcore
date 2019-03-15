@@ -192,8 +192,8 @@ impl Client {
             return BlockProductionResult::LateConsensus { current_index };
         }
 
-        let last_beacon_block_header = self.beacon_client.chain.best_block_header();
-        let last_shard_block_header = self.shard_client.chain.best_block_header();
+        let last_beacon_block_header = self.beacon_client.chain.best_header();
+        let last_shard_block_header = self.shard_client.chain.best_header();
         let next_index = current_index + 1;
         let authorities = self
             .beacon_client
@@ -234,7 +234,7 @@ impl Client {
         }
 
         assert!(
-            !self.beacon_client.chain.is_known_header(&block.hash),
+            !self.beacon_client.chain.is_known_block(&block.hash),
             "The block was already imported, before we managed to produce it.\
              This should never happen, because block production is atomic."
         );
@@ -288,8 +288,8 @@ impl Client {
         let mut part_add = vec![];
         let mut part_pending = HashSet::new();
         for other in self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).drain() {
-            if self.beacon_client.chain.is_known_header(&other.body.header.parent_hash)
-                && (self.shard_client.chain.is_known_header(&other.body.header.shard_block_hash)
+            if self.beacon_client.chain.is_known_block(&other.body.header.parent_hash)
+                && (self.shard_client.chain.is_known_block(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
                         .read()
@@ -335,7 +335,7 @@ impl Client {
               beacon_block.body.header.index,
               self.account_id,
               beacon_block.hash, shard_block.hash);
-        if self.beacon_client.chain.is_known_header(&hash) {
+        if self.beacon_client.chain.is_known_block(&hash) {
             return BlockImportingResult::AlreadyImported;
         }
         if !Client::verify_block_hash(&beacon_block, &shard_block) {
@@ -368,7 +368,7 @@ impl Client {
         let best_block_hash = self.beacon_client.chain.best_hash();
 
         self.try_apply_pending_blocks();
-        let new_best_block_header = self.beacon_client.chain.best_block_header();
+        let new_best_block_header = self.beacon_client.chain.best_header();
 
         if new_best_block_header.block_hash() == best_block_hash {
             BlockImportingResult::MissingParent {
@@ -396,7 +396,7 @@ impl Client {
                 Some(b) => b,
                 None => break,
             };
-            if self.beacon_client.chain.is_known_header(&next_beacon_block.block_hash()) {
+            if self.beacon_client.chain.is_known_block(&next_beacon_block.block_hash()) {
                 continue;
             }
 
@@ -557,8 +557,8 @@ mod tests {
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
         let blocks = make_coupled_blocks(
-            &client.beacon_client.chain.best_block_header(),
-            &client.shard_client.chain.best_block_header(),
+            &client.beacon_client.chain.best_header(),
+            &client.shard_client.chain.best_header(),
             10,
             &signers,
         );

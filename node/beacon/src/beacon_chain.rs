@@ -73,7 +73,7 @@ mod tests {
         let sig = block1.sign(signer);
         block1.add_signature(&sig, 0);
         bc.chain.insert_block(block1.clone());
-        let best_block_header = bc.chain.best_block_header();
+        let best_block_header = bc.chain.best_header();
         assert_eq!(best_block_header.block_hash(), block1.block_hash());
         assert_eq!(best_block_header.index(), 1);
         // Create new BlockChain that reads from the same storage.
