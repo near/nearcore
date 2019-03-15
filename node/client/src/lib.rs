@@ -192,8 +192,8 @@ impl Client {
             return BlockProductionResult::LateConsensus { current_index };
         }
 
-        let last_beacon_block_header = self.beacon_client.chain.best_header();
-        let last_shard_block_header = self.shard_client.chain.best_header();
+        let last_beacon_block = self.beacon_client.chain.best_block().unwrap();
+        let last_shard_block = self.shard_client.chain.best_block().unwrap();
         let next_index = current_index + 1;
         let authorities = self
             .beacon_client
@@ -206,18 +206,18 @@ impl Client {
         // Get previous receipts from the same shard:
         let receipt_block = self
             .shard_client
-            .get_receipt_block(last_shard_block_header.index(), last_shard_block_header.shard_id());
+            .get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
         if let Some(receipt) = receipt_block {
             receipts.push(receipt);
         }
         let (mut shard_block, shard_block_extra) = self.shard_client.prepare_new_block(
-            last_beacon_block_header.body.shard_block_hash,
+            last_beacon_block.body.header.shard_block_hash,
             receipts,
             payload.transactions,
         );
         let mut block = SignedBeaconBlock::new(
-            last_beacon_block_header.index() + 1,
-            last_beacon_block_header.block_hash(),
+            last_beacon_block.index() + 1,
+            last_beacon_block.block_hash(),
             shard_block_extra.authority_proposals,
             shard_block.block_hash(),
         );
