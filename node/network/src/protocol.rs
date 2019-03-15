@@ -162,8 +162,8 @@ impl Protocol {
 
     fn send_gossip(&self, g: Gossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
-            let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
+            let message = Message::Gossip(Box::new(g));
+            self.send_message(ch, &message);
         } else {
             debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
                    g.receiver_id,
@@ -174,18 +174,18 @@ impl Protocol {
 
     fn send_payload_gossip(&self, g: PayloadGossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
-            let data = Encode::encode(&Message::PayloadGossip(Box::new(g))).unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
+            let message = Message::PayloadGossip(Box::new(g));
+            self.send_message(ch, &message);
         } else {
             debug!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
         }
     }
 
     fn send_block_announce(&self, peer_ids: Vec<PeerId>, b: CoupledBlock) {
-        let data = Encode::encode(&Message::BlockAnnounce(Box::new(b))).unwrap();
+        let message = Message::BlockAnnounce(Box::new(b));
         for peer_id in peer_ids.iter() {
             if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-                forward_msg(ch, PeerMessage::Message(data.to_vec()));
+                self.send_message(ch, &message);
             }
         }
     }
@@ -194,10 +194,8 @@ impl Protocol {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             // TODO: make proper request ids.
             let request_id = 1;
-            let data =
-                Encode::encode(&Message::BlockFetchRequest(request_id, from_index, til_index))
-                    .unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
+            let message = Message::BlockFetchRequest(request_id, from_index, til_index);
+            self.send_message(ch, &message);
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -210,8 +208,8 @@ impl Protocol {
         blocks: Vec<CoupledBlock>,
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = Encode::encode(&Message::BlockResponse(request_id, blocks)).unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
+            let message = Message::BlockResponse(request_id, blocks);
+            self.send_message(ch, &message);
         } else {
             debug!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -224,8 +222,8 @@ impl Protocol {
                 // TODO: make proper request ids.
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(authority_id) {
-                    let data = Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
-                    forward_msg(ch, PeerMessage::Message(data));
+                    let message = Message::PayloadSnapshotRequest(request_id, hash);
+                    self.send_message(ch, &message);
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
                 }
@@ -241,11 +239,16 @@ impl Protocol {
     ) {
         info!("Send payload to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
+            let message = Message::PayloadResponse(request_id, payload);
+            self.send_message(ch, &message);
         } else {
             debug!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found, account_id={:?}", peer_id, self.peer_manager.node_info.account_id);
         }
+    }
+
+    fn send_message(&self, ch: Sender<PeerMessage>, message: &Message) {
+        let data = Encode::encode(message).unwrap();
+        forward_msg(ch, PeerMessage::Message(data));
     }
 }
 
@@ -339,11 +342,6 @@ pub fn spawn_network(
         future::ok(())
     });
     tokio::spawn(task);
-}
-
-fn forward_plain_msg(ch: Sender<T>, msg: Message) {
-    let data = Encode::encode(&msg).unwrap();
-    forward_msg(ch, data);
 }
 
 fn forward_msg<T>(ch: Sender<T>, el: T)
