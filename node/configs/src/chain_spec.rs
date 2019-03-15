@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::network::PeerInfo;
+use primitives::network::PeerAddr;
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::io::Write;
 
@@ -23,7 +23,7 @@ pub struct ChainSpec {
     pub beacon_chain_epoch_length: u64,
     pub beacon_chain_num_seats_per_slot: u64,
 
-    pub boot_nodes: Vec<PeerInfo>,
+    pub boot_nodes: Vec<PeerAddr>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -34,7 +34,7 @@ struct ChainSpecRef {
     genesis_wasm: Vec<u8>,
     beacon_chain_epoch_length: u64,
     beacon_chain_num_seats_per_slot: u64,
-    boot_nodes: Vec<PeerInfo>,
+    boot_nodes: Vec<PeerAddr>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -60,9 +60,8 @@ pub fn get_default_chain_spec() -> ChainSpec {
 
 pub fn save_chain_spec(chain_spec_path: &PathBuf, chain_spec: ChainSpec) {
     let mut file = File::create(chain_spec_path).expect("Failed to create/write a chain spec file");
-    match file.write_all(serialize_chain_spec(chain_spec).as_bytes()) {
-        Err(err) => panic!("Failed to write a chain spec file {}", err),
-        _ => (),
+    if let Err(err) = file.write_all(serialize_chain_spec(chain_spec).as_bytes()) {
+        panic!("Failed to write a chain spec file {}", err)
     }
 }
 

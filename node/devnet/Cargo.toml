@@ -18,3 +18,4 @@ chain = { path = "../../core/chain" }
 
 [dev-dependencies]
 alphanet = { path = "../alphanet" }
+testlib = { path = "../../test-utils/testlib" }

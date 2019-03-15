@@ -89,7 +89,6 @@ impl External for MyExt {
     ) -> ExtResult<PromiseId> {
         match promise_id {
             PromiseId::Receipt(_) => {
-                assert!(false);
                 Err(ExtError::WrongPromise)
             },
             PromiseId::Joiner(v) => {

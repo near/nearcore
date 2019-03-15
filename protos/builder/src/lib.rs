@@ -17,7 +17,7 @@ pub fn autogenerate() {
         })
         .collect();
     let input_files: Vec<&str> = input_files.iter()
-        .map(|x| x.as_ref())
+        .map(std::convert::AsRef::as_ref)
         .collect();
     protoc_rust::run(protoc_rust::Args {
         out_dir: PROTO_OUTPUT_DIR,

@@ -5,6 +5,7 @@
 ![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
 <a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 [![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
+[![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
 
 NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
 
