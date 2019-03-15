@@ -22,12 +22,12 @@ export class __near_ArgsParser_hello extends ThrowingJSONHandler {
 __near_param_name: String;
 setString(name: string, value: String): void {
 if (name == "name") {
-            this.__near_param_name = value;
+            this.__near_param_name = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "name") {
         this.__near_param_name = <String>null;
@@ -87,16 +87,16 @@ __near_param_key: String;
 __near_param_value: String;
 setString(name: string, value: String): void {
 if (name == "key") {
-            this.__near_param_key = value;
+            this.__near_param_key = <String>value;
             return;
           }
 if (name == "value") {
-            this.__near_param_value = value;
+            this.__near_param_value = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "key") {
         this.__near_param_key = <String>null;
@@ -146,12 +146,12 @@ export class __near_ArgsParser_getValueByKey extends ThrowingJSONHandler {
 __near_param_key: String;
 setString(name: string, value: String): void {
 if (name == "key") {
-            this.__near_param_key = value;
+            this.__near_param_key = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "key") {
         this.__near_param_key = <String>null;
@@ -210,12 +210,12 @@ export class __near_ArgsParser_setValue extends ThrowingJSONHandler {
 __near_param_value: String;
 setString(name: string, value: String): void {
 if (name == "value") {
-            this.__near_param_value = value;
+            this.__near_param_value = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "value") {
         this.__near_param_value = <String>null;
@@ -440,14 +440,14 @@ export class __near_ArgsParser_benchmark_storage extends ThrowingJSONHandler {
         handledRoot: boolean = false;
       
 __near_param_n: i32;
-setInteger(name: string, value: i32): void {
+setInteger(name: string, value: i64): void {
 if (name == "n") {
-            this.__near_param_n = value;
+            this.__near_param_n = <i32>value;
             return;
           }
 
-          super.setInteger(name, value);
-        }
+        super.setInteger(name, value);
+      }
 setNull(name: string): void {
 if (name == "n") {
         this.__near_param_n = <i32>null;
@@ -504,14 +504,14 @@ export class __near_ArgsParser_benchmark_sum_n extends ThrowingJSONHandler {
         handledRoot: boolean = false;
       
 __near_param_n: i32;
-setInteger(name: string, value: i32): void {
+setInteger(name: string, value: i64): void {
 if (name == "n") {
-            this.__near_param_n = value;
+            this.__near_param_n = <i32>value;
             return;
           }
 
-          super.setInteger(name, value);
-        }
+        super.setInteger(name, value);
+      }
 setNull(name: string): void {
 if (name == "n") {
         this.__near_param_n = <i32>null;
@@ -697,12 +697,12 @@ export class __near_ArgsParser_testSetRemove extends ThrowingJSONHandler {
 __near_param_value: String;
 setString(name: string, value: String): void {
 if (name == "value") {
-            this.__near_param_value = value;
+            this.__near_param_value = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "value") {
         this.__near_param_value = <String>null;
