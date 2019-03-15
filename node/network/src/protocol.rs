@@ -98,7 +98,7 @@ impl Protocol {
                             warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
                         }
                     }
-                },
+                }
                 Message::PayloadSnapshotRequest(request_id, hash) => {
                     if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
                         info!("Payload snapshot request from {} for {}", authority_id, hash);
@@ -113,7 +113,7 @@ impl Protocol {
                         self.peer_manager.suspect_malicious(&peer_id);
                         warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
                     }
-                },
+                }
                 Message::PayloadResponse(_request_id, payload) => {
                     // TODO: check request id.
                     if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
@@ -166,9 +166,9 @@ impl Protocol {
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
-                  g.receiver_id,
-                  self.peer_manager.node_info.account_id,
-                  g.sender_id);
+                   g.receiver_id,
+                   self.peer_manager.node_info.account_id,
+                   g.sender_id);
         }
     }
 
@@ -335,15 +335,20 @@ pub fn spawn_network(
     // Spawn a task that send block fetch requests.
     let protocol5 = protocol.clone();
     let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
-       protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
+        protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
         future::ok(())
     });
     tokio::spawn(task);
 }
 
+fn forward_plain_msg(ch: Sender<T>, msg: Message) {
+    let data = Encode::encode(&msg).unwrap();
+    forward_msg(ch, data);
+}
+
 fn forward_msg<T>(ch: Sender<T>, el: T)
-where
-    T: Send + 'static,
+    where
+        T: Send + 'static,
 {
     let task = ch
         .send(el)
@@ -353,8 +358,8 @@ where
 }
 
 fn forward_msgs<T>(ch: Sender<T>, els: Vec<T>)
-where
-    T: Send + 'static,
+    where
+        T: Send + 'static,
 {
     let task = ch
         .send_all(stream::iter_ok(els))
