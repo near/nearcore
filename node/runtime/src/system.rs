@@ -99,7 +99,6 @@ pub fn deposit(
     state_update: &mut TrieUpdate,
     amount: u64,
     callback_info: &Option<CallbackInfo>,
-    originator_id: &AccountId,
     receiver_id: &AccountId,
     nonce: &CryptoHash,
     receiver: &mut Account
@@ -109,7 +108,7 @@ pub fn deposit(
         let new_nonce = create_nonce_with_nonce(&nonce, 0);
         let new_receipt = ReceiptTransaction::new(
             receiver_id.clone(),
-            originator_id.clone(),
+            callback_info.receiver.clone(),
             new_nonce,
             ReceiptBody::Callback(CallbackResult::new(
                 callback_info.clone(),
