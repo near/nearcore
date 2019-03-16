@@ -1,11 +1,10 @@
-use primitives::aggregate_signature::{BlsPublicKey, BlsSignature};
+use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{CryptoHash, hash};
 use primitives::serialize::Decode;
 use primitives::signature::PublicKey;
 use primitives::traits::Base58Encoded;
-use primitives::traits::FromBytes;
 use primitives::transaction::{
-    AddBlsKeyTransaction, AddKeyTransaction, AsyncCall,
+    AddKeyTransaction, AsyncCall,
     CallbackInfo, CallbackResult, CreateAccountTransaction, DeleteKeyTransaction,
     ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
@@ -70,7 +69,7 @@ pub fn staking(
     sender: &mut Account,
     authority_proposals: &mut Vec<AuthorityStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if sender.amount >= body.amount && !sender.bls_public_key.is_empty() {
+    if sender.amount >= body.amount {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
             public_key: PublicKey::from(&body.public_key),
@@ -250,25 +249,6 @@ pub fn delete_key(
     if account.public_keys.is_empty() {
         return Err("Account must have at least one public key".to_string());
     }
-    set(
-        state_update,
-        &account_id_to_bytes(COL_ACCOUNT, &body.originator),
-        &account
-    );
-    Ok(vec![])
-}
-
-pub fn add_bls_key(
-    state_update: &mut TrieUpdate,
-    body: &AddBlsKeyTransaction,
-    account: &mut Account,
-) -> Result<Vec<ReceiptTransaction>, String> {
-    let new_key = BlsPublicKey::from_bytes(&body.new_key).map_err(|e| e.to_string())?;
-    let proof = BlsSignature::from_bytes(&body.proof_of_possession).map_err(|e| e.to_string())?;
-    if !new_key.verify_proof_of_possession(&proof) {
-        return Err("Invalid proof of possession".to_string());
-    }
-    account.bls_public_key = new_key;
     set(
         state_update,
         &account_id_to_bytes(COL_ACCOUNT, &body.originator),
