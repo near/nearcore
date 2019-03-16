@@ -159,8 +159,8 @@ mod tests {
         // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.client.shard_client.chain.best_block().index() >= 2
-                    && bob.client.shard_client.chain.best_block().index() >= 2
+                alice.client.shard_client.chain.best_index() >= 2
+                    && bob.client.shard_client.chain.best_index() >= 2
             },
             500,
             600000,
@@ -247,7 +247,7 @@ mod tests {
         bob.start();
         charlie.start();
 
-        wait(|| charlie.client.shard_client.chain.best_block().index() >= 3, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 3, 500, 60000);
 
         // Check that non-authority synced into the same state.
         let mut state_update = charlie.client.shard_client.get_state_update();
@@ -311,7 +311,7 @@ mod tests {
         bob.start();
 
         wait(|| {
-            alice.client.shard_client.chain.best_block().index() >= 3
+            alice.client.shard_client.chain.best_index() >= 3
         }, 500, 60000);
 
         // Check that non-authority synced into the same state.
@@ -370,12 +370,12 @@ mod tests {
         alice.start();
         bob.start();
 
-        wait(|| alice.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| alice.client.shard_client.chain.best_index() >= 2, 500, 60000);
 
         charlie.start();
         dan.start();
-        wait(|| charlie.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
-        wait(|| dan.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 2, 500, 60000);
+        wait(|| dan.client.shard_client.chain.best_index() >= 2, 500, 60000);
 
     }
 }

@@ -13,7 +13,6 @@ use client::Client;
 use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
-use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse, ChainState};
 use primitives::network::PeerInfo;
 use primitives::serialize::{Decode, Encode};
@@ -39,7 +38,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
     fn get_chain_state(&self) -> ChainState {
         ChainState {
             genesis_hash: self.client.beacon_client.chain.genesis_hash(),
-            last_index: self.client.beacon_client.chain.best_block().index(),
+            last_index: self.client.beacon_client.chain.best_index(),
         }
     }
 }

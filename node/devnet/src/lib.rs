@@ -1,16 +1,16 @@
 //! Starts DevNet either from args or the provided configs.
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
-use futures::sync::mpsc::channel;
 use futures::future;
 use futures::stream::Stream;
+use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
+use configs::{ClientConfig, DevNetConfig, get_devnet_configs, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use std::time::Duration;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -80,14 +80,13 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 mod tests {
     use std::path::PathBuf;
     use std::thread;
+    use std::time::Duration;
 
-    use testlib::alphanet_utils::wait;
-    use primitives::block_traits::SignedBlock;
     use primitives::signer::InMemorySigner;
     use primitives::transaction::TransactionBody;
+    use testlib::alphanet_utils::wait;
 
     use super::*;
-    use std::time::Duration;
 
     const TMP_DIR: &str = "../../tmp/devnet";
 
@@ -120,7 +119,7 @@ mod tests {
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
             )
             .unwrap();
-        wait(|| client.shard_client.chain.best_block().index() >= 2, 50, 10000);
+        wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
 
         // Check that transaction and it's receipt were included.
         let mut state_update = client.shard_client.get_state_update();

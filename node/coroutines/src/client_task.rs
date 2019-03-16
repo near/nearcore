@@ -286,8 +286,7 @@ impl ClientTask {
             self.client.try_produce_block(consensus_block_header.index, payload)
         {
             self.announce_block(*produced_beacon_block, *produced_shard_block);
-            let new_best_block = self.client.beacon_client.chain.best_block();
-            Some(new_best_block.index())
+            Some(self.client.beacon_client.chain.best_index())
         } else {
             None
         }
@@ -470,7 +469,7 @@ impl ClientTask {
 
     /// Spawn a kick-off task.
     fn spawn_kickoff(&self) {
-        let next_index = self.client.beacon_client.chain.best_block().index() + 1;
+        let next_index = self.client.beacon_client.chain.best_index() + 1;
         let control = self.restart_pool_nightshade(next_index);
 
         // Send mempool control.

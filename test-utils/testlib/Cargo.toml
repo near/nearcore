@@ -3,6 +3,10 @@ name = "testlib"
 version = "0.1.0"
 edition = "2018"
 
+[[bin]]
+name = "generate-test-spec"
+path = "src/generate_test_spec.rs"
+
 [dependencies]
 clap = "2.32"
 log = "0.4"

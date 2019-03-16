@@ -9,7 +9,6 @@ use rand::{rngs::StdRng, SeedableRng, seq::SliceRandom};
 
 use configs::AuthorityConfig;
 use primitives::beacon::SignedBeaconBlockHeader;
-use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
 use storage::BeaconChainStorage;
@@ -107,9 +106,9 @@ impl Authority {
             // TODO: Take care of the fork being changed while we are iterating.
             let mut index = 1;
             let mut last_progress = 101;
-            while index <= blockchain.best_block().header().body.index {
+            while index <= blockchain.best_header().body.index {
                 if log_enabled!(target: "client", Debug) {
-                    let best_block_index = blockchain.best_block().header().body.index;
+                    let best_block_index = blockchain.best_header().body.index;
                     let progress = index * 100 / best_block_index;
                     if progress != last_progress {
                         debug!(target: "client", "Processing blocks {} out of {}", index, best_block_index);
@@ -341,7 +340,7 @@ mod test {
     use configs::ChainSpec;
     use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
-    use primitives::block_traits::SignedHeader;
+    use primitives::block_traits::{SignedBlock, SignedHeader};
     use primitives::hash::CryptoHash;
     use primitives::signature::get_key_pair;
     use storage::test_utils::create_beacon_shard_storages;

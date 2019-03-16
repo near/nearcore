@@ -164,6 +164,12 @@ where
         self.set_block(&block.block_hash(), block)
     }
 
+    pub fn add_header(&mut self, header: B::SignedHeader) -> io::Result<()> {
+        self.set_best_block_hash(header.block_hash())?;
+        self.set_hash_by_index(header.index(), header.block_hash())?;
+        self.set_header(&header.block_hash(), header)
+    }
+
     #[inline]
     pub fn best_block_hash(&mut self) -> StorageResult<&CryptoHash> {
         let key = self.enc_hash(self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR));

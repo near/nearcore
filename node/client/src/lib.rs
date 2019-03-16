@@ -7,12 +7,12 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
+use std::{cmp, env, fs};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use log::Level::Debug;
@@ -21,10 +21,9 @@ use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::block_traits::SignedBlock;
+use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ChainPayload, SignedShardBlock};
-use primitives::hash::hash_struct;
-use primitives::hash::CryptoHash;
+use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::{get_all_receipts, ShardClient};
@@ -138,13 +137,13 @@ impl Client {
         let shard_client = ShardClient::new(signer.clone(), chain_spec, shard_storage);
         info!(target: "client", "Genesis root: {:?}", shard_client.genesis_hash());
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
-        let beacon_chain = BeaconClient::new(genesis, &chain_spec, beacon_storage);
+        let beacon_client = BeaconClient::new(genesis, &chain_spec, beacon_storage);
 
         Self {
             account_id: config.account_id.clone(),
             signer,
             shard_client,
-            beacon_client: beacon_chain,
+            beacon_client,
             pending_beacon_blocks: RwLock::new(HashSet::new()),
             pending_shard_blocks: RwLock::new(HashSet::new()),
         }
@@ -187,14 +186,14 @@ impl Client {
         block_index: BlockIndex,
         payload: ChainPayload,
     ) -> BlockProductionResult {
-        let current_index = self.beacon_client.chain.best_block().index();
+        let current_index = self.beacon_client.chain.best_index();
         if block_index < current_index + 1 {
             // The consensus is too late, the block was already imported.
             return BlockProductionResult::LateConsensus { current_index };
         }
 
-        let last_block = self.beacon_client.chain.best_block();
-        let last_shard_block = self.shard_client.chain.best_block();
+        let last_beacon_block = self.beacon_client.chain.best_block().unwrap();
+        let last_shard_block = self.shard_client.chain.best_block().unwrap();
         let next_index = current_index + 1;
         let authorities = self
             .beacon_client
@@ -212,13 +211,13 @@ impl Client {
             receipts.push(receipt);
         }
         let (mut shard_block, shard_block_extra) = self.shard_client.prepare_new_block(
-            last_block.body.header.shard_block_hash,
+            last_beacon_block.body.header.shard_block_hash,
             receipts,
             payload.transactions,
         );
         let mut block = SignedBeaconBlock::new(
-            last_block.body.header.index + 1,
-            last_block.block_hash(),
+            last_beacon_block.index() + 1,
+            last_beacon_block.block_hash(),
             shard_block_extra.authority_proposals,
             shard_block.block_hash(),
         );
@@ -235,13 +234,13 @@ impl Client {
         }
 
         assert!(
-            !self.beacon_client.chain.is_known(&block.hash),
+            !self.beacon_client.chain.is_known_block(&block.hash),
             "The block was already imported, before we managed to produce it.\
              This should never happen, because block production is atomic."
         );
 
         info!(target: "client", "Producing block index: {:?}, account_id={:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
-            block.body.header.index,
+            block.index(),
             self.account_id,
             block.hash,
             shard_block.hash,
@@ -276,8 +275,8 @@ impl Client {
         self.beacon_client.chain.insert_block(block.clone());
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
-        assert_eq!(self.shard_client.chain.best_block().hash, shard_block.hash);
-        assert_eq!(self.beacon_client.chain.best_block().hash, block.hash);
+        assert_eq!(self.shard_client.chain.best_hash(), shard_block.hash);
+        assert_eq!(self.beacon_client.chain.best_hash(), block.hash);
         // Update the authority.
         self.update_authority(&block.header());
         // Try apply pending blocks that were unlocked by this block, if any.
@@ -289,8 +288,8 @@ impl Client {
         let mut part_add = vec![];
         let mut part_pending = HashSet::new();
         for other in self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).drain() {
-            if self.beacon_client.chain.is_known(&other.body.header.parent_hash)
-                && (self.shard_client.chain.is_known(&other.body.header.shard_block_hash)
+            if self.beacon_client.chain.is_known_block(&other.body.header.parent_hash)
+                && (self.shard_client.chain.is_known_block(&other.body.header.shard_block_hash)
                     || self
                         .pending_shard_blocks
                         .read()
@@ -336,7 +335,7 @@ impl Client {
               beacon_block.body.header.index,
               self.account_id,
               beacon_block.hash, shard_block.hash);
-        if self.beacon_client.chain.is_known(&hash) {
+        if self.beacon_client.chain.is_known_block(&hash) {
             return BlockImportingResult::AlreadyImported;
         }
         if !Client::verify_block_hash(&beacon_block, &shard_block) {
@@ -369,15 +368,15 @@ impl Client {
         let best_block_hash = self.beacon_client.chain.best_hash();
 
         self.try_apply_pending_blocks();
-        let new_best_block = self.beacon_client.chain.best_block();
+        let new_best_block_header = self.beacon_client.chain.best_header();
 
-        if new_best_block.block_hash() == best_block_hash {
+        if new_best_block_header.block_hash() == best_block_hash {
             BlockImportingResult::MissingParent {
                 orphan_hash: hash,
                 missing_indices: self.get_missing_indices(),
             }
         } else {
-            BlockImportingResult::Success { new_index: new_best_block.index() }
+            BlockImportingResult::Success { new_index: new_best_block_header.index() }
         }
     }
 
@@ -397,7 +396,7 @@ impl Client {
                 Some(b) => b,
                 None => break,
             };
-            if self.beacon_client.chain.is_known(&next_beacon_block.block_hash()) {
+            if self.beacon_client.chain.is_known_block(&next_beacon_block.block_hash()) {
                 continue;
             }
 
@@ -454,7 +453,7 @@ impl Client {
     }
 
     pub fn get_recent_uid_to_authority_map(&self) -> HashMap<AuthorityId, AuthorityStake> {
-        let index = self.beacon_client.chain.best_block().index() + 1;
+        let index = self.beacon_client.chain.best_index() + 1;
         self.get_uid_to_authority_map(index).1
     }
 
@@ -515,20 +514,20 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    use configs::ChainSpec;
     use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::block_traits::SignedBlock;
+    use primitives::chain::SignedShardBlockHeader;
+    use primitives::signer::{BlockSigner, TransactionSigner};
     use primitives::test_utils::TestSignedBlock;
 
     use crate::test_utils::get_client_from_cfg;
 
     use super::*;
-    use configs::ChainSpec;
-    use primitives::signer::BlockSigner;
-    use primitives::signer::TransactionSigner;
 
     fn make_coupled_blocks(
-        prev_beacon_block: &SignedBeaconBlock,
-        prev_shard_block: &SignedShardBlock,
+        prev_beacon_block: &SignedBeaconBlockHeader,
+        prev_shard_block: &SignedShardBlockHeader,
         count: u32,
         signers: &Vec<Arc<InMemorySigner>>,
     ) -> Vec<(SignedBeaconBlock, SignedShardBlock)> {
@@ -545,9 +544,8 @@ mod tests {
                 new_shard_block.hash,
             );
             new_beacon_block.sign_all(signers);
-            println!("sigs: {:?}", new_beacon_block.signature.authority_mask);
-            beacon_block = new_beacon_block.clone();
-            shard_block = new_shard_block.clone();
+            beacon_block = new_beacon_block.header();
+            shard_block = new_shard_block.header();
             result.push((new_beacon_block, new_shard_block));
         }
         result
@@ -559,8 +557,8 @@ mod tests {
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
         let blocks = make_coupled_blocks(
-            &client.beacon_client.chain.best_block(),
-            &client.shard_client.chain.best_block(),
+            &client.beacon_client.chain.best_header(),
+            &client.shard_client.chain.best_header(),
             10,
             &signers,
         );
