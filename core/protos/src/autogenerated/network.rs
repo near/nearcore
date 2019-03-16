@@ -25,24 +25,11 @@ use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 pub struct PeerInfo {
     // message fields
     pub id: ::std::vec::Vec<u8>,
-    // message oneof groups
-    pub addr: ::std::option::Option<PeerInfo_oneof_addr>,
-    pub account_id: ::std::option::Option<PeerInfo_oneof_account_id>,
+    pub addr: ::protobuf::SingularPtrField<::protobuf::well_known_types::StringValue>,
+    pub account_id: ::protobuf::SingularPtrField<::protobuf::well_known_types::StringValue>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
-}
-
-#[derive(Clone,PartialEq)]
-pub enum PeerInfo_oneof_addr {
-    no_addr(bool),
-    some_addr(::std::string::String),
-}
-
-#[derive(Clone,PartialEq)]
-pub enum PeerInfo_oneof_account_id {
-    no_account_id(bool),
-    some_account_id(::std::string::String),
 }
 
 impl PeerInfo {
@@ -76,157 +63,85 @@ impl PeerInfo {
         &self.id
     }
 
-    // bool no_addr = 2;
+    // .google.protobuf.StringValue addr = 2;
 
-    pub fn clear_no_addr(&mut self) {
-        self.addr = ::std::option::Option::None;
+    pub fn clear_addr(&mut self) {
+        self.addr.clear();
     }
 
-    pub fn has_no_addr(&self) -> bool {
-        match self.addr {
-            ::std::option::Option::Some(PeerInfo_oneof_addr::no_addr(..)) => true,
-            _ => false,
-        }
+    pub fn has_addr(&self) -> bool {
+        self.addr.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_no_addr(&mut self, v: bool) {
-        self.addr = ::std::option::Option::Some(PeerInfo_oneof_addr::no_addr(v))
-    }
-
-    pub fn get_no_addr(&self) -> bool {
-        match self.addr {
-            ::std::option::Option::Some(PeerInfo_oneof_addr::no_addr(v)) => v,
-            _ => false,
-        }
-    }
-
-    // string some_addr = 3;
-
-    pub fn clear_some_addr(&mut self) {
-        self.addr = ::std::option::Option::None;
-    }
-
-    pub fn has_some_addr(&self) -> bool {
-        match self.addr {
-            ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(..)) => true,
-            _ => false,
-        }
-    }
-
-    // Param is passed by value, moved
-    pub fn set_some_addr(&mut self, v: ::std::string::String) {
-        self.addr = ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(v))
+    pub fn set_addr(&mut self, v: ::protobuf::well_known_types::StringValue) {
+        self.addr = ::protobuf::SingularPtrField::some(v);
     }
 
     // Mutable pointer to the field.
-    pub fn mut_some_addr(&mut self) -> &mut ::std::string::String {
-        if let ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(_)) = self.addr {
-        } else {
-            self.addr = ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(::std::string::String::new()));
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_addr(&mut self) -> &mut ::protobuf::well_known_types::StringValue {
+        if self.addr.is_none() {
+            self.addr.set_default();
         }
-        match self.addr {
-            ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(ref mut v)) => v,
-            _ => panic!(),
-        }
+        self.addr.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_some_addr(&mut self) -> ::std::string::String {
-        if self.has_some_addr() {
-            match self.addr.take() {
-                ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(v)) => v,
-                _ => panic!(),
-            }
-        } else {
-            ::std::string::String::new()
-        }
+    pub fn take_addr(&mut self) -> ::protobuf::well_known_types::StringValue {
+        self.addr.take().unwrap_or_else(|| ::protobuf::well_known_types::StringValue::new())
     }
 
-    pub fn get_some_addr(&self) -> &str {
-        match self.addr {
-            ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(ref v)) => v,
-            _ => "",
-        }
+    pub fn get_addr(&self) -> &::protobuf::well_known_types::StringValue {
+        self.addr.as_ref().unwrap_or_else(|| ::protobuf::well_known_types::StringValue::default_instance())
     }
 
-    // bool no_account_id = 4;
+    // .google.protobuf.StringValue account_id = 3;
 
-    pub fn clear_no_account_id(&mut self) {
-        self.account_id = ::std::option::Option::None;
+    pub fn clear_account_id(&mut self) {
+        self.account_id.clear();
     }
 
-    pub fn has_no_account_id(&self) -> bool {
-        match self.account_id {
-            ::std::option::Option::Some(PeerInfo_oneof_account_id::no_account_id(..)) => true,
-            _ => false,
-        }
+    pub fn has_account_id(&self) -> bool {
+        self.account_id.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_no_account_id(&mut self, v: bool) {
-        self.account_id = ::std::option::Option::Some(PeerInfo_oneof_account_id::no_account_id(v))
-    }
-
-    pub fn get_no_account_id(&self) -> bool {
-        match self.account_id {
-            ::std::option::Option::Some(PeerInfo_oneof_account_id::no_account_id(v)) => v,
-            _ => false,
-        }
-    }
-
-    // string some_account_id = 5;
-
-    pub fn clear_some_account_id(&mut self) {
-        self.account_id = ::std::option::Option::None;
-    }
-
-    pub fn has_some_account_id(&self) -> bool {
-        match self.account_id {
-            ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(..)) => true,
-            _ => false,
-        }
-    }
-
-    // Param is passed by value, moved
-    pub fn set_some_account_id(&mut self, v: ::std::string::String) {
-        self.account_id = ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(v))
+    pub fn set_account_id(&mut self, v: ::protobuf::well_known_types::StringValue) {
+        self.account_id = ::protobuf::SingularPtrField::some(v);
     }
 
     // Mutable pointer to the field.
-    pub fn mut_some_account_id(&mut self) -> &mut ::std::string::String {
-        if let ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(_)) = self.account_id {
-        } else {
-            self.account_id = ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(::std::string::String::new()));
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_account_id(&mut self) -> &mut ::protobuf::well_known_types::StringValue {
+        if self.account_id.is_none() {
+            self.account_id.set_default();
         }
-        match self.account_id {
-            ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(ref mut v)) => v,
-            _ => panic!(),
-        }
+        self.account_id.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_some_account_id(&mut self) -> ::std::string::String {
-        if self.has_some_account_id() {
-            match self.account_id.take() {
-                ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(v)) => v,
-                _ => panic!(),
-            }
-        } else {
-            ::std::string::String::new()
-        }
+    pub fn take_account_id(&mut self) -> ::protobuf::well_known_types::StringValue {
+        self.account_id.take().unwrap_or_else(|| ::protobuf::well_known_types::StringValue::new())
     }
 
-    pub fn get_some_account_id(&self) -> &str {
-        match self.account_id {
-            ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(ref v)) => v,
-            _ => "",
-        }
+    pub fn get_account_id(&self) -> &::protobuf::well_known_types::StringValue {
+        self.account_id.as_ref().unwrap_or_else(|| ::protobuf::well_known_types::StringValue::default_instance())
     }
 }
 
 impl ::protobuf::Message for PeerInfo {
     fn is_initialized(&self) -> bool {
+        for v in &self.addr {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.account_id {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         true
     }
 
@@ -238,28 +153,10 @@ impl ::protobuf::Message for PeerInfo {
                     ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.id)?;
                 },
                 2 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.addr = ::std::option::Option::Some(PeerInfo_oneof_addr::no_addr(is.read_bool()?));
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.addr)?;
                 },
                 3 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.addr = ::std::option::Option::Some(PeerInfo_oneof_addr::some_addr(is.read_string()?));
-                },
-                4 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.account_id = ::std::option::Option::Some(PeerInfo_oneof_account_id::no_account_id(is.read_bool()?));
-                },
-                5 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.account_id = ::std::option::Option::Some(PeerInfo_oneof_account_id::some_account_id(is.read_string()?));
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.account_id)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -276,25 +173,13 @@ impl ::protobuf::Message for PeerInfo {
         if !self.id.is_empty() {
             my_size += ::protobuf::rt::bytes_size(1, &self.id);
         }
-        if let ::std::option::Option::Some(ref v) = self.addr {
-            match v {
-                &PeerInfo_oneof_addr::no_addr(v) => {
-                    my_size += 2;
-                },
-                &PeerInfo_oneof_addr::some_addr(ref v) => {
-                    my_size += ::protobuf::rt::string_size(3, &v);
-                },
-            };
+        if let Some(ref v) = self.addr.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
-        if let ::std::option::Option::Some(ref v) = self.account_id {
-            match v {
-                &PeerInfo_oneof_account_id::no_account_id(v) => {
-                    my_size += 2;
-                },
-                &PeerInfo_oneof_account_id::some_account_id(ref v) => {
-                    my_size += ::protobuf::rt::string_size(5, &v);
-                },
-            };
+        if let Some(ref v) = self.account_id.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -305,25 +190,15 @@ impl ::protobuf::Message for PeerInfo {
         if !self.id.is_empty() {
             os.write_bytes(1, &self.id)?;
         }
-        if let ::std::option::Option::Some(ref v) = self.addr {
-            match v {
-                &PeerInfo_oneof_addr::no_addr(v) => {
-                    os.write_bool(2, v)?;
-                },
-                &PeerInfo_oneof_addr::some_addr(ref v) => {
-                    os.write_string(3, v)?;
-                },
-            };
+        if let Some(ref v) = self.addr.as_ref() {
+            os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
         }
-        if let ::std::option::Option::Some(ref v) = self.account_id {
-            match v {
-                &PeerInfo_oneof_account_id::no_account_id(v) => {
-                    os.write_bool(4, v)?;
-                },
-                &PeerInfo_oneof_account_id::some_account_id(ref v) => {
-                    os.write_string(5, v)?;
-                },
-            };
+        if let Some(ref v) = self.account_id.as_ref() {
+            os.write_tag(3, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -372,25 +247,15 @@ impl ::protobuf::Message for PeerInfo {
                     |m: &PeerInfo| { &m.id },
                     |m: &mut PeerInfo| { &mut m.id },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_bool_accessor::<_>(
-                    "no_addr",
-                    PeerInfo::has_no_addr,
-                    PeerInfo::get_no_addr,
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<::protobuf::well_known_types::StringValue>>(
+                    "addr",
+                    |m: &PeerInfo| { &m.addr },
+                    |m: &mut PeerInfo| { &mut m.addr },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_string_accessor::<_>(
-                    "some_addr",
-                    PeerInfo::has_some_addr,
-                    PeerInfo::get_some_addr,
-                ));
-                fields.push(::protobuf::reflect::accessor::make_singular_bool_accessor::<_>(
-                    "no_account_id",
-                    PeerInfo::has_no_account_id,
-                    PeerInfo::get_no_account_id,
-                ));
-                fields.push(::protobuf::reflect::accessor::make_singular_string_accessor::<_>(
-                    "some_account_id",
-                    PeerInfo::has_some_account_id,
-                    PeerInfo::get_some_account_id,
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<::protobuf::well_known_types::StringValue>>(
+                    "account_id",
+                    |m: &PeerInfo| { &m.account_id },
+                    |m: &mut PeerInfo| { &mut m.account_id },
                 ));
                 ::protobuf::reflect::MessageDescriptor::new::<PeerInfo>(
                     "PeerInfo",
@@ -415,10 +280,8 @@ impl ::protobuf::Message for PeerInfo {
 impl ::protobuf::Clear for PeerInfo {
     fn clear(&mut self) {
         self.clear_id();
-        self.clear_no_addr();
-        self.clear_some_addr();
-        self.clear_no_account_id();
-        self.clear_some_account_id();
+        self.clear_addr();
+        self.clear_account_id();
         self.unknown_fields.clear();
     }
 }
@@ -618,26 +481,13 @@ pub struct HandShake {
     // message fields
     pub version: u32,
     pub peer_id: ::std::vec::Vec<u8>,
+    pub account_id: ::protobuf::SingularPtrField<::protobuf::well_known_types::StringValue>,
+    pub listen_port: ::protobuf::SingularPtrField<::protobuf::well_known_types::UInt32Value>,
     pub peers_info: ::protobuf::RepeatedField<PeerInfo>,
     pub connected_info: ::protobuf::SingularPtrField<ConnectedInfo>,
-    // message oneof groups
-    pub account_id: ::std::option::Option<HandShake_oneof_account_id>,
-    pub listen_port: ::std::option::Option<HandShake_oneof_listen_port>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
-}
-
-#[derive(Clone,PartialEq)]
-pub enum HandShake_oneof_account_id {
-    no_account_id(bool),
-    some_account_id(::std::string::String),
-}
-
-#[derive(Clone,PartialEq)]
-pub enum HandShake_oneof_listen_port {
-    no_listen_port(bool),
-    some_listen_port(u32),
 }
 
 impl HandShake {
@@ -686,131 +536,73 @@ impl HandShake {
         &self.peer_id
     }
 
-    // bool no_account_id = 3;
+    // .google.protobuf.StringValue account_id = 3;
 
-    pub fn clear_no_account_id(&mut self) {
-        self.account_id = ::std::option::Option::None;
+    pub fn clear_account_id(&mut self) {
+        self.account_id.clear();
     }
 
-    pub fn has_no_account_id(&self) -> bool {
-        match self.account_id {
-            ::std::option::Option::Some(HandShake_oneof_account_id::no_account_id(..)) => true,
-            _ => false,
-        }
+    pub fn has_account_id(&self) -> bool {
+        self.account_id.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_no_account_id(&mut self, v: bool) {
-        self.account_id = ::std::option::Option::Some(HandShake_oneof_account_id::no_account_id(v))
-    }
-
-    pub fn get_no_account_id(&self) -> bool {
-        match self.account_id {
-            ::std::option::Option::Some(HandShake_oneof_account_id::no_account_id(v)) => v,
-            _ => false,
-        }
-    }
-
-    // string some_account_id = 4;
-
-    pub fn clear_some_account_id(&mut self) {
-        self.account_id = ::std::option::Option::None;
-    }
-
-    pub fn has_some_account_id(&self) -> bool {
-        match self.account_id {
-            ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(..)) => true,
-            _ => false,
-        }
-    }
-
-    // Param is passed by value, moved
-    pub fn set_some_account_id(&mut self, v: ::std::string::String) {
-        self.account_id = ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(v))
+    pub fn set_account_id(&mut self, v: ::protobuf::well_known_types::StringValue) {
+        self.account_id = ::protobuf::SingularPtrField::some(v);
     }
 
     // Mutable pointer to the field.
-    pub fn mut_some_account_id(&mut self) -> &mut ::std::string::String {
-        if let ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(_)) = self.account_id {
-        } else {
-            self.account_id = ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(::std::string::String::new()));
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_account_id(&mut self) -> &mut ::protobuf::well_known_types::StringValue {
+        if self.account_id.is_none() {
+            self.account_id.set_default();
         }
-        match self.account_id {
-            ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(ref mut v)) => v,
-            _ => panic!(),
-        }
+        self.account_id.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_some_account_id(&mut self) -> ::std::string::String {
-        if self.has_some_account_id() {
-            match self.account_id.take() {
-                ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(v)) => v,
-                _ => panic!(),
-            }
-        } else {
-            ::std::string::String::new()
-        }
+    pub fn take_account_id(&mut self) -> ::protobuf::well_known_types::StringValue {
+        self.account_id.take().unwrap_or_else(|| ::protobuf::well_known_types::StringValue::new())
     }
 
-    pub fn get_some_account_id(&self) -> &str {
-        match self.account_id {
-            ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(ref v)) => v,
-            _ => "",
-        }
+    pub fn get_account_id(&self) -> &::protobuf::well_known_types::StringValue {
+        self.account_id.as_ref().unwrap_or_else(|| ::protobuf::well_known_types::StringValue::default_instance())
     }
 
-    // bool no_listen_port = 5;
+    // .google.protobuf.UInt32Value listen_port = 4;
 
-    pub fn clear_no_listen_port(&mut self) {
-        self.listen_port = ::std::option::Option::None;
+    pub fn clear_listen_port(&mut self) {
+        self.listen_port.clear();
     }
 
-    pub fn has_no_listen_port(&self) -> bool {
-        match self.listen_port {
-            ::std::option::Option::Some(HandShake_oneof_listen_port::no_listen_port(..)) => true,
-            _ => false,
-        }
+    pub fn has_listen_port(&self) -> bool {
+        self.listen_port.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_no_listen_port(&mut self, v: bool) {
-        self.listen_port = ::std::option::Option::Some(HandShake_oneof_listen_port::no_listen_port(v))
+    pub fn set_listen_port(&mut self, v: ::protobuf::well_known_types::UInt32Value) {
+        self.listen_port = ::protobuf::SingularPtrField::some(v);
     }
 
-    pub fn get_no_listen_port(&self) -> bool {
-        match self.listen_port {
-            ::std::option::Option::Some(HandShake_oneof_listen_port::no_listen_port(v)) => v,
-            _ => false,
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_listen_port(&mut self) -> &mut ::protobuf::well_known_types::UInt32Value {
+        if self.listen_port.is_none() {
+            self.listen_port.set_default();
         }
+        self.listen_port.as_mut().unwrap()
     }
 
-    // uint32 some_listen_port = 6;
-
-    pub fn clear_some_listen_port(&mut self) {
-        self.listen_port = ::std::option::Option::None;
+    // Take field
+    pub fn take_listen_port(&mut self) -> ::protobuf::well_known_types::UInt32Value {
+        self.listen_port.take().unwrap_or_else(|| ::protobuf::well_known_types::UInt32Value::new())
     }
 
-    pub fn has_some_listen_port(&self) -> bool {
-        match self.listen_port {
-            ::std::option::Option::Some(HandShake_oneof_listen_port::some_listen_port(..)) => true,
-            _ => false,
-        }
+    pub fn get_listen_port(&self) -> &::protobuf::well_known_types::UInt32Value {
+        self.listen_port.as_ref().unwrap_or_else(|| ::protobuf::well_known_types::UInt32Value::default_instance())
     }
 
-    // Param is passed by value, moved
-    pub fn set_some_listen_port(&mut self, v: u32) {
-        self.listen_port = ::std::option::Option::Some(HandShake_oneof_listen_port::some_listen_port(v))
-    }
-
-    pub fn get_some_listen_port(&self) -> u32 {
-        match self.listen_port {
-            ::std::option::Option::Some(HandShake_oneof_listen_port::some_listen_port(v)) => v,
-            _ => 0,
-        }
-    }
-
-    // repeated .PeerInfo peers_info = 7;
+    // repeated .PeerInfo peers_info = 5;
 
     pub fn clear_peers_info(&mut self) {
         self.peers_info.clear();
@@ -835,7 +627,7 @@ impl HandShake {
         &self.peers_info
     }
 
-    // .ConnectedInfo connected_info = 8;
+    // .ConnectedInfo connected_info = 6;
 
     pub fn clear_connected_info(&mut self) {
         self.connected_info.clear();
@@ -871,6 +663,16 @@ impl HandShake {
 
 impl ::protobuf::Message for HandShake {
     fn is_initialized(&self) -> bool {
+        for v in &self.account_id {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.listen_port {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         for v in &self.peers_info {
             if !v.is_initialized() {
                 return false;
@@ -899,33 +701,15 @@ impl ::protobuf::Message for HandShake {
                     ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.peer_id)?;
                 },
                 3 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.account_id = ::std::option::Option::Some(HandShake_oneof_account_id::no_account_id(is.read_bool()?));
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.account_id)?;
                 },
                 4 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.account_id = ::std::option::Option::Some(HandShake_oneof_account_id::some_account_id(is.read_string()?));
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.listen_port)?;
                 },
                 5 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.listen_port = ::std::option::Option::Some(HandShake_oneof_listen_port::no_listen_port(is.read_bool()?));
-                },
-                6 => {
-                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
-                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
-                    }
-                    self.listen_port = ::std::option::Option::Some(HandShake_oneof_listen_port::some_listen_port(is.read_uint32()?));
-                },
-                7 => {
                     ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.peers_info)?;
                 },
-                8 => {
+                6 => {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.connected_info)?;
                 },
                 _ => {
@@ -946,6 +730,14 @@ impl ::protobuf::Message for HandShake {
         if !self.peer_id.is_empty() {
             my_size += ::protobuf::rt::bytes_size(2, &self.peer_id);
         }
+        if let Some(ref v) = self.account_id.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        if let Some(ref v) = self.listen_port.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
         for value in &self.peers_info {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
@@ -953,26 +745,6 @@ impl ::protobuf::Message for HandShake {
         if let Some(ref v) = self.connected_info.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
-        }
-        if let ::std::option::Option::Some(ref v) = self.account_id {
-            match v {
-                &HandShake_oneof_account_id::no_account_id(v) => {
-                    my_size += 2;
-                },
-                &HandShake_oneof_account_id::some_account_id(ref v) => {
-                    my_size += ::protobuf::rt::string_size(4, &v);
-                },
-            };
-        }
-        if let ::std::option::Option::Some(ref v) = self.listen_port {
-            match v {
-                &HandShake_oneof_listen_port::no_listen_port(v) => {
-                    my_size += 2;
-                },
-                &HandShake_oneof_listen_port::some_listen_port(v) => {
-                    my_size += ::protobuf::rt::value_size(6, v, ::protobuf::wire_format::WireTypeVarint);
-                },
-            };
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -986,35 +758,25 @@ impl ::protobuf::Message for HandShake {
         if !self.peer_id.is_empty() {
             os.write_bytes(2, &self.peer_id)?;
         }
+        if let Some(ref v) = self.account_id.as_ref() {
+            os.write_tag(3, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        if let Some(ref v) = self.listen_port.as_ref() {
+            os.write_tag(4, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
         for v in &self.peers_info {
-            os.write_tag(7, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_tag(5, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         };
         if let Some(ref v) = self.connected_info.as_ref() {
-            os.write_tag(8, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_tag(6, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
-        }
-        if let ::std::option::Option::Some(ref v) = self.account_id {
-            match v {
-                &HandShake_oneof_account_id::no_account_id(v) => {
-                    os.write_bool(3, v)?;
-                },
-                &HandShake_oneof_account_id::some_account_id(ref v) => {
-                    os.write_string(4, v)?;
-                },
-            };
-        }
-        if let ::std::option::Option::Some(ref v) = self.listen_port {
-            match v {
-                &HandShake_oneof_listen_port::no_listen_port(v) => {
-                    os.write_bool(5, v)?;
-                },
-                &HandShake_oneof_listen_port::some_listen_port(v) => {
-                    os.write_uint32(6, v)?;
-                },
-            };
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1068,25 +830,15 @@ impl ::protobuf::Message for HandShake {
                     |m: &HandShake| { &m.peer_id },
                     |m: &mut HandShake| { &mut m.peer_id },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_bool_accessor::<_>(
-                    "no_account_id",
-                    HandShake::has_no_account_id,
-                    HandShake::get_no_account_id,
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<::protobuf::well_known_types::StringValue>>(
+                    "account_id",
+                    |m: &HandShake| { &m.account_id },
+                    |m: &mut HandShake| { &mut m.account_id },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_string_accessor::<_>(
-                    "some_account_id",
-                    HandShake::has_some_account_id,
-                    HandShake::get_some_account_id,
-                ));
-                fields.push(::protobuf::reflect::accessor::make_singular_bool_accessor::<_>(
-                    "no_listen_port",
-                    HandShake::has_no_listen_port,
-                    HandShake::get_no_listen_port,
-                ));
-                fields.push(::protobuf::reflect::accessor::make_singular_u32_accessor::<_>(
-                    "some_listen_port",
-                    HandShake::has_some_listen_port,
-                    HandShake::get_some_listen_port,
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<::protobuf::well_known_types::UInt32Value>>(
+                    "listen_port",
+                    |m: &HandShake| { &m.listen_port },
+                    |m: &mut HandShake| { &mut m.listen_port },
                 ));
                 fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<PeerInfo>>(
                     "peers_info",
@@ -1122,10 +874,8 @@ impl ::protobuf::Clear for HandShake {
     fn clear(&mut self) {
         self.clear_version();
         self.clear_peer_id();
-        self.clear_no_account_id();
-        self.clear_some_account_id();
-        self.clear_no_listen_port();
-        self.clear_some_listen_port();
+        self.clear_account_id();
+        self.clear_listen_port();
         self.clear_peers_info();
         self.clear_connected_info();
         self.unknown_fields.clear();
@@ -1669,26 +1419,23 @@ impl ::protobuf::reflect::ProtobufValue for PeerMessage {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x14protos/network.proto\x1a\x12protos/chain.proto\"\xba\x01\n\x08Peer\
-    Info\x12\x0e\n\x02id\x18\x01\x20\x01(\x0cR\x02id\x12\x19\n\x07no_addr\
-    \x18\x02\x20\x01(\x08H\0R\x06noAddr\x12\x1d\n\tsome_addr\x18\x03\x20\x01\
-    (\tH\0R\x08someAddr\x12$\n\rno_account_id\x18\x04\x20\x01(\x08H\x01R\x0b\
-    noAccountId\x12(\n\x0fsome_account_id\x18\x05\x20\x01(\tH\x01R\rsomeAcco\
-    untIdB\x06\n\x04addrB\x0c\n\naccount_id\"=\n\rConnectedInfo\x12,\n\x0bch\
-    ain_state\x18\x01\x20\x01(\x0b2\x0b.ChainStateR\nchainState\"\xe0\x02\n\
-    \tHandShake\x12\x18\n\x07version\x18\x01\x20\x01(\rR\x07version\x12\x17\
-    \n\x07peer_id\x18\x02\x20\x01(\x0cR\x06peerId\x12$\n\rno_account_id\x18\
-    \x03\x20\x01(\x08H\0R\x0bnoAccountId\x12(\n\x0fsome_account_id\x18\x04\
-    \x20\x01(\tH\0R\rsomeAccountId\x12&\n\x0eno_listen_port\x18\x05\x20\x01(\
-    \x08H\x01R\x0cnoListenPort\x12*\n\x10some_listen_port\x18\x06\x20\x01(\r\
-    H\x01R\x0esomeListenPort\x12(\n\npeers_info\x18\x07\x20\x03(\x0b2\t.Peer\
-    InfoR\tpeersInfo\x125\n\x0econnected_info\x18\x08\x20\x01(\x0b2\x0e.Conn\
-    ectedInfoR\rconnectedInfoB\x0c\n\naccount_idB\r\n\x0blisten_port\"8\n\nI\
-    nfoGossip\x12*\n\x0binfo_gossip\x18\x01\x20\x03(\x0b2\t.PeerInfoR\ninfoG\
-    ossip\"\x8b\x01\n\x0bPeerMessage\x12+\n\nhand_shake\x18\x01\x20\x01(\x0b\
-    2\n.HandShakeH\0R\thandShake\x12.\n\x0binfo_gossip\x18\x02\x20\x01(\x0b2\
-    \x0b.InfoGossipH\0R\ninfoGossip\x12\x1a\n\x07message\x18\x03\x20\x01(\
-    \x0cH\0R\x07messageB\x03\n\x01mb\x06proto3\
+    \n\x14protos/network.proto\x1a\x12protos/chain.proto\x1a\x1egoogle/proto\
+    buf/wrappers.proto\"\x89\x01\n\x08PeerInfo\x12\x0e\n\x02id\x18\x01\x20\
+    \x01(\x0cR\x02id\x120\n\x04addr\x18\x02\x20\x01(\x0b2\x1c.google.protobu\
+    f.StringValueR\x04addr\x12;\n\naccount_id\x18\x03\x20\x01(\x0b2\x1c.goog\
+    le.protobuf.StringValueR\taccountId\"=\n\rConnectedInfo\x12,\n\x0bchain_\
+    state\x18\x01\x20\x01(\x0b2\x0b.ChainStateR\nchainState\"\x9b\x02\n\tHan\
+    dShake\x12\x18\n\x07version\x18\x01\x20\x01(\rR\x07version\x12\x17\n\x07\
+    peer_id\x18\x02\x20\x01(\x0cR\x06peerId\x12;\n\naccount_id\x18\x03\x20\
+    \x01(\x0b2\x1c.google.protobuf.StringValueR\taccountId\x12=\n\x0blisten_\
+    port\x18\x04\x20\x01(\x0b2\x1c.google.protobuf.UInt32ValueR\nlistenPort\
+    \x12(\n\npeers_info\x18\x05\x20\x03(\x0b2\t.PeerInfoR\tpeersInfo\x125\n\
+    \x0econnected_info\x18\x06\x20\x01(\x0b2\x0e.ConnectedInfoR\rconnectedIn\
+    fo\"8\n\nInfoGossip\x12*\n\x0binfo_gossip\x18\x01\x20\x03(\x0b2\t.PeerIn\
+    foR\ninfoGossip\"\x8b\x01\n\x0bPeerMessage\x12+\n\nhand_shake\x18\x01\
+    \x20\x01(\x0b2\n.HandShakeH\0R\thandShake\x12.\n\x0binfo_gossip\x18\x02\
+    \x20\x01(\x0b2\x0b.InfoGossipH\0R\ninfoGossip\x12\x1a\n\x07message\x18\
+    \x03\x20\x01(\x0cH\0R\x07messageB\x03\n\x01mb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

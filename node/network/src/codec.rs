@@ -78,7 +78,6 @@ impl Decoder for Codec {
             Ok(None)
         } else {
             let res: ProtoMessage = parse_from_bytes(&buf[4..4 + len as usize]).map_err(convert_protobuf_error)?;
-            // let res = Bytes::from(&buf[4..4 + len as usize]);
             buf.advance(4 + len as usize);
             Ok(Some(res.into()))
         }

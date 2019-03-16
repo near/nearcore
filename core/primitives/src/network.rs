@@ -9,6 +9,7 @@ use std::convert::TryFrom;
 use std::iter::FromIterator;
 use near_protos::network as network_proto;
 use protobuf::{SingularPtrField, RepeatedField};
+use protobuf::well_known_types::{StringValue, UInt32Value};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerAddr {
@@ -90,20 +91,10 @@ impl From<PeerAddr> for PeerInfo {
 
 impl From<network_proto::PeerInfo> for PeerInfo {
     fn from(proto: network_proto::PeerInfo) -> Self {
-        let addr = match &proto.addr {
-            Some(network_proto::PeerInfo_oneof_addr::no_addr(_)) => None,
-            Some(network_proto::PeerInfo_oneof_addr::some_addr(s)) => {
-                s.parse::<SocketAddr>().ok()
-            }
-            None => unreachable!()
-        };
-        let account_id = match &proto.account_id {
-            Some(network_proto::PeerInfo_oneof_account_id::no_account_id(_)) => None,
-            Some(network_proto::PeerInfo_oneof_account_id::some_account_id(id)) => {
-                Some(id.clone())
-            }
-            None => unreachable!()
-        };
+        let addr = proto.addr
+            .into_option()
+            .and_then(|s| s.value.parse::<SocketAddr>().ok());
+        let account_id = proto.account_id.into_option().map(|s| s.value);
         PeerInfo {
             id: CryptoHash::from(proto.id),
             addr,
@@ -112,21 +103,25 @@ impl From<network_proto::PeerInfo> for PeerInfo {
     }
 }
 
+fn to_string_value(s: String) -> StringValue {
+    let mut res = StringValue::new();
+    res.set_value(s);
+    res
+}
+
 impl Into<network_proto::PeerInfo> for PeerInfo {
     fn into(self) -> network_proto::PeerInfo {
         let id = self.id;
-        let addr = match self.addr {
-            Some(addr) => network_proto::PeerInfo_oneof_addr::some_addr(format!("{}", addr)),
-            None => network_proto::PeerInfo_oneof_addr::no_addr(true),
-        };
-        let account_id = match self.account_id {
-            Some(account_id) => network_proto::PeerInfo_oneof_account_id::some_account_id(account_id),
-            None => network_proto::PeerInfo_oneof_account_id::no_account_id(true)
-        };
+        let addr = SingularPtrField::from_option(self.addr.map(|s| {
+            to_string_value(format!("{}", s))
+        }));
+        let account_id = SingularPtrField::from_option(
+            self.account_id.map(to_string_value)
+        );
         network_proto::PeerInfo {
             id: id.into(),
-            addr: Some(addr),
-            account_id: Some(account_id),
+            addr,
+            account_id,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -176,20 +171,8 @@ pub struct Handshake {
 
 impl From<network_proto::HandShake> for Handshake {
     fn from(proto: network_proto::HandShake) -> Self {
-        let account_id = match &proto.account_id {
-            Some(network_proto::HandShake_oneof_account_id::no_account_id(_)) => None,
-            Some(network_proto::HandShake_oneof_account_id::some_account_id(id)) => {
-                Some(id.clone())
-            }
-            None => unreachable!()
-        };
-        let listen_port = match &proto.listen_port {
-            Some(network_proto::HandShake_oneof_listen_port::no_listen_port(_)) => None,
-            Some(network_proto::HandShake_oneof_listen_port::some_listen_port(port)) => {
-                Some(*port as u16)
-            }
-            None => unreachable!()
-        };
+        let account_id = proto.account_id.into_option().map(|s| s.value);
+        let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
         Handshake {
             version: proto.version,
             peer_id: proto.peer_id.into(),
@@ -203,14 +186,14 @@ impl From<network_proto::HandShake> for Handshake {
 
 impl Into<network_proto::HandShake> for Handshake {
     fn into(self) -> network_proto::HandShake {
-        let account_id = match self.account_id {
-            Some(account_id) => network_proto::HandShake_oneof_account_id::some_account_id(account_id),
-            None => network_proto::HandShake_oneof_account_id::no_account_id(true),
-        };
-        let listen_port = match self.listen_port {
-            Some(port) => network_proto::HandShake_oneof_listen_port::some_listen_port(u32::from(port)),
-            None => network_proto::HandShake_oneof_listen_port::no_listen_port(true),
-        };
+        let account_id = SingularPtrField::from_option(
+            self.account_id.map(to_string_value)
+        );
+        let listen_port = SingularPtrField::from_option(self.listen_port.map(|v| {
+            let mut res = UInt32Value::new();
+            res.set_value(u32::from(v));
+            res
+        }));
         network_proto::HandShake {
             version: self.version,
             peer_id: self.peer_id.into(),
@@ -218,8 +201,8 @@ impl Into<network_proto::HandShake> for Handshake {
                 self.peers_info.into_iter().map(std::convert::Into::into)
             ),
             connected_info: SingularPtrField::some(self.connected_info.into()),
-            account_id: Some(account_id),
-            listen_port: Some(listen_port),
+            account_id,
+            listen_port,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }

@@ -1,17 +1,12 @@
 syntax = "proto3";
 
 import "protos/chain.proto";
+import "google/protobuf/wrappers.proto";
 
 message PeerInfo {
     bytes id = 1;
-    oneof addr {
-        bool no_addr = 2;
-        string some_addr = 3;
-    }
-    oneof account_id {
-        bool no_account_id = 4;
-        string some_account_id = 5;
-    }
+    google.protobuf.StringValue addr = 2;
+    google.protobuf.StringValue account_id = 3;
 }
 
 message ConnectedInfo {
@@ -21,16 +16,10 @@ message ConnectedInfo {
 message HandShake {
     uint32 version = 1;
     bytes peer_id = 2;
-    oneof account_id {
-        bool no_account_id = 3;
-        string some_account_id = 4;
-    }
-    oneof listen_port {
-        bool no_listen_port = 5;
-        uint32 some_listen_port = 6;
-    }
-    repeated PeerInfo peers_info = 7;
-    ConnectedInfo connected_info = 8;
+    google.protobuf.StringValue account_id = 3;
+    google.protobuf.UInt32Value listen_port = 4;
+    repeated PeerInfo peers_info = 5;
+    ConnectedInfo connected_info = 6;
 }
 
 message InfoGossip {
