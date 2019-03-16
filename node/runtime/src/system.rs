@@ -80,7 +80,7 @@ pub fn staking(
         sender.staked += body.amount;
         set(state_update, &account_id_to_bytes(COL_ACCOUNT, sender_account_id), &sender);
         Ok(vec![])
-    } else if sender.amount < body.amount {
+    } else {
         let err_msg = format!(
             "Account {} tries to stake {}, but has staked {} and only has {}",
             body.originator,
@@ -89,8 +89,6 @@ pub fn staking(
             sender.amount,
         );
         Err(err_msg)
-    } else {
-        Err(format!("Account {} already staked", body.originator))
     }
 }
 
@@ -302,6 +300,31 @@ mod tests {
     use crate::test_utils::*;
 
     use super::*;
+
+    #[test]
+    fn test_staking() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
+        let (new_root, mut apply_results) = alice.stake(root, 10);
+        assert_ne!(new_root, root);
+        let apply_result = apply_results.pop().unwrap();
+        let authority_stake = AuthorityStake {
+            account_id: alice.get_account_id(),
+            public_key: alice.signer.public_key.clone(),
+            bls_public_key: alice.signer.bls_public_key.clone(),
+            amount: 10,
+        };
+        assert_eq!(apply_result.authority_proposals, vec![authority_stake]);
+    }
+
+    #[test]
+    fn test_staking_over_limit() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
+        let (new_root, apply_results) = alice.stake(root, 1000);
+        assert_eq!(new_root, root);
+        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
+    }
 
     #[test]
     fn test_upload_contract() {
