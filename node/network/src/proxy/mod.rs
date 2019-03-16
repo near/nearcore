@@ -1,21 +1,21 @@
-use std::sync::Arc;
 
 use super::message::Message;
+use std::sync::Arc;
 
 pub mod dropout;
 
-pub struct Proxy<T: ProxyHandler + Send> {
-    handlers: Vec<T>
+pub struct Proxy {
+    handlers: Vec<Arc<ProxyHandler>>
 }
 
-impl<T: ProxyHandler + Send> Proxy<T> {
+impl Proxy {
     pub fn new() -> Self {
         Self {
             handlers: vec![]
         }
     }
 
-    pub fn pipe(&self, message: &Message) -> Vec<&Message> {
+    pub fn pipe<'a>(&'a self, message: &'a Message) -> Vec<&'a Message> {
         let start_messages = vec![message];
 
         self.handlers
@@ -26,10 +26,7 @@ impl<T: ProxyHandler + Send> Proxy<T> {
     }
 }
 
-
-pub trait ProxyHandler {
-    fn new() -> Self {}
-
+pub trait ProxyHandler where Self: Send + Sync {
     fn pipe(&self, mut messages: Vec<&Message>) -> Vec<&Message> {
         messages
             .drain(..)

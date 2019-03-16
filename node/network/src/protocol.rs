@@ -23,7 +23,7 @@ use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 
-use crate::proxy::{Proxy, ProxyHandler, dropout::Dropout};
+use crate::proxy::Proxy;
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -50,7 +50,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
-    proxy: Arc<Proxy<Dropout>>,
+    proxy: Arc<Proxy>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, CoupledBlock)>,
@@ -254,7 +254,7 @@ impl Protocol {
     fn send_message(&self, ch: Sender<PeerMessage>, message: &Message) {
         for msg in self.proxy.pipe(message) {
             let data = Encode::encode(&msg).unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
+            forward_msg(ch.clone(), PeerMessage::Message(data));
         }
     }
 }
