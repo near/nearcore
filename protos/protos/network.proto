@@ -27,7 +27,7 @@ message InfoGossip {
 }
 
 message PeerMessage {
-    oneof m {
+    oneof message_type {
         HandShake hand_shake = 1;
         InfoGossip info_gossip = 2;
         bytes message = 3;

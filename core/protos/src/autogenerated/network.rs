@@ -1067,14 +1067,14 @@ impl ::protobuf::reflect::ProtobufValue for InfoGossip {
 #[derive(PartialEq,Clone,Default)]
 pub struct PeerMessage {
     // message oneof groups
-    pub m: ::std::option::Option<PeerMessage_oneof_m>,
+    pub message_type: ::std::option::Option<PeerMessage_oneof_message_type>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
 }
 
 #[derive(Clone,PartialEq)]
-pub enum PeerMessage_oneof_m {
+pub enum PeerMessage_oneof_message_type {
     hand_shake(HandShake),
     info_gossip(InfoGossip),
     message(::std::vec::Vec<u8>),
@@ -1088,29 +1088,29 @@ impl PeerMessage {
     // .HandShake hand_shake = 1;
 
     pub fn clear_hand_shake(&mut self) {
-        self.m = ::std::option::Option::None;
+        self.message_type = ::std::option::Option::None;
     }
 
     pub fn has_hand_shake(&self) -> bool {
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(..)) => true,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(..)) => true,
             _ => false,
         }
     }
 
     // Param is passed by value, moved
     pub fn set_hand_shake(&mut self, v: HandShake) {
-        self.m = ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(v))
+        self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(v))
     }
 
     // Mutable pointer to the field.
     pub fn mut_hand_shake(&mut self) -> &mut HandShake {
-        if let ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(_)) = self.m {
+        if let ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(_)) = self.message_type {
         } else {
-            self.m = ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(HandShake::new()));
+            self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(HandShake::new()));
         }
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(ref mut v)) => v,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(ref mut v)) => v,
             _ => panic!(),
         }
     }
@@ -1118,8 +1118,8 @@ impl PeerMessage {
     // Take field
     pub fn take_hand_shake(&mut self) -> HandShake {
         if self.has_hand_shake() {
-            match self.m.take() {
-                ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(v)) => v,
+            match self.message_type.take() {
+                ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(v)) => v,
                 _ => panic!(),
             }
         } else {
@@ -1128,8 +1128,8 @@ impl PeerMessage {
     }
 
     pub fn get_hand_shake(&self) -> &HandShake {
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(ref v)) => v,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(ref v)) => v,
             _ => HandShake::default_instance(),
         }
     }
@@ -1137,29 +1137,29 @@ impl PeerMessage {
     // .InfoGossip info_gossip = 2;
 
     pub fn clear_info_gossip(&mut self) {
-        self.m = ::std::option::Option::None;
+        self.message_type = ::std::option::Option::None;
     }
 
     pub fn has_info_gossip(&self) -> bool {
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(..)) => true,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(..)) => true,
             _ => false,
         }
     }
 
     // Param is passed by value, moved
     pub fn set_info_gossip(&mut self, v: InfoGossip) {
-        self.m = ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(v))
+        self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(v))
     }
 
     // Mutable pointer to the field.
     pub fn mut_info_gossip(&mut self) -> &mut InfoGossip {
-        if let ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(_)) = self.m {
+        if let ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(_)) = self.message_type {
         } else {
-            self.m = ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(InfoGossip::new()));
+            self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(InfoGossip::new()));
         }
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(ref mut v)) => v,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(ref mut v)) => v,
             _ => panic!(),
         }
     }
@@ -1167,8 +1167,8 @@ impl PeerMessage {
     // Take field
     pub fn take_info_gossip(&mut self) -> InfoGossip {
         if self.has_info_gossip() {
-            match self.m.take() {
-                ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(v)) => v,
+            match self.message_type.take() {
+                ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(v)) => v,
                 _ => panic!(),
             }
         } else {
@@ -1177,8 +1177,8 @@ impl PeerMessage {
     }
 
     pub fn get_info_gossip(&self) -> &InfoGossip {
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(ref v)) => v,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(ref v)) => v,
             _ => InfoGossip::default_instance(),
         }
     }
@@ -1186,29 +1186,29 @@ impl PeerMessage {
     // bytes message = 3;
 
     pub fn clear_message(&mut self) {
-        self.m = ::std::option::Option::None;
+        self.message_type = ::std::option::Option::None;
     }
 
     pub fn has_message(&self) -> bool {
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::message(..)) => true,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::message(..)) => true,
             _ => false,
         }
     }
 
     // Param is passed by value, moved
     pub fn set_message(&mut self, v: ::std::vec::Vec<u8>) {
-        self.m = ::std::option::Option::Some(PeerMessage_oneof_m::message(v))
+        self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::message(v))
     }
 
     // Mutable pointer to the field.
     pub fn mut_message(&mut self) -> &mut ::std::vec::Vec<u8> {
-        if let ::std::option::Option::Some(PeerMessage_oneof_m::message(_)) = self.m {
+        if let ::std::option::Option::Some(PeerMessage_oneof_message_type::message(_)) = self.message_type {
         } else {
-            self.m = ::std::option::Option::Some(PeerMessage_oneof_m::message(::std::vec::Vec::new()));
+            self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::message(::std::vec::Vec::new()));
         }
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::message(ref mut v)) => v,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::message(ref mut v)) => v,
             _ => panic!(),
         }
     }
@@ -1216,8 +1216,8 @@ impl PeerMessage {
     // Take field
     pub fn take_message(&mut self) -> ::std::vec::Vec<u8> {
         if self.has_message() {
-            match self.m.take() {
-                ::std::option::Option::Some(PeerMessage_oneof_m::message(v)) => v,
+            match self.message_type.take() {
+                ::std::option::Option::Some(PeerMessage_oneof_message_type::message(v)) => v,
                 _ => panic!(),
             }
         } else {
@@ -1226,8 +1226,8 @@ impl PeerMessage {
     }
 
     pub fn get_message(&self) -> &[u8] {
-        match self.m {
-            ::std::option::Option::Some(PeerMessage_oneof_m::message(ref v)) => v,
+        match self.message_type {
+            ::std::option::Option::Some(PeerMessage_oneof_message_type::message(ref v)) => v,
             _ => &[],
         }
     }
@@ -1235,12 +1235,12 @@ impl PeerMessage {
 
 impl ::protobuf::Message for PeerMessage {
     fn is_initialized(&self) -> bool {
-        if let Some(PeerMessage_oneof_m::hand_shake(ref v)) = self.m {
+        if let Some(PeerMessage_oneof_message_type::hand_shake(ref v)) = self.message_type {
             if !v.is_initialized() {
                 return false;
             }
         }
-        if let Some(PeerMessage_oneof_m::info_gossip(ref v)) = self.m {
+        if let Some(PeerMessage_oneof_message_type::info_gossip(ref v)) = self.message_type {
             if !v.is_initialized() {
                 return false;
             }
@@ -1256,19 +1256,19 @@ impl ::protobuf::Message for PeerMessage {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
-                    self.m = ::std::option::Option::Some(PeerMessage_oneof_m::hand_shake(is.read_message()?));
+                    self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::hand_shake(is.read_message()?));
                 },
                 2 => {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
-                    self.m = ::std::option::Option::Some(PeerMessage_oneof_m::info_gossip(is.read_message()?));
+                    self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::info_gossip(is.read_message()?));
                 },
                 3 => {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
-                    self.m = ::std::option::Option::Some(PeerMessage_oneof_m::message(is.read_bytes()?));
+                    self.message_type = ::std::option::Option::Some(PeerMessage_oneof_message_type::message(is.read_bytes()?));
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -1282,17 +1282,17 @@ impl ::protobuf::Message for PeerMessage {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if let ::std::option::Option::Some(ref v) = self.m {
+        if let ::std::option::Option::Some(ref v) = self.message_type {
             match v {
-                &PeerMessage_oneof_m::hand_shake(ref v) => {
+                &PeerMessage_oneof_message_type::hand_shake(ref v) => {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
-                &PeerMessage_oneof_m::info_gossip(ref v) => {
+                &PeerMessage_oneof_message_type::info_gossip(ref v) => {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
-                &PeerMessage_oneof_m::message(ref v) => {
+                &PeerMessage_oneof_message_type::message(ref v) => {
                     my_size += ::protobuf::rt::bytes_size(3, &v);
                 },
             };
@@ -1303,19 +1303,19 @@ impl ::protobuf::Message for PeerMessage {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let ::std::option::Option::Some(ref v) = self.m {
+        if let ::std::option::Option::Some(ref v) = self.message_type {
             match v {
-                &PeerMessage_oneof_m::hand_shake(ref v) => {
+                &PeerMessage_oneof_message_type::hand_shake(ref v) => {
                     os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
-                &PeerMessage_oneof_m::info_gossip(ref v) => {
+                &PeerMessage_oneof_message_type::info_gossip(ref v) => {
                     os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
-                &PeerMessage_oneof_m::message(ref v) => {
+                &PeerMessage_oneof_message_type::message(ref v) => {
                     os.write_bytes(3, v)?;
                 },
             };
@@ -1432,10 +1432,10 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x12(\n\npeers_info\x18\x05\x20\x03(\x0b2\t.PeerInfoR\tpeersInfo\x125\n\
     \x0econnected_info\x18\x06\x20\x01(\x0b2\x0e.ConnectedInfoR\rconnectedIn\
     fo\"8\n\nInfoGossip\x12*\n\x0binfo_gossip\x18\x01\x20\x03(\x0b2\t.PeerIn\
-    foR\ninfoGossip\"\x8b\x01\n\x0bPeerMessage\x12+\n\nhand_shake\x18\x01\
+    foR\ninfoGossip\"\x96\x01\n\x0bPeerMessage\x12+\n\nhand_shake\x18\x01\
     \x20\x01(\x0b2\n.HandShakeH\0R\thandShake\x12.\n\x0binfo_gossip\x18\x02\
     \x20\x01(\x0b2\x0b.InfoGossipH\0R\ninfoGossip\x12\x1a\n\x07message\x18\
-    \x03\x20\x01(\x0cH\0R\x07messageB\x03\n\x01mb\x06proto3\
+    \x03\x20\x01(\x0cH\0R\x07messageB\x0e\n\x0cmessage_typeb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

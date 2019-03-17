@@ -219,15 +219,15 @@ pub enum PeerMessage {
 
 impl From<network_proto::PeerMessage> for PeerMessage {
     fn from(proto: network_proto::PeerMessage) -> Self {
-        match proto.m {
-            Some(network_proto::PeerMessage_oneof_m::hand_shake(hand_shake)) => {
+        match proto.message_type {
+            Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake)) => {
                 PeerMessage::Handshake(hand_shake.into())
             }
-            Some(network_proto::PeerMessage_oneof_m::info_gossip(gossip)) => {
+            Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip)) => {
                 let peer_info = gossip.info_gossip.into_iter().map(std::convert::Into::into).collect();
                 PeerMessage::InfoGossip(peer_info)
             }
-            Some(network_proto::PeerMessage_oneof_m::message(message)) => {
+            Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
                 PeerMessage::Message(message)
             }
             None => unreachable!()
@@ -237,9 +237,9 @@ impl From<network_proto::PeerMessage> for PeerMessage {
 
 impl From<PeerMessage> for network_proto::PeerMessage {
     fn from(message: PeerMessage) -> network_proto::PeerMessage {
-        let m = match message {
+        let message_type = match message {
             PeerMessage::Handshake(hand_shake) => {
-                Some(network_proto::PeerMessage_oneof_m::hand_shake(hand_shake.into()))
+                Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake.into()))
             }
             PeerMessage::InfoGossip(peers_info) => {
                 let gossip = network_proto::InfoGossip {
@@ -249,14 +249,14 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     unknown_fields: Default::default(),
                     cached_size: Default::default(),
                 };
-                Some(network_proto::PeerMessage_oneof_m::info_gossip(gossip))
+                Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
             PeerMessage::Message(message) => {
-                Some(network_proto::PeerMessage_oneof_m::message(message))
+                Some(network_proto::PeerMessage_oneof_message_type::message(message))
             }
         };
         network_proto::PeerMessage {
-            m,
+            message_type,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
