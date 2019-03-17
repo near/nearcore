@@ -17,7 +17,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let init_balance = 1_000_000_000;
     let mut account_names = vec![];
     for i in 0..num_nodes {
-        account_names.push(format!("near.{}", i));
+        account_names.push(format!("alphanet-{}", i));
     }
     let chain_spec = generate_test_chain_spec(&account_names, init_balance);
 
