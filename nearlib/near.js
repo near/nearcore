@@ -158,14 +158,22 @@ class Near {
     async waitForTransactionResult(transactionResponseOrHash, options = {}) {
         const transactionHash = transactionResponseOrHash.hasOwnProperty('hash') ? transactionResponseOrHash.hash : transactionResponseOrHash;
         const contractAccountId = options.contractAccountId || 'unknown contract';
+        let alreadyDisplayedLogs = [];
         let result;
         for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
             await sleep(STATUS_POLL_PERIOD_MS);
             result = (await this.getTransactionStatus(transactionHash)).result;
             const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
-            flatLog.forEach(line => {
+            let j;
+            for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == flatLog[j]; j++);
+            if (j != alreadyDisplayedLogs.length) {
+                console.warn('new logs:', flatLog, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
+            }
+            for (; j < flatLog.length; j++) {
+                const line = flatLog[j];
                 console.log(`[${contractAccountId}]: ${line}`);
-            });
+                alreadyDisplayedLogs.push(line);
+            }
             if (result.status == 'Completed') {
                 return result;
             }

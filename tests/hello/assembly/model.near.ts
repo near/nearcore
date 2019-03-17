@@ -52,34 +52,34 @@ export class __near_JSONHandler_PromiseArgs extends ThrowingJSONHandler {
       decoder: JSONDecoder<__near_JSONHandler_PromiseArgs>;
       handledRoot: boolean = false;
       value: wrapped_PromiseArgs = new wrapped_PromiseArgs();
-setInteger(name: string, value: i32): void {
+setInteger(name: string, value: i64): void {
 if (name == "additionalMana") {
-            this.value.additionalMana = value;
+            this.value.additionalMana = <i32>value;
             return;
           }
 if (name == "callbackAdditionalMana") {
-            this.value.callbackAdditionalMana = value;
+            this.value.callbackAdditionalMana = <i32>value;
             return;
           }
 
-          super.setInteger(name, value);
-        }
+        super.setInteger(name, value);
+      }
 setString(name: string, value: String): void {
 if (name == "receiver") {
-            this.value.receiver = value;
+            this.value.receiver = <String>value;
             return;
           }
 if (name == "methodName") {
-            this.value.methodName = value;
+            this.value.methodName = <String>value;
             return;
           }
 if (name == "callback") {
-            this.value.callback = value;
+            this.value.callback = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "receiver") {
         this.value.receiver = <String>null;
@@ -252,12 +252,12 @@ export class __near_JSONHandler_MyContractPromiseResult extends ThrowingJSONHand
       value: wrapped_MyContractPromiseResult = new wrapped_MyContractPromiseResult();
 setBoolean(name: string, value: bool): void {
 if (name == "ok") {
-            this.value.ok = value;
+            this.value.ok = <bool>value;
             return;
           }
 
-          super.setBoolean(name, value);
-        }
+        super.setBoolean(name, value);
+      }
 setNull(name: string): void {
 if (name == "ok") {
         this.value.ok = <bool>null;
@@ -300,12 +300,12 @@ export class __near_JSONHandler_MyCallbackResult extends ThrowingJSONHandler {
       value: wrapped_MyCallbackResult = new wrapped_MyCallbackResult();
 setString(name: string, value: String): void {
 if (name == "n") {
-            this.value.n = value;
+            this.value.n = <String>value;
             return;
           }
 
-          super.setString(name, value);
-        }
+        super.setString(name, value);
+      }
 setNull(name: string): void {
 if (name == "rs") {
         this.value.rs = <Array<wrapped_MyContractPromiseResult>>null;

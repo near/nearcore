@@ -56,7 +56,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, Vec<Arc<InMemorySigner>>) {
         beacon_chain_epoch_length: 2,
         beacon_chain_num_seats_per_slot: 1,
         boot_nodes: vec![],
-    }, vec![Arc::new(alice_signer)])
+    }, vec![Arc::new(alice_signer), Arc::new(bob_signer)])
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {

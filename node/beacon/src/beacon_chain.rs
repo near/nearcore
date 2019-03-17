@@ -34,27 +34,31 @@ mod tests {
     use primitives::signer::InMemorySigner;
     use primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
+    use node_runtime::test_utils::generate_test_chain_spec;
 
     use super::*;
 
-    #[test]
-    fn test_genesis() {
+    fn get_beacon_client() -> (BeaconClient, SignedBeaconBlock) {
         let storage = create_beacon_shard_storages().0;
         let genesis =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BlockChain::new(genesis.clone(), storage);
-        assert_eq!(bc.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
-        assert_eq!(bc.get_block(&BlockId::Number(0)).unwrap(), genesis);
+        let (chain_spec, _) = generate_test_chain_spec();
+        let beacon_client = BeaconClient::new(genesis.clone(), &chain_spec, storage);
+        (beacon_client, genesis)
+    }
+
+    #[test]
+    fn test_genesis() {
+        let (bc, genesis) = get_beacon_client();
+        assert_eq!(bc.chain.get_block(&BlockId::Hash(genesis.block_hash())).unwrap(), genesis);
+        assert_eq!(bc.chain.get_block(&BlockId::Number(0)).unwrap(), genesis);
     }
 
     #[test]
     #[should_panic]
     fn test_invalid_genesis() {
-        let storage = create_beacon_shard_storages().0;
-        let genesis =
-            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BlockChain::new(genesis.clone(), storage);
-        let storage = get_blockchain_storage(bc);
+        let (bc, _) = get_beacon_client();
+        let storage = get_blockchain_storage(bc.chain);
         let invalid_genesis_block = 
             SignedBeaconBlock::new(1, CryptoHash::default(), vec![], CryptoHash::default());
         let _ = BlockChain::new(invalid_genesis_block, storage);
@@ -62,41 +66,41 @@ mod tests {
 
     #[test]
     fn test_restart_chain() {
-        let storage = create_beacon_shard_storages().0;
-        let genesis =
-            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let bc = BlockChain::new(genesis.clone(), storage.clone());
+        let (bc, genesis) = get_beacon_client();
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
         let signer = Arc::new(InMemorySigner::default());
         let sig = block1.sign(signer);
         block1.add_signature(&sig, 0);
-        bc.insert_block(block1.clone());
-        let best_block = bc.best_block();
-        let best_block_header = best_block.header();
-        assert_eq!(best_block.block_hash(), block1.block_hash());
+        bc.chain.insert_block(block1.clone());
+        let best_block_header = bc.chain.best_header();
         assert_eq!(best_block_header.block_hash(), block1.block_hash());
         assert_eq!(best_block_header.index(), 1);
         // Create new BlockChain that reads from the same storage.
-        let other_bc = BlockChain::new(genesis.clone(), storage.clone());
-        assert_eq!(other_bc.best_block().block_hash(), block1.block_hash());
-        assert_eq!(other_bc.best_block().header().index(), 1);
+        let storage = get_blockchain_storage(bc.chain);
+        let other_bc = BlockChain::new(genesis.clone(), storage);
+        assert_eq!(other_bc.best_hash(), block1.block_hash());
+        assert_eq!(other_bc.best_index(), 1);
         assert_eq!(other_bc.get_block(&BlockId::Hash(block1.block_hash())).unwrap(), block1);
     }
 
-//    #[test]
-//    fn test_two_chains() {
-//        let storage = Arc::new(create_memory_db());
-//        let genesis1 =
-//            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-//        let genesis2 =
-//            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], genesis1.block_hash());
-//        let bc1 = BlockChain::new(genesis1.clone(), storage.clone());
-//        let bc2 = BlockChain::new(genesis2.clone(), storage.clone());
-//        assert_eq!(bc1.best_block().block_hash(), genesis1.block_hash());
-//        assert_eq!(bc2.best_block().block_hash(), genesis2.block_hash());
-//    }
-//
+    #[test]
+    fn test_light_client() {
+        let (bc, genesis) = get_beacon_client();
+        let block1 = SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
+        let block1_hash = block1.block_hash();
+        bc.chain.insert_header(block1.header());
+        assert_eq!(bc.chain.best_index(), 1);
+        assert!(bc.chain.is_known_header(&block1_hash));
+        assert!(!bc.chain.is_known_block(&block1_hash));
+        let block2 = SignedBeaconBlock::new(2, block1_hash, vec![], CryptoHash::default());
+        bc.chain.insert_header(block2.header());
+        assert_eq!(bc.chain.best_index(), 2);
+        bc.chain.insert_block(block1);
+        assert_eq!(bc.chain.best_index(), 2);
+        assert!(bc.chain.is_known_block(&block1_hash));
+    }
+
 //    fn test_fork_choice_rule_helper(graph: Vec<(u32, u32, usize)>, expect: u32) {
 //        let storage = Arc::new(create_memory_db());
 //

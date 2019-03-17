@@ -1,6 +1,8 @@
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::hash::{hash_struct, CryptoHash};
 use super::types::{AuthorityStake, GroupSignature, PartialSignature};
+use std::borrow::Borrow;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -26,12 +28,32 @@ pub struct BeaconBlock {
     pub header: BeaconBlockHeader,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignedBeaconBlock {
     pub body: BeaconBlock,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
 }
+
+impl Borrow<CryptoHash> for SignedBeaconBlock {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
+impl Hash for SignedBeaconBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state)
+    }
+}
+
+impl PartialEq for SignedBeaconBlock {
+    fn eq(&self, other: &SignedBeaconBlock) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Eq for SignedBeaconBlock {}
 
 impl SignedHeader for SignedBeaconBlockHeader {
     #[inline]

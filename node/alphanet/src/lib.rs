@@ -14,8 +14,6 @@ use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
 
-pub mod testing_utils;
-
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
     start_from_configs(client_cfg, network_cfg, rpc_cfg);
@@ -122,7 +120,7 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
 
-    use crate::testing_utils::{configure_chain_spec, wait, Node};
+    use testlib::alphanet_utils::{configure_chain_spec, wait, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -161,8 +159,8 @@ mod tests {
         // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.client.shard_client.chain.best_block().index() >= 2
-                    && bob.client.shard_client.chain.best_block().index() >= 2
+                alice.client.shard_client.chain.best_index() >= 2
+                    && bob.client.shard_client.chain.best_index() >= 2
             },
             500,
             600000,
@@ -227,7 +225,7 @@ mod tests {
         let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
                 BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (beacon_block, shard_block)
+                    (*beacon_block, *shard_block)
                 }
                 _ => panic!("Should produce block"),
             };
@@ -249,7 +247,7 @@ mod tests {
         bob.start();
         charlie.start();
 
-        wait(|| charlie.client.shard_client.chain.best_block().index() >= 3, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 3, 500, 60000);
 
         // Check that non-authority synced into the same state.
         let mut state_update = charlie.client.shard_client.get_state_update();
@@ -291,7 +289,7 @@ mod tests {
         let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
                 BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (beacon_block, shard_block)
+                    (*beacon_block, *shard_block)
                 }
                 _ => panic!("Should produce block"),
             };
@@ -313,7 +311,7 @@ mod tests {
         bob.start();
 
         wait(|| {
-            alice.client.shard_client.chain.best_block().index() >= 3
+            alice.client.shard_client.chain.best_index() >= 3
         }, 500, 60000);
 
         // Check that non-authority synced into the same state.
@@ -372,12 +370,12 @@ mod tests {
         alice.start();
         bob.start();
 
-        wait(|| alice.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| alice.client.shard_client.chain.best_index() >= 2, 500, 60000);
 
         charlie.start();
         dan.start();
-        wait(|| charlie.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
-        wait(|| dan.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 2, 500, 60000);
+        wait(|| dan.client.shard_client.chain.best_index() >= 2, 500, 60000);
 
     }
 }

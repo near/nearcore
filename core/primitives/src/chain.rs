@@ -1,22 +1,23 @@
 use std::hash::{Hash, Hasher};
+use std::borrow::Borrow;
 
 use serde_derive::{Deserialize, Serialize};
 
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::consensus::Payload;
-use super::hash::{hash_struct, CryptoHash};
+use super::hash::{CryptoHash, hash_struct};
 use super::merkle::MerklePath;
 use super::transaction::{ReceiptTransaction, SignedTransaction};
-use super::types::{AuthorityId, GroupSignature, MerkleHash, PartialSignature, ShardId};
+use super::types::{AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId};
 use near_protos::chain as chain_proto;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
     pub shard_id: ShardId,
-    pub index: u64,
+    pub index: BlockIndex,
     pub merkle_root_state: MerkleHash,
-    /// if there is no receipt generated in this block, the root is None
+    /// If there are no receipts generated in this block, the root is hash(0)
     pub receipt_merkle_root: MerkleHash,
 }
 
@@ -27,6 +28,18 @@ pub struct SignedShardBlockHeader {
     pub signature: GroupSignature,
 }
 
+impl SignedShardBlockHeader {
+    #[inline]
+    pub fn shard_id(&self) -> ShardId {
+        self.body.shard_id
+    }
+
+    #[inline]
+    pub fn merkle_root_state(&self) -> MerkleHash {
+        self.body.merkle_root_state
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlock {
     pub header: ShardBlockHeader,
@@ -34,12 +47,32 @@ pub struct ShardBlock {
     pub receipts: Vec<ReceiptBlock>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
 }
+
+impl Borrow<CryptoHash> for SignedShardBlock {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
+impl Hash for SignedShardBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state);
+    }
+}
+
+impl PartialEq for SignedShardBlock {
+    fn eq(&self, other: &SignedShardBlock) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Eq for SignedShardBlock {}
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ReceiptBlock {
@@ -62,7 +95,7 @@ impl PartialEq for ReceiptBlock {
 
 impl Hash for ReceiptBlock {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.hash.as_ref());
+        self.hash.hash(state)
     }
 }
 
@@ -172,11 +205,45 @@ impl SignedBlock for SignedShardBlock {
     }
 }
 
-#[derive(Hash, Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ChainPayload {
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<ReceiptBlock>,
+    hash: CryptoHash,
 }
+
+impl ChainPayload {
+    pub fn new(transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptBlock>) -> Self {
+        let hash = hash_struct(&(&transactions, &receipts));
+        ChainPayload {
+            transactions, receipts, hash
+        }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
+}
+
+impl Hash for ChainPayload {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state)
+    }
+}
+
+impl PartialEq for ChainPayload {
+    fn eq(&self, other: &ChainPayload) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Borrow<CryptoHash> for ChainPayload {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
+impl Eq for ChainPayload {}
 
 impl Payload for ChainPayload {
     fn verify(&self) -> Result<(), &'static str> {
@@ -193,7 +260,7 @@ impl Payload for ChainPayload {
     }
 
     fn new() -> Self {
-        Self { transactions: vec![], receipts: vec![] }
+        Self { transactions: vec![], receipts: vec![], hash: CryptoHash::default() }
     }
 }
 

@@ -16,7 +16,6 @@ use configs::RPCConfig;
 use primitives::network::{PeerAddr, PeerInfo};
 use primitives::signer::InMemorySigner;
 
-use crate::start_from_client;
 use primitives::signer::TransactionSigner;
 use primitives::signer::BlockSigner;
 
@@ -24,7 +23,7 @@ const TMP_DIR: &str = "../../tmp/testnet";
 
 pub fn configure_chain_spec() -> ChainSpec {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    d.push("../configs/res/testnet_chain.json");
+    d.push("../../node/configs/res/testnet_chain.json");
     read_or_default_chain_spec(&Some(d))
 }
 
@@ -123,7 +122,7 @@ impl Node {
         let network_cfg = self.network_cfg.clone();
         let rpc_cfg = self.rpc_cfg.clone();
         thread::spawn(|| {
-            start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
+            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
         });
         thread::sleep(Duration::from_secs(1));
     }

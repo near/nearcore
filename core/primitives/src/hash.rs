@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use bs58;
 use exonum_sodiumoxide as sodiumoxide;
@@ -8,7 +9,7 @@ use heapsize;
 use crate::logging::pretty_hash;
 use crate::serialize::Encode;
 
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
 impl CryptoHash {
@@ -75,6 +76,20 @@ impl fmt::Display for CryptoHash {
         write!(f, "{}", String::from(self))
     }
 }
+
+impl Hash for CryptoHash {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
+    }
+}
+
+impl PartialEq for CryptoHash {
+    fn eq(&self, other: &CryptoHash) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for CryptoHash {}
 
 pub mod bs58_format {
     use serde::de;

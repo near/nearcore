@@ -284,11 +284,9 @@ impl<'a> Runtime<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr)?;
         let method_name = self.read_buffer(method_name_ptr as usize)?;
 
-        match method_name.get(0) {
-            Some(b'_') => return Err(Error::PrivateMethod),
-            None if amount == 0 => return Err(Error::EmptyMethodNameWithZeroAmount),
-            _ => (),
-        };
+        if let Some(b'_') = method_name.get(0) {
+            return Err(Error::PrivateMethod);
+        }
 
         let arguments = self.read_buffer(arguments_ptr as usize)?;
 
