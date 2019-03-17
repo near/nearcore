@@ -34,7 +34,7 @@ fn main() {
 
     let mut acc_names = vec![];
     for i in 0..num_accounts {
-        acc_names.push(format!("alphanet-{}", i));
+        acc_names.push(format!("near.{}", i));
     }
     let chain_spec = generate_test_chain_spec(&acc_names, 1_000_000_000);
     save_chain_spec(&chain_spec_file, chain_spec);
