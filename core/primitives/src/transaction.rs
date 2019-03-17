@@ -67,14 +67,14 @@ impl From<transaction_proto::CreateAccountTransaction> for CreateAccountTransact
     }
 }
 
-impl Into<transaction_proto::CreateAccountTransaction> for CreateAccountTransaction {
-    fn into(self) -> transaction_proto::CreateAccountTransaction {
+impl From<CreateAccountTransaction> for transaction_proto::CreateAccountTransaction {
+    fn from(t: CreateAccountTransaction) -> transaction_proto::CreateAccountTransaction {
         transaction_proto::CreateAccountTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            new_account_id: self.new_account_id,
-            amount: self.amount,
-            public_key: self.public_key,
+            nonce: t.nonce,
+            originator: t.originator,
+            new_account_id: t.new_account_id,
+            amount: t.amount,
+            public_key: t.public_key,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -123,12 +123,12 @@ impl From<transaction_proto::DeployContractTransaction> for DeployContractTransa
     }
 }
 
-impl Into<transaction_proto::DeployContractTransaction> for DeployContractTransaction {
-    fn into(self) -> transaction_proto::DeployContractTransaction {
+impl From<DeployContractTransaction> for transaction_proto::DeployContractTransaction {
+    fn from(t: DeployContractTransaction) -> transaction_proto::DeployContractTransaction {
         transaction_proto::DeployContractTransaction {
-            nonce: self.nonce,
-            contract_id: self.contract_id,
-            wasm_byte_array: self.wasm_byte_array,
+            nonce: t.nonce,
+            contract_id: t.contract_id,
+            wasm_byte_array: t.wasm_byte_array,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -158,15 +158,15 @@ impl From<transaction_proto::FunctionCallTransaction> for FunctionCallTransactio
     }
 }
 
-impl Into<transaction_proto::FunctionCallTransaction> for FunctionCallTransaction {
-    fn into(self) -> transaction_proto::FunctionCallTransaction {
+impl From<FunctionCallTransaction> for transaction_proto::FunctionCallTransaction {
+    fn from(t: FunctionCallTransaction) -> transaction_proto::FunctionCallTransaction {
         transaction_proto::FunctionCallTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            contract_id: self.contract_id,
-            method_name: self.method_name,
-            args: self.args,
-            amount: self.amount,
+            nonce: t.nonce,
+            originator: t.originator,
+            contract_id: t.contract_id,
+            method_name: t.method_name,
+            args: t.args,
+            amount: t.amount,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -205,13 +205,13 @@ impl From<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
     }
 }
 
-impl Into<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
-    fn into(self) -> transaction_proto::SendMoneyTransaction {
+impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
+    fn from(t: SendMoneyTransaction) -> transaction_proto::SendMoneyTransaction {
         transaction_proto::SendMoneyTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            receiver: self.receiver,
-            amount: self.amount,
+            nonce: t.nonce,
+            originator: t.originator,
+            receiver: t.receiver,
+            amount: t.amount,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -239,14 +239,14 @@ impl From<transaction_proto::StakeTransaction> for StakeTransaction {
     }
 }
 
-impl Into<transaction_proto::StakeTransaction> for StakeTransaction {
-    fn into(self) -> transaction_proto::StakeTransaction {
+impl From<StakeTransaction> for transaction_proto::StakeTransaction {
+    fn from(t: StakeTransaction) -> transaction_proto::StakeTransaction {
         transaction_proto::StakeTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            amount: self.amount,
-            public_key: self.public_key,
-            bls_public_key: self.bls_public_key,
+            nonce: t.nonce,
+            originator: t.originator,
+            amount: t.amount,
+            public_key: t.public_key,
+            bls_public_key: t.bls_public_key,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -273,13 +273,13 @@ impl From<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
     }
 }
 
-impl Into<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
-    fn into(self) -> transaction_proto::SwapKeyTransaction {
+impl From<SwapKeyTransaction> for transaction_proto::SwapKeyTransaction {
+    fn from(t: SwapKeyTransaction) -> transaction_proto::SwapKeyTransaction {
         transaction_proto::SwapKeyTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            cur_key: self.cur_key,
-            new_key: self.new_key,
+            nonce: t.nonce,
+            originator: t.originator,
+            cur_key: t.cur_key,
+            new_key: t.new_key,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -310,12 +310,12 @@ impl From<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
     }
 }
 
-impl Into<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
-    fn into(self) -> transaction_proto::AddKeyTransaction {
+impl From<AddKeyTransaction> for transaction_proto::AddKeyTransaction {
+    fn from(t: AddKeyTransaction) -> transaction_proto::AddKeyTransaction {
         transaction_proto::AddKeyTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            new_key: self.new_key,
+            nonce: t.nonce,
+            originator: t.originator,
+            new_key: t.new_key,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -345,12 +345,12 @@ impl From<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
     }
 }
 
-impl Into<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
-    fn into(self) -> transaction_proto::DeleteKeyTransaction {
+impl From<DeleteKeyTransaction> for transaction_proto::DeleteKeyTransaction {
+    fn from(t: DeleteKeyTransaction) -> transaction_proto::DeleteKeyTransaction {
         transaction_proto::DeleteKeyTransaction {
-            nonce: self.nonce,
-            originator: self.originator,
-            cur_key: self.cur_key,
+            nonce: t.nonce,
+            originator: t.originator,
+            cur_key: t.cur_key,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -606,9 +606,9 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
     }
 }
 
-impl Into<transaction_proto::SignedTransaction> for SignedTransaction {
-    fn into(self) -> transaction_proto::SignedTransaction {
-        let body = match self.body {
+impl From<SignedTransaction> for transaction_proto::SignedTransaction {
+    fn from(tx: SignedTransaction) -> transaction_proto::SignedTransaction {
+        let body = match tx.body {
             TransactionBody::CreateAccount(t) => {
                 transaction_proto::SignedTransaction_oneof_body::create_account(t.into())
             }
@@ -639,7 +639,7 @@ impl Into<transaction_proto::SignedTransaction> for SignedTransaction {
         };
         transaction_proto::SignedTransaction {
             body: Some(body),
-            signature: self.signature.as_ref().to_vec(),
+            signature: tx.signature.as_ref().to_vec(),
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }

@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+message ChainState {
+    bytes genesis_hash = 1;
+    uint64 last_index = 2;
+}
