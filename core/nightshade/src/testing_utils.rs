@@ -74,13 +74,13 @@ pub fn state(authority: AuthorityId, bare_state: BareState, num_authorities: usi
 
     let primary_confidence = bare_state.primary_confidence;
     let secondary_confidence = bare_state.secondary_confidence;
-    let endorses = bare_state.endorses.author;
-    let different_endorses = if endorses == 0 { 1usize } else { 0usize };
+    let primary_endorse = bare_state.endorses.author;
+    let secondary_endorse = if primary_endorse == 0 { 1usize } else { 0usize };
 
     State {
         bare_state,
-        primary_proof: proof(primary_confidence, endorses, num_authorities),
-        secondary_proof: proof(secondary_confidence, different_endorses, num_authorities),
+        primary_proof: proof(primary_confidence, primary_endorse, num_authorities),
+        secondary_proof: proof(secondary_confidence, secondary_endorse, num_authorities),
         signature,
     }
 }
