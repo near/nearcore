@@ -109,14 +109,14 @@ fn to_string_value(s: String) -> StringValue {
     res
 }
 
-impl Into<network_proto::PeerInfo> for PeerInfo {
-    fn into(self) -> network_proto::PeerInfo {
-        let id = self.id;
-        let addr = SingularPtrField::from_option(self.addr.map(|s| {
+impl From<PeerInfo> for network_proto::PeerInfo {
+    fn from(peer_info: PeerInfo) -> network_proto::PeerInfo {
+        let id = peer_info.id;
+        let addr = SingularPtrField::from_option(peer_info.addr.map(|s| {
             to_string_value(format!("{}", s))
         }));
         let account_id = SingularPtrField::from_option(
-            self.account_id.map(to_string_value)
+            peer_info.account_id.map(to_string_value)
         );
         network_proto::PeerInfo {
             id: id.into(),
@@ -143,10 +143,10 @@ impl From<network_proto::ConnectedInfo> for ConnectedInfo {
     }
 }
 
-impl Into<network_proto::ConnectedInfo> for ConnectedInfo {
-    fn into(self) -> network_proto::ConnectedInfo {
+impl From<ConnectedInfo> for network_proto::ConnectedInfo {
+    fn from(connected_info: ConnectedInfo) -> network_proto::ConnectedInfo {
         network_proto::ConnectedInfo {
-            chain_state: SingularPtrField::some(self.chain_state.into()),
+            chain_state: SingularPtrField::some(connected_info.chain_state.into()),
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
@@ -184,23 +184,23 @@ impl From<network_proto::HandShake> for Handshake {
     }
 }
 
-impl Into<network_proto::HandShake> for Handshake {
-    fn into(self) -> network_proto::HandShake {
+impl From<Handshake> for network_proto::HandShake {
+    fn from(hand_shake: Handshake) -> network_proto::HandShake {
         let account_id = SingularPtrField::from_option(
-            self.account_id.map(to_string_value)
+            hand_shake.account_id.map(to_string_value)
         );
-        let listen_port = SingularPtrField::from_option(self.listen_port.map(|v| {
+        let listen_port = SingularPtrField::from_option(hand_shake.listen_port.map(|v| {
             let mut res = UInt32Value::new();
             res.set_value(u32::from(v));
             res
         }));
         network_proto::HandShake {
-            version: self.version,
-            peer_id: self.peer_id.into(),
+            version: hand_shake.version,
+            peer_id: hand_shake.peer_id.into(),
             peers_info: RepeatedField::from_iter(
-                self.peers_info.into_iter().map(std::convert::Into::into)
+                hand_shake.peers_info.into_iter().map(std::convert::Into::into)
             ),
-            connected_info: SingularPtrField::some(self.connected_info.into()),
+            connected_info: SingularPtrField::some(hand_shake.connected_info.into()),
             account_id,
             listen_port,
             unknown_fields: Default::default(),
@@ -235,15 +235,17 @@ impl From<network_proto::PeerMessage> for PeerMessage {
     }
 }
 
-impl Into<network_proto::PeerMessage> for PeerMessage {
-    fn into(self) -> network_proto::PeerMessage {
-        let m = match self {
+impl From<PeerMessage> for network_proto::PeerMessage {
+    fn from(message: PeerMessage) -> network_proto::PeerMessage {
+        let m = match message {
             PeerMessage::Handshake(hand_shake) => {
                 Some(network_proto::PeerMessage_oneof_m::hand_shake(hand_shake.into()))
             }
             PeerMessage::InfoGossip(peers_info) => {
                 let gossip = network_proto::InfoGossip {
-                    info_gossip: RepeatedField::from_iter(peers_info.into_iter().map(std::convert::Into::into)),
+                    info_gossip: RepeatedField::from_iter(
+                        peers_info.into_iter().map(std::convert::Into::into)
+                    ),
                     unknown_fields: Default::default(),
                     cached_size: Default::default(),
                 };

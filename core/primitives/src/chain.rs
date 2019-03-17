@@ -222,11 +222,11 @@ impl From<chain_proto::ChainState> for ChainState {
     }
 }
 
-impl Into<chain_proto::ChainState> for ChainState {
-    fn into(self) -> chain_proto::ChainState {
+impl From<ChainState> for chain_proto::ChainState {
+    fn from(chain_state: ChainState) -> chain_proto::ChainState {
         chain_proto::ChainState {
-            genesis_hash: self.genesis_hash.into(),
-            last_index: self.last_index,
+            genesis_hash: chain_state.genesis_hash.into(),
+            last_index: chain_state.last_index,
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }

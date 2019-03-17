@@ -22,9 +22,9 @@ pub enum ChainId {
     ShardChain(u32),
 }
 
-impl Into<u32> for ChainId {
-    fn into(self) -> u32 {
-        match self {
+impl From<ChainId> for u32 {
+    fn from(id: ChainId) -> u32 {
+        match id {
             ChainId::BeaconChain => 0u32,
             ChainId::ShardChain(i) => i + 1,
         }
