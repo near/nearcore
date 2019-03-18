@@ -7,7 +7,7 @@
         "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
     },
     "scripts": {
-        "build": "near build"
+        "build": "near build --out_file hello.wasm"
     },
     "devDependencies": {
         "near-shell": "0.0.9"
