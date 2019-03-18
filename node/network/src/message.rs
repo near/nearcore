@@ -3,20 +3,16 @@ use serde_derive::{Deserialize, Serialize};
 use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
 use primitives::beacon::SignedBeaconBlock;
-use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock, ChainState};
+use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
+use primitives::network::ConnectedInfo;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
-
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
-pub struct ConnectedInfo {
-    pub chain_state: ChainState,
-}
 
 /// Message passed over the network from peer to peer.
 /// Box's are used when message is significantly larger than other enum members.

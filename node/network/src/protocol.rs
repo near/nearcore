@@ -14,12 +14,12 @@ use configs::NetworkConfig;
 use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
 use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse, ChainState};
-use primitives::network::PeerInfo;
+use primitives::network::{PeerInfo, PeerMessage, ConnectedInfo};
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
 
-use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
-use crate::peer::{ChainStateRetriever, PeerMessage};
+use crate::message::{CoupledBlock, Message, RequestId};
+use crate::peer::ChainStateRetriever;
 use crate::peer_manager::PeerManager;
 
 #[derive(Clone)]

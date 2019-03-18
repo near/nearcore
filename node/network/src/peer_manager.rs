@@ -18,10 +18,10 @@ use rand::thread_rng;
 use tokio::net::TcpListener;
 use tokio::timer::Interval;
 
-use primitives::network::{PeerAddr, PeerInfo};
+use primitives::network::{PeerAddr, PeerInfo, PeerMessage};
 use primitives::types::{AccountId, PeerId};
 
-use crate::peer::{AllPeerStates, ChainStateRetriever, get_peer_info, Peer, PeerMessage, PeerState};
+use crate::peer::{AllPeerStates, ChainStateRetriever, get_peer_info, Peer, PeerState};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
