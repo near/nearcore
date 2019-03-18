@@ -7,6 +7,9 @@ use std::fmt;
 use crate::logging::pretty_hash;
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 use crate::types::ReadablePublicKey;
+use crate::traits::Base58Encoded;
+use crate::traits::ToBytes;
+use crate::traits::FromBytes;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -29,6 +32,34 @@ pub fn get_key_pair() -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::gen_keypair();
     (PublicKey(public_key), SecretKey(secret_key))
 }
+
+
+impl Base58Encoded for PublicKey {}
+impl Base58Encoded for SecretKey {}
+impl ToBytes for PublicKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
+    }
+}
+
+impl FromBytes for PublicKey {
+    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        PublicKey::new(bytes).map_err(|e| e.into())
+    }
+}
+
+impl ToBytes for SecretKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
+    }
+}
+
+impl FromBytes for SecretKey {
+    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        SecretKey::new(bytes).map_err(|e| e.into())
+    }
+}
+
 
 pub fn verify_signature(
     signature: &Signature,
@@ -71,6 +102,16 @@ impl PublicKey {
 }
 
 impl SecretKey {
+    pub fn new(bytes: &[u8]) -> Result<SecretKey, String> {
+        if bytes.len() != sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES {
+            return Err("bytes not the size of a secret key".to_string());
+        }
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
+        array.copy_from_slice(bytes);
+        let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
+        Ok(SecretKey(secret_key))
+    }
+
     pub fn from(s: &str) -> SecretKey {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
         let bytes = bs58::decode(s).into_vec().expect("Failed to convert secret key from base58");
@@ -99,6 +140,12 @@ impl Signature {
         array.copy_from_slice(bytes_arr);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
         Signature(signature)
+    }
+}
+
+impl std::convert::AsRef<[u8]> for PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
     }
 }
 
