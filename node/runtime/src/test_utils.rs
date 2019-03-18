@@ -10,9 +10,9 @@ use primitives::signer::{InMemorySigner, TransactionSigner, BlockSigner};
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall,
     Callback, CallbackInfo, CallbackResult,
-    CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
-    ReceiptTransaction, SignedTransaction,
-    TransactionBody
+    CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, 
+    FunctionCallTransaction, StakeTransaction, ReceiptBody,
+    ReceiptTransaction, SignedTransaction, TransactionBody
 };
 use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash};
 use storage::{Trie, TrieUpdate};
@@ -149,7 +149,7 @@ impl Runtime {
 
 pub struct User {
     runtime: Runtime,
-    account_id: String,
+    account_id: AccountId,
     nonce: u64,
     trie: Arc<Trie>,
     pub signer: Arc<InMemorySigner>,
@@ -170,6 +170,10 @@ impl User {
             trie,
             signer,
         }, root)
+    }
+
+    pub fn get_account_id(&self) -> AccountId {
+        self.account_id.clone()
     }
 
     pub fn send_tx(
@@ -289,6 +293,22 @@ impl User {
             nonce: self.nonce,
             originator: self.account_id.clone(),
             cur_key: key.0[..].to_vec()
+        });
+        self.nonce += 1;
+        self.send_tx(root, tx_body)
+    }
+
+    pub fn stake(
+        &mut self,
+        root: MerkleHash,
+        amount: u64,
+    ) -> (MerkleHash, Vec<ApplyResult>) {
+        let tx_body = TransactionBody::Stake(StakeTransaction {
+            nonce: self.nonce,
+            originator: self.account_id.clone(),
+            amount,
+            public_key: self.signer.public_key.to_string(),
+            bls_public_key: self.signer.bls_public_key.to_string(),
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
