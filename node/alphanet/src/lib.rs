@@ -124,6 +124,7 @@ mod tests {
     use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
+    use primitives::test_utils::TestSignedBlock;
 
     use testlib::alphanet_utils::{configure_chain_spec, wait, Node};
 
@@ -230,10 +231,10 @@ mod tests {
         let (mut beacon_block, mut shard_block, shard_extra) =
             alice.client.prepare_block(ChainPayload::default());
         // Sign by alice & bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 0);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 0);
-        beacon_block.add_signature(&beacon_block.sign(alice.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(alice.signer()), 1);
+        let authorities = alice.client.get_recent_uid_to_authority_map();
+        let signers = vec![alice.signer(), bob.signer()];
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob
@@ -289,13 +290,12 @@ mod tests {
             chain_spec.clone(),
         );
         let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
-        alice.client.try_import_produced(beacon_block.clone(), shard_block.clone(), shard_extra);
         // Sign by alice & bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(alice.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(alice.signer()), 1);
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 0);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 0);
-        alice.client.try_import_blocks(beacon_block, shard_block);
+        let authorities = alice.client.get_recent_uid_to_authority_map();
+        let signers = vec![alice.signer(), bob.signer()];
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.client
             .shard_client

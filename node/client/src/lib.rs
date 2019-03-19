@@ -512,6 +512,7 @@ mod tests {
         prev_beacon_block: &SignedBeaconBlock,
         prev_shard_block: &SignedShardBlock,
         count: u32,
+        authorities: &HashMap<AuthorityId, AuthorityStake>,
         signers: &Vec<Arc<InMemorySigner>>,
     ) -> Vec<(SignedBeaconBlock, SignedShardBlock)> {
         let (mut beacon_block, mut shard_block) =
@@ -519,14 +520,14 @@ mod tests {
         let mut result = vec![];
         for _ in 0..count {
             let mut new_shard_block = SignedShardBlock::empty(&shard_block);
-            new_shard_block.sign_all(signers);
+            new_shard_block.sign_all(authorities, signers);
             let mut new_beacon_block = SignedBeaconBlock::new(
                 beacon_block.index() + 1,
                 beacon_block.hash,
                 vec![],
                 new_shard_block.hash,
             );
-            new_beacon_block.sign_all(signers);
+            new_beacon_block.sign_all(authorities, signers);
             beacon_block = new_beacon_block.clone();
             shard_block = new_shard_block.clone();
             result.push((new_beacon_block, new_shard_block));
@@ -539,10 +540,12 @@ mod tests {
         let (chain_spec, signers) = generate_test_chain_spec();
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
+        let authorities = client.get_recent_uid_to_authority_map();
         let blocks = make_coupled_blocks(
             &client.beacon_client.chain.best_block(),
             &client.shard_client.chain.best_block(),
             10,
+            &authorities,
             &signers,
         );
         for i in (0..10).rev() {
@@ -576,8 +579,8 @@ mod tests {
         // Set-up genesis and chain spec.
         let genesis_wasm =
             include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_signer = InMemorySigner::from_seed("alice.near", "alice.near");
-        let bob_signer = InMemorySigner::from_seed("bob.near", "bob.near");
+        let alice_signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+        let bob_signer = Arc::new(InMemorySigner::from_seed("bob.near", "bob.near"));
         let chain_spec = ChainSpec {
             accounts: vec![
                 ("alice.near".to_string(), alice_signer.public_key().to_readable(), 100, 10),
@@ -604,30 +607,42 @@ mod tests {
         };
 
         // Start both clients.
-        let alice_client = get_client_from_cfg(&chain_spec, Arc::new(alice_signer));
-        let bob_client = get_client_from_cfg(&chain_spec, Arc::new(bob_signer));
+        let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
+        let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
+        let authorities = alice_client.get_recent_uid_to_authority_map();
+        let signers = vec![alice_signer, bob_signer];
 
         // First produce several blocks by Alice and Bob.
         for _ in 1..=5 {
-            let (beacon_block, shard_block, shard_extra) = alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            let (mut beacon_block, mut shard_block, shard_extra) = alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            beacon_block.sign_all(&authorities, &signers);
+            shard_block.sign_all(&authorities, &signers);
             alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
-            let (beacon_block, shard_block, shard_extra) = bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            let (mut beacon_block, mut shard_block, shard_extra) = bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            beacon_block.sign_all(&authorities, &signers);
+            shard_block.sign_all(&authorities, &signers);
             bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
         }
 
         // Then Bob produces several blocks and Alice tries to import them except the first one.
-        let (beacon_block, shard_block, shard_extra) =
+        let (mut beacon_block, mut shard_block, shard_extra) =
             bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
         bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
         for _ in 7..=10 {
-            let (beacon_block, shard_block, shard_extra) =
+            let (mut beacon_block, mut shard_block, shard_extra) =
                 bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            beacon_block.sign_all(&authorities, &signers);
+            shard_block.sign_all(&authorities, &signers);
             let (bb, sb) = bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
             alice_client.try_import_blocks(bb, sb);
         }
 
         // Lastly, alice produces the missing block and is expected to progess to block 10.
-        let (beacon_block, shard_block, shard_extra) = alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
+        let (mut beacon_block, mut shard_block, shard_extra) = alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
         alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
         assert_eq!(alice_client.beacon_client.chain.best_index(), 10);
         assert_eq!(alice_client.shard_client.chain.best_index(), 10);

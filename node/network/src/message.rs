@@ -22,6 +22,7 @@ pub struct ConnectedInfo {
 /// Message passed over the network from peer to peer.
 /// Box's are used when message is significantly larger than other enum members.
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum Message {
     /// On peer connected, information about their chain.
     Connected(ConnectedInfo),
