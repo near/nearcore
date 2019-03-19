@@ -1,11 +1,12 @@
-use crate::logging;
 use std::fmt;
 
 use crate::aggregate_signature::{
-    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
+    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature
 };
 use crate::hash::CryptoHash;
+use crate::logging::pretty_hash;
 use crate::signature::{bs58_serializer, PublicKey, Signature};
+use crate::traits::ToBytes;
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -54,7 +55,7 @@ pub struct GroupSignature {
 
 impl fmt::Debug for GroupSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", logging::pretty_serializable(&self))
+        write!(f, "{:?} {:?}", self.authority_mask, pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string())
     }
 }
 

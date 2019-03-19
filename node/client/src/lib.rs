@@ -536,7 +536,29 @@ mod tests {
     }
 
     #[test]
-    fn test_block_catchup() {
+    fn test_block_fetch() {
+        let (chain_spec, signers) = generate_test_chain_spec();
+        let client = get_client_from_cfg(&chain_spec, signers[0].clone());
+
+        let authorities = client.get_recent_uid_to_authority_map();
+        let blocks = make_coupled_blocks(
+            &client.beacon_client.chain.best_block(),
+            &client.shard_client.chain.best_block(),
+            10,
+            &authorities,
+            &signers,
+        );
+        for b in blocks.iter() {
+            client.try_import_blocks(b.0.clone(), b.1.clone());
+        }
+        let fetched_blocks = client.fetch_blocks_range(1, 10).unwrap();
+        assert_eq!(fetched_blocks.len(), 10);
+        assert_eq!(fetched_blocks[0].0.signature.authority_count(), authorities.len());
+        assert_eq!(fetched_blocks[0].1.signature.authority_count(), authorities.len());
+    }
+
+    #[test]
+    fn test_block_reverse_catchup() {
         let (chain_spec, signers) = generate_test_chain_spec();
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 

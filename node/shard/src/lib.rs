@@ -186,14 +186,14 @@ impl ShardClient {
         let receipt_merkle_root = block.body.header.receipt_merkle_root;
         let (shard_block, shard_block_extra) = self.prepare_new_block(
             block.body.header.parent_hash,
-            block.body.receipts,
-            block.body.transactions,
+            block.body.receipts.clone(),
+            block.body.transactions.clone(),
         );
         if shard_block.body.header.merkle_root_state == state_merkle_root
             && shard_block.body.header.receipt_merkle_root == receipt_merkle_root
         {
             self.insert_block(
-                &shard_block,
+                &block,
                 shard_block_extra.db_changes,
                 shard_block_extra.tx_results,
                 shard_block_extra.largest_tx_nonce,

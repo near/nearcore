@@ -419,6 +419,7 @@ impl ClientTask {
         let beacon_block = self.unfinalized_beacon_blocks.remove(&beacon_hash).unwrap();
         let (shard_block, shard_block_info) =
             self.unfinalized_shard_blocks.remove(&shard_hash).unwrap();
+        assert!(shard_block.signature.authority_count() == present);
         self.client.try_import_produced(beacon_block.clone(), shard_block.clone(), shard_block_info);
         self.announce_block(beacon_block, shard_block);
         Some(self.client.beacon_client.chain.best_index())
