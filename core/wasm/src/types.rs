@@ -97,8 +97,8 @@ pub enum RuntimeError {
     InvalidConversionToInt,
     /// Stack overflow
     StackOverflow,
-    /// Unknown buffer type index for reading or writing
-    UnknownBufferTypeIndex,
+    /// Unknown data type index for reading or writing
+    UnknownDataTypeIndex,
     /// Invalid account id
     InvalidAccountId,
     /// Creating a promise with a private method. The method name starts with '_'.
@@ -138,7 +138,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::DivisionByZero => write!(f, "Division by zero"),
             RuntimeError::StackOverflow => write!(f, "Stack overflow"),
             RuntimeError::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
-            RuntimeError::UnknownBufferTypeIndex => write!(f, "Unknown buffer type index"),
+            RuntimeError::UnknownDataTypeIndex => write!(f, "Unknown data type index for reading or writing"),
             RuntimeError::InvalidAccountId => write!(f, "Invalid AccountID"),
             RuntimeError::PrivateMethod => write!(f, "Creating a promise with a private method"),
             RuntimeError::EmptyMethodName => write!(f, "Creating a callback with an empty method name"),
