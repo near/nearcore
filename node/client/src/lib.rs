@@ -505,8 +505,8 @@ mod tests {
 
     use super::*;
     use configs::ChainSpec;
-    use primitives::signer::BlockSigner;
-    use primitives::signer::TransactionSigner;
+    use primitives::signer::{BlockSigner, TransactionSigner};
+    use primitives::serialize::Encode;
 
     fn make_coupled_blocks(
         prev_beacon_block: &SignedBeaconBlock,
@@ -552,9 +552,10 @@ mod tests {
             client.try_import_blocks(b.0.clone(), b.1.clone());
         }
         let fetched_blocks = client.fetch_blocks_range(1, 10).unwrap();
-        assert_eq!(fetched_blocks.len(), 10);
-        assert_eq!(fetched_blocks[0].0.signature.authority_count(), authorities.len());
-        assert_eq!(fetched_blocks[0].1.signature.authority_count(), authorities.len());
+        for i in 0..blocks.len() {
+            assert_eq!(blocks[i].0.encode().unwrap(), fetched_blocks[i].0.encode().unwrap());
+            assert_eq!(blocks[i].1.encode().unwrap(), fetched_blocks[i].1.encode().unwrap());
+        }
     }
 
     #[test]
