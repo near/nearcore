@@ -15,10 +15,12 @@ use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
 use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse, ChainState};
 use primitives::network::{PeerInfo, PeerMessage, ConnectedInfo};
-use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
 
-use crate::message::{CoupledBlock, Message, RequestId};
+use crate::message::{
+    CoupledBlock, Message, RequestId,
+    encode_message, decode_message
+};
 use crate::peer::ChainStateRetriever;
 use crate::peer_manager::PeerManager;
 
@@ -56,76 +58,80 @@ struct Protocol {
 
 impl Protocol {
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
-        match Decode::decode(&data) {
-            Ok(m) => match m {
-                Message::Connected(connected_info) => {
-                    info!("Peer {} connected to {} with {:?}", peer_id, self.peer_manager.node_info.id, connected_info);
-                    self.on_new_peer(peer_id, connected_info);
+        let message = match decode_message(&data) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(target: "network", "{}", e);
+                return;
+            }
+        };
+        match message {
+            Message::Connected(connected_info) => {
+                info!("Peer {} connected to {} with {:?}", peer_id, self.peer_manager.node_info.id, connected_info);
+                self.on_new_peer(peer_id, connected_info);
+            }
+            Message::Transaction(tx) => {
+                if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
+                    error!(target: "network", "{}", e);
                 }
-                Message::Transaction(tx) => {
-                    if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
-                        error!(target: "network", "{}", e);
-                    }
+            }
+            Message::Receipt(receipt) => {
+                if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
+                    error!(target: "network", "{}", e);
                 }
-                Message::Receipt(receipt) => {
-                    if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
-                        error!(target: "network", "{}", e);
-                    }
-                }
-                Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
-                Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
-                Message::BlockAnnounce(block) => {
-                    forward_msg(self.inc_block_tx.clone(), (peer_id, *block));
-                }
-                Message::BlockFetchRequest(request_id, from_index, til_index) => {
-                    match self.client.fetch_blocks_range(from_index, til_index) {
-                        Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
-                        Err(err) => {
-                            self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
-                        }
-                    }
-                }
-                Message::BlockResponse(_request_id, mut blocks) => {
-                    forward_msgs(self.inc_block_tx.clone(), blocks.drain(..).map(|b| (peer_id, b)).collect());
-                }
-                Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
-                    match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
-                        Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
-                        Err(err) => {
-                            self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
-                        }
-                    }
-                },
-                Message::PayloadSnapshotRequest(request_id, hash) => {
-                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
-                        info!("Payload snapshot request from {} for {}", authority_id, hash);
-                        match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
-                            Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
-                            Err(err) => {
-                                self.peer_manager.suspect_malicious(&peer_id);
-                                warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
-                            }
-                        }
-                    } else {
+            }
+            Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
+            Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
+            Message::BlockAnnounce(block) => {
+                forward_msg(self.inc_block_tx.clone(), (peer_id, *block));
+            }
+            Message::BlockFetchRequest(request_id, from_index, til_index) => {
+                match self.client.fetch_blocks_range(from_index, til_index) {
+                    Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
+                    Err(err) => {
                         self.peer_manager.suspect_malicious(&peer_id);
-                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                        warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
                     }
-                },
-                Message::PayloadResponse(_request_id, payload) => {
-                    // TODO: check request id.
-                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
-                        info!("Payload response from {} / {}", peer_id, authority_id);
-                        forward_msg(self.payload_response_tx.clone(), PayloadResponse::BlockProposal(authority_id, payload));
-                    } else {
+                }
+            }
+            Message::BlockResponse(_request_id, mut blocks) => {
+                forward_msgs(self.inc_block_tx.clone(), blocks.drain(..).map(|b| (peer_id, b)).collect());
+            }
+            Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
+                match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
+                    Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                    Err(err) => {
                         self.peer_manager.suspect_malicious(&peer_id);
-                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                        warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
                     }
                 }
             },
-            Err(e) => warn!(target: "network", "{}", e),
-        };
+            Message::PayloadSnapshotRequest(request_id, hash) => {
+                if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                    info!("Payload snapshot request from {} for {}", authority_id, hash);
+                    match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
+                        Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                        Err(err) => {
+                            self.peer_manager.suspect_malicious(&peer_id);
+                            warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
+                        }
+                    }
+                } else {
+                    self.peer_manager.suspect_malicious(&peer_id);
+                    warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                }
+            },
+            Message::PayloadResponse(_request_id, payload) => {
+                // TODO: check request id.
+                if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                    info!("Payload response from {} / {}", peer_id, authority_id);
+                    forward_msg(self.payload_response_tx.clone(), PayloadResponse::BlockProposal(authority_id, payload));
+                } else {
+                    self.peer_manager.suspect_malicious(&peer_id);
+                    warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                }
+            }
+        }
     }
 
     fn on_new_peer(&self, peer_id: PeerId, connected_info: ConnectedInfo) {
@@ -161,7 +167,7 @@ impl Protocol {
 
     fn send_gossip(&self, g: Gossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
-            let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
+            let data = encode_message(Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
@@ -173,7 +179,7 @@ impl Protocol {
 
     fn send_payload_gossip(&self, g: PayloadGossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
-            let data = Encode::encode(&Message::PayloadGossip(Box::new(g))).unwrap();
+            let data = encode_message(Message::PayloadGossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
@@ -181,7 +187,7 @@ impl Protocol {
     }
 
     fn send_block_announce(&self, peer_ids: Vec<PeerId>, b: CoupledBlock) {
-        let data = Encode::encode(&Message::BlockAnnounce(Box::new(b))).unwrap();
+        let data = encode_message(Message::BlockAnnounce(Box::new(b))).unwrap();
         for peer_id in peer_ids.iter() {
             if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
                 forward_msg(ch, PeerMessage::Message(data.to_vec()));
@@ -193,9 +199,9 @@ impl Protocol {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             // TODO: make proper request ids.
             let request_id = 1;
-            let data =
-                Encode::encode(&Message::BlockFetchRequest(request_id, from_index, til_index))
-                    .unwrap();
+            let data = encode_message(
+                Message::BlockFetchRequest(request_id, from_index, til_index)
+            ).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
@@ -209,7 +215,7 @@ impl Protocol {
         blocks: Vec<CoupledBlock>,
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = Encode::encode(&Message::BlockResponse(request_id, blocks)).unwrap();
+            let data = encode_message(Message::BlockResponse(request_id, blocks)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
@@ -223,7 +229,7 @@ impl Protocol {
                 // TODO: make proper request ids.
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(authority_id) {
-                    let data = Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
+                    let data = encode_message(Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
@@ -240,7 +246,7 @@ impl Protocol {
     ) {
         info!("Send payload to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = Encode::encode(&Message::PayloadResponse(request_id, payload)).unwrap();
+            let data = encode_message(Message::PayloadResponse(request_id, payload)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found, account_id={:?}", peer_id, self.peer_manager.node_info.account_id);

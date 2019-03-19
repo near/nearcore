@@ -1,6 +1,7 @@
 use crate::types::{AccountId, PeerId};
 use crate::hash::CryptoHash;
 use crate::chain::ChainState;
+use crate::utils::to_string_value;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -9,7 +10,7 @@ use std::convert::TryFrom;
 use std::iter::FromIterator;
 use near_protos::network as network_proto;
 use protobuf::{SingularPtrField, RepeatedField};
-use protobuf::well_known_types::{StringValue, UInt32Value};
+use protobuf::well_known_types::UInt32Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerAddr {
@@ -101,12 +102,6 @@ impl From<network_proto::PeerInfo> for PeerInfo {
             account_id,
         }
     }
-}
-
-fn to_string_value(s: String) -> StringValue {
-    let mut res = StringValue::new();
-    res.set_value(s);
-    res
 }
 
 impl From<PeerInfo> for network_proto::PeerInfo {

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use std::iter::FromIterator;
 
 use elapsed::measure_time;
 use futures::future::Future;
@@ -18,6 +19,8 @@ use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::{verify, PublicKey, Signature};
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
+use near_protos::nightshade as nightshade_proto;
+use protobuf::{SingularPtrField, RepeatedField};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
 
@@ -43,6 +46,28 @@ pub struct Message {
     pub state: State,
 }
 
+impl From<nightshade_proto::Gossip_Message> for Message {
+    fn from(proto: nightshade_proto::Gossip_Message) -> Message {
+        Message {
+            sender_id: proto.sender_id as AuthorityId,
+            receiver_id: proto.receiver_id as AuthorityId,
+            state: proto.state.unwrap().into(),
+        }
+    }
+}
+
+impl From<Message> for nightshade_proto::Gossip_Message {
+    fn from(message: Message) -> Self {
+        nightshade_proto::Gossip_Message {
+            sender_id: message.sender_id as u64,
+            receiver_id: message.receiver_id as u64,
+            state: SingularPtrField::some(message.state.into()),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum GossipBody {
     /// Use box because large size difference between variants
@@ -58,6 +83,75 @@ pub struct Gossip {
     pub body: GossipBody,
     block_index: u64,
     signature: Signature,
+}
+
+impl From<nightshade_proto::Gossip> for Gossip {
+    fn from(proto: nightshade_proto::Gossip) -> Self {
+        let body = match proto.body {
+            Some(nightshade_proto::Gossip_oneof_body::nightshade_state_update(state_update)) => {
+                GossipBody::NightshadeStateUpdate(Box::new(state_update.into()))
+            }
+            Some(nightshade_proto::Gossip_oneof_body::payload_request(request)) => {
+                let payload_request = request.payload_request
+                    .into_iter()
+                    .map(|x| x as AuthorityId)
+                    .collect();
+                GossipBody::PayloadRequest(payload_request)
+            }
+            Some(nightshade_proto::Gossip_oneof_body::payload_reply(reply)) => {
+                let proposals = reply.payload_reply
+                    .into_iter()
+                    .map(std::convert::Into::into)
+                    .collect();
+                GossipBody::PayloadReply(proposals)
+            }
+            None => unreachable!()
+        };
+        Gossip {
+            sender_id: proto.sender_id as AuthorityId,
+            receiver_id: proto.receiver_id as AuthorityId,
+            body,
+            block_index: proto.block_index,
+            signature: Signature::from(&proto.signature),
+        }
+    }
+}
+
+impl From<Gossip> for nightshade_proto::Gossip {
+    fn from(gossip: Gossip) -> nightshade_proto::Gossip {
+        let body = match gossip.body {
+            GossipBody::NightshadeStateUpdate(update) => {
+                nightshade_proto::Gossip_oneof_body::nightshade_state_update((*update).into())
+            }
+            GossipBody::PayloadRequest(request) => {
+                let request = nightshade_proto::Gossip_PayloadRequest {
+                    payload_request: request.into_iter().map(|x| x as u64).collect(),
+                    unknown_fields: Default::default(),
+                    cached_size: Default::default(),
+                };
+                nightshade_proto::Gossip_oneof_body::payload_request(request)
+            }
+            GossipBody::PayloadReply(reply) => {
+                let reply = nightshade_proto::Gossip_PayloadReply {
+                    payload_reply: RepeatedField::from_iter(
+                        reply.into_iter().map(std::convert::Into::into)
+                    ),
+                    unknown_fields: Default::default(),
+                    cached_size: Default::default(),
+                };
+                nightshade_proto::Gossip_oneof_body::payload_reply(reply)
+            }
+        };
+        nightshade_proto::Gossip {
+            sender_id: gossip.sender_id as u64,
+            receiver_id: gossip.receiver_id as u64,
+            body: Some(body),
+            block_index: gossip.block_index,
+            signature: gossip.signature.to_string(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl Gossip {
@@ -86,6 +180,26 @@ impl Gossip {
 pub struct SignedBlockProposal {
     block_proposal: BlockProposal,
     signature: Signature,
+}
+
+impl From<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
+    fn from(proto: nightshade_proto::SignedBlockProposal) -> Self {
+        SignedBlockProposal {
+            block_proposal: proto.block_proposal.unwrap().into(),
+            signature: Signature::from(&proto.signature),
+        }
+    }
+}
+
+impl From<SignedBlockProposal> for nightshade_proto::SignedBlockProposal {
+    fn from(proposal: SignedBlockProposal) -> Self {
+        nightshade_proto::SignedBlockProposal {
+            block_proposal: SingularPtrField::some(proposal.block_proposal.into()),
+            signature: proposal.signature.to_string(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl SignedBlockProposal {

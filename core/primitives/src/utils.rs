@@ -1,5 +1,6 @@
 use bs58;
 use byteorder::{LittleEndian, WriteBytesExt};
+use protobuf::well_known_types::StringValue;
 
 use crate::types::{AccountId, ShardId};
 use regex::Regex;
@@ -23,4 +24,10 @@ pub fn bs58_vec2str(buf: &[u8]) -> String {
 pub fn is_valid_account_id(account_id: &AccountId) -> bool {
     let re = Regex::new(r"^[a-z0-9@._\-]{5,32}$").unwrap();
     re.is_match(account_id)
+}
+
+pub fn to_string_value(s: String) -> StringValue {
+    let mut res = StringValue::new();
+    res.set_value(s);
+    res
 }

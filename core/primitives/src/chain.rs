@@ -1,15 +1,18 @@
 use std::hash::{Hash, Hasher};
 use std::borrow::Borrow;
+use std::iter::FromIterator;
 
 use serde_derive::{Deserialize, Serialize};
 
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::consensus::Payload;
 use super::hash::{CryptoHash, hash_struct};
-use super::merkle::MerklePath;
+use super::merkle::{MerklePath, Direction};
 use super::transaction::{ReceiptTransaction, SignedTransaction};
 use super::types::{AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId};
 use near_protos::chain as chain_proto;
+use near_protos::types as types_proto;
+use protobuf::{SingularPtrField, RepeatedField};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -21,11 +24,59 @@ pub struct ShardBlockHeader {
     pub receipt_merkle_root: MerkleHash,
 }
 
+impl From<chain_proto::ShardBlockHeader> for ShardBlockHeader {
+    fn from(proto: chain_proto::ShardBlockHeader) -> Self {
+        ShardBlockHeader {
+            parent_hash: proto.parent_hash.into(),
+            shard_id: proto.shard_id,
+            index: proto.block_index,
+            merkle_root_state: proto.merkle_root_state.into(),
+            receipt_merkle_root: proto.receipt_merkle_root.into(),
+        }
+    }
+}
+
+impl From<ShardBlockHeader> for chain_proto::ShardBlockHeader {
+    fn from(header: ShardBlockHeader) -> Self {
+        chain_proto::ShardBlockHeader {
+            parent_hash: header.parent_hash.into(),
+            shard_id: header.shard_id,
+            block_index: header.index,
+            merkle_root_state: header.merkle_root_state.into(),
+            receipt_merkle_root: header.receipt_merkle_root.into(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
+}
+
+impl From<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
+    fn from(proto: chain_proto::SignedShardBlockHeader) -> Self {
+        SignedShardBlockHeader {
+            body: proto.body.unwrap().into(),
+            hash: proto.hash.into(),
+            signature: proto.signature.unwrap().into(),
+        }
+    }
+}
+
+impl From<SignedShardBlockHeader> for chain_proto::SignedShardBlockHeader {
+    fn from(header: SignedShardBlockHeader) -> Self {
+        chain_proto::SignedShardBlockHeader {
+            body: SingularPtrField::some(header.body.into()),
+            hash: header.hash.into(),
+            signature: SingularPtrField::some(header.signature.into()),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl SignedShardBlockHeader {
@@ -47,11 +98,55 @@ pub struct ShardBlock {
     pub receipts: Vec<ReceiptBlock>,
 }
 
+impl From<ShardBlock> for chain_proto::ShardBlock {
+    fn from(block: ShardBlock) -> Self {
+        chain_proto::ShardBlock {
+            header: SingularPtrField::some(block.header.into()),
+            transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
+            receipts: block.receipts.into_iter().map(std::convert::Into::into).collect(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
+impl From<chain_proto::ShardBlock> for ShardBlock {
+    fn from(proto: chain_proto::ShardBlock) -> Self {
+        ShardBlock {
+            header: proto.header.unwrap().into(),
+            transactions: proto.transactions.into_iter().map(std::convert::Into::into).collect(),
+            receipts: proto.receipts.into_iter().map(std::convert::Into::into).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
+}
+
+impl From<chain_proto::SignedShardBlock> for SignedShardBlock {
+    fn from(proto: chain_proto::SignedShardBlock) -> SignedShardBlock {
+        SignedShardBlock {
+            body: proto.body.unwrap().into(),
+            hash: proto.hash.into(),
+            signature: proto.signature.unwrap().into()
+        }
+    }
+}
+
+impl From<SignedShardBlock> for chain_proto::SignedShardBlock {
+    fn from(block: SignedShardBlock) -> Self {
+        chain_proto::SignedShardBlock {
+            body: SingularPtrField::some(block.body.into()),
+            hash: block.hash.into(),
+            signature: SingularPtrField::some(block.signature.into()),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl Borrow<CryptoHash> for SignedShardBlock {
@@ -85,6 +180,48 @@ pub struct ReceiptBlock {
     // receipt block because of the uniqueness
     // of nonce in receipts
     pub hash: CryptoHash,
+}
+
+impl From<chain_proto::ReceiptBlock> for ReceiptBlock {
+    fn from(proto: chain_proto::ReceiptBlock) -> Self {
+        let path = proto.path.into_iter().map(|node| {
+            let direction = if node.direction {
+                Direction::Left
+            } else {
+                Direction::Right
+            };
+            (node.hash.into(), direction)
+        }).collect();
+        ReceiptBlock {
+            header: proto.header.unwrap().into(),
+            path,
+            receipts: proto.receipts.into_iter().map(std::convert::Into::into).collect(),
+            hash: proto.hash.into(),
+        }
+    }
+}
+
+impl From<ReceiptBlock> for chain_proto::ReceiptBlock {
+    fn from(receipt: ReceiptBlock) -> Self {
+        let path = RepeatedField::from_iter(receipt.path.into_iter().map(|(hash, dir)| {
+            types_proto::MerkleNode {
+                hash: hash.into(),
+                direction: dir == Direction::Left,
+                unknown_fields: Default::default(),
+                cached_size: Default::default(),
+            }
+        }));
+        chain_proto::ReceiptBlock {
+            header: SingularPtrField::some(receipt.header.into()),
+            path,
+            receipts: RepeatedField::from_iter(
+                receipt.receipts.into_iter().map(std::convert::Into::into)
+            ),
+            hash: receipt.hash.into(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl PartialEq for ReceiptBlock {
@@ -210,6 +347,32 @@ pub struct ChainPayload {
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<ReceiptBlock>,
     hash: CryptoHash,
+}
+
+impl From<chain_proto::ChainPayload> for ChainPayload {
+    fn from(proto: chain_proto::ChainPayload) -> Self {
+        ChainPayload {
+            transactions: proto.transactions.into_iter().map(std::convert::Into::into).collect(),
+            receipts: proto.receipts.into_iter().map(std::convert::Into::into).collect(),
+            hash: proto.hash.into(),
+        }
+    }
+}
+
+impl From<ChainPayload> for chain_proto::ChainPayload {
+    fn from(payload: ChainPayload) -> Self {
+        chain_proto::ChainPayload {
+            transactions: RepeatedField::from_iter(
+                payload.transactions.into_iter().map(std::convert::Into::into)
+            ),
+            receipts: RepeatedField::from_iter(
+                payload.receipts.into_iter().map(std::convert::Into::into)
+            ),
+            hash: payload.hash.into(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl ChainPayload {

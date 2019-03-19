@@ -12,6 +12,9 @@ use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
+use primitives::traits::Base58Encoded;
+use near_protos::nightshade as nightshade_proto;
+use protobuf::SingularPtrField;
 
 const COMMIT_THRESHOLD: i64 = 3;
 
@@ -36,6 +39,26 @@ pub struct BlockProposal {
     pub author: AuthorityId,
 }
 
+impl From<nightshade_proto::BlockProposal> for BlockProposal {
+    fn from(proto: nightshade_proto::BlockProposal) -> Self {
+        BlockProposal {
+            hash: proto.hash.into(),
+            author: proto.author as AuthorityId,
+        }
+    }
+}
+
+impl From<BlockProposal> for nightshade_proto::BlockProposal {
+    fn from(block_proposal: BlockProposal) -> Self {
+        nightshade_proto::BlockProposal {
+            hash: block_proposal.hash.into(),
+            author: block_proposal.author as u64,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ConsensusBlockProposal {
     pub proposal: BlockProposal,
@@ -57,6 +80,28 @@ pub struct BareState {
     pub endorses: BlockProposal,
     /// Confidence of outcome with second higher confidence.
     pub secondary_confidence: i64,
+}
+
+impl From<nightshade_proto::BareState> for BareState {
+    fn from(proto: nightshade_proto::BareState) -> Self {
+        BareState {
+            primary_confidence: proto.primary_confidence,
+            endorses: proto.endorses.unwrap().into(),
+            secondary_confidence: proto.secondary_confidence,
+        }
+    }
+}
+
+impl From<BareState> for nightshade_proto::BareState {
+    fn from(state: BareState) -> Self {
+        nightshade_proto::BareState {
+            primary_confidence: state.primary_confidence,
+            endorses: SingularPtrField::some(state.endorses.into()),
+            secondary_confidence: state.secondary_confidence,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl BareState {
@@ -101,6 +146,28 @@ pub struct Proof {
     mask: Vec<bool>,
     #[serde(with = "bs58_serializer")]
     signature: BlsSignature,
+}
+
+impl From<nightshade_proto::Proof> for Proof {
+    fn from(proto: nightshade_proto::Proof) -> Self {
+        Proof {
+            bare_state: proto.bare_state.unwrap().into(),
+            mask: proto.mask,
+            signature: Base58Encoded::from_base58(&proto.signature).unwrap(),
+        }
+    }
+}
+
+impl From<Proof> for nightshade_proto::Proof {
+    fn from(proof: Proof) -> nightshade_proto::Proof {
+        nightshade_proto::Proof {
+            bare_state: SingularPtrField::some(proof.bare_state.into()),
+            mask: proof.mask,
+            signature: proof.signature.to_base58(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl Proof {
@@ -168,6 +235,30 @@ pub struct State {
     /// Signature of the authority emitting this state
     #[serde(with = "uncompressed_bs58_signature_serializer")]
     pub signature: BlsSignature,
+}
+
+impl From<nightshade_proto::State> for State {
+    fn from(proto: nightshade_proto::State) -> Self {
+        State {
+            bare_state: proto.bare_state.unwrap().into(),
+            primary_proof: proto.primary_proof.into_option().map(std::convert::Into::into),
+            secondary_proof: proto.secondary_proof.into_option().map(std::convert::Into::into),
+            signature: Base58Encoded::from_base58(&proto.signature).unwrap(),
+        }
+    }
+}
+
+impl From<State> for nightshade_proto::State {
+    fn from(state: State) -> nightshade_proto::State {
+        nightshade_proto::State {
+            bare_state: SingularPtrField::some(state.bare_state.into()),
+            primary_proof: SingularPtrField::from_option(state.primary_proof.map(std::convert::Into::into)),
+            secondary_proof: SingularPtrField::from_option(state.secondary_proof.map(std::convert::Into::into)),
+            signature: state.signature.to_base58(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl State {
