@@ -19,6 +19,9 @@ type BufferTypeIndex = u32;
 
 pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
 pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
+pub const BUFFER_TYPE_STORAGE: BufferTypeIndex = 3;
+pub const BUFFER_TYPE_INPUT: BufferTypeIndex = 4;
+pub const BUFFER_TYPE_RESULT: BufferTypeIndex = 5;
 
 pub struct Runtime<'a> {
     ext: &'a mut External,
@@ -503,6 +506,62 @@ impl<'a> Runtime<'a> {
         self.memory_set(val_ptr as usize, buf)
     }
 
+    /// Generic data read. Tries to write data into the given buffer, only if the buffer has available capacity.
+    /// Returns length of the data in bytes for the given buffer type and the given key.
+    /// NOTE: Majority of reads would be small enough in size to fit into given preallocated buffer.
+    /// Params:
+    /// buffer_type_index -> The index of the data column type to read, e.g. storage, sender's account_id or results
+    /// key_len and key_ptr -> Depends on buffer type. Represents a key to read.
+    ///     key is either a pointer to a key buffer or a key index
+    /// max_buf_len -> Capacity of the preallocated buffer to write data into. Can be 0, if we first want to read the length
+    /// buf_ptr -> Pointer to the buffer to write data into.
+    fn try_read_into(
+        &mut self,
+        buffer_type_index: BufferTypeIndex,
+        key_len: u32,
+        key: u32,
+        max_buf_len: u32,
+        buf_ptr: u32
+    ) -> Result<u32> {
+        let tmp_vec;
+        let buf = match buffer_type_index {
+            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes(),
+            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
+            BUFFER_TYPE_STORAGE => {
+                let key_str = self.memory_get(key as usize, key_len as usize)?;
+                let val = self
+                    .ext
+                    .storage_get(&key_str)
+                    .map_err(|_| Error::StorageUpdateError)?;
+                match val {
+                    Some(v) => {
+                        tmp_vec = v;
+                        &tmp_vec[..]
+                    }
+                    None => &[],
+                }
+            }
+            BUFFER_TYPE_INPUT => self.input_data,
+            BUFFER_TYPE_RESULT => {
+                let result = self
+                    .result_data
+                    .get(key as usize)
+                    .ok_or(Error::InvalidResultIndex)?;
+
+                match result {
+                    Some(v) => &v[..],
+                    None => return Err(Error::ResultIsNotOk),
+                }
+
+            },
+            _ => return Err(Error::UnknownBufferTypeIndex)
+        };
+        if buf.len() <= max_buf_len as usize {
+            self.memory_set(buf_ptr as usize, &buf)?;
+        }
+        Ok(buf.len() as u32)
+    }
+
     fn hash(&mut self, buf_ptr: u32, out_ptr: u32) -> Result<()> {
         let buf = self.read_buffer(buf_ptr as usize)?;
         let buf_hash = hash(&buf);
@@ -607,6 +666,16 @@ pub mod imports {
         "read_len" => read_len<[buffer_type_index: u32, _key_ptr: u32] -> [u32]>,
         // Generic data read. Writes content of the buffer for the type/key into the given pointer.
         "read_into" => read_into<[buffer_type_index: u32, _key_ptr: u32, val_ptr: u32] -> []>,
+
+        // Generic data read. Tries to write data into the given buffer, only if the buffer has available capacity.
+        // Returns length of the data in bytes for the given buffer type and the given key.
+        // NOTE: Majority of reads would be small enough in size to fit into given preallocated buffer.
+        // Params:
+        // buffer_type_index -> The index of the data column type to read, e.g. storage, sender's account_id or results
+        // key_len and key_ptr -> Depends on buffer type. Represents a key to read. key is either a buffer_ptr or an index
+        // max_buf_len -> Capacity of the preallocated buffer to write data into. Can be 0, if we first want to read the length
+        // buf_ptr -> Pointer to the buffer to write data into.
+        "try_read_into" => try_read_into<[buffer_type_index: u32, key_len: u32, key: u32, max_buf_len: u32, buf_ptr: u32] -> [u32]>,
 
         // Promises, callbacks and async calls
         // Creates a new promise that makes an async call to some other contract.

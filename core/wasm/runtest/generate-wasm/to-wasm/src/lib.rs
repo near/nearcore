@@ -25,6 +25,9 @@ type BufferTypeIndex = u32;
 
 pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
 pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
+pub const BUFFER_TYPE_STORAGE: BufferTypeIndex = 3;
+pub const BUFFER_TYPE_INPUT: BufferTypeIndex = 4;
+pub const BUFFER_TYPE_RESULT: BufferTypeIndex = 5;
 
 #[allow(unused)]
 extern "C" {
@@ -49,6 +52,8 @@ extern "C" {
     // key can be 0 for certain types
     fn read_len(type_index: u32, key: *const u8) -> u32;
     fn read_into(type_index: u32, key: *const u8, value: *mut u8);
+
+    fn try_read_into(buffer_type_index: u32, key_len: u32, key: *const u8, max_buf_len: u32,  value: *mut u8) -> u32;
 
     // AccountID is just 32 bytes without the prefix length.
     fn promise_create(
@@ -88,12 +93,22 @@ extern "C" {
     fn debug(msg: *const u8);
 }
 
+const MAX_BUF_SIZE: u32 = 1<<16;
+static mut SCRATCH_BUF: Vec<u8> = Vec::new();
+
 fn storage_read(key: *const u8) -> Vec<u8> {
 unsafe {
-    let len = storage_read_len(key);
-    let mut vec = vec![0u8; len as usize];
-    storage_read_into(key, vec.as_mut_ptr());
-    vec
+    if SCRATCH_BUF.len() == 0 {
+        SCRATCH_BUF.resize(MAX_BUF_SIZE as usize, 0);
+    }
+    let len = try_read_into(
+        BUFFER_TYPE_STORAGE,
+        15,
+        (key as u32 + 4) as *const u8,
+        MAX_BUF_SIZE,
+        SCRATCH_BUF.as_mut_ptr());
+    assert(len <= MAX_BUF_SIZE);
+    SCRATCH_BUF[..len as usize].to_vec()
 }
 }
 
