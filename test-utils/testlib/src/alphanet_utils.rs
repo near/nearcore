@@ -28,6 +28,7 @@ pub fn configure_chain_spec() -> ChainSpec {
     read_or_default_chain_spec(&Some(d))
 }
 
+#[derive(PartialEq, Eq, Debug)]
 pub enum NodeType {
     ThreadNode,
     ProcessNode,
@@ -449,4 +450,14 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
         j += 1;
     }
     (i, j)
+}
+
+/// Sample a node for sending a transaction/checking balance
+pub fn sample_queryable_node(nodes: &Vec<Box<Node>>) -> usize {
+    let num_nodes = nodes.len();
+    let mut k = rand::random::<usize>() % num_nodes;
+    while nodes[k].node_type() == NodeType::ProcessNode {
+        k = rand::random::<usize>() % num_nodes;
+    }
+    k
 }
