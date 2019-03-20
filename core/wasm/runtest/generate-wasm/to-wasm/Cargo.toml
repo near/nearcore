@@ -8,7 +8,7 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-wee_alloc = { version = "0.4.2", default-features = true }
+wee_alloc = { version = "0.4.3", default-features = false }
 byteorder = { version = "1", default-features = false }
 
 [profile.release]
