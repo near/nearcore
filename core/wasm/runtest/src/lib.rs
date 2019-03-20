@@ -322,21 +322,21 @@ mod tests {
     }
 
     #[test]
-    fn test_studio_total_supply()  {
-        let input_data = b"{}";
+    fn test_hello_name()  {
+        let input_data = b"{\"name\": \"Alice\"}";
 
         let outcome = run_with_filename(
-            b"totalSupply",
+            b"hello",
             input_data,
             &[],
             &runtime_context(0, 0, 0),
-            "res/studio.wasm",
+            "../../../tests/hello.wasm",
         ).expect("ok");
 
         println!("Gas used for simple call {}", outcome.gas_used);
 
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"{\"result\":\"1000000\"}"),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"{\"result\":\"hello Alice\"}"),
             _ => assert!(false, "Expected returned value"),
         };
     }
