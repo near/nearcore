@@ -7,23 +7,26 @@ use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use log::{error, info, warn, debug};
+use log::{debug, error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
-use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
+use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
-use primitives::chain::{ChainPayload, PayloadRequest, PayloadResponse, ChainState};
+use primitives::chain::{ChainPayload, ChainState, PayloadRequest, PayloadResponse};
 use primitives::network::PeerInfo;
-use primitives::serialize::{Decode, Encode};
-use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
+use primitives::serialize::Decode;
+use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
 use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
-
 use crate::proxy::Proxy;
+
+/// Package containing message and all the channels to send results after
+/// going through proxy handlers.
+pub struct PackedMessage(pub Message, pub Vec<Sender<PeerMessage>>);
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -50,12 +53,12 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 struct Protocol {
     client: Arc<Client>,
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
-    proxy: Arc<Proxy>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, CoupledBlock)>,
     payload_response_tx: Sender<PayloadResponse>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
+    proxy_messages_tx: Sender<PackedMessage>,
 }
 
 impl Protocol {
@@ -166,7 +169,7 @@ impl Protocol {
     fn send_gossip(&self, g: Gossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
             let message = Message::Gossip(Box::new(g));
-            self.send_message(ch, &message);
+            self.send_message(vec![ch], message);
         } else {
             debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
                    g.receiver_id,
@@ -178,7 +181,7 @@ impl Protocol {
     fn send_payload_gossip(&self, g: PayloadGossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
             let message = Message::PayloadGossip(Box::new(g));
-            self.send_message(ch, &message);
+            self.send_message(vec![ch], message);
         } else {
             debug!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
         }
@@ -186,11 +189,13 @@ impl Protocol {
 
     fn send_block_announce(&self, peer_ids: Vec<PeerId>, b: CoupledBlock) {
         let message = Message::BlockAnnounce(Box::new(b));
+        let mut channels = vec![];
         for peer_id in peer_ids.iter() {
             if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-                self.send_message(ch, &message);
+                channels.push(ch);
             }
         }
+        self.send_message(channels, message);
     }
 
     fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: BlockIndex, til_index: BlockIndex) {
@@ -198,7 +203,7 @@ impl Protocol {
             // TODO: make proper request ids.
             let request_id = 1;
             let message = Message::BlockFetchRequest(request_id, from_index, til_index);
-            self.send_message(ch, &message);
+            self.send_message(vec![ch], message);
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -212,7 +217,7 @@ impl Protocol {
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let message = Message::BlockResponse(request_id, blocks);
-            self.send_message(ch, &message);
+            self.send_message(vec![ch], message);
         } else {
             debug!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -226,7 +231,7 @@ impl Protocol {
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(authority_id) {
                     let message = Message::PayloadSnapshotRequest(request_id, hash);
-                    self.send_message(ch, &message);
+                    self.send_message(vec![ch], message);
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
                 }
@@ -243,7 +248,7 @@ impl Protocol {
         info!("Send payload to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let message = Message::PayloadResponse(request_id, payload);
-            self.send_message(ch, &message);
+            self.send_message(vec![ch], message);
         } else {
             debug!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found, account_id={:?}", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -251,11 +256,13 @@ impl Protocol {
 
     /// Pass message through active proxies handlers and result messages are sent over channel `ch`.
     /// Take owner of `message`.
-    fn send_message(&self, ch: Sender<PeerMessage>, message: &Message) {
-        for msg in self.proxy.pipe(message) {
-            let data = Encode::encode(&msg).unwrap();
-            forward_msg(ch.clone(), PeerMessage::Message(data));
-        }
+    fn send_message(&self, channels: Vec<Sender<PeerMessage>>, message: Message) {
+        let task = self.proxy_messages_tx
+            .send(PackedMessage(message, channels))
+            .map(|_| ())
+            .map_err(|e| warn!("Error sending message to proxy."));
+
+        tokio::spawn(task);
     }
 }
 
@@ -300,8 +307,12 @@ pub fn spawn_network(
         client_chain_state_retriever,
     ));
 
-    let proxy = Arc::new(Proxy::new());
-    let protocol = Arc::new(Protocol { client, peer_manager, proxy, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx });
+    // Create proxy
+    let mut proxy = Proxy::new(vec![]);
+    let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
+    proxy.spawn(proxy_messages_rx);
+
+    let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx, proxy_messages_tx });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
     let protocol1 = protocol.clone();
@@ -352,7 +363,7 @@ pub fn spawn_network(
     tokio::spawn(task);
 }
 
-fn forward_msg<T>(ch: Sender<T>, el: T)
+pub fn forward_msg<T>(ch: Sender<T>, el: T)
     where
         T: Send + 'static,
 {

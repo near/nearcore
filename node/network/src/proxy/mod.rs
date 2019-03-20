@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
-use super::message::Message;
+use futures::stream::Stream;
+use futures::sync::mpsc::{channel, Receiver, Sender};
+
+use primitives::serialize::Encode;
+
+use crate::peer::PeerMessage;
+use crate::protocol::{forward_msg, PackedMessage};
 
 pub mod dropout;
 
 pub struct Proxy {
-    handlers: Vec<Arc<ProxyHandler>>
+    handlers: Vec<Arc<ProxyHandler>>,
 }
 
 /// All messages before being sent to other participants will be processed by several handlers
@@ -17,38 +23,48 @@ pub struct Proxy {
 ///
 /// The order in which handlers are grouped can affect the behavior of the proxy.
 impl Proxy {
-    pub fn new() -> Self {
+    pub fn new(handlers: Vec<Arc<ProxyHandler>>) -> Self {
         Self {
-            handlers: vec![]
+            handlers,
         }
     }
 
-    pub fn pipe<'a>(&'a self, message: &'a Message) -> Vec<&'a Message> {
-        let start_messages = vec![message];
+    pub fn spawn(&mut self, inc_messages: Receiver<PackedMessage>) {
+        let mut final_messages = Some(inc_messages);
 
-        self.handlers
-            .iter()
-            .fold(start_messages, |cur_messages, handler| {
-                handler.pipe(cur_messages)
-            })
+        for mut handler in self.handlers.iter() {
+            let (inc_proxy_message, out_proxy_message) = channel(1024);
+            handler.spawn(final_messages.take().expect("Channel always exists."), inc_proxy_message);
+            final_messages = Some(out_proxy_message);
+        }
+
+        self.send_final_message(final_messages.take().expect("Channel always exists."));
+    }
+
+    fn send_final_message(&self, inc_messages: Receiver<PackedMessage>) {
+        let task = inc_messages.for_each(|PackedMessage(message, mut channels)| {
+            for channel in channels.drain(..) {
+                let data = Encode::encode(&message).unwrap();
+                forward_msg(channel, PeerMessage::Message(data));
+            }
+            Ok(())
+        });
+
+        tokio::spawn(task);
     }
 }
 
 /// ProxyHandler interface.
-pub trait ProxyHandler where Self: Send + Sync {
-    fn pipe(&self, mut messages: Vec<&Message>) -> Vec<&Message> {
-        messages
-            .drain(..)
-            .map(|message| self.pipe_one(message))
-            .fold(vec![], |mut cur_messages, new_messages| {
-                cur_messages.extend(new_messages);
-                cur_messages
-            })
+pub trait ProxyHandler: Send {
+    fn spawn(&mut self, inc_messages: Receiver<PackedMessage>, out_messages: Sender<PackedMessage>) {
+        let task = inc_messages.for_each(|packed_message: PackedMessage| {
+            self.pipe_one(packed_message, out_messages.clone());
+            Ok(())
+        });
+
+        tokio::spawn(task);
     }
 
-    /// Logic of the handler. This function will be called once for every message that get
-    /// to this point in the same order messages arrive to the proxy.
-    ///
     /// The input of each handler is output of the previous handler in the `pipeline`.
-    fn pipe_one(&self, message: &Message) -> Vec<&Message>;
+    fn pipe_one(&mut self, packed_message: PackedMessage, out_messages: Sender<PackedMessage>);
 }

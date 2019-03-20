@@ -1,21 +1,30 @@
+use futures::future::Future;
+use futures::sink::Sink;
+use futures::sync::mpsc::Sender;
+use log::warn;
 use rand::Rng;
 
-use crate::message::Message;
+use crate::protocol::PackedMessage;
 use crate::proxy::ProxyHandler;
 
-const DROPOUT_RATE: f64 = 0.5;
-
-pub struct Dropout {}
+pub struct Dropout {
+    dropout_rate: f64
+}
 
 /// Messages will be dropped with probability `1/2`
 impl ProxyHandler for Dropout {
-    fn pipe_one(&self, message: &Message) -> Vec<&Message> {
+    fn pipe_one(&mut self, packed_message: PackedMessage, out_messages: Sender<PackedMessage>) {
         let mut rng = rand::thread_rng();
 
-        if rng.gen::<f64>() < DROPOUT_RATE {
-            vec![]
+        if rng.gen::<f64>() < self.dropout_rate {
+            // Drop message with probability `dropout_rate`
         } else {
-            vec![message]
+            let task =
+                out_messages
+                    .send(packed_message)
+                    .map(|_| ())
+                    .map_err(|e| warn!("Error sending message inside proxy."));
+            tokio::spawn(task);
         }
     }
 }
