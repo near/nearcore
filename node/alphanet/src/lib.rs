@@ -231,7 +231,7 @@ mod tests {
         let (mut beacon_block, mut shard_block, shard_extra) =
             alice.client.prepare_block(ChainPayload::default());
         // Sign by alice & bob to make this blocks valid.
-        let authorities = alice.client.get_recent_uid_to_authority_map();
+        let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
         let signers = vec![alice.signer(), bob.signer()];
         beacon_block.sign_all(&authorities, &signers);
         shard_block.sign_all(&authorities, &signers);
@@ -291,7 +291,7 @@ mod tests {
         );
         let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
         // Sign by alice & bob to make this blocks valid.
-        let authorities = alice.client.get_recent_uid_to_authority_map();
+        let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
         let signers = vec![alice.signer(), bob.signer()];
         beacon_block.sign_all(&authorities, &signers);
         shard_block.sign_all(&authorities, &signers);

@@ -110,7 +110,8 @@ impl Protocol {
                     }
                 }
                 Message::PayloadSnapshotRequest(request_id, hash) => {
-                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                    let block_index = self.client.beacon_client.chain.best_index();
+                    if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
                         info!("Payload snapshot request from {} for {}", authority_id, hash);
                         match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
                             Ok(payload) => {
@@ -123,12 +124,14 @@ impl Protocol {
                         }
                     } else {
                         self.peer_manager.suspect_malicious(&peer_id);
-                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                        let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
+                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                     }
                 }
                 Message::PayloadResponse(_request_id, payload) => {
-                    // TODO: check request id.
-                    if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                    // TODO: check request id and pull block_index from there.
+                    let block_index = self.client.beacon_client.chain.best_index();
+                    if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
                         info!("Payload response from {} / {}", peer_id, authority_id);
                         forward_msg(
                             self.payload_response_tx.clone(),
@@ -136,7 +139,8 @@ impl Protocol {
                         );
                     } else {
                         self.peer_manager.suspect_malicious(&peer_id);
-                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                        let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
+                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                     }
                 }
                 Message::JointBlockBLS(b) => {
@@ -155,10 +159,10 @@ impl Protocol {
         forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }
 
-    fn get_authority_id_from_peer_id(&self, peer_id: &PeerId) -> Option<AuthorityId> {
+    fn get_authority_id_from_peer_id(&self, block_index: BlockIndex, peer_id: &PeerId) -> Option<AuthorityId> {
         self.peer_manager.get_peer_info(peer_id).and_then(|peer_info| {
             peer_info.account_id.and_then(|account_id| {
-                let auth_map = self.client.get_recent_uid_to_authority_map();
+                let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
                 auth_map.iter().find_map(|(authority_id, authority_stake)| {
                     if authority_stake.account_id == account_id {
                         Some(*authority_id as AuthorityId)
@@ -170,8 +174,8 @@ impl Protocol {
         })
     }
 
-    fn get_authority_channel(&self, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
-        let auth_map = self.client.get_recent_uid_to_authority_map();
+    fn get_authority_channel(&self, block_index: BlockIndex, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
+        let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
         auth_map
             .get(&authority_id)
             .map(|auth| auth.account_id.clone())
@@ -179,19 +183,19 @@ impl Protocol {
     }
 
     fn send_gossip(&self, g: Gossip) {
-        if let Some(ch) = self.get_authority_channel(g.receiver_id) {
+        if let Some(ch) = self.get_authority_channel(g.block_index, g.receiver_id) {
             let data = Encode::encode(&Message::Gossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
-            debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
+            debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}, peer_manager={:?}",
                   g.receiver_id,
                   self.peer_manager.node_info.account_id,
-                  g.sender_id);
+                  g.sender_id, self.peer_manager);
         }
     }
 
     fn send_payload_gossip(&self, g: PayloadGossip) {
-        if let Some(ch) = self.get_authority_channel(g.receiver_id) {
+        if let Some(ch) = self.get_authority_channel(g.block_index, g.receiver_id) {
             let data = Encode::encode(&Message::PayloadGossip(Box::new(g))).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
@@ -240,13 +244,13 @@ impl Protocol {
         }
     }
 
-    fn send_payload_request(&self, request: PayloadRequest) {
+    fn send_payload_request(&self, block_index: BlockIndex, request: PayloadRequest) {
         match request {
             PayloadRequest::General(_transactions, _receipts) => panic!("Not implemented"),
             PayloadRequest::BlockProposal(authority_id, hash) => {
                 // TODO: make proper request ids.
                 let request_id = 1;
-                if let Some(ch) = self.get_authority_channel(authority_id) {
+                if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
                     let data =
                         Encode::encode(&Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
@@ -272,17 +276,18 @@ impl Protocol {
         }
     }
 
-    fn send_joint_block_bls_announce(&self, b: JointBlockBLS) {
+    fn send_joint_block_bls_announce(&self, block_index: BlockIndex, b: JointBlockBLS) {
         let receiver_id = match b {
             JointBlockBLS::Request { receiver_id, .. } => receiver_id,
             JointBlockBLS::General { receiver_id, .. } => receiver_id,
         };
-        if let Some(ch) = self.get_authority_channel(receiver_id) {
+        if let Some(ch) = self.get_authority_channel(block_index, receiver_id) {
             let data = Encode::encode(&Message::JointBlockBLS(b)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
+            let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
             debug!(target: "network", "[SND BLS] Channel for {} not found, where account_id={:?} map={:?}", receiver_id, self.peer_manager.node_info.account_id,
-                self.client.get_recent_uid_to_authority_map()
+                auth_map
             );
         }
     }
@@ -309,10 +314,10 @@ pub fn spawn_network(
     out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<(PeerId, CoupledBlock)>,
     out_block_rx: Receiver<(Vec<PeerId>, CoupledBlock)>,
-    payload_request_rx: Receiver<PayloadRequest>,
+    payload_request_rx: Receiver<(BlockIndex, PayloadRequest)>,
     payload_response_tx: Sender<PayloadResponse>,
     inc_final_signatures_tx: Sender<JointBlockBLS>,
-    out_final_signatures_rx: Receiver<JointBlockBLS>,
+    out_final_signatures_rx: Receiver<(BlockIndex, JointBlockBLS)>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     out_payload_gossip_rx: Receiver<PayloadGossip>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
@@ -378,8 +383,8 @@ pub fn spawn_network(
 
     // Spawn a task that send payload requests.
     let protocol4 = protocol.clone();
-    let task = payload_request_rx.for_each(move |r| {
-        protocol4.send_payload_request(r);
+    let task = payload_request_rx.for_each(move |(block_index, r)| {
+        protocol4.send_payload_request(block_index, r);
         future::ok(())
     });
     tokio::spawn(task);
@@ -393,8 +398,8 @@ pub fn spawn_network(
     tokio::spawn(task);
 
     let protocol6 = protocol.clone();
-    let task = out_final_signatures_rx.for_each(move |b| {
-        protocol6.send_joint_block_bls_announce(b);
+    let task = out_final_signatures_rx.for_each(move |(block_index, b)| {
+        protocol6.send_joint_block_bls_announce(block_index, b);
         future::ok(())
     });
     tokio::spawn(task);

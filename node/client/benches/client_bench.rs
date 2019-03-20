@@ -6,7 +6,7 @@ use bencher::{Bencher, benchmark_group, benchmark_main};
 use serde_json::Value;
 
 use client::Client;
-use configs::{ChainSpec, ClientConfig};
+use configs::{ChainSpec, ClientConfig, chain_spec::AuthorityRotation};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
@@ -49,8 +49,7 @@ fn get_chain_spec() -> (ChainSpec, Arc<InMemorySigner>, Arc<InMemorySigner>) {
             DEFAULT_STAKE,
         )],
         genesis_wasm,
-        beacon_chain_epoch_length: 1,
-        beacon_chain_num_seats_per_slot: 1,
+        authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 1, num_seats_per_slot: 1 },
         boot_nodes: vec![],
     };
     (spec, Arc::new(alice_signer), Arc::new(bob_signer))

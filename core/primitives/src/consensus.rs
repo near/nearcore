@@ -4,8 +4,7 @@ use std::hash::Hash;
 pub use super::serialize::{Decode, Encode};
 use crate::hash::CryptoHash;
 use crate::signature::bs58_serializer;
-use crate::types::AuthorityId;
-use crate::types::PartialSignature;
+use crate::types::{AuthorityId, PartialSignature};
 
 pub type GenericResult = Result<(), &'static str>;
 
@@ -27,6 +26,7 @@ pub enum JointBlockBLS {
     Request {
         sender_id: AuthorityId,
         receiver_id: AuthorityId,
+        // TODO: consider replacing beacon_hash / shard_hash with block_index.
         beacon_hash: CryptoHash,
         shard_hash: CryptoHash,
     },

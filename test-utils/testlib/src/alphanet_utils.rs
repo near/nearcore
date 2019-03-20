@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use client::Client;
-use configs::chain_spec::{ChainSpec, read_or_default_chain_spec};
+use configs::chain_spec::{ChainSpec, read_or_default_chain_spec, AuthorityRotation};
 use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
@@ -22,7 +22,7 @@ const TMP_DIR: &str = "../../tmp/testnet";
 
 pub fn configure_chain_spec() -> ChainSpec {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    d.push("../../node/configs/res/testnet_chain.json");
+    d.push("../../node/configs/res/poa_testnet_chain.json");
     read_or_default_chain_spec(&Some(d))
 }
 
@@ -159,7 +159,7 @@ where
 }
 
 /// Generates chainspec for running multiple nodes.
-pub fn generate_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
+pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let mut accounts = vec![];
     let mut initial_authorities = vec![];
@@ -173,13 +173,11 @@ pub fn generate_test_chain_spec(account_names: &Vec<String>, balance: u64) -> Ch
             50,
         ));
     }
-    let num_authorities = account_names.len();
     ChainSpec {
         accounts,
         initial_authorities,
         genesis_wasm,
-        beacon_chain_epoch_length: 1,
-        beacon_chain_num_seats_per_slot: num_authorities as u64,
+        authority_rotation: AuthorityRotation::ProofOfAuthority,
         boot_nodes: vec![],
     }
 }

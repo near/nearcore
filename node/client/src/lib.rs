@@ -329,10 +329,11 @@ impl Client {
         if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref())
             || !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref())
         {
-            error!(target: "client", "Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
+            error!(target: "client", "Importing a block by {:?} with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
+                   self.account_id,
                    beacon_block.block_hash(), shard_block.block_hash(),
-                   beacon_block.signature.authority_count(),
-                   shard_block.signature.authority_count());
+                   beacon_block.signature.authority_mask,
+                   shard_block.signature.authority_mask);
             // TODO enable when we sign blocks with second BLS
             if false {
                 return BlockImportingResult::InvalidBlock;
@@ -435,11 +436,6 @@ impl Client {
         (owner_id, id_to_authority_map)
     }
 
-    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<AuthorityId, AuthorityStake> {
-        let index = self.beacon_client.chain.best_block().index() + 1;
-        self.get_uid_to_authority_map(index).1
-    }
-
     /// Fetch "coupled" blocks by hash.
     pub fn fetch_blocks(
         &self,
@@ -504,7 +500,7 @@ mod tests {
     use crate::test_utils::get_client_from_cfg;
 
     use super::*;
-    use configs::ChainSpec;
+    use configs::{ChainSpec, chain_spec::AuthorityRotation};
     use primitives::signer::{BlockSigner, TransactionSigner};
     use primitives::serialize::Encode;
 
@@ -540,7 +536,7 @@ mod tests {
         let (chain_spec, signers) = generate_test_chain_spec();
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
-        let authorities = client.get_recent_uid_to_authority_map();
+        let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
             &client.beacon_client.chain.best_block(),
             &client.shard_client.chain.best_block(),
@@ -563,7 +559,7 @@ mod tests {
         let (chain_spec, signers) = generate_test_chain_spec();
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
-        let authorities = client.get_recent_uid_to_authority_map();
+        let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
             &client.beacon_client.chain.best_block(),
             &client.shard_client.chain.best_block(),
@@ -624,15 +620,14 @@ mod tests {
                 ),
             ],
             genesis_wasm,
-            beacon_chain_epoch_length: 2,
-            beacon_chain_num_seats_per_slot: 1,
+            authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
             boot_nodes: vec![],
         };
 
         // Start both clients.
         let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
         let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
-        let authorities = alice_client.get_recent_uid_to_authority_map();
+        let (_, authorities) = alice_client.get_uid_to_authority_map(1);
         let signers = vec![alice_signer, bob_signer];
 
         // First produce several blocks by Alice and Bob.

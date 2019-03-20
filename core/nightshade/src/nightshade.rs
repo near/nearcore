@@ -367,7 +367,7 @@ impl Nightshade {
                 Ok(_) => self.seen_bare_states.insert(state.bare_state.clone()),
                 Err(_e) => {
                     // TODO: return more information about why verification fails
-                    return Err("Not a valid state".to_string());
+                    return Err(format!("Not a valid signature on state from {}", authority_id));
                 }
             };
         }

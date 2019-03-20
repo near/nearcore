@@ -1,4 +1,4 @@
-use testlib::alphanet_utils::generate_test_chain_spec;
+use testlib::alphanet_utils::generate_poa_test_chain_spec;
 use testlib::alphanet_utils::wait;
 use testlib::alphanet_utils::Node;
 use primitives::transaction::TransactionBody;
@@ -19,7 +19,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     for i in 0..num_nodes {
         account_names.push(format!("near.{}", i));
     }
-    let chain_spec = generate_test_chain_spec(&account_names, init_balance);
+    let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
 
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
@@ -37,7 +37,6 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         node.start();
         nodes.push(node);
     }
-    //        thread::sleep(Duration::from_secs(10));
 
     // Execute N trials. In each trial we submit a transaction to a random node i, that sends
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
