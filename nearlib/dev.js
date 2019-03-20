@@ -70,7 +70,7 @@ module.exports = {
         return tempUserAccountId;
     },
     get myAccountId() {
-        return window.localStorage.getItem(storageAccountIdKey);
+        return this.deps.storage.localStorage.getItem(storageAccountIdKey);
     },
     /**
      * Function to create an account on local node. This will not work on non-dev environments.
