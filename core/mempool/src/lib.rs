@@ -13,7 +13,7 @@ use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
 use primitives::signer::BlockSigner;
 use primitives::transaction::{SignedTransaction, verify_transaction_signature};
-use primitives::types::{AuthorityId, AccountId};
+use primitives::types::{AuthorityId, AccountId, BlockIndex};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 pub mod payload_gossip;
@@ -240,7 +240,7 @@ impl Pool {
     }
 
     /// Prepares payload to gossip to peer authority.
-    pub fn prepare_payload_gossip(&self) -> Vec<crate::payload_gossip::PayloadGossip> {
+    pub fn prepare_payload_gossip(&self, block_index: BlockIndex) -> Vec<crate::payload_gossip::PayloadGossip> {
         if self.authority_id.read().expect(POISONED_LOCK_ERR).is_none() {
             return vec![];
         }
@@ -277,6 +277,7 @@ impl Pool {
             }
             let payload = ChainPayload::new(to_send, vec![]);
             result.push(crate::payload_gossip::PayloadGossip::new(
+                block_index,
                 authority_id,
                 their_authority_id,
                 payload,

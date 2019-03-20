@@ -37,6 +37,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         let (_, payload_response_rx) = channel(1024);
         let (_, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (_, inc_final_signatures_rx) = channel(1024);
+        let (out_final_signatures_tx, _) = channel(1024);
         let (_, inc_chain_state_rx) = channel(1024);
         let (out_block_fetch_tx, _) = channel(1024);
 
@@ -51,6 +53,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
+            out_final_signatures_tx,
+            inc_final_signatures_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,

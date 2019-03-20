@@ -1,19 +1,15 @@
-use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::process::Command;
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
 use primitives::transaction::TransactionBody;
-use testlib::alphanet_utils::{create_nodes, NodeType, ProcessNode, Node, sample_queryable_node};
-use testlib::alphanet_utils::NodeConfig;
+use testlib::alphanet_utils::{create_nodes, NodeType, Node, sample_queryable_node};
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
 use primitives::types::AccountId;
 
 fn warmup() {
-    Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait();
+    Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
 }
 
 // DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
@@ -26,7 +22,6 @@ fn send_transaction(
     nonces: &Vec<u64>,
     from: usize,
     to: usize) {
-    let num_nodes = nodes.len();
     let k = sample_queryable_node(nodes);
     nodes[k]
         .add_transaction(

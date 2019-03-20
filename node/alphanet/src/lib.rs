@@ -53,6 +53,8 @@ pub fn start_from_client(
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (inc_final_signatures_tx, inc_final_signatures_rx) = channel(1024);
+        let (out_final_signatures_tx, out_final_signatures_rx) = channel(1024);
         let (inc_chain_state_tx, inc_chain_state_rx) = channel(1024);
         let (out_block_fetch_tx, out_block_fetch_rx) = channel(1024);
 
@@ -66,6 +68,8 @@ pub fn start_from_client(
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
+            out_final_signatures_tx,
+            inc_final_signatures_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
@@ -95,6 +99,8 @@ pub fn start_from_client(
             out_block_rx,
             payload_request_rx,
             payload_response_tx,
+            inc_final_signatures_tx,
+            out_final_signatures_rx,
             inc_payload_gossip_tx,
             out_payload_gossip_rx,
             inc_chain_state_tx,
@@ -115,10 +121,10 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 
 #[cfg(test)]
 mod tests {
-    use client::BlockProductionResult;
     use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
+    use primitives::test_utils::TestSignedBlock;
 
     use testlib::alphanet_utils::{configure_chain_spec, wait, NodeConfig, ThreadNode, Node};
 
@@ -203,25 +209,22 @@ mod tests {
             "charlie.near",
             3,
             vec![bob.config().node_addr()],
-            chain_spec,
+            chain_spec.clone(),
         ));
 
-        let (mut beacon_block, mut shard_block) =
-            match alice.client.try_produce_block(1, ChainPayload::default()) {
-                BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (*beacon_block, *shard_block)
-                }
-                _ => panic!("Should produce block"),
-            };
-        // Sign by bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
-        alice.client.try_import_blocks(beacon_block, shard_block);
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            alice.client.prepare_block(ChainPayload::default());
+        // Sign by alice & bob to make this blocks valid.
+        let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
+        let signers = vec![alice.signer(), bob.signer()];
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
-            );
+            ).unwrap();
 
         alice.start();
         bob.start();
@@ -259,17 +262,13 @@ mod tests {
             vec![alice.config().node_addr()],
             chain_spec.clone(),
         ));
-        let (mut beacon_block, mut shard_block) =
-            match alice.client.try_produce_block(1, ChainPayload::default()) {
-                BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (*beacon_block, *shard_block)
-                }
-                _ => panic!("Should produce block"),
-            };
-        // Sign by bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
-        alice.client.try_import_blocks(beacon_block, shard_block);
+        let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
+        // Sign by alice & bob to make this blocks valid.
+        let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
+        let signers = vec![alice.signer(), bob.signer()];
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob
             .add_transaction(

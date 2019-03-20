@@ -160,7 +160,7 @@ where
     pub fn add_block(&mut self, block: B) -> io::Result<()> {
         self.set_best_block_hash(block.block_hash())?;
         self.set_hash_by_index(block.index(), block.block_hash())?;
-        self.set_header(&block.block_hash(), block.header().clone())?;
+        self.set_header(&block.block_hash(), block.header())?;
         self.set_block(&block.block_hash(), block)
     }
 

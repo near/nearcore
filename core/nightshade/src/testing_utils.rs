@@ -194,7 +194,7 @@ mod tests {
             (0, 2, 0)
         ]);
         assert_eq!(ns.best_state_counter, 2);
-        update_state!(ns, 0, (0, 2, 0));
+        update_state!(ns, 0, (0, 2, 0)).unwrap();
         assert_eq!(ns.best_state_counter, 1);
         assert_eq!(ns_eq!(ns, [
             (0, 2, 0),

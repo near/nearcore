@@ -1,11 +1,3 @@
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::process::Child;
-use std::process::Command;
-use std::str::FromStr;
-use std::thread;
-use std::time::Duration;
-
 use primitives::transaction::TransactionBody;
 use testlib::alphanet_utils::create_nodes;
 use testlib::alphanet_utils::sample_two_nodes;
@@ -19,7 +11,6 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     for i in 0..num_nodes {
         nodes[i].start();
     }
-    //        thread::sleep(Duration::from_secs(10));
 
     // Execute N trials. In each trial we submit a transaction to a random node i, that sends
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking

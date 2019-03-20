@@ -5,8 +5,8 @@ use std::sync::Arc;
 use bencher::{Bencher, benchmark_group, benchmark_main};
 use serde_json::Value;
 
-use client::{BlockProductionResult, Client};
-use configs::{ChainSpec, ClientConfig};
+use client::Client;
+use configs::{ChainSpec, ClientConfig, chain_spec::AuthorityRotation};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
@@ -35,7 +35,12 @@ fn get_chain_spec() -> (ChainSpec, Arc<InMemorySigner>, Arc<InMemorySigner>) {
                 DEFAULT_BALANCE,
                 DEFAULT_STAKE,
             ),
-            (BOB_ACC_ID.to_string(), bob_signer.public_key().to_readable(), DEFAULT_BALANCE, DEFAULT_STAKE),
+            (
+                BOB_ACC_ID.to_string(),
+                bob_signer.public_key().to_readable(),
+                DEFAULT_BALANCE,
+                DEFAULT_STAKE,
+            ),
         ],
         initial_authorities: vec![(
             ALICE_ACC_ID.to_string(),
@@ -44,8 +49,7 @@ fn get_chain_spec() -> (ChainSpec, Arc<InMemorySigner>, Arc<InMemorySigner>) {
             DEFAULT_STAKE,
         )],
         genesis_wasm,
-        beacon_chain_epoch_length: 1,
-        beacon_chain_num_seats_per_slot: 1,
+        authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 1, num_seats_per_slot: 1 },
         boot_nodes: vec![],
     };
     (spec, Arc::new(alice_signer), Arc::new(bob_signer))
@@ -69,7 +73,6 @@ fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySign
 fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
     let mut prev_receipt_blocks = vec![];
     let mut transactions;
-    let mut next_block_idx = client.shard_client.chain.best_index() + 1;
     loop {
         if batches.is_empty() {
             if prev_receipt_blocks.is_empty() {
@@ -83,19 +86,15 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
             transactions = batches.remove(0);
         }
         let payload = ChainPayload::new(transactions, prev_receipt_blocks);
-        if let BlockProductionResult::Success(_beacon_block, shard_block) =
-            client.try_produce_block(next_block_idx, payload)
-        {
-            prev_receipt_blocks = client
-                .shard_client
-                .get_receipt_block(shard_block.index(), shard_block.shard_id())
-                .map(|b| vec![b])
-                .unwrap_or(vec![]);
-        } else {
-            panic!("Block production should always succeed");
-        }
-
-        next_block_idx += 1;
+        let (beacon_block, shard_block, shard_extra) =
+            client.prepare_block(payload);
+        let (_beacon_block, shard_block) =
+            client.try_import_produced(beacon_block, shard_block, shard_extra);
+        prev_receipt_blocks = client
+            .shard_client
+            .get_receipt_block(shard_block.index(), shard_block.shard_id())
+            .map(|b| vec![b])
+            .unwrap_or(vec![]);
     }
 }
 
@@ -230,7 +229,8 @@ fn heavy_storage_blocks(bench: &mut Bencher) {
     for _block_idx in 0..num_blocks {
         let mut batch = vec![];
         for _transaction_idx in 0..transactions_per_block {
-            let (t, _next_nonce) = call_contract(alice_signer.clone(), next_nonce, method_name, args);
+            let (t, _next_nonce) =
+                call_contract(alice_signer.clone(), next_nonce, method_name, args);
             next_nonce = _next_nonce;
             hashes.push(t.body.get_hash());
             batch.push(t);

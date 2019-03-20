@@ -96,6 +96,7 @@ dependencies = [
  "serde 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
  "storage 0.0.1",
+ "testlib 0.1.0",
 ]
 
 [[package]]

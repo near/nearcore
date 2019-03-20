@@ -1,22 +1,20 @@
+use std::{fs, panic};
 use std::net::SocketAddr;
-use std::{panic, fs};
 use std::path::PathBuf;
-use std::process::{Output, Command, Child};
+use std::process::{Child, Command, Output};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use client::Client;
-use configs::chain_spec::{ChainSpec, read_or_default_chain_spec, save_chain_spec};
+use configs::chain_spec::{AuthorityRotation, ChainSpec, read_or_default_chain_spec, save_chain_spec};
 use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use primitives::network::{PeerAddr, PeerInfo};
-use primitives::signer::BlockSigner;
-use primitives::signer::InMemorySigner;
-use primitives::signer::TransactionSigner;
+use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 
@@ -24,7 +22,7 @@ const TMP_DIR: &str = "../../tmp/testnet";
 
 pub fn configure_chain_spec() -> ChainSpec {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    d.push("../../node/configs/res/testnet_chain.json");
+    d.push("../../node/configs/res/poa_testnet_chain.json");
     read_or_default_chain_spec(&Some(d))
 }
 
@@ -114,15 +112,15 @@ impl Node for ProcessNode {
         }
     }
 
-    fn view_balance(&self, account_id: &String) -> Result<u64, String> {
+    fn view_balance(&self, _account_id: &String) -> Result<u64, String> {
         unimplemented!()
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, _transaction: SignedTransaction) -> Result<(), String> {
         unimplemented!()
     }
 
-    fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
+    fn get_account_nonce(&self, _account_id: &String) -> Option<u64> {
         unimplemented!()
     }
 
@@ -232,7 +230,7 @@ impl ProcessNode {
     /// Clear storage directory and run keygen
     pub fn reset_storage(&self) {
         let keygen_path = self.config().client_cfg.base_path.join("keystore/");
-        Command::new("rm").args(&["-r", self.config().client_cfg.base_path.to_str().unwrap()]).spawn().unwrap().wait();
+        Command::new("rm").args(&["-r", self.config().client_cfg.base_path.to_str().unwrap()]).spawn().unwrap().wait().unwrap();
         Command::new("cargo").args(&[
             "run",
             "--package", "keystore",
@@ -250,7 +248,7 @@ impl ProcessNode {
         let chain_spec = &self.config().client_cfg.chain_spec;
         let chain_spec_path = self.config().client_cfg.base_path.join("chain_spec.json");
         if !self.config().client_cfg.base_path.exists() {
-            fs::create_dir_all(&self.config().client_cfg.base_path);
+            fs::create_dir_all(&self.config().client_cfg.base_path).unwrap();
         }
         save_chain_spec(&chain_spec_path, chain_spec.clone());
 
@@ -268,7 +266,7 @@ impl ProcessNode {
         if let Some(ref addr) = self.config().node_info.addr {
             start_node_command.args(&["--addr", format!("{}", addr).as_str()]);
         }
-        if self.config().network_cfg.boot_nodes.len() > 0 {
+        if !self.config().network_cfg.boot_nodes.is_empty() {
             let boot_node = format!("{}", self.config().network_cfg.boot_nodes[0]);
             start_node_command.args(&["--boot-nodes", boot_node.as_str()]);
         }
@@ -280,7 +278,7 @@ impl Drop for ProcessNode {
     fn drop(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
-                child.kill();
+                child.kill().unwrap();
             }
             ProcessNodeState::Stopped => {}
         }
@@ -385,13 +383,14 @@ pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
         thread::sleep(Duration::from_millis(check_interval_ms));
         ms_slept += check_interval_ms;
         if ms_slept > max_wait_ms {
+            println!("BBBB Slept {}; max_wait_ms {}", ms_slept, max_wait_ms);
             panic!("Timed out waiting for the condition");
         }
     }
 }
 
 /// Generates chainspec for running multiple nodes.
-pub fn generate_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
+pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let mut accounts = vec![];
     let mut initial_authorities = vec![];
@@ -405,13 +404,11 @@ pub fn generate_test_chain_spec(account_names: &Vec<String>, balance: u64) -> Ch
             50,
         ));
     }
-    let num_authorities = account_names.len();
     ChainSpec {
         accounts,
         initial_authorities,
         genesis_wasm,
-        beacon_chain_epoch_length: 1,
-        beacon_chain_num_seats_per_slot: num_authorities as u64,
+        authority_rotation: AuthorityRotation::ProofOfAuthority,
         boot_nodes: vec![],
     }
 }
@@ -423,15 +420,15 @@ pub fn create_nodes(num_nodes: usize, test_prefix: &str, test_port: u16) -> (u64
     for i in 0..num_nodes {
         account_names.push(format!("near.{}", i));
     }
-    let chain_spec = generate_test_chain_spec(&account_names, init_balance);
+    let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
-// Launch nodes in a chain, such that X+1 node boots from X node.
-    for i in 0..num_nodes {
+    // Launch nodes in a chain, such that X+1 node boots from X node.
+    for (i, account_name) in account_names.iter().enumerate() {
         let node = NodeConfig::for_test(
             test_prefix,
             test_port,
-            account_names[i].as_str(),
+            account_name.as_str(),
             i as u16 + 1,
             boot_nodes,
             chain_spec.clone(),

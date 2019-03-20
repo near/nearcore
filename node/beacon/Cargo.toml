@@ -18,4 +18,5 @@ chain = { path = "../../core/chain" }
 configs = { path = "../configs" }
 
 [dev-dependencies]
+testlib = { path = "../../test-utils/testlib" }
 node-runtime = { path = "../runtime" }
