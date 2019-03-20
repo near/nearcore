@@ -655,7 +655,7 @@ impl ClientTask {
         receiver_id: AuthorityId,
     ) {
         if !self.unfinalized_shard_blocks.contains_key(&shard_hash)
-            && !self.client.shard_client.chain.is_known(&shard_hash)
+            && !self.client.shard_client.chain.is_known_block(&shard_hash)
             {
                 return;
             }
@@ -727,7 +727,7 @@ impl ClientTask {
 
     /// Spawn a kick-off task.
     fn spawn_kickoff(&self) {
-        let next_index = self.client.beacon_client.chain.best_block().index() + 1;
+        let next_index = self.client.beacon_client.chain.best_index() + 1;
         let control = self.restart_pool_nightshade(next_index);
 
         // Send mempool control.

@@ -9,8 +9,8 @@ use rand_xorshift::XorShiftRng;
 
 use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::beacon::SignedBeaconBlock;
-use crate::block_traits::SignedBlock;
-use crate::chain::SignedShardBlock;
+use crate::block_traits::{SignedBlock, SignedHeader};
+use crate::chain::{SignedShardBlock, SignedShardBlockHeader};
 use crate::hash::CryptoHash;
 use crate::signature::{PublicKey, SecretKey};
 use crate::signer::{BlockSigner, InMemorySigner};
@@ -61,7 +61,7 @@ pub trait TestSignedBlock: SignedBlock {
 }
 
 impl SignedShardBlock {
-    pub fn empty(prev: &SignedShardBlock) -> Self {
+    pub fn empty(prev: &SignedShardBlockHeader) -> Self {
         SignedShardBlock::new(
             prev.shard_id(),
             prev.index() + 1,

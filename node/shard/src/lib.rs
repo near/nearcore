@@ -90,7 +90,7 @@ impl ShardClient {
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
-        let root = self.chain.best_block().merkle_root_state();
+        let root = self.chain.best_header().body.merkle_root_state;
         TrieUpdate::new(self.trie.clone(), root)
     }
 

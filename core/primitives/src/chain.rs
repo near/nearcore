@@ -5,18 +5,19 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::consensus::Payload;
-use super::hash::{hash_struct, CryptoHash};
+use super::hash::{CryptoHash, hash_struct};
 use super::merkle::MerklePath;
 use super::transaction::{ReceiptTransaction, SignedTransaction};
-use super::types::{AuthorityId, GroupSignature, MerkleHash, PartialSignature, ShardId};
+use super::types::{AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId};
+use near_protos::chain as chain_proto;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
     pub parent_hash: CryptoHash,
     pub shard_id: ShardId,
-    pub index: u64,
+    pub index: BlockIndex,
     pub merkle_root_state: MerkleHash,
-    /// if there is no receipt generated in this block, the root is None
+    /// If there are no receipts generated in this block, the root is hash(0)
     pub receipt_merkle_root: MerkleHash,
 }
 
@@ -25,6 +26,18 @@ pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
     pub signature: GroupSignature,
+}
+
+impl SignedShardBlockHeader {
+    #[inline]
+    pub fn shard_id(&self) -> ShardId {
+        self.body.shard_id
+    }
+
+    #[inline]
+    pub fn merkle_root_state(&self) -> MerkleHash {
+        self.body.merkle_root_state
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -265,4 +278,24 @@ pub enum PayloadResponse {
 pub struct ChainState {
     pub genesis_hash: CryptoHash,
     pub last_index: u64,
+}
+
+impl From<chain_proto::ChainState> for ChainState {
+    fn from(proto: chain_proto::ChainState) -> Self {
+        ChainState {
+            genesis_hash: proto.genesis_hash.into(),
+            last_index: proto.last_index,
+        }
+    }
+}
+
+impl From<ChainState> for chain_proto::ChainState {
+    fn from(chain_state: ChainState) -> chain_proto::ChainState {
+        chain_proto::ChainState {
+            genesis_hash: chain_state.genesis_hash.into(),
+            last_index: chain_state.last_index,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }

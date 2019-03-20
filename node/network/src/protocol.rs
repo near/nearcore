@@ -1,28 +1,27 @@
 use std::sync::Arc;
 
+use futures::{stream, stream::Stream};
 use futures::future;
+use futures::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use futures::Future;
-use futures::{stream, stream::Stream};
 use log::{debug, error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade_task::Gossip;
-use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainPayload, ChainState, PayloadRequest, PayloadResponse};
-use primitives::network::PeerInfo;
+use primitives::consensus::JointBlockBLS;
+use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
-use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
-use crate::peer::{ChainStateRetriever, PeerMessage};
+use crate::message::{CoupledBlock, Message, RequestId};
+use crate::peer::ChainStateRetriever;
 use crate::peer_manager::PeerManager;
-use primitives::consensus::JointBlockBLS;
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -40,7 +39,7 @@ impl ChainStateRetriever for ClientChainStateRetriever {
     fn get_chain_state(&self) -> ChainState {
         ChainState {
             genesis_hash: self.client.beacon_client.chain.genesis_hash(),
-            last_index: self.client.beacon_client.chain.best_block().index(),
+            last_index: self.client.beacon_client.chain.best_index(),
         }
     }
 }

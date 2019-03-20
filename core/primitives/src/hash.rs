@@ -26,9 +26,9 @@ impl<'a> From<&'a CryptoHash> for String {
     }
 }
 
-impl Into<CryptoHash> for String {
-    fn into(self) -> CryptoHash {
-        CryptoHash::from(bs58::decode(self).into_vec().unwrap())
+impl From<String> for CryptoHash {
+    fn from(s: String) -> CryptoHash {
+        CryptoHash::from(bs58::decode(s).into_vec().unwrap())
     }
 }
 
@@ -59,9 +59,9 @@ impl From<Vec<u8>> for CryptoHash {
     }
 }
 
-impl Into<Vec<u8>> for CryptoHash {
-    fn into(self) -> Vec<u8> {
-        (self.0).0.to_vec()
+impl From<CryptoHash> for Vec<u8> {
+    fn from(hash: CryptoHash) -> Vec<u8> {
+        (hash.0).0.to_vec()
     }
 }
 
