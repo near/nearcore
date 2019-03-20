@@ -55,7 +55,7 @@ pub struct GroupSignature {
 
 impl fmt::Debug for GroupSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} {:?}", self.authority_mask, pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string())
+        write!(f, "{:?} {:?}", self.authority_mask, pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string()))
     }
 }
 
