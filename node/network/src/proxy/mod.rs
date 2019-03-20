@@ -55,10 +55,11 @@ impl Proxy {
 }
 
 /// ProxyHandler interface.
-pub trait ProxyHandler: Send {
+pub trait ProxyHandler: Send + Sync {
     fn spawn(&mut self, inc_messages: Receiver<PackedMessage>, out_messages: Sender<PackedMessage>) {
-        let task = inc_messages.for_each(|packed_message: PackedMessage| {
-            self.pipe_one(packed_message, out_messages.clone());
+        let out_messages1 = out_messages.clone();
+        let task = inc_messages.for_each(move |packed_message: PackedMessage| {
+            self.pipe_one(packed_message, out_messages1.clone());
             Ok(())
         });
 

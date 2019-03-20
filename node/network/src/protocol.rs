@@ -258,9 +258,10 @@ impl Protocol {
     /// Take owner of `message`.
     fn send_message(&self, channels: Vec<Sender<PeerMessage>>, message: Message) {
         let task = self.proxy_messages_tx
+            .clone()
             .send(PackedMessage(message, channels))
             .map(|_| ())
-            .map_err(|e| warn!("Error sending message to proxy."));
+            .map_err(|e| warn!("Error sending message to proxy. {:?}", e));
 
         tokio::spawn(task);
     }
