@@ -1440,6 +1440,7 @@ pub enum Message_oneof_message_type {
     payload_request(Message_PayloadRequest),
     payload_snapshot_request(Message_PayloadSnapshotRequest),
     payload_response(Message_PayloadResponse),
+    joint_block_bls(Message_JointBlockBLS),
 }
 
 impl Message {
@@ -1985,6 +1986,55 @@ impl Message {
             _ => Message_PayloadResponse::default_instance(),
         }
     }
+
+    // .Message.JointBlockBLS joint_block_bls = 12;
+
+    pub fn clear_joint_block_bls(&mut self) {
+        self.message_type = ::std::option::Option::None;
+    }
+
+    pub fn has_joint_block_bls(&self) -> bool {
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_joint_block_bls(&mut self, v: Message_JointBlockBLS) {
+        self.message_type = ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_joint_block_bls(&mut self) -> &mut Message_JointBlockBLS {
+        if let ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(_)) = self.message_type {
+        } else {
+            self.message_type = ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(Message_JointBlockBLS::new()));
+        }
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_joint_block_bls(&mut self) -> Message_JointBlockBLS {
+        if self.has_joint_block_bls() {
+            match self.message_type.take() {
+                ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            Message_JointBlockBLS::new()
+        }
+    }
+
+    pub fn get_joint_block_bls(&self) -> &Message_JointBlockBLS {
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(ref v)) => v,
+            _ => Message_JointBlockBLS::default_instance(),
+        }
+    }
 }
 
 impl ::protobuf::Message for Message {
@@ -2040,6 +2090,11 @@ impl ::protobuf::Message for Message {
             }
         }
         if let Some(Message_oneof_message_type::payload_response(ref v)) = self.message_type {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        if let Some(Message_oneof_message_type::joint_block_bls(ref v)) = self.message_type {
             if !v.is_initialized() {
                 return false;
             }
@@ -2117,6 +2172,12 @@ impl ::protobuf::Message for Message {
                     }
                     self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_response(is.read_message()?));
                 },
+                12 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.message_type = ::std::option::Option::Some(Message_oneof_message_type::joint_block_bls(is.read_message()?));
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -2172,6 +2233,10 @@ impl ::protobuf::Message for Message {
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
                 &Message_oneof_message_type::payload_response(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+                &Message_oneof_message_type::joint_block_bls(ref v) => {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
@@ -2237,6 +2302,11 @@ impl ::protobuf::Message for Message {
                 },
                 &Message_oneof_message_type::payload_response(ref v) => {
                     os.write_tag(11, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+                &Message_oneof_message_type::joint_block_bls(ref v) => {
+                    os.write_tag(12, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
@@ -2339,6 +2409,11 @@ impl ::protobuf::Message for Message {
                     Message::has_payload_response,
                     Message::get_payload_response,
                 ));
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_JointBlockBLS>(
+                    "joint_block_bls",
+                    Message::has_joint_block_bls,
+                    Message::get_joint_block_bls,
+                ));
                 ::protobuf::reflect::MessageDescriptor::new::<Message>(
                     "Message",
                     fields,
@@ -2372,6 +2447,7 @@ impl ::protobuf::Clear for Message {
         self.clear_payload_request();
         self.clear_payload_snapshot_request();
         self.clear_payload_response();
+        self.clear_joint_block_bls();
         self.unknown_fields.clear();
     }
 }
@@ -3468,6 +3544,926 @@ impl ::protobuf::reflect::ProtobufValue for Message_PayloadResponse {
     }
 }
 
+#[derive(PartialEq,Clone,Default)]
+pub struct Message_JointBlockBLS {
+    // message oneof groups
+    pub field_type: ::std::option::Option<Message_JointBlockBLS_oneof_type>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+#[derive(Clone,PartialEq)]
+pub enum Message_JointBlockBLS_oneof_type {
+    request(Message_JointBlockBLS_Request),
+    general(Message_JointBlockBLS_General),
+}
+
+impl Message_JointBlockBLS {
+    pub fn new() -> Message_JointBlockBLS {
+        ::std::default::Default::default()
+    }
+
+    // .Message.JointBlockBLS.Request request = 1;
+
+    pub fn clear_request(&mut self) {
+        self.field_type = ::std::option::Option::None;
+    }
+
+    pub fn has_request(&self) -> bool {
+        match self.field_type {
+            ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_request(&mut self, v: Message_JointBlockBLS_Request) {
+        self.field_type = ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_request(&mut self) -> &mut Message_JointBlockBLS_Request {
+        if let ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(_)) = self.field_type {
+        } else {
+            self.field_type = ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(Message_JointBlockBLS_Request::new()));
+        }
+        match self.field_type {
+            ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_request(&mut self) -> Message_JointBlockBLS_Request {
+        if self.has_request() {
+            match self.field_type.take() {
+                ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            Message_JointBlockBLS_Request::new()
+        }
+    }
+
+    pub fn get_request(&self) -> &Message_JointBlockBLS_Request {
+        match self.field_type {
+            ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(ref v)) => v,
+            _ => Message_JointBlockBLS_Request::default_instance(),
+        }
+    }
+
+    // .Message.JointBlockBLS.General general = 2;
+
+    pub fn clear_general(&mut self) {
+        self.field_type = ::std::option::Option::None;
+    }
+
+    pub fn has_general(&self) -> bool {
+        match self.field_type {
+            ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_general(&mut self, v: Message_JointBlockBLS_General) {
+        self.field_type = ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_general(&mut self) -> &mut Message_JointBlockBLS_General {
+        if let ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(_)) = self.field_type {
+        } else {
+            self.field_type = ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(Message_JointBlockBLS_General::new()));
+        }
+        match self.field_type {
+            ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_general(&mut self) -> Message_JointBlockBLS_General {
+        if self.has_general() {
+            match self.field_type.take() {
+                ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            Message_JointBlockBLS_General::new()
+        }
+    }
+
+    pub fn get_general(&self) -> &Message_JointBlockBLS_General {
+        match self.field_type {
+            ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(ref v)) => v,
+            _ => Message_JointBlockBLS_General::default_instance(),
+        }
+    }
+}
+
+impl ::protobuf::Message for Message_JointBlockBLS {
+    fn is_initialized(&self) -> bool {
+        if let Some(Message_JointBlockBLS_oneof_type::request(ref v)) = self.field_type {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        if let Some(Message_JointBlockBLS_oneof_type::general(ref v)) = self.field_type {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.field_type = ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::request(is.read_message()?));
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.field_type = ::std::option::Option::Some(Message_JointBlockBLS_oneof_type::general(is.read_message()?));
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if let ::std::option::Option::Some(ref v) = self.field_type {
+            match v {
+                &Message_JointBlockBLS_oneof_type::request(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+                &Message_JointBlockBLS_oneof_type::general(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if let ::std::option::Option::Some(ref v) = self.field_type {
+            match v {
+                &Message_JointBlockBLS_oneof_type::request(ref v) => {
+                    os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+                &Message_JointBlockBLS_oneof_type::general(ref v) => {
+                    os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> Message_JointBlockBLS {
+        Message_JointBlockBLS::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_JointBlockBLS_Request>(
+                    "request",
+                    Message_JointBlockBLS::has_request,
+                    Message_JointBlockBLS::get_request,
+                ));
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_JointBlockBLS_General>(
+                    "general",
+                    Message_JointBlockBLS::has_general,
+                    Message_JointBlockBLS::get_general,
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<Message_JointBlockBLS>(
+                    "Message_JointBlockBLS",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static Message_JointBlockBLS {
+        static mut instance: ::protobuf::lazy::Lazy<Message_JointBlockBLS> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const Message_JointBlockBLS,
+        };
+        unsafe {
+            instance.get(Message_JointBlockBLS::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for Message_JointBlockBLS {
+    fn clear(&mut self) {
+        self.clear_request();
+        self.clear_general();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for Message_JointBlockBLS {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for Message_JointBlockBLS {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct Message_JointBlockBLS_Request {
+    // message fields
+    pub sender_id: u64,
+    pub receiver_id: u64,
+    pub beacon_hash: ::std::vec::Vec<u8>,
+    pub shard_hash: ::std::vec::Vec<u8>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl Message_JointBlockBLS_Request {
+    pub fn new() -> Message_JointBlockBLS_Request {
+        ::std::default::Default::default()
+    }
+
+    // uint64 sender_id = 1;
+
+    pub fn clear_sender_id(&mut self) {
+        self.sender_id = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_sender_id(&mut self, v: u64) {
+        self.sender_id = v;
+    }
+
+    pub fn get_sender_id(&self) -> u64 {
+        self.sender_id
+    }
+
+    // uint64 receiver_id = 2;
+
+    pub fn clear_receiver_id(&mut self) {
+        self.receiver_id = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receiver_id(&mut self, v: u64) {
+        self.receiver_id = v;
+    }
+
+    pub fn get_receiver_id(&self) -> u64 {
+        self.receiver_id
+    }
+
+    // bytes beacon_hash = 3;
+
+    pub fn clear_beacon_hash(&mut self) {
+        self.beacon_hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_beacon_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.beacon_hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_beacon_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.beacon_hash
+    }
+
+    // Take field
+    pub fn take_beacon_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.beacon_hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_beacon_hash(&self) -> &[u8] {
+        &self.beacon_hash
+    }
+
+    // bytes shard_hash = 4;
+
+    pub fn clear_shard_hash(&mut self) {
+        self.shard_hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_shard_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.shard_hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_shard_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.shard_hash
+    }
+
+    // Take field
+    pub fn take_shard_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.shard_hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_shard_hash(&self) -> &[u8] {
+        &self.shard_hash
+    }
+}
+
+impl ::protobuf::Message for Message_JointBlockBLS_Request {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.sender_id = tmp;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.receiver_id = tmp;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.beacon_hash)?;
+                },
+                4 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.shard_hash)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if self.sender_id != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.sender_id, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if self.receiver_id != 0 {
+            my_size += ::protobuf::rt::value_size(2, self.receiver_id, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.beacon_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.beacon_hash);
+        }
+        if !self.shard_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(4, &self.shard_hash);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if self.sender_id != 0 {
+            os.write_uint64(1, self.sender_id)?;
+        }
+        if self.receiver_id != 0 {
+            os.write_uint64(2, self.receiver_id)?;
+        }
+        if !self.beacon_hash.is_empty() {
+            os.write_bytes(3, &self.beacon_hash)?;
+        }
+        if !self.shard_hash.is_empty() {
+            os.write_bytes(4, &self.shard_hash)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> Message_JointBlockBLS_Request {
+        Message_JointBlockBLS_Request::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "sender_id",
+                    |m: &Message_JointBlockBLS_Request| { &m.sender_id },
+                    |m: &mut Message_JointBlockBLS_Request| { &mut m.sender_id },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "receiver_id",
+                    |m: &Message_JointBlockBLS_Request| { &m.receiver_id },
+                    |m: &mut Message_JointBlockBLS_Request| { &mut m.receiver_id },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "beacon_hash",
+                    |m: &Message_JointBlockBLS_Request| { &m.beacon_hash },
+                    |m: &mut Message_JointBlockBLS_Request| { &mut m.beacon_hash },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "shard_hash",
+                    |m: &Message_JointBlockBLS_Request| { &m.shard_hash },
+                    |m: &mut Message_JointBlockBLS_Request| { &mut m.shard_hash },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<Message_JointBlockBLS_Request>(
+                    "Message_JointBlockBLS_Request",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static Message_JointBlockBLS_Request {
+        static mut instance: ::protobuf::lazy::Lazy<Message_JointBlockBLS_Request> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const Message_JointBlockBLS_Request,
+        };
+        unsafe {
+            instance.get(Message_JointBlockBLS_Request::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for Message_JointBlockBLS_Request {
+    fn clear(&mut self) {
+        self.clear_sender_id();
+        self.clear_receiver_id();
+        self.clear_beacon_hash();
+        self.clear_shard_hash();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for Message_JointBlockBLS_Request {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for Message_JointBlockBLS_Request {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct Message_JointBlockBLS_General {
+    // message fields
+    pub sender_id: u64,
+    pub receiver_id: u64,
+    pub beacon_hash: ::std::vec::Vec<u8>,
+    pub shard_hash: ::std::vec::Vec<u8>,
+    pub beacon_sig: ::std::string::String,
+    pub shard_sig: ::std::string::String,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl Message_JointBlockBLS_General {
+    pub fn new() -> Message_JointBlockBLS_General {
+        ::std::default::Default::default()
+    }
+
+    // uint64 sender_id = 1;
+
+    pub fn clear_sender_id(&mut self) {
+        self.sender_id = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_sender_id(&mut self, v: u64) {
+        self.sender_id = v;
+    }
+
+    pub fn get_sender_id(&self) -> u64 {
+        self.sender_id
+    }
+
+    // uint64 receiver_id = 2;
+
+    pub fn clear_receiver_id(&mut self) {
+        self.receiver_id = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receiver_id(&mut self, v: u64) {
+        self.receiver_id = v;
+    }
+
+    pub fn get_receiver_id(&self) -> u64 {
+        self.receiver_id
+    }
+
+    // bytes beacon_hash = 3;
+
+    pub fn clear_beacon_hash(&mut self) {
+        self.beacon_hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_beacon_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.beacon_hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_beacon_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.beacon_hash
+    }
+
+    // Take field
+    pub fn take_beacon_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.beacon_hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_beacon_hash(&self) -> &[u8] {
+        &self.beacon_hash
+    }
+
+    // bytes shard_hash = 4;
+
+    pub fn clear_shard_hash(&mut self) {
+        self.shard_hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_shard_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.shard_hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_shard_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.shard_hash
+    }
+
+    // Take field
+    pub fn take_shard_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.shard_hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_shard_hash(&self) -> &[u8] {
+        &self.shard_hash
+    }
+
+    // string beacon_sig = 5;
+
+    pub fn clear_beacon_sig(&mut self) {
+        self.beacon_sig.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_beacon_sig(&mut self, v: ::std::string::String) {
+        self.beacon_sig = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_beacon_sig(&mut self) -> &mut ::std::string::String {
+        &mut self.beacon_sig
+    }
+
+    // Take field
+    pub fn take_beacon_sig(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.beacon_sig, ::std::string::String::new())
+    }
+
+    pub fn get_beacon_sig(&self) -> &str {
+        &self.beacon_sig
+    }
+
+    // string shard_sig = 6;
+
+    pub fn clear_shard_sig(&mut self) {
+        self.shard_sig.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_shard_sig(&mut self, v: ::std::string::String) {
+        self.shard_sig = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_shard_sig(&mut self) -> &mut ::std::string::String {
+        &mut self.shard_sig
+    }
+
+    // Take field
+    pub fn take_shard_sig(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.shard_sig, ::std::string::String::new())
+    }
+
+    pub fn get_shard_sig(&self) -> &str {
+        &self.shard_sig
+    }
+}
+
+impl ::protobuf::Message for Message_JointBlockBLS_General {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.sender_id = tmp;
+                },
+                2 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.receiver_id = tmp;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.beacon_hash)?;
+                },
+                4 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.shard_hash)?;
+                },
+                5 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.beacon_sig)?;
+                },
+                6 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.shard_sig)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if self.sender_id != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.sender_id, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if self.receiver_id != 0 {
+            my_size += ::protobuf::rt::value_size(2, self.receiver_id, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.beacon_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.beacon_hash);
+        }
+        if !self.shard_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(4, &self.shard_hash);
+        }
+        if !self.beacon_sig.is_empty() {
+            my_size += ::protobuf::rt::string_size(5, &self.beacon_sig);
+        }
+        if !self.shard_sig.is_empty() {
+            my_size += ::protobuf::rt::string_size(6, &self.shard_sig);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if self.sender_id != 0 {
+            os.write_uint64(1, self.sender_id)?;
+        }
+        if self.receiver_id != 0 {
+            os.write_uint64(2, self.receiver_id)?;
+        }
+        if !self.beacon_hash.is_empty() {
+            os.write_bytes(3, &self.beacon_hash)?;
+        }
+        if !self.shard_hash.is_empty() {
+            os.write_bytes(4, &self.shard_hash)?;
+        }
+        if !self.beacon_sig.is_empty() {
+            os.write_string(5, &self.beacon_sig)?;
+        }
+        if !self.shard_sig.is_empty() {
+            os.write_string(6, &self.shard_sig)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> Message_JointBlockBLS_General {
+        Message_JointBlockBLS_General::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "sender_id",
+                    |m: &Message_JointBlockBLS_General| { &m.sender_id },
+                    |m: &mut Message_JointBlockBLS_General| { &mut m.sender_id },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "receiver_id",
+                    |m: &Message_JointBlockBLS_General| { &m.receiver_id },
+                    |m: &mut Message_JointBlockBLS_General| { &mut m.receiver_id },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "beacon_hash",
+                    |m: &Message_JointBlockBLS_General| { &m.beacon_hash },
+                    |m: &mut Message_JointBlockBLS_General| { &mut m.beacon_hash },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "shard_hash",
+                    |m: &Message_JointBlockBLS_General| { &m.shard_hash },
+                    |m: &mut Message_JointBlockBLS_General| { &mut m.shard_hash },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "beacon_sig",
+                    |m: &Message_JointBlockBLS_General| { &m.beacon_sig },
+                    |m: &mut Message_JointBlockBLS_General| { &mut m.beacon_sig },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "shard_sig",
+                    |m: &Message_JointBlockBLS_General| { &m.shard_sig },
+                    |m: &mut Message_JointBlockBLS_General| { &mut m.shard_sig },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<Message_JointBlockBLS_General>(
+                    "Message_JointBlockBLS_General",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static Message_JointBlockBLS_General {
+        static mut instance: ::protobuf::lazy::Lazy<Message_JointBlockBLS_General> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const Message_JointBlockBLS_General,
+        };
+        unsafe {
+            instance.get(Message_JointBlockBLS_General::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for Message_JointBlockBLS_General {
+    fn clear(&mut self) {
+        self.clear_sender_id();
+        self.clear_receiver_id();
+        self.clear_beacon_hash();
+        self.clear_shard_hash();
+        self.clear_beacon_sig();
+        self.clear_shard_sig();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for Message_JointBlockBLS_General {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for Message_JointBlockBLS_General {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
     \n\x14protos/network.proto\x1a\x12protos/chain.proto\x1a\x1fprotos/signe\
     d_transaction.proto\x1a\x14protos/receipt.proto\x1a\x17protos/nightshade\
@@ -3487,7 +4483,7 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x12+\n\nhand_shake\x18\x01\x20\x01(\x0b2\n.HandShakeH\0R\thandShake\x12\
     .\n\x0binfo_gossip\x18\x02\x20\x01(\x0b2\x0b.InfoGossipH\0R\ninfoGossip\
     \x12\x1a\n\x07message\x18\x03\x20\x01(\x0cH\0R\x07messageB\x0e\n\x0cmess\
-    age_type\"\xb4\t\n\x07Message\x127\n\x0econnected_info\x18\x01\x20\x01(\
+    age_type\"\xd8\r\n\x07Message\x127\n\x0econnected_info\x18\x01\x20\x01(\
     \x0b2\x0e.ConnectedInfoH\0R\rconnectedInfo\x126\n\x0btransaction\x18\x02\
     \x20\x01(\x0b2\x12.SignedTransactionH\0R\x0btransaction\x12)\n\x07receip\
     t\x18\x03\x20\x01(\x0b2\r.ReceiptBlockH\0R\x07receipt\x126\n\x0eblock_an\
@@ -3501,19 +4497,32 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     equest\x12[\n\x18payload_snapshot_request\x18\n\x20\x01(\x0b2\x1f.Messag\
     e.PayloadSnapshotRequestH\0R\x16payloadSnapshotRequest\x12E\n\x10payload\
     _response\x18\x0b\x20\x01(\x0b2\x18.Message.PayloadResponseH\0R\x0fpaylo\
-    adResponse\x1aV\n\x11BlockFetchRequest\x12\x1d\n\nrequest_id\x18\x01\x20\
-    \x01(\x04R\trequestId\x12\x12\n\x04from\x18\x02\x20\x01(\x04R\x04from\
-    \x12\x0e\n\x02to\x18\x03\x20\x01(\x04R\x02to\x1aY\n\rBlockResponse\x12\
-    \x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\x12)\n\x08response\
-    \x18\x02\x20\x03(\x0b2\r.CoupledBlockR\x08response\x1a\x85\x01\n\x0ePayl\
-    oadRequest\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\x12-\n\
-    \x12transaction_hashes\x18\x02\x20\x03(\x0cR\x11transactionHashes\x12%\n\
-    \x0ereceipt_hashes\x18\x03\x20\x03(\x0cR\rreceiptHashes\x1a\\\n\x16Paylo\
-    adSnapshotRequest\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\
-    \x12#\n\rsnapshot_hash\x18\x02\x20\x01(\x0cR\x0csnapshotHash\x1aY\n\x0fP\
-    ayloadResponse\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\
-    \x12'\n\x07payload\x18\x02\x20\x01(\x0b2\r.ChainPayloadR\x07payloadB\x0e\
-    \n\x0cmessage_typeb\x06proto3\
+    adResponse\x12@\n\x0fjoint_block_bls\x18\x0c\x20\x01(\x0b2\x16.Message.J\
+    ointBlockBLSH\0R\rjointBlockBls\x1aV\n\x11BlockFetchRequest\x12\x1d\n\nr\
+    equest_id\x18\x01\x20\x01(\x04R\trequestId\x12\x12\n\x04from\x18\x02\x20\
+    \x01(\x04R\x04from\x12\x0e\n\x02to\x18\x03\x20\x01(\x04R\x02to\x1aY\n\rB\
+    lockResponse\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\x12)\
+    \n\x08response\x18\x02\x20\x03(\x0b2\r.CoupledBlockR\x08response\x1a\x85\
+    \x01\n\x0ePayloadRequest\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\tre\
+    questId\x12-\n\x12transaction_hashes\x18\x02\x20\x03(\x0cR\x11transactio\
+    nHashes\x12%\n\x0ereceipt_hashes\x18\x03\x20\x03(\x0cR\rreceiptHashes\
+    \x1a\\\n\x16PayloadSnapshotRequest\x12\x1d\n\nrequest_id\x18\x01\x20\x01\
+    (\x04R\trequestId\x12#\n\rsnapshot_hash\x18\x02\x20\x01(\x0cR\x0csnapsho\
+    tHash\x1aY\n\x0fPayloadResponse\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\
+    \x04R\trequestId\x12'\n\x07payload\x18\x02\x20\x01(\x0b2\r.ChainPayloadR\
+    \x07payload\x1a\xdf\x03\n\rJointBlockBLS\x12:\n\x07request\x18\x01\x20\
+    \x01(\x0b2\x1e.Message.JointBlockBLS.RequestH\0R\x07request\x12:\n\x07ge\
+    neral\x18\x02\x20\x01(\x0b2\x1e.Message.JointBlockBLS.GeneralH\0R\x07gen\
+    eral\x1a\x87\x01\n\x07Request\x12\x1b\n\tsender_id\x18\x01\x20\x01(\x04R\
+    \x08senderId\x12\x1f\n\x0breceiver_id\x18\x02\x20\x01(\x04R\nreceiverId\
+    \x12\x1f\n\x0bbeacon_hash\x18\x03\x20\x01(\x0cR\nbeaconHash\x12\x1d\n\ns\
+    hard_hash\x18\x04\x20\x01(\x0cR\tshardHash\x1a\xc3\x01\n\x07General\x12\
+    \x1b\n\tsender_id\x18\x01\x20\x01(\x04R\x08senderId\x12\x1f\n\x0breceive\
+    r_id\x18\x02\x20\x01(\x04R\nreceiverId\x12\x1f\n\x0bbeacon_hash\x18\x03\
+    \x20\x01(\x0cR\nbeaconHash\x12\x1d\n\nshard_hash\x18\x04\x20\x01(\x0cR\t\
+    shardHash\x12\x1d\n\nbeacon_sig\x18\x05\x20\x01(\tR\tbeaconSig\x12\x1b\n\
+    \tshard_sig\x18\x06\x20\x01(\tR\x08shardSigB\x06\n\x04typeB\x0e\n\x0cmes\
+    sage_typeb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

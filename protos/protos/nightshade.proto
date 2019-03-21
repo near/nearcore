@@ -59,5 +59,6 @@ message PayloadGossip {
     uint64 sender_id = 1;
     uint64 receiver_id = 2;
     ChainPayload payload = 3;
-    string signature = 4;
+    uint64 block_index = 4;
+    string signature = 5;
 }

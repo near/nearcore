@@ -2376,6 +2376,7 @@ pub struct PayloadGossip {
     pub sender_id: u64,
     pub receiver_id: u64,
     pub payload: ::protobuf::SingularPtrField<super::chain::ChainPayload>,
+    pub block_index: u64,
     pub signature: ::std::string::String,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -2450,7 +2451,22 @@ impl PayloadGossip {
         self.payload.as_ref().unwrap_or_else(|| super::chain::ChainPayload::default_instance())
     }
 
-    // string signature = 4;
+    // uint64 block_index = 4;
+
+    pub fn clear_block_index(&mut self) {
+        self.block_index = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_block_index(&mut self, v: u64) {
+        self.block_index = v;
+    }
+
+    pub fn get_block_index(&self) -> u64 {
+        self.block_index
+    }
+
+    // string signature = 5;
 
     pub fn clear_signature(&mut self) {
         self.signature.clear();
@@ -2509,6 +2525,13 @@ impl ::protobuf::Message for PayloadGossip {
                     ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.payload)?;
                 },
                 4 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.block_index = tmp;
+                },
+                5 => {
                     ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.signature)?;
                 },
                 _ => {
@@ -2533,8 +2556,11 @@ impl ::protobuf::Message for PayloadGossip {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
+        if self.block_index != 0 {
+            my_size += ::protobuf::rt::value_size(4, self.block_index, ::protobuf::wire_format::WireTypeVarint);
+        }
         if !self.signature.is_empty() {
-            my_size += ::protobuf::rt::string_size(4, &self.signature);
+            my_size += ::protobuf::rt::string_size(5, &self.signature);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -2553,8 +2579,11 @@ impl ::protobuf::Message for PayloadGossip {
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         }
+        if self.block_index != 0 {
+            os.write_uint64(4, self.block_index)?;
+        }
         if !self.signature.is_empty() {
-            os.write_string(4, &self.signature)?;
+            os.write_string(5, &self.signature)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -2613,6 +2642,11 @@ impl ::protobuf::Message for PayloadGossip {
                     |m: &PayloadGossip| { &m.payload },
                     |m: &mut PayloadGossip| { &mut m.payload },
                 ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "block_index",
+                    |m: &PayloadGossip| { &m.block_index },
+                    |m: &mut PayloadGossip| { &mut m.block_index },
+                ));
                 fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "signature",
                     |m: &PayloadGossip| { &m.signature },
@@ -2643,6 +2677,7 @@ impl ::protobuf::Clear for PayloadGossip {
         self.clear_sender_id();
         self.clear_receiver_id();
         self.clear_payload();
+        self.clear_block_index();
         self.clear_signature();
         self.unknown_fields.clear();
     }
@@ -2688,11 +2723,12 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x12\x1c\n\x05state\x18\x03\x20\x01(\x0b2\x06.StateR\x05state\x1a9\n\x0e\
     PayloadRequest\x12'\n\x0fpayload_request\x18\x01\x20\x03(\x04R\x0epayloa\
     dRequest\x1aI\n\x0cPayloadReply\x129\n\rpayload_reply\x18\x01\x20\x03(\
-    \x0b2\x14.SignedBlockProposalR\x0cpayloadReplyB\x06\n\x04body\"\x94\x01\
+    \x0b2\x14.SignedBlockProposalR\x0cpayloadReplyB\x06\n\x04body\"\xb5\x01\
     \n\rPayloadGossip\x12\x1b\n\tsender_id\x18\x01\x20\x01(\x04R\x08senderId\
     \x12\x1f\n\x0breceiver_id\x18\x02\x20\x01(\x04R\nreceiverId\x12'\n\x07pa\
-    yload\x18\x03\x20\x01(\x0b2\r.ChainPayloadR\x07payload\x12\x1c\n\tsignat\
-    ure\x18\x04\x20\x01(\tR\tsignatureb\x06proto3\
+    yload\x18\x03\x20\x01(\x0b2\r.ChainPayloadR\x07payload\x12\x1f\n\x0bbloc\
+    k_index\x18\x04\x20\x01(\x04R\nblockIndex\x12\x1c\n\tsignature\x18\x05\
+    \x20\x01(\tR\tsignatureb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

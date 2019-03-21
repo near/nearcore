@@ -29,6 +29,7 @@ impl TryFrom<nightshade_proto::PayloadGossip> for PayloadGossip {
                     sender_id: proto.sender_id as AuthorityId,
                     receiver_id: proto.receiver_id as AuthorityId,
                     payload,
+                    block_index: proto.block_index,
                     signature: Signature::from(&proto.signature)
                 })
             }
@@ -43,6 +44,7 @@ impl From<PayloadGossip> for nightshade_proto::PayloadGossip {
             sender_id: gossip.sender_id as u64,
             receiver_id: gossip.receiver_id as u64,
             payload: SingularPtrField::some(gossip.payload.into()),
+            block_index: gossip.block_index,
             signature: gossip.signature.to_string(),
             unknown_fields: Default::default(),
             cached_size: Default::default(),

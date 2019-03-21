@@ -64,6 +64,28 @@ message Message {
         uint64 request_id = 1;
         ChainPayload payload = 2;
     }
+
+    message JointBlockBLS {
+        message Request {
+            uint64 sender_id = 1;
+            uint64 receiver_id = 2;
+            bytes beacon_hash = 3;
+            bytes shard_hash = 4;
+        }
+        message General {
+            uint64 sender_id = 1;
+            uint64 receiver_id = 2;
+            bytes beacon_hash = 3;
+            bytes shard_hash = 4;
+            string beacon_sig = 5;
+            string shard_sig = 6;
+        }
+        oneof type {
+            Request request = 1;
+            General general = 2;
+        }
+    }
+
     oneof message_type {
         ConnectedInfo connected_info = 1;
         SignedTransaction transaction = 2;
@@ -76,5 +98,6 @@ message Message {
         Message.PayloadRequest payload_request = 9;
         Message.PayloadSnapshotRequest payload_snapshot_request = 10;
         Message.PayloadResponse payload_response = 11;
+        Message.JointBlockBLS joint_block_bls = 12;
     }
 }

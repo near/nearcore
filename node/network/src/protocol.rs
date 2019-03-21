@@ -17,7 +17,6 @@ use primitives::network::{PeerInfo, PeerMessage, ConnectedInfo};
 use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
 use nightshade::nightshade_task::Gossip;
 use primitives::consensus::JointBlockBLS;
-use primitives::serialize::{Decode, Encode};
 
 use crate::message::{
     CoupledBlock, Message, RequestId,
@@ -101,87 +100,58 @@ impl Protocol {
                         warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
                     }
                 }
-                Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
-                Message::PayloadGossip(gossip) => {
-                    forward_msg(self.inc_payload_gossip_tx.clone(), *gossip)
+            }
+            Message::BlockResponse(_request_id, mut blocks) => {
+                forward_msgs(
+                    self.inc_block_tx.clone(),
+                    blocks.drain(..).map(|b| (peer_id, b)).collect(),
+                );
+            }
+            Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
+                match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
+                    Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
+                    Err(err) => {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
+                    }
                 }
-                Message::BlockAnnounce(block) => {
-                    forward_msg(self.inc_block_tx.clone(), (peer_id, *block));
-                }
-                Message::BlockFetchRequest(request_id, from_index, til_index) => {
-                    match self.client.fetch_blocks_range(from_index, til_index) {
-                        Ok(blocks) => self.send_block_response(&peer_id, request_id, blocks),
+            }
+            Message::PayloadSnapshotRequest(request_id, hash) => {
+                let block_index = self.client.beacon_client.chain.best_index();
+                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                    info!("Payload snapshot request from {} for {}", authority_id, hash);
+                    match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
+                        Ok(payload) => {
+                            self.send_payload_response(&peer_id, request_id, payload)
+                        }
                         Err(err) => {
                             self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch blocks from {} with {}. Possible grinding attack.", peer_id, err);
+                            warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
                         }
-                    }
-                }
-                Message::BlockResponse(_request_id, mut blocks) => {
-                    forward_msgs(
-                        self.inc_block_tx.clone(),
-                        blocks.drain(..).map(|b| (peer_id, b)).collect(),
-                    );
-                }
-                Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
-                    match self.client.fetch_payload(transaction_hashes, receipt_hashes) {
-                        Ok(payload) => self.send_payload_response(&peer_id, request_id, payload),
-                        Err(err) => {
-                            self.peer_manager.suspect_malicious(&peer_id);
-                            warn!(target: "network", "Failed to fetch payload for {} with: {}. Possible grinding attack.", peer_id, err);
-                        }
-                    }
-                }
-                Message::PayloadSnapshotRequest(request_id, hash) => {
-                    let block_index = self.client.beacon_client.chain.best_index();
-                    if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
-                        info!("Payload snapshot request from {} for {}", authority_id, hash);
-                        match self.client.shard_client.pool.snapshot_request(authority_id, hash) {
-                            Ok(payload) => {
-                                self.send_payload_response(&peer_id, request_id, payload)
-                            }
-                            Err(err) => {
-                                self.peer_manager.suspect_malicious(&peer_id);
-                                warn!(target: "network", "Failed to fetch payload snapshot for {} with: {}. Possible grinding attack.", peer_id, err);
-                            }
-                        }
-                    } else {
-                        self.peer_manager.suspect_malicious(&peer_id);
-                        let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
-                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
-                    }
-                }
-                Message::PayloadResponse(_request_id, payload) => {
-                    // TODO: check request id and pull block_index from there.
-                    let block_index = self.client.beacon_client.chain.best_index();
-                    if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
-                        info!("Payload response from {} / {}", peer_id, authority_id);
-                        forward_msg(
-                            self.payload_response_tx.clone(),
-                            PayloadResponse::BlockProposal(authority_id, payload),
-                        );
-                    } else {
-                        self.peer_manager.suspect_malicious(&peer_id);
-                        let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
-                        warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                     }
                 } else {
                     self.peer_manager.suspect_malicious(&peer_id);
-                    warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                    let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
+                    warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                 }
-                Message::JointBlockBLS(b) => {
-                    forward_msg(self.inc_final_signatures_tx.clone(), b);
-                }
-            },
+            }
             Message::PayloadResponse(_request_id, payload) => {
-                // TODO: check request id.
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(&peer_id) {
+                // TODO: check request id and pull block_index from there.
+                let block_index = self.client.beacon_client.chain.best_index();
+                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
                     info!("Payload response from {} / {}", peer_id, authority_id);
-                    forward_msg(self.payload_response_tx.clone(), PayloadResponse::BlockProposal(authority_id, payload));
+                    forward_msg(
+                        self.payload_response_tx.clone(),
+                        PayloadResponse::BlockProposal(authority_id, payload),
+                    );
                 } else {
                     self.peer_manager.suspect_malicious(&peer_id);
-                    warn!(target: "network", "Requesting snapshot from peer {} who is not an authority.", peer_id);
+                    let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
+                    warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                 }
+            }
+            Message::JointBlockBLS(b) => {
+                forward_msg(self.inc_final_signatures_tx.clone(), b);
             }
         }
     }
@@ -316,7 +286,7 @@ impl Protocol {
             JointBlockBLS::General { receiver_id, .. } => receiver_id,
         };
         if let Some(ch) = self.get_authority_channel(block_index, receiver_id) {
-            let data = Encode::encode(&Message::JointBlockBLS(b)).unwrap();
+            let data = encode_message(Message::JointBlockBLS(b)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
