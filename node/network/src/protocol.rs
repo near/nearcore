@@ -41,11 +41,11 @@ impl PackedMessage {
 
             PackedMessage::BroadcastMessage(message, channels) => {
                 let pnt_message = Arc::new(message);
-                Box::new(stream::iter_ok(channels.iter().map(|&c| (pnt_message.clone(), c))))
+                Box::new(stream::iter_ok(channels.into_iter().map(move |c| (pnt_message.clone(), c))))
             }
 
-            PackedMessage::MultipleMessages(mut messages, channel) =>
-                Box::new(stream::iter_ok(messages.drain(..).map(|m|
+            PackedMessage::MultipleMessages(messages, channel) =>
+                Box::new(stream::iter_ok(messages.into_iter().map(move |m|
                     (Arc::new(m), channel.clone())
                 )))
         }
@@ -282,7 +282,7 @@ impl Protocol {
     /// Take owner of `message`.
     fn send_message(&self, channels: Vec<Sender<PeerMessage>>, message: Message) {
         let packed_message = match channels.len() {
-            1 => PackedMessage::SingleMessage(message, channels[0]),
+            1 => PackedMessage::SingleMessage(message, channels[0].clone()),
             _ => PackedMessage::BroadcastMessage(message, channels),
         };
 

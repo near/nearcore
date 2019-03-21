@@ -33,17 +33,17 @@ impl Proxy {
     }
 
     pub fn spawn(&mut self, inc_messages: Receiver<PackedMessage>) {
-        let mut stream = Some(to_package_stream(inc_messages));
+        let mut stream = to_package_stream(inc_messages);
 
         for mut handler in self.handlers.iter() {
-            stream = Some(handler.pipe_stream(stream.take().expect("Channel always exists.")));
+            stream = handler.pipe_stream(stream);
         }
 
-        self.send_final_message(stream.take().expect("Channel always exists."));
+        self.send_final_message(stream);
     }
 
-    fn send_final_message(&self, stream: impl Stream<Item=Package, Error=()>) {
-        let task = stream.for_each(|(message, channel)| {
+    fn send_final_message(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) {
+        let task = stream.for_each(move |(message, channel)| {
             let data = Encode::encode(&message).unwrap();
             forward_msg(channel, PeerMessage::Message(data));
             Ok(())
@@ -53,11 +53,11 @@ impl Proxy {
     }
 }
 
-fn to_package_stream(inc_messages: Receiver<PackedMessage>) -> Box<Stream<Item=Package, Error=()>> {
+fn to_package_stream(inc_messages: Receiver<PackedMessage>) -> Box<Stream<Item=Package, Error=()> + Send + Sync> {
     unimplemented!()
 }
 
 /// ProxyHandler interface.
 pub trait ProxyHandler {
-    fn pipe_stream(&self, s: Box<Stream<Item=Package, Error=()>>) -> Box<Stream<Item=Package, Error=()>>;
+    fn pipe_stream(&self, s: Box<Stream<Item=Package, Error=()> + Send + Sync>) -> Box<Stream<Item=Package, Error=()> + Send + Sync>;
 }
