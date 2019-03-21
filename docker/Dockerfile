@@ -25,14 +25,15 @@ WORKDIR /nearcore
 COPY . /nearcore
 
 ENV CARGO_TARGET_DIR=/tmp/target
-RUN cargo build -p $PACKAGE $RELEASE_FLAG
-RUN cargo build -p testlib --bin generate-test-spec $RELEASE_FLAG
-RUN cargo build -p keystore $RELEASE_FLAG
-
-# Copy binaries into normal layers
-RUN cp /tmp/target/$PROFILE/$PACKAGE /usr/local/bin/
-RUN cp /tmp/target/$PROFILE/generate-test-spec /usr/local/bin/
-RUN cp /tmp/target/$PROFILE/keystore /usr/local/bin/
+RUN --mount=type=cache,target=/tmp/target \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build -p $PACKAGE $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/$PACKAGE /usr/local/bin/ && \
+    cargo build -p testlib --bin generate-test-spec $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/generate-test-spec /usr/local/bin/ && \
+    cargo build -p keystore $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/keystore /usr/local/bin/
 
 # ===== SECOND STAGE ======
 
