@@ -1,11 +1,15 @@
 extern crate exonum_sodiumoxide as sodiumoxide;
 
-use crate::hash;
-use bs58;
 use std::fmt;
 
+use bs58;
+
+use crate::hash;
 use crate::logging::pretty_hash;
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
+use crate::traits::Base58Encoded;
+use crate::traits::FromBytes;
+use crate::traits::ToBytes;
 use crate::types::ReadablePublicKey;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
@@ -29,6 +33,34 @@ pub fn get_key_pair() -> (PublicKey, SecretKey) {
     let (public_key, secret_key) = sodiumoxide::crypto::sign::ed25519::gen_keypair();
     (PublicKey(public_key), SecretKey(secret_key))
 }
+
+
+impl Base58Encoded for PublicKey {}
+impl Base58Encoded for SecretKey {}
+impl ToBytes for PublicKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
+    }
+}
+
+impl FromBytes for PublicKey {
+    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        PublicKey::new(bytes).map_err(std::convert::Into::into)
+    }
+}
+
+impl ToBytes for SecretKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_vec()
+    }
+}
+
+impl FromBytes for SecretKey {
+    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+        SecretKey::new(bytes).map_err(std::convert::Into::into)
+    }
+}
+
 
 pub fn verify_signature(
     signature: &Signature,
@@ -71,6 +103,16 @@ impl PublicKey {
 }
 
 impl SecretKey {
+    pub fn new(bytes: &[u8]) -> Result<SecretKey, String> {
+        if bytes.len() != sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES {
+            return Err("bytes not the size of a secret key".to_string());
+        }
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
+        array.copy_from_slice(bytes);
+        let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
+        Ok(SecretKey(secret_key))
+    }
+
     pub fn from(s: &str) -> SecretKey {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
         let bytes = bs58::decode(s).into_vec().expect("Failed to convert secret key from base58");
@@ -99,6 +141,12 @@ impl Signature {
         array.copy_from_slice(bytes_arr);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
         Signature(signature)
+    }
+}
+
+impl std::convert::AsRef<[u8]> for PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
     }
 }
 
@@ -169,8 +217,9 @@ impl fmt::Display for Signature {
 }
 
 pub mod bs58_pub_key_format {
-    use super::PublicKey;
     use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::PublicKey;
 
     pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -189,8 +238,9 @@ pub mod bs58_pub_key_format {
 }
 
 pub mod bs58_secret_key_format {
-    use super::SecretKey;
     use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::SecretKey;
 
     pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -209,8 +259,9 @@ pub mod bs58_secret_key_format {
 }
 
 pub mod bs58_signature_format {
-    use super::Signature;
     use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::Signature;
 
     pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -229,8 +280,9 @@ pub mod bs58_signature_format {
 }
 
 pub mod bs58_serializer {
-    use crate::traits::Base58Encoded;
     use serde::{Deserialize, Deserializer, Serializer};
+
+    use crate::traits::Base58Encoded;
 
     pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -252,7 +304,6 @@ pub mod bs58_serializer {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]

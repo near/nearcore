@@ -56,8 +56,8 @@ pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub body: GossipBody,
-    block_index: u64,
-    signature: Signature,
+    pub block_index: BlockIndex,
+    pub signature: Signature,
 }
 
 impl Gossip {

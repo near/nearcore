@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+import "protos/chain.proto";
+import "google/protobuf/wrappers.proto";
+
+message PeerInfo {
+    bytes id = 1;
+    google.protobuf.StringValue addr = 2;
+    google.protobuf.StringValue account_id = 3;
+}
+
+message ConnectedInfo {
+    ChainState chain_state = 1;
+}
+
+message HandShake {
+    uint32 version = 1;
+    bytes peer_id = 2;
+    google.protobuf.StringValue account_id = 3;
+    google.protobuf.UInt32Value listen_port = 4;
+    repeated PeerInfo peers_info = 5;
+    ConnectedInfo connected_info = 6;
+}
+
+message InfoGossip {
+    repeated PeerInfo info_gossip = 1;
+}
+
+message PeerMessage {
+    oneof message_type {
+        HandShake hand_shake = 1;
+        InfoGossip info_gossip = 2;
+        bytes message = 3;
+    }
+}
