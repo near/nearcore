@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -12,7 +13,8 @@ use crate::block_traits::{SignedBlock, SignedHeader};
 use crate::chain::{SignedShardBlock, SignedShardBlockHeader};
 use crate::hash::CryptoHash;
 use crate::signature::{PublicKey, SecretKey};
-use crate::signer::InMemorySigner;
+use crate::signer::{BlockSigner, InMemorySigner};
+use crate::types::{AccountId, AuthorityId, AuthorityStake};
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
@@ -50,9 +52,10 @@ impl InMemorySigner {
 }
 
 pub trait TestSignedBlock: SignedBlock {
-    fn sign_all(&mut self, signers: &Vec<Arc<InMemorySigner>>) {
-        for (i, signer) in signers.iter().enumerate() {
-            self.add_signature(&self.sign(signer.clone()), i);
+    fn sign_all(&mut self, authorities: &HashMap<AuthorityId, AuthorityStake>, signers: &Vec<Arc<InMemorySigner>>) {
+        let signer_map: HashMap<AccountId, Arc<InMemorySigner>> = signers.iter().map(|s| (s.account_id(), s.clone())).collect();
+        for (i, authority_stake) in authorities.iter() {
+            self.add_signature(&self.sign(signer_map[&authority_stake.account_id].clone()), *i);
         }
     }
 }

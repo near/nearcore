@@ -3,7 +3,7 @@
 
 use clap::{App, Arg};
 use std::path::PathBuf;
-use testlib::alphanet_utils::generate_test_chain_spec;
+use testlib::alphanet_utils::generate_poa_test_chain_spec;
 use configs::chain_spec::save_chain_spec;
 
 fn main() {
@@ -36,6 +36,6 @@ fn main() {
     for i in 0..num_accounts {
         acc_names.push(format!("near.{}", i));
     }
-    let chain_spec = generate_test_chain_spec(&acc_names, 1_000_000_000);
+    let chain_spec = generate_poa_test_chain_spec(&acc_names, 1_000_000_000);
     save_chain_spec(&chain_spec_file, chain_spec);
 }

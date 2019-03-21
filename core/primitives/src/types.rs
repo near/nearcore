@@ -1,13 +1,13 @@
-use crate::logging;
 use std::fmt;
 use std::convert::TryFrom;
 
 use crate::aggregate_signature::{
-    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
+    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature
 };
 use crate::hash::CryptoHash;
+use crate::logging::pretty_hash;
 use crate::signature::{bs58_serializer, PublicKey, Signature};
-use crate::traits::Base58Encoded;
+use crate::traits::{Base58Encoded, ToBytes};
 use crate::utils::{to_string_value, proto_to_result};
 use near_protos::types as types_proto;
 use near_protos::receipt as receipt_proto;
@@ -84,7 +84,7 @@ impl From<GroupSignature> for types_proto::GroupSignature {
 
 impl fmt::Debug for GroupSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", logging::pretty_serializable(&self))
+        write!(f, "{:?} {:?}", self.authority_mask, pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string()))
     }
 }
 
@@ -101,7 +101,9 @@ impl GroupSignature {
         }
         let mut new_sig = BlsAggregateSignature::new();
         new_sig.aggregate(&signature);
-        new_sig.aggregate(&self.signature);
+        if self.signature != BlsSignature::default() {
+            new_sig.aggregate(&self.signature);
+        }
         self.signature = new_sig.get_signature();
         self.authority_mask[authority_id] = true;
     }

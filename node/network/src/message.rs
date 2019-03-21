@@ -10,6 +10,7 @@ use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
+use primitives::consensus::JointBlockBLS;
 use primitives::network::ConnectedInfo;
 use primitives::utils::proto_to_type;
 use near_protos::network as network_proto;
@@ -26,6 +27,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Message passed over the network from peer to peer.
 /// Box's are used when message is significantly larger than other enum members.
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum Message {
     /// On peer connected, information about their chain.
     Connected(ConnectedInfo),
@@ -51,6 +53,9 @@ pub enum Message {
     PayloadSnapshotRequest(RequestId, CryptoHash),
     /// Response with payload for request.
     PayloadResponse(RequestId, ChainPayload),
+
+    /// Partial BLS signatures of beacon and shard blocks.
+    JointBlockBLS(JointBlockBLS),
 }
 
 impl TryFrom<network_proto::Message> for Message {

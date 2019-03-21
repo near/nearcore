@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use configs::ChainSpec;
+use configs::{ChainSpec, chain_spec::AuthorityRotation};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::PublicKey;
@@ -53,8 +53,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, Vec<Arc<InMemorySigner>>) {
         ],
         initial_authorities: vec![("alice.near".to_string(), alice_signer.public_key().to_readable(), alice_signer.bls_public_key().to_readable(), 50)],
         genesis_wasm,
-        beacon_chain_epoch_length: 2,
-        beacon_chain_num_seats_per_slot: 1,
+        authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
         boot_nodes: vec![],
     }, vec![Arc::new(alice_signer), Arc::new(bob_signer)])
 }

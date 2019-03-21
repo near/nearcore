@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+use std::fmt;
 
 use futures::future;
 use futures::future::Future;
@@ -203,6 +204,21 @@ impl<T: ChainStateRetriever> PeerManager<T> {
                 _ => None,
             })
             .collect()
+    }
+}
+
+impl<T> fmt::Debug for PeerManager<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let peers: Vec<AccountId> = self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().filter_map(|(_, state)| {
+            let state_guard = state.read().expect(POISONED_LOCK_ERR);
+            if let Some(info) = get_peer_info(&state_guard) {
+                if let PeerState::Ready { .. } = state_guard.deref() {
+                    return info.account_id.clone()
+                }
+            }
+            None
+        }).collect();
+        write!(f, "{:?}", peers)
     }
 }
 
