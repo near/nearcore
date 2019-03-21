@@ -24,9 +24,33 @@ use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 use crate::proxy::Proxy;
 
-/// Package containing message and all the channels to send results after
-/// going through proxy handlers.
-pub struct PackedMessage(pub Message, pub Vec<Sender<PeerMessage>>);
+pub type Package = (Arc<Message>, Sender<PeerMessage>);
+
+/// Package containing messages and channels to send results after going through proxy handlers.
+pub enum PackedMessage {
+    SingleMessage(Message, Sender<PeerMessage>),
+    BroadcastMessage(Message, Vec<Sender<PeerMessage>>),
+    MultipleMessages(Vec<Message>, Sender<PeerMessage>),
+}
+
+impl PackedMessage {
+    fn to_stream(self) -> Box<Stream<Item=Package, Error=()>> {
+        match self {
+            PackedMessage::SingleMessage(message, channel) =>
+                Box::new(stream::once(Ok((Arc::new(message), channel)))),
+
+            PackedMessage::BroadcastMessage(message, channels) => {
+                let pnt_message = Arc::new(message);
+                Box::new(stream::iter_ok(channels.iter().map(|&c| (pnt_message.clone(), c))))
+            }
+
+            PackedMessage::MultipleMessages(mut messages, channel) =>
+                Box::new(stream::iter_ok(messages.drain(..).map(|m|
+                    (Arc::new(m), channel.clone())
+                )))
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -257,9 +281,14 @@ impl Protocol {
     /// Pass message through active proxies handlers and result messages are sent over channel `ch`.
     /// Take owner of `message`.
     fn send_message(&self, channels: Vec<Sender<PeerMessage>>, message: Message) {
+        let packed_message = match channels.len() {
+            1 => PackedMessage::SingleMessage(message, channels[0]),
+            _ => PackedMessage::BroadcastMessage(message, channels),
+        };
+
         let task = self.proxy_messages_tx
             .clone()
-            .send(PackedMessage(message, channels))
+            .send(packed_message)
             .map(|_| ())
             .map_err(|e| warn!("Error sending message to proxy. {:?}", e));
 
@@ -309,6 +338,7 @@ pub fn spawn_network(
     ));
 
     // Create proxy
+    // TODO: Feed properly `ProxyHandlers`
     let mut proxy = Proxy::new(vec![]);
     let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
     proxy.spawn(proxy_messages_rx);
