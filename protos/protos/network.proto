@@ -1,6 +1,9 @@
 syntax = "proto3";
 
 import "protos/chain.proto";
+import "protos/signed_transaction.proto";
+import "protos/receipt.proto";
+import "protos/nightshade.proto";
 import "google/protobuf/wrappers.proto";
 
 message PeerInfo {
@@ -31,5 +34,70 @@ message PeerMessage {
         HandShake hand_shake = 1;
         InfoGossip info_gossip = 2;
         bytes message = 3;
+    }
+}
+
+message Message {
+    message BlockFetchRequest {
+        uint64 request_id = 1;
+        uint64 from = 2;
+        uint64 to = 3;
+    }
+    
+    message BlockResponse {
+        uint64 request_id = 1;
+        repeated CoupledBlock response = 2;
+    }
+    
+    message PayloadRequest {
+        uint64 request_id = 1;
+        repeated bytes transaction_hashes = 2;
+        repeated bytes receipt_hashes = 3;
+    }
+    
+    message PayloadSnapshotRequest {
+        uint64 request_id = 1;
+        bytes snapshot_hash = 2;
+    }
+    
+    message PayloadResponse {
+        uint64 request_id = 1;
+        ChainPayload payload = 2;
+    }
+
+    message JointBlockBLS {
+        message Request {
+            uint64 sender_id = 1;
+            uint64 receiver_id = 2;
+            bytes beacon_hash = 3;
+            bytes shard_hash = 4;
+        }
+        message General {
+            uint64 sender_id = 1;
+            uint64 receiver_id = 2;
+            bytes beacon_hash = 3;
+            bytes shard_hash = 4;
+            string beacon_sig = 5;
+            string shard_sig = 6;
+        }
+        oneof type {
+            Request request = 1;
+            General general = 2;
+        }
+    }
+
+    oneof message_type {
+        ConnectedInfo connected_info = 1;
+        SignedTransaction transaction = 2;
+        ReceiptBlock receipt = 3;
+        CoupledBlock block_announce = 4;
+        Message.BlockFetchRequest block_fetch_request = 5;
+        Message.BlockResponse block_response = 6;
+        Gossip gossip = 7;
+        PayloadGossip payload_gossip = 8;
+        Message.PayloadRequest payload_request = 9;
+        Message.PayloadSnapshotRequest payload_snapshot_request = 10;
+        Message.PayloadResponse payload_response = 11;
+        Message.JointBlockBLS joint_block_bls = 12;
     }
 }

@@ -21,10 +21,9 @@ use primitives::chain::ChainState;
 use primitives::network::{
     PeerInfo, Handshake, PeerMessage, PeersInfo, ConnectedInfo
 };
-use primitives::serialize::Encode;
 use primitives::types::PeerId;
 
-use super::message::{Message, PROTOCOL_VERSION};
+use super::message::{Message, PROTOCOL_VERSION, encode_message};
 use super::codec::Codec;
 
 /// How long do we wait for connection to be established.
@@ -181,7 +180,7 @@ impl<T: ChainStateRetriever> Peer<T> {
     }
 
     fn on_peer_connected(&self, handshake: Handshake) {
-        let data = Encode::encode(&Message::Connected(handshake.connected_info)).unwrap();
+        let data = encode_message(Message::Connected(handshake.connected_info)).unwrap();
         tokio::spawn(
             self.inc_msg_tx
                 .clone()
