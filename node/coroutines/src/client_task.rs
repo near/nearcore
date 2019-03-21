@@ -365,6 +365,9 @@ impl ClientTask {
         let (owner_uid, mapping) =
             self.client.get_uid_to_authority_map(beacon_block.index());
         if let Some(owner) = owner_uid {
+            // TODO fail somewhere much earlier if our keys don't match chain spec
+            assert_eq!(mapping.get(&owner).as_ref().unwrap().public_key, self.client.signer.public_key);
+            assert_eq!(mapping.get(&owner).as_ref().unwrap().bls_public_key, self.client.signer.bls_public_key);
             let beacon_sig = beacon_block.sign(self.client.signer.clone());
             beacon_block.add_signature(&beacon_sig, owner);
             let shard_sig = shard_block.sign(self.client.signer.clone());
@@ -525,6 +528,7 @@ impl ClientTask {
         }
         beacon_block.signature.add_signature(&beacon_sig, authority_id);
         shard_block.signature.add_signature(&shard_sig, authority_id);
+
         self.try_import_produced(beacon_hash, shard_hash)
     }
 
