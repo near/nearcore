@@ -300,3 +300,6 @@ class NearLib(object):
     def get_contract_info(self, contract_account_id):
         params = {'contract_account_id': contract_account_id}
         return self._call_rpc('view_state', params)
+
+    def generate_key_pair(self, seed):
+        return self.keystore.create_key_pair(seed)
