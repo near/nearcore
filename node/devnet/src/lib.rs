@@ -11,6 +11,7 @@ use client::Client;
 use configs::{ClientConfig, DevNetConfig, get_devnet_configs, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
+use primitives::signer::InMemorySigner;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -18,7 +19,9 @@ pub fn start() {
 }
 
 pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
-    let client = Arc::new(Client::new(&client_cfg));
+    let mut client = Client::new(&client_cfg);
+    client.signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let client = Arc::new(client);
     start_from_client(client, devnet_cfg, rpc_cfg);
 }
 
@@ -109,13 +112,15 @@ mod tests {
         let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
         let rpc_cfg = configs::RPCConfig::default();
 
-        let client = Arc::new(Client::new(&client_cfg));
+        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+        let mut client = Client::new(&client_cfg);
+        client.signer = signer.clone();
+        let client = Arc::new(client);
         let client1 = client.clone();
         thread::spawn(|| {
             start_from_client(client1, devnet_cfg, rpc_cfg);
         });
 
-        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
         client
             .shard_client
             .pool
