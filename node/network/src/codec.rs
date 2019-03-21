@@ -1,6 +1,7 @@
 use tokio::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BufMut};
 use std::io::{Error, ErrorKind};
+use std::convert::TryInto;
 use primitives::network::PeerMessage;
 use near_protos::network::PeerMessage as ProtoMessage;
 use protobuf::{ProtobufError, parse_from_bytes, Message};
@@ -79,7 +80,7 @@ impl Decoder for Codec {
         } else {
             let res: ProtoMessage = parse_from_bytes(&buf[4..4 + len as usize]).map_err(convert_protobuf_error)?;
             buf.advance(4 + len as usize);
-            Ok(Some(res.into()))
+            res.try_into().map_err(|e| Error::new(ErrorKind::InvalidData, e)).map(Some)
         }
     }
 }

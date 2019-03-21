@@ -1,16 +1,17 @@
 use crate::types::{AccountId, PeerId};
 use crate::hash::CryptoHash;
 use crate::chain::ChainState;
+use crate::utils::{to_string_value, proto_to_result, proto_to_type};
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto, Into};
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use near_protos::network as network_proto;
 use protobuf::{SingularPtrField, RepeatedField};
-use protobuf::well_known_types::{StringValue, UInt32Value};
+use protobuf::well_known_types::UInt32Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerAddr {
@@ -110,12 +111,6 @@ impl From<network_proto::PeerInfo> for PeerInfo {
     }
 }
 
-fn to_string_value(s: String) -> StringValue {
-    let mut res = StringValue::new();
-    res.set_value(s);
-    res
-}
-
 impl From<PeerInfo> for network_proto::PeerInfo {
     fn from(peer_info: PeerInfo) -> network_proto::PeerInfo {
         let id = peer_info.id;
@@ -142,11 +137,15 @@ pub struct ConnectedInfo {
     pub chain_state: ChainState,
 }
 
-impl From<network_proto::ConnectedInfo> for ConnectedInfo {
-    fn from(proto: network_proto::ConnectedInfo) -> Self {
-        ConnectedInfo {
-            chain_state: proto.chain_state.unwrap().into()
-        }
+impl TryFrom<network_proto::ConnectedInfo> for ConnectedInfo {
+    type Error = String;
+
+    fn try_from(proto: network_proto::ConnectedInfo) -> Result<Self, Self::Error> {
+        proto_to_result(proto.chain_state).map(|state| {
+            ConnectedInfo {
+                chain_state: state.into()
+            }
+        })
     }
 }
 
@@ -176,17 +175,28 @@ pub struct Handshake {
     pub connected_info: ConnectedInfo,
 }
 
-impl From<network_proto::HandShake> for Handshake {
-    fn from(proto: network_proto::HandShake) -> Self {
+impl TryFrom<network_proto::HandShake> for Handshake {
+    type Error = String;
+
+    fn try_from(proto: network_proto::HandShake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
-        Handshake {
-            version: proto.version,
-            peer_id: proto.peer_id.into(),
-            account_id,
-            listen_port,
-            peers_info: proto.peers_info.into_iter().map(std::convert::Into::into).collect(),
-            connected_info: proto.connected_info.unwrap().into(),
+        let peers_info = proto.peers_info
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        match proto_to_type(proto.connected_info) {
+            Ok(connected_info) => {
+                Ok(Handshake {
+                    version: proto.version,
+                    peer_id: proto.peer_id.into(),
+                    account_id,
+                    listen_port,
+                    peers_info,
+                    connected_info,
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -224,18 +234,23 @@ pub enum PeerMessage {
 }
 
 
-impl From<network_proto::PeerMessage> for PeerMessage {
-    fn from(proto: network_proto::PeerMessage) -> Self {
+impl TryFrom<network_proto::PeerMessage> for PeerMessage {
+    type Error = String;
+
+    fn try_from(proto: network_proto::PeerMessage) -> Result<Self, Self::Error> {
         match proto.message_type {
             Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake)) => {
-                PeerMessage::Handshake(hand_shake.into())
+                hand_shake.try_into().map(PeerMessage::Handshake)
             }
             Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip)) => {
-                let peer_info = gossip.info_gossip.into_iter().map(std::convert::Into::into).collect();
-                PeerMessage::InfoGossip(peer_info)
+                let peer_info = gossip.info_gossip
+                    .into_iter()
+                    .map(Into::into)
+                    .collect();
+                Ok(PeerMessage::InfoGossip(peer_info))
             }
             Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
-                PeerMessage::Message(message)
+                Ok(PeerMessage::Message(message))
             }
             None => unreachable!()
         }
