@@ -65,7 +65,7 @@ pub struct POAAuthority {
 
 impl POAAuthority {
     pub fn new(initial_proposals: Vec<AuthorityStake>) -> Self {
-        POAAuthority {
+        Self {
             initial_proposals
         }
     }
