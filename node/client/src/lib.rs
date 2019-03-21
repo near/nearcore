@@ -175,10 +175,14 @@ impl Client {
             // There are no pending blocks.
             vec![]
         } else {
-            let best_index = self.beacon_client.chain.best_index();
-            guard
+            let blocks_present: HashSet<BlockIndex> = guard
                 .iter()
                 .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })
+                .collect();
+            blocks_present
+                .iter()
+                .map(|i| i - 1)
+                .filter(|i| !blocks_present.contains(i))
                 .collect()
         }
     }
