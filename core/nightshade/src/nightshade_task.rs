@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::iter::FromIterator;
+use std::convert::{TryFrom, TryInto};
 
 use elapsed::measure_time;
 use futures::future::Future;
@@ -19,6 +20,7 @@ use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::{verify, PublicKey, Signature};
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
+use primitives::utils::{proto_to_type, proto_to_result};
 use near_protos::nightshade as nightshade_proto;
 use protobuf::{SingularPtrField, RepeatedField};
 
@@ -46,12 +48,19 @@ pub struct Message {
     pub state: State,
 }
 
-impl From<nightshade_proto::Gossip_Message> for Message {
-    fn from(proto: nightshade_proto::Gossip_Message) -> Message {
-        Message {
-            sender_id: proto.sender_id as AuthorityId,
-            receiver_id: proto.receiver_id as AuthorityId,
-            state: proto.state.unwrap().into(),
+impl TryFrom<nightshade_proto::Gossip_Message> for Message {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Gossip_Message) -> Result<Self, Self::Error> {
+        match proto_to_type(proto.state) {
+            Ok(state) => {
+                Ok(Message {
+                    sender_id: proto.sender_id as AuthorityId,
+                    receiver_id: proto.receiver_id as AuthorityId,
+                    state,
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -85,34 +94,42 @@ pub struct Gossip {
     signature: Signature,
 }
 
-impl From<nightshade_proto::Gossip> for Gossip {
-    fn from(proto: nightshade_proto::Gossip) -> Self {
+impl TryFrom<nightshade_proto::Gossip> for Gossip {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Gossip) -> Result<Self, Self::Error> {
         let body = match proto.body {
             Some(nightshade_proto::Gossip_oneof_body::nightshade_state_update(state_update)) => {
-                GossipBody::NightshadeStateUpdate(Box::new(state_update.into()))
+                state_update.try_into().map(|update| GossipBody::NightshadeStateUpdate(Box::new(update)))
             }
             Some(nightshade_proto::Gossip_oneof_body::payload_request(request)) => {
                 let payload_request = request.payload_request
                     .into_iter()
                     .map(|x| x as AuthorityId)
                     .collect();
-                GossipBody::PayloadRequest(payload_request)
+                Ok(GossipBody::PayloadRequest(payload_request))
             }
             Some(nightshade_proto::Gossip_oneof_body::payload_reply(reply)) => {
-                let proposals = reply.payload_reply
+                let proposals: Result<Vec<_>, _> = reply.payload_reply
                     .into_iter()
-                    .map(std::convert::Into::into)
+                    .map(TryInto::try_into)
                     .collect();
-                GossipBody::PayloadReply(proposals)
+                proposals.map(GossipBody::PayloadReply)
             }
             None => unreachable!()
         };
-        Gossip {
-            sender_id: proto.sender_id as AuthorityId,
-            receiver_id: proto.receiver_id as AuthorityId,
-            body,
-            block_index: proto.block_index,
-            signature: Signature::from(&proto.signature),
+
+        match body {
+            Ok(body) => {
+                Ok(Gossip {
+                    sender_id: proto.sender_id as AuthorityId,
+                    receiver_id: proto.receiver_id as AuthorityId,
+                    body,
+                    block_index: proto.block_index,
+                    signature: Signature::from(&proto.signature),
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -182,12 +199,17 @@ pub struct SignedBlockProposal {
     signature: Signature,
 }
 
-impl From<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
-    fn from(proto: nightshade_proto::SignedBlockProposal) -> Self {
-        SignedBlockProposal {
-            block_proposal: proto.block_proposal.unwrap().into(),
-            signature: Signature::from(&proto.signature),
-        }
+impl TryFrom<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::SignedBlockProposal) -> Result<Self, Self::Error> {
+        let signature = Signature::from(&proto.signature);
+        proto_to_result(proto.block_proposal).map(|proposal| {
+            SignedBlockProposal {
+                block_proposal: proposal.into(),
+                signature,
+            }
+        })
     }
 }
 

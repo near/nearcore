@@ -1,6 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::borrow::Borrow;
 use std::iter::FromIterator;
+use std::convert::{TryFrom, TryInto};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -10,9 +11,12 @@ use super::hash::{CryptoHash, hash_struct};
 use super::merkle::{MerklePath, Direction};
 use super::transaction::{ReceiptTransaction, SignedTransaction};
 use super::types::{AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId};
+use super::utils::{proto_to_result, proto_to_type};
 use near_protos::chain as chain_proto;
 use near_protos::types as types_proto;
 use protobuf::{SingularPtrField, RepeatedField};
+
+const PROTO_ERROR: &str = "Bad Proto";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -57,12 +61,19 @@ pub struct SignedShardBlockHeader {
     pub signature: GroupSignature,
 }
 
-impl From<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
-    fn from(proto: chain_proto::SignedShardBlockHeader) -> Self {
-        SignedShardBlockHeader {
-            body: proto.body.unwrap().into(),
-            hash: proto.hash.into(),
-            signature: proto.signature.unwrap().into(),
+impl TryFrom<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::SignedShardBlockHeader) -> Result<Self, Self::Error> {
+        match (proto_to_result(proto.body).map(std::convert::Into::into), proto_to_type(proto.signature)) {
+            (Ok(body), Ok(signature)) => {
+                Ok(SignedShardBlockHeader {
+                    body,
+                    hash: proto.hash.into(),
+                    signature,
+                })
+            }
+            _ => Err(PROTO_ERROR.to_string())
         }
     }
 }
@@ -98,6 +109,28 @@ pub struct ShardBlock {
     pub receipts: Vec<ReceiptBlock>,
 }
 
+impl TryFrom<chain_proto::ShardBlock> for ShardBlock {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::ShardBlock) -> Result<Self, Self::Error> {
+        let transactions = proto.transactions.into_iter().map(std::convert::Into::into).collect();
+        let receipts: Result<Vec<_>, _> = proto.receipts
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect();
+        match (proto.header.into_option(), receipts) {
+            (Some(header), Ok(receipts)) => {
+                Ok(ShardBlock {
+                    header: header.into(),
+                    transactions,
+                    receipts,
+                })
+            }
+            _ => Err(PROTO_ERROR.to_string())
+        }
+    }
+}
+
 impl From<ShardBlock> for chain_proto::ShardBlock {
     fn from(block: ShardBlock) -> Self {
         chain_proto::ShardBlock {
@@ -110,16 +143,6 @@ impl From<ShardBlock> for chain_proto::ShardBlock {
     }
 }
 
-impl From<chain_proto::ShardBlock> for ShardBlock {
-    fn from(proto: chain_proto::ShardBlock) -> Self {
-        ShardBlock {
-            header: proto.header.unwrap().into(),
-            transactions: proto.transactions.into_iter().map(std::convert::Into::into).collect(),
-            receipts: proto.receipts.into_iter().map(std::convert::Into::into).collect(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedShardBlock {
     pub body: ShardBlock,
@@ -127,12 +150,19 @@ pub struct SignedShardBlock {
     pub signature: GroupSignature,
 }
 
-impl From<chain_proto::SignedShardBlock> for SignedShardBlock {
-    fn from(proto: chain_proto::SignedShardBlock) -> SignedShardBlock {
-        SignedShardBlock {
-            body: proto.body.unwrap().into(),
-            hash: proto.hash.into(),
-            signature: proto.signature.unwrap().into()
+impl TryFrom<chain_proto::SignedShardBlock> for SignedShardBlock {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::SignedShardBlock) -> Result<Self, Self::Error> {
+         match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
+            (Ok(body), Ok(signature)) => {
+                Ok(SignedShardBlock {
+                    body,
+                    hash: proto.hash.into(),
+                    signature,
+                })
+            }
+            _ => Err(PROTO_ERROR.to_string())
         }
     }
 }
@@ -182,8 +212,10 @@ pub struct ReceiptBlock {
     pub hash: CryptoHash,
 }
 
-impl From<chain_proto::ReceiptBlock> for ReceiptBlock {
-    fn from(proto: chain_proto::ReceiptBlock) -> Self {
+impl TryFrom<chain_proto::ReceiptBlock> for ReceiptBlock {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::ReceiptBlock) -> Result<Self, Self::Error> {
         let path = proto.path.into_iter().map(|node| {
             let direction = if node.direction {
                 Direction::Left
@@ -192,11 +224,20 @@ impl From<chain_proto::ReceiptBlock> for ReceiptBlock {
             };
             (node.hash.into(), direction)
         }).collect();
-        ReceiptBlock {
-            header: proto.header.unwrap().into(),
-            path,
-            receipts: proto.receipts.into_iter().map(std::convert::Into::into).collect(),
-            hash: proto.hash.into(),
+        let receipts: Result<Vec<_>, _> = proto.receipts
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect();
+        match (proto_to_type(proto.header), receipts) {
+            (Ok(header), Ok(receipts)) => {
+                Ok(ReceiptBlock {
+                       header,
+                       path,
+                       receipts,
+                       hash: proto.hash.into(),
+                })
+            }
+            _ => Err(PROTO_ERROR.to_string())
         }
     }
 }
@@ -349,12 +390,26 @@ pub struct ChainPayload {
     hash: CryptoHash,
 }
 
-impl From<chain_proto::ChainPayload> for ChainPayload {
-    fn from(proto: chain_proto::ChainPayload) -> Self {
-        ChainPayload {
-            transactions: proto.transactions.into_iter().map(std::convert::Into::into).collect(),
-            receipts: proto.receipts.into_iter().map(std::convert::Into::into).collect(),
-            hash: proto.hash.into(),
+impl TryFrom<chain_proto::ChainPayload> for ChainPayload {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::ChainPayload) -> Result<Self, Self::Error> {
+        let receipts: Result<Vec<_>, _> = proto.receipts
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect();
+        match receipts {
+            Ok(receipts) => {
+                Ok(ChainPayload {
+                    transactions: proto.transactions
+                        .into_iter()
+                        .map(std::convert::Into::into)
+                        .collect(),
+                    receipts,
+                    hash: proto.hash.into(),
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }

@@ -1,5 +1,6 @@
 use crate::logging;
 use std::fmt;
+use std::convert::TryFrom;
 
 use crate::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
@@ -7,7 +8,7 @@ use crate::aggregate_signature::{
 use crate::hash::CryptoHash;
 use crate::signature::{bs58_serializer, PublicKey, Signature};
 use crate::traits::Base58Encoded;
-use crate::utils::to_string_value;
+use crate::utils::{to_string_value, proto_to_result};
 use near_protos::types as types_proto;
 use near_protos::receipt as receipt_proto;
 use protobuf::SingularPtrField;
@@ -57,12 +58,16 @@ pub struct GroupSignature {
     pub authority_mask: AuthorityMask,
 }
 
-impl From<types_proto::GroupSignature> for GroupSignature {
-    fn from(proto: types_proto::GroupSignature) -> Self {
-        GroupSignature {
-            signature: Base58Encoded::from_base58(&proto.signature).unwrap(),
-            authority_mask: proto.authority_mask,
-        }
+impl TryFrom<types_proto::GroupSignature> for GroupSignature {
+    type Error = String;
+
+    fn try_from(proto: types_proto::GroupSignature) -> Result<Self, String> {
+        Base58Encoded::from_base58(&proto.signature).map(|signature| {
+            GroupSignature {
+                signature,
+                authority_mask: proto.authority_mask,
+            }
+        }).map_err(|e| format!("cannot decode signature {:?}", e))
     }
 }
 
@@ -176,12 +181,19 @@ pub struct ManaAccounting {
     pub gas_used: Gas,
 }
 
-impl From<receipt_proto::ManaAccounting> for ManaAccounting {
-    fn from(proto: receipt_proto::ManaAccounting) -> Self {
-        ManaAccounting {
-            accounting_info: proto.accounting_info.unwrap().into(),
-            mana_refund: proto.mana_refund,
-            gas_used: proto.gas_used
+impl TryFrom<receipt_proto::ManaAccounting> for ManaAccounting {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::ManaAccounting) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.accounting_info) {
+            Ok(info) => {
+                Ok(ManaAccounting {
+                    accounting_info: info.into(),
+                    mana_refund: proto.mana_refund,
+                    gas_used: proto.gas_used
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -218,14 +230,18 @@ pub struct AuthorityStake {
     pub amount: u64,
 }
 
-impl From<types_proto::AuthorityStake> for AuthorityStake {
-    fn from(proto: types_proto::AuthorityStake) -> Self {
-        AuthorityStake {
-            account_id: proto.account_id,
-            public_key: PublicKey::from(&proto.public_key),
-            bls_public_key: BlsPublicKey::from_base58(&proto.bls_public_key).unwrap(),
-            amount: proto.amount
-        }
+impl TryFrom<types_proto::AuthorityStake> for AuthorityStake {
+    type Error = String;
+
+    fn try_from(proto: types_proto::AuthorityStake) -> Result<Self, Self::Error> {
+        BlsPublicKey::from_base58(&proto.bls_public_key).map(|key| {
+            AuthorityStake {
+                account_id: proto.account_id,
+                public_key: PublicKey::from(&proto.public_key),
+                bls_public_key: key,
+                amount: proto.amount
+            }
+        }).map_err(|e| format!("cannot decode signature {:?}", e))   
     }
 }
 

@@ -1,6 +1,7 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::convert::{TryFrom, TryInto};
 use protobuf::SingularPtrField;
 use protobuf::well_known_types::BytesValue;
 
@@ -16,7 +17,7 @@ use super::signer::TransactionSigner;
 use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, ShardId, StructSignature,
 };
-use super::utils::account_to_shard_id;
+use super::utils::{account_to_shard_id, proto_to_result};
 
 pub type LogEntry = String;
 
@@ -605,15 +606,22 @@ pub struct AsyncCall {
     pub accounting_info: AccountingInfo,
 }
 
-impl From<receipt_proto::AsyncCall> for AsyncCall {
-    fn from(proto: receipt_proto::AsyncCall) -> Self {
-        AsyncCall {
-            amount: proto.amount,
-            mana: proto.mana,
-            method_name: proto.method_name,
-            args: proto.args,
-            callback: proto.callback.into_option().map(std::convert::Into::into),
-            accounting_info: proto.accounting_info.unwrap().into(),
+impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.accounting_info) {
+            Ok(accounting_info) => {
+                Ok(AsyncCall {
+                    amount: proto.amount,
+                    mana: proto.mana,
+                    method_name: proto.method_name,
+                    args: proto.args,
+                    callback: proto.callback.into_option().map(std::convert::Into::into),
+                    accounting_info: accounting_info.into(),
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -758,11 +766,18 @@ pub struct CallbackResult {
     pub result: Option<Vec<u8>>,
 }
 
-impl From<receipt_proto::CallbackResult> for CallbackResult {
-    fn from(proto: receipt_proto::CallbackResult) -> Self {
-        CallbackResult {
-            info: proto.info.unwrap().into(),
-            result: proto.result.into_option().map(|v| v.value),
+impl TryFrom<receipt_proto::CallbackResult> for CallbackResult {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::CallbackResult) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.info) {
+            Ok(info) => {
+                Ok(CallbackResult {
+                    info: info.into(),
+                    result: proto.result.into_option().map(|v| v.value),
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -807,28 +822,35 @@ pub struct ReceiptTransaction {
     pub body: ReceiptBody,
 }
 
-impl From<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
-    fn from(proto: receipt_proto::ReceiptTransaction) -> Self {
+impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::ReceiptTransaction) -> Result<Self, Self::Error> {
         let body = match proto.body {
             Some(receipt_proto::ReceiptTransaction_oneof_body::new_call(new_call)) => {
-                ReceiptBody::NewCall(new_call.into())
+                new_call.try_into().map(ReceiptBody::NewCall)
             }
             Some(receipt_proto::ReceiptTransaction_oneof_body::callback(callback)) => {
-                ReceiptBody::Callback(callback.into())
+                callback.try_into().map(ReceiptBody::Callback)
             }
             Some(receipt_proto::ReceiptTransaction_oneof_body::refund(refund)) => {
-                ReceiptBody::Refund(refund)
+                Ok(ReceiptBody::Refund(refund))
             }
             Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
-                ReceiptBody::ManaAccounting(accounting.into())
+                accounting.try_into().map(ReceiptBody::ManaAccounting)
             }
             None => unreachable!()
         };
-        ReceiptTransaction {
-            originator: proto.originator,
-            receiver: proto.receiver,
-            nonce: proto.nonce.into(),
-            body    
+        match body {
+            Ok(body) => {
+                Ok(ReceiptTransaction {
+                    originator: proto.originator,
+                    receiver: proto.receiver,
+                    nonce: proto.nonce.into(),
+                    body    
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }

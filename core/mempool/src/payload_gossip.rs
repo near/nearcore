@@ -1,10 +1,11 @@
 use std::sync::Arc;
-
+use std::convert::TryFrom;
 use primitives::types::AuthorityId;
 use primitives::chain::ChainPayload;
 use primitives::signature::Signature;
 use primitives::hash::hash_struct;
 use primitives::signer::BlockSigner;
+use primitives::utils::proto_to_type;
 use near_protos::nightshade as nightshade_proto;
 use protobuf::SingularPtrField;
 
@@ -16,13 +17,20 @@ pub struct PayloadGossip {
     signature: Signature,
 }
 
-impl From<nightshade_proto::PayloadGossip> for PayloadGossip {
-    fn from(proto: nightshade_proto::PayloadGossip) -> Self {
-        PayloadGossip {
-            sender_id: proto.sender_id as AuthorityId,
-            receiver_id: proto.receiver_id as AuthorityId,
-            payload: proto.payload.unwrap().into(),
-            signature: Signature::from(&proto.signature)
+impl TryFrom<nightshade_proto::PayloadGossip> for PayloadGossip {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::PayloadGossip) -> Result<Self, Self::Error> {
+        match proto_to_type(proto.payload) {
+            Ok(payload) => {
+                Ok(PayloadGossip {
+                    sender_id: proto.sender_id as AuthorityId,
+                    receiver_id: proto.receiver_id as AuthorityId,
+                    payload,
+                    signature: Signature::from(&proto.signature)
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }

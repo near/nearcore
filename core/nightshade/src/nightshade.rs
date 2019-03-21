@@ -2,6 +2,7 @@
 use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::convert::{TryFrom, TryInto};
 
 use primitives::aggregate_signature::{
     AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
@@ -13,9 +14,11 @@ use primitives::signature::bs58_serializer;
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
 use primitives::traits::Base58Encoded;
+use primitives::utils::{proto_to_result, proto_to_type};
 use near_protos::nightshade as nightshade_proto;
 use protobuf::SingularPtrField;
 
+const PROTO_ERROR: &str = "Bad Proto";
 const COMMIT_THRESHOLD: i64 = 3;
 
 // TODO: Move common types from nightshade to primitives and remove pub from nightshade.
@@ -82,12 +85,19 @@ pub struct BareState {
     pub secondary_confidence: i64,
 }
 
-impl From<nightshade_proto::BareState> for BareState {
-    fn from(proto: nightshade_proto::BareState) -> Self {
-        BareState {
-            primary_confidence: proto.primary_confidence,
-            endorses: proto.endorses.unwrap().into(),
-            secondary_confidence: proto.secondary_confidence,
+impl TryFrom<nightshade_proto::BareState> for BareState {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::BareState) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.endorses) {
+            Ok(endorses) => {
+                Ok(BareState {
+                    primary_confidence: proto.primary_confidence,
+                    endorses: endorses.into(),
+                    secondary_confidence: proto.secondary_confidence,
+                })
+            }
+            Err(e) => Err(e)
         }
     }
 }
@@ -148,12 +158,20 @@ pub struct Proof {
     signature: BlsSignature,
 }
 
-impl From<nightshade_proto::Proof> for Proof {
-    fn from(proto: nightshade_proto::Proof) -> Self {
-        Proof {
-            bare_state: proto.bare_state.unwrap().into(),
-            mask: proto.mask,
-            signature: Base58Encoded::from_base58(&proto.signature).unwrap(),
+impl TryFrom<nightshade_proto::Proof> for Proof {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Proof) -> Result<Self, Self::Error> {
+        let signature = Base58Encoded::from_base58(&proto.signature);
+        match (proto_to_type(proto.bare_state), signature) {
+            (Ok(bare_state), Ok(signature)) => {
+                Ok(Proof {
+                    bare_state,
+                    mask: proto.mask,
+                    signature,
+                })
+            }
+            _ => Err(PROTO_ERROR.to_string())
         }
     }
 }
@@ -237,13 +255,28 @@ pub struct State {
     pub signature: BlsSignature,
 }
 
-impl From<nightshade_proto::State> for State {
-    fn from(proto: nightshade_proto::State) -> Self {
-        State {
-            bare_state: proto.bare_state.unwrap().into(),
-            primary_proof: proto.primary_proof.into_option().map(std::convert::Into::into),
-            secondary_proof: proto.secondary_proof.into_option().map(std::convert::Into::into),
-            signature: Base58Encoded::from_base58(&proto.signature).unwrap(),
+impl TryFrom<nightshade_proto::State> for State {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::State) -> Result<Self, Self::Error> {
+        let signature = Base58Encoded::from_base58(&proto.signature);
+        let bare_state = proto_to_type(proto.bare_state);
+        let primary_proof = proto.primary_proof
+            .into_option()
+            .and_then(|proof| proof.try_into().ok());
+        let secondary_proof = proto.secondary_proof
+            .into_option()
+            .and_then(|proof| proof.try_into().ok());
+        match (bare_state, signature) {
+            (Ok(bare_state), Ok(signature)) => {
+                Ok(State {
+                    bare_state,
+                    primary_proof,
+                    secondary_proof,
+                    signature,
+                })
+            }
+            _ => Err(PROTO_ERROR.to_string())
         }
     }
 }

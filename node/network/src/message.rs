@@ -1,6 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 use protobuf::{RepeatedField, SingularPtrField};
 use std::iter::FromIterator;
+use std::convert::{TryInto, TryFrom};
 use protobuf::{Message as ProtoMessage, ProtobufResult, parse_from_bytes};
 
 use nightshade::nightshade_task::Gossip;
@@ -10,11 +11,14 @@ use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::network::ConnectedInfo;
+use primitives::utils::proto_to_type;
 use near_protos::network as network_proto;
 use near_protos::chain as chain_proto;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);
+
+const PROTO_ERROR: &str = "Bad Proto";
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -49,42 +53,53 @@ pub enum Message {
     PayloadResponse(RequestId, ChainPayload),
 }
 
-impl From<network_proto::Message> for Message {
-    fn from(proto: network_proto::Message) -> Self {
+impl TryFrom<network_proto::Message> for Message {
+    type Error = String;
+
+    fn try_from(proto: network_proto::Message) -> Result<Self, Self::Error> {
         match proto.message_type {
             Some(network_proto::Message_oneof_message_type::connected_info(info)) => {
-                Message::Connected(info.into())
+                info.try_into().map(Message::Connected)
             }
             Some(network_proto::Message_oneof_message_type::transaction(tx)) => {
-                Message::Transaction(Box::new(tx.into()))
+                Ok(Message::Transaction(Box::new(tx.into())))
             }
             Some(network_proto::Message_oneof_message_type::receipt(receipt)) => {
-                Message::Receipt(Box::new(receipt.into()))
+                receipt.try_into().map(|receipt| Message::Receipt(Box::new(receipt)))
             }
             Some(network_proto::Message_oneof_message_type::block_announce(ann)) => {
-                let blocks = (
-                    ann.beacon_block.unwrap().into(),
-                    ann.shard_block.unwrap().into(),
-                );
-                Message::BlockAnnounce(Box::new(blocks))
+                match (proto_to_type(ann.beacon_block), proto_to_type(ann.shard_block)) {
+                    (Ok(beacon), Ok(shard)) => {
+                        Ok(Message::BlockAnnounce(Box::new((beacon, shard))))
+                    }
+                    _ => Err(PROTO_ERROR.to_string())
+                }
             }
             Some(network_proto::Message_oneof_message_type::block_fetch_request(request)) => {
-                Message::BlockFetchRequest(request.request_id, request.from, request.to)
+                Ok(Message::BlockFetchRequest(request.request_id, request.from, request.to))
             }
             Some(network_proto::Message_oneof_message_type::block_response(response)) => {
-                let blocks = response.response
+                let blocks: Result<Vec<_>, _> = response.response
                     .into_iter()
                     .map(|coupled| {
-                        (coupled.beacon_block.unwrap().into(), coupled.shard_block.unwrap().into())
-                    } )
+                        match (proto_to_type(coupled.beacon_block), proto_to_type(coupled.shard_block)) {
+                            (Ok(beacon), Ok(shard)) => {
+                                Ok((beacon, shard))
+                            }
+                            _ => Err(PROTO_ERROR.to_string())
+                        }
+                    })
                     .collect();
-                Message::BlockResponse(response.request_id, blocks)
+                match blocks {
+                    Ok(blocks) => Ok(Message::BlockResponse(response.request_id, blocks)),
+                    Err(e) => Err(e)
+                }
             }
             Some(network_proto::Message_oneof_message_type::gossip(gossip)) => {
-                Message::Gossip(Box::new(gossip.into()))
+                gossip.try_into().map(|g| Message::Gossip(Box::new(g)))
             }
             Some(network_proto::Message_oneof_message_type::payload_gossip(payload_gossip)) => {
-                Message::PayloadGossip(Box::new(payload_gossip.into()))
+                payload_gossip.try_into().map(|g| Message::PayloadGossip(Box::new(g)))
             }
             Some(network_proto::Message_oneof_message_type::payload_request(request)) => {
                 let transaction_hashes = request.transaction_hashes
@@ -95,13 +110,16 @@ impl From<network_proto::Message> for Message {
                     .into_iter()
                     .map(std::convert::Into::into)
                     .collect();
-                Message::PayloadRequest(request.request_id, transaction_hashes, receipt_hashes)
+                Ok(Message::PayloadRequest(request.request_id, transaction_hashes, receipt_hashes))
             }
             Some(network_proto::Message_oneof_message_type::payload_snapshot_request(request)) => {
-                Message::PayloadSnapshotRequest(request.request_id, request.snapshot_hash.into())
+                Ok(Message::PayloadSnapshotRequest(request.request_id, request.snapshot_hash.into()))
             }
             Some(network_proto::Message_oneof_message_type::payload_response(response)) => {
-                Message::PayloadResponse(response.request_id, response.payload.unwrap().into())
+                match proto_to_type(response.payload) {
+                    Ok(payload) => Ok(Message::PayloadResponse(response.request_id, payload)),
+                    Err(e) => Err(e)
+                }
             }
             None => unreachable!()
         }
@@ -206,7 +224,9 @@ pub fn encode_message(message: Message) -> ProtobufResult<Vec<u8>> {
     proto.write_to_bytes()
 }
 
-pub fn decode_message(data: &[u8]) -> ProtobufResult<Message> {
-    parse_from_bytes::<network_proto::Message>(data).map(std::convert::Into::into)
+pub fn decode_message(data: &[u8]) -> Result<Message, String> {
+    parse_from_bytes::<network_proto::Message>(data)
+        .map_err(|e| format!("Protobuf error: {}", e))
+        .and_then(TryInto::try_into)
 }
 
