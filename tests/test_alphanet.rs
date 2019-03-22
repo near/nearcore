@@ -1,8 +1,11 @@
+use std::thread;
+use std::time::Duration;
+
 use primitives::transaction::TransactionBody;
 use testlib::alphanet_utils::create_nodes;
+use testlib::alphanet_utils::Node;
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
-use testlib::alphanet_utils::Node;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
@@ -41,6 +44,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
             1000,
             trial_duration,
         );
+        thread::sleep(Duration::from_millis(500));
     }
 }
 

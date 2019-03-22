@@ -43,20 +43,56 @@ fn find_threshold(stakes: &[u64], num_seats: u64) -> Result<u64, String> {
     }
 }
 
+pub trait Authority: Send + Sync {
+    fn process_block_header(&mut self, header: &SignedBeaconBlockHeader);
+    fn get_authorities(&self, slot: Slot) -> Result<Vec<AuthorityStake>, String>;
+}
+
+pub fn get_authority(
+        authority_config: AuthorityConfig,
+        blockchain: &BeaconBlockChain,
+        storage: Arc<RwLock<BeaconChainStorage>>
+    ) -> Box<Authority> {
+    match authority_config.authority_rotation {
+        AuthorityRotation::ProofOfAuthority => Box::new(POAAuthority::new(authority_config.initial_proposals)),
+        AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot } => Box::new(ThresholdedPOSAuthority::new(authority_config.initial_proposals, epoch_length, num_seats_per_slot, blockchain, storage))
+    }
+}
+
+pub struct POAAuthority {
+    initial_proposals: Vec<AuthorityStake>
+}
+
+impl POAAuthority {
+    pub fn new(initial_proposals: Vec<AuthorityStake>) -> Self {
+        Self {
+            initial_proposals
+        }
+    }
+}
+
+impl Authority for POAAuthority {
+    fn process_block_header(&mut self, _header: &SignedBeaconBlockHeader) {}
+
+    fn get_authorities(&self, _slot: Slot) -> Result<Vec<AuthorityStake>, String> {
+        Ok(self.initial_proposals.clone())
+    }
+}
+
 /// Keeps track and selects authorities for given blockchain.
 /// To participate in epoch E an authority must submit a proposal in epoch E-2.
 /// Those authorities that submitted proposals in epoch E-2 and those that participated in epoch E-2
 /// are used in authority selection for epoch E. For each authority the stake used in selection is
 /// computed as: <amount staked in E-2> - <amount not used in E-2> + <proposed amount in E-2>.
-pub struct Authority {
-    authority_config: AuthorityConfig,
+pub struct ThresholdedPOSAuthority {
+    initial_proposals: Vec<AuthorityStake>,
     epoch_length: u64,
     num_seats_per_slot: u64,
     /// beacon chain storage
     storage: Arc<RwLock<BeaconChainStorage>>,
 }
 
-impl Authority {
+impl ThresholdedPOSAuthority {
     #[inline]
     fn slot_to_epoch(&self, slot: Slot) -> Epoch {
         // The genesis block has slot 0 and is not a part of any epoch. So slots are shifted by 1
@@ -65,7 +101,7 @@ impl Authority {
     }
 
     #[inline]
-    fn epoch_to_slots(&self, epoch: Epoch) -> impl Iterator<Item = Slot> {
+    fn epoch_to_slots(&self, epoch: Epoch) -> impl Iterator<Item=Slot> {
         // Because of the genesis block that has slot 0 and is not in any epoch,
         // slots are shifted by 1.
         epoch * self.epoch_length + 1
@@ -74,16 +110,14 @@ impl Authority {
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
     pub fn new(
-        authority_config: AuthorityConfig,
+        initial_proposals: Vec<AuthorityStake>,
+        epoch_length: u64,
+        num_seats_per_slot: u64,
         blockchain: &BeaconBlockChain,
         storage: Arc<RwLock<BeaconChainStorage>>
     ) -> Self {
-        let (epoch_length, num_seats_per_slot) = match authority_config.authority_rotation {
-            AuthorityRotation::ProofOfAuthority => (0, 0),
-            AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot } => (epoch_length, num_seats_per_slot)
-        };
         let mut result = Self {
-            authority_config,
+            initial_proposals,
             epoch_length,
             num_seats_per_slot,
             storage,
@@ -92,7 +126,7 @@ impl Authority {
             // Initial authorities operate for the first two epochs.
             let (accepted_authorities, threshold) = result.compute_threshold_accepted(
                 &CryptoHash::default(),
-                result.authority_config.initial_proposals.to_vec(),
+                result.initial_proposals.to_vec(),
                 vec![],
             );
             let mut slot = 0;
@@ -106,7 +140,7 @@ impl Authority {
                     }
                 }
             }
-            
+
             // Catch up with the blockchain. Note, the last block is allowed to progress while we
             // are iterating.
             // TODO: Take care of the fork being changed while we are iterating.
@@ -128,7 +162,7 @@ impl Authority {
                 index += 1;
             }
         }
-        
+
         result
     }
 
@@ -222,7 +256,7 @@ impl Authority {
                     .get_participation(s)
                     .map(|x| x.iter())
                     .unwrap_or_else(|| [].iter());
-                    
+
                 for (acc, participated) in accepted.zip(participation) {
                     if *participated {
                         match indices.entry(acc.account_id.clone()) {
@@ -281,12 +315,10 @@ impl Authority {
             );
         }
     }
+}
 
-    pub fn process_block_header(&mut self, header: &SignedBeaconBlockHeader) {
-        // If POA, there is no need to process headers.
-        if let AuthorityRotation::ProofOfAuthority = self.authority_config.authority_rotation {
-            return;
-        }
+impl Authority for ThresholdedPOSAuthority {
+    fn process_block_header(&mut self, header: &SignedBeaconBlockHeader) {
         // Skip genesis block or if this block was already recorded.
         let slot = header.body.index;
         if slot > 0 && self.storage.write().expect(POISONED_LOCK_ERR).get_proposal(slot).is_none() {
@@ -322,10 +354,7 @@ impl Authority {
         }
     }
 
-    pub fn get_authorities(&self, slot: Slot) -> Result<Vec<AuthorityStake>, String> {
-        if let AuthorityRotation::ProofOfAuthority = self.authority_config.authority_rotation {
-            return Ok(self.authority_config.initial_proposals.clone());
-        }
+    fn get_authorities(&self, slot: Slot) -> Result<Vec<AuthorityStake>, String> {
         let mut storage = self.storage.write().expect(POISONED_LOCK_ERR);
         if slot == 0 {
             // Genesis block has no authorities.
@@ -349,6 +378,7 @@ impl Authority {
 #[cfg(test)]
 mod test {
     use chain::test_utils::get_blockchain_storage;
+    use configs::authority::get_authority_config;
     use configs::ChainSpec;
     use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
@@ -406,8 +436,7 @@ mod test {
     fn test_single_authority() {
         let chain_spec = get_test_chainspec(1, 10, 5);
         let bc = test_blockchain(0, &chain_spec);
-        let config = bc.authority.read().unwrap().authority_config.clone();
-        let initial_authorities = config.initial_proposals.to_vec();
+        let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
         let mut prev_hash = bc.chain.best_hash();
         let num_seats = authority
@@ -429,8 +458,7 @@ mod test {
     fn test_authority_genesis() {
         let chain_spec = get_test_chainspec(4, 2, 2);
         let bc = test_blockchain(0, &chain_spec);
-        let config = bc.authority.read().unwrap().authority_config.clone();
-        let initial_authorities = config.initial_proposals.to_vec();
+        let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
         assert_eq!(authority.get_authorities(0).unwrap(), vec![]);
         assert_eq!(

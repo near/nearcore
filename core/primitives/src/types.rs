@@ -1,4 +1,5 @@
 use std::fmt;
+use std::convert::TryFrom;
 
 use crate::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature
@@ -6,7 +7,11 @@ use crate::aggregate_signature::{
 use crate::hash::CryptoHash;
 use crate::logging::pretty_hash;
 use crate::signature::{bs58_serializer, PublicKey, Signature};
-use crate::traits::ToBytes;
+use crate::traits::{Base58Encoded, ToBytes};
+use crate::utils::{to_string_value, proto_to_result};
+use near_protos::types as types_proto;
+use near_protos::receipt as receipt_proto;
+use protobuf::SingularPtrField;
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -51,6 +56,30 @@ pub struct GroupSignature {
     #[serde(with = "bs58_serializer")]
     pub signature: BlsSignature,
     pub authority_mask: AuthorityMask,
+}
+
+impl TryFrom<types_proto::GroupSignature> for GroupSignature {
+    type Error = String;
+
+    fn try_from(proto: types_proto::GroupSignature) -> Result<Self, String> {
+        Base58Encoded::from_base58(&proto.signature).map(|signature| {
+            GroupSignature {
+                signature,
+                authority_mask: proto.authority_mask,
+            }
+        }).map_err(|e| format!("cannot decode signature {:?}", e))
+    }
+}
+
+impl From<GroupSignature> for types_proto::GroupSignature {
+    fn from(signature: GroupSignature) -> Self {
+        types_proto::GroupSignature {
+            signature: Base58Encoded::to_base58(&signature.signature),
+            authority_mask: signature.authority_mask,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl fmt::Debug for GroupSignature {
@@ -126,11 +155,61 @@ pub struct AccountingInfo {
     // TODO(#260): Add QuotaID to identify which quota was used for the call.
 }
 
+impl From<receipt_proto::AccountingInfo> for AccountingInfo {
+    fn from(proto: receipt_proto::AccountingInfo) -> Self {
+        AccountingInfo {
+            originator: proto.originator,
+            contract_id: proto.contract_id.into_option().map(|s| s.value)
+        }
+    }
+}
+
+impl From<AccountingInfo> for receipt_proto::AccountingInfo {
+    fn from(info: AccountingInfo) -> Self {
+        let contract_id = SingularPtrField::from_option(info.contract_id.map(to_string_value));
+        receipt_proto::AccountingInfo {
+            originator: info.originator,
+            contract_id,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 #[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 pub struct ManaAccounting {
     pub accounting_info: AccountingInfo,
     pub mana_refund: Mana,
     pub gas_used: Gas,
+}
+
+impl TryFrom<receipt_proto::ManaAccounting> for ManaAccounting {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::ManaAccounting) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.accounting_info) {
+            Ok(info) => {
+                Ok(ManaAccounting {
+                    accounting_info: info.into(),
+                    mana_refund: proto.mana_refund,
+                    gas_used: proto.gas_used
+                })
+            }
+            Err(e) => Err(e)
+        }
+    }
+}
+
+impl From<ManaAccounting> for receipt_proto::ManaAccounting {
+    fn from(accounting: ManaAccounting) -> Self {
+        receipt_proto::ManaAccounting {
+            accounting_info: SingularPtrField::some(accounting.accounting_info.into()),
+            mana_refund: accounting.mana_refund,
+            gas_used: accounting.gas_used,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
@@ -151,6 +230,34 @@ pub struct AuthorityStake {
     pub bls_public_key: BlsPublicKey,
     /// Stake / weight of the authority.
     pub amount: u64,
+}
+
+impl TryFrom<types_proto::AuthorityStake> for AuthorityStake {
+    type Error = String;
+
+    fn try_from(proto: types_proto::AuthorityStake) -> Result<Self, Self::Error> {
+        BlsPublicKey::from_base58(&proto.bls_public_key).map(|key| {
+            AuthorityStake {
+                account_id: proto.account_id,
+                public_key: PublicKey::from(&proto.public_key),
+                bls_public_key: key,
+                amount: proto.amount
+            }
+        }).map_err(|e| format!("cannot decode signature {:?}", e))   
+    }
+}
+
+impl From<AuthorityStake> for types_proto::AuthorityStake {
+    fn from(authority: AuthorityStake) -> Self {
+        types_proto::AuthorityStake {
+            account_id: authority.account_id,
+            public_key: authority.public_key.to_string(),
+            bls_public_key: authority.bls_public_key.to_base58(),
+            amount: authority.amount,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl PartialEq for AuthorityStake {

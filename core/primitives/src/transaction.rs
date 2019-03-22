@@ -1,9 +1,13 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::convert::{TryFrom, TryInto};
+use protobuf::SingularPtrField;
+use protobuf::well_known_types::BytesValue;
 
 use near_protos::signed_transaction as transaction_proto;
 use near_protos::Message as ProtoMessage;
+use near_protos::receipt as receipt_proto;
 
 use crate::logging;
 
@@ -13,7 +17,7 @@ use super::signer::TransactionSigner;
 use super::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, ShardId, StructSignature,
 };
-use super::utils::account_to_shard_id;
+use super::utils::{account_to_shard_id, proto_to_result};
 
 pub type LogEntry = String;
 
@@ -602,6 +606,41 @@ pub struct AsyncCall {
     pub accounting_info: AccountingInfo,
 }
 
+impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.accounting_info) {
+            Ok(accounting_info) => {
+                Ok(AsyncCall {
+                    amount: proto.amount,
+                    mana: proto.mana,
+                    method_name: proto.method_name,
+                    args: proto.args,
+                    callback: proto.callback.into_option().map(std::convert::Into::into),
+                    accounting_info: accounting_info.into(),
+                })
+            }
+            Err(e) => Err(e)
+        }
+    }
+}
+
+impl From<AsyncCall> for receipt_proto::AsyncCall {
+    fn from(call: AsyncCall) -> Self {
+        receipt_proto::AsyncCall {
+            amount: call.amount,
+            mana: call.mana,
+            method_name: call.method_name,
+            args: call.args,
+            callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
+            accounting_info: SingularPtrField::some(call.accounting_info.into()),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 impl AsyncCall {
     pub fn new(
         method_name: Vec<u8>,
@@ -681,6 +720,28 @@ pub struct CallbackInfo {
     pub receiver: AccountId,
 }
 
+impl From<receipt_proto::CallbackInfo> for CallbackInfo {
+    fn from(proto: receipt_proto::CallbackInfo) -> Self {
+        CallbackInfo {
+            id: proto.id,
+            result_index: proto.result_index as usize,
+            receiver: proto.receiver,
+        }
+    }
+}
+
+impl From<CallbackInfo> for receipt_proto::CallbackInfo {
+    fn from(info: CallbackInfo) -> Self {
+        receipt_proto::CallbackInfo {
+            id: info.id,
+            result_index: info.result_index as u64,
+            receiver: info.receiver,
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
 impl CallbackInfo {
     pub fn new(id: CallbackId, result_index: usize, receiver: AccountId) -> Self {
         CallbackInfo { id, result_index, receiver }
@@ -703,6 +764,37 @@ pub struct CallbackResult {
     pub info: CallbackInfo,
     // callback result
     pub result: Option<Vec<u8>>,
+}
+
+impl TryFrom<receipt_proto::CallbackResult> for CallbackResult {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::CallbackResult) -> Result<Self, Self::Error> {
+        match proto_to_result(proto.info) {
+            Ok(info) => {
+                Ok(CallbackResult {
+                    info: info.into(),
+                    result: proto.result.into_option().map(|v| v.value),
+                })
+            }
+            Err(e) => Err(e)
+        }
+    }
+}
+
+impl From<CallbackResult> for receipt_proto::CallbackResult {
+    fn from(result: CallbackResult) -> Self {
+        receipt_proto::CallbackResult {
+            info: SingularPtrField::some(result.info.into()),
+            result: SingularPtrField::from_option(result.result.map(|v| {
+                let mut res = BytesValue::new();
+                res.set_value(v);
+                res
+            })),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl CallbackResult {
@@ -728,6 +820,66 @@ pub struct ReceiptTransaction {
     // nonce will be a hash
     pub nonce: CryptoHash,
     pub body: ReceiptBody,
+}
+
+impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
+    type Error = String;
+
+    fn try_from(proto: receipt_proto::ReceiptTransaction) -> Result<Self, Self::Error> {
+        let body = match proto.body {
+            Some(receipt_proto::ReceiptTransaction_oneof_body::new_call(new_call)) => {
+                new_call.try_into().map(ReceiptBody::NewCall)
+            }
+            Some(receipt_proto::ReceiptTransaction_oneof_body::callback(callback)) => {
+                callback.try_into().map(ReceiptBody::Callback)
+            }
+            Some(receipt_proto::ReceiptTransaction_oneof_body::refund(refund)) => {
+                Ok(ReceiptBody::Refund(refund))
+            }
+            Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
+                accounting.try_into().map(ReceiptBody::ManaAccounting)
+            }
+            None => unreachable!()
+        };
+        match body {
+            Ok(body) => {
+                Ok(ReceiptTransaction {
+                    originator: proto.originator,
+                    receiver: proto.receiver,
+                    nonce: proto.nonce.into(),
+                    body    
+                })
+            }
+            Err(e) => Err(e)
+        }
+    }
+}
+
+impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
+    fn from(t: ReceiptTransaction) -> Self {
+        let body = match t.body {
+            ReceiptBody::NewCall(new_call) => {
+                receipt_proto::ReceiptTransaction_oneof_body::new_call(new_call.into())
+            }
+            ReceiptBody::Callback(callback) => {
+                receipt_proto::ReceiptTransaction_oneof_body::callback(callback.into())
+            }
+            ReceiptBody::Refund(refund) => {
+                receipt_proto::ReceiptTransaction_oneof_body::refund(refund)
+            }
+            ReceiptBody::ManaAccounting(accounting) => {
+                receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting.into())
+            }
+        };
+        receipt_proto::ReceiptTransaction {
+            originator: t.originator,
+            receiver: t.receiver,
+            nonce: t.nonce.into(),
+            body: Some(body),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
 }
 
 impl ReceiptTransaction {

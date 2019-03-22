@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 primitives = { path = "../primitives" }
+near-protos = { path = "../protos" }
 typed-arena = "1.4.1"
 futures = "0.1.25"
 tokio = "0.1"
@@ -17,6 +18,7 @@ serde = "1.0"
 serde_derive = "1.0"
 bs58 = "0.2.0"
 elapsed = "0.1"
+protobuf = "2.4"
 
 [dev-dependencies]
 bencher = "0.1.5"

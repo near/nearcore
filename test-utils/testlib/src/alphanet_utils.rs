@@ -229,7 +229,7 @@ impl ProcessNode {
 
     /// Clear storage directory and run keygen
     pub fn reset_storage(&self) {
-        let keygen_path = self.config().client_cfg.base_path.join("keystore/");
+        let keygen_path = self.config().client_cfg.base_path.join("storage/keystore");
         Command::new("rm").args(&["-r", self.config().client_cfg.base_path.to_str().unwrap()]).spawn().unwrap().wait().unwrap();
         Command::new("cargo").args(&[
             "run",
