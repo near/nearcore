@@ -393,6 +393,8 @@ pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
 pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let mut accounts = vec![];
+    let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+    accounts.push(("alice.near".to_string(), signer.public_key().to_readable(), 1_000_000 as u64, 10));
     let mut initial_authorities = vec![];
     for name in account_names {
         let signer = InMemorySigner::from_seed(name.as_str(), name.as_str());

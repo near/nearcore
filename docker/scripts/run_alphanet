@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+BASE_PATH=/srv/near
+
+mkdir -p ${BASE_PATH}
+generate-test-spec -n ${TOTAL_NODES} -c ${BASE_PATH}/chain_spec.json
+keystore keygen --test-seed near.${NODE_NUM} -p ${BASE_PATH}/storage/keystore
+alphanet --base-path ${BASE_PATH} \
+    --chain-spec-file ${BASE_PATH}/chain_spec.json \
+    --addr 0.0.0.0:3000 \
+    --test-network-key-seed ${NODE_NUM} \
+    --account-id near.${NODE_NUM} \
+    --boot-nodes ${BOOT_NODE_IP}:3000/7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t
+    --log-level Debug | tee output.log

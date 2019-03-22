@@ -78,7 +78,7 @@ class FileKeyStore(KeyStore):
 
         (secret_key, public_key) = self._create_key_pair(seed)
         encoded_pub = b58.b58encode(public_key.to_bytes()).decode('utf-8')
-        encoded_secret = b58.b58encode(public_key.to_bytes()).decode('utf-8')
+        encoded_secret = b58.b58encode(secret_key.to_bytes()).decode('utf-8')
 
         with open(os.path.join(self._path, encoded_pub), 'w') as f:
             key_file = {
