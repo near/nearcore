@@ -4,12 +4,11 @@ use rand::Rng;
 use crate::protocol::Package;
 use crate::proxy::ProxyHandler;
 
-/// Messages passing through this handler will be dropped with probability `dropout_rate`.
-pub struct DropoutHandler {
+pub struct Debug {
     dropout_rate: f64
 }
 
-impl DropoutHandler {
+impl Dropout {
     fn new(dropout_rate: f64) -> Self {
         Self {
             dropout_rate
@@ -17,7 +16,8 @@ impl DropoutHandler {
     }
 }
 
-impl ProxyHandler for DropoutHandler {
+/// Messages will be dropped with probability `dropout_rate `
+impl ProxyHandler for Dropout {
     fn pipe_stream(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) ->
     Box<Stream<Item=Package, Error=()> + Send + Sync>
     {

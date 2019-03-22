@@ -11,8 +11,9 @@ use crate::peer::PeerMessage;
 use crate::protocol::{forward_msg, PackedMessage};
 use crate::protocol::Package;
 
+/// Proxy Handlers implementations
 pub mod dropout;
-pub mod throttling;
+//pub mod throttling;
 
 pub struct Proxy {
     handlers: Vec<Arc<ProxyHandler>>,
@@ -34,7 +35,7 @@ impl Proxy {
     }
 
     /// Spawn proxies, start task that polls messages and pass them through proxy handlers.
-    pub fn spawn(&mut self, mut inc_messages: Receiver<PackedMessage>) {
+    pub fn spawn(&mut self, inc_messages: Receiver<PackedMessage>) {
         let mut stream: Box<Stream<Item=Package, Error=()> + Send + Sync> = Box::new(PackedMessageStream::new(inc_messages));
 
         for mut handler in self.handlers.iter() {
