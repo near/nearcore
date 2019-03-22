@@ -15,7 +15,7 @@ gcloud compute instances create-with-container $PREFIX-0 \
     --zone us-west2-a
 
 BOOT_NODE_IP=$(
-gcloud compute instances describe alphanet-0 \
+gcloud compute instances describe ${PREFIX}-0 \
     --zone us-west2-a | grep natIP | \
     awk '{print $2}'
 )
