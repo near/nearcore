@@ -108,10 +108,16 @@ impl Proof {
         Self { bare_state, mask, signature }
     }
 
-    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>) -> Result<(), NSVerifyErr> {
-        // Verify that this proof contains enough signature in order to be accepted as valid
-        let mask_total: usize = self.mask.iter().map(|&b| b as usize).sum();
-        let total = self.mask.len();
+    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>, weights: &Vec<usize>) -> Result<(), NSVerifyErr> {
+        // Verify that this proof contains enough signature in order to be accepted as valid.
+        let mask_total: usize = self.mask.iter()
+            .zip(weights)
+            .filter_map(|(bit, weight)| {
+                if *bit { Some(weight) } else { None }
+            })
+            .sum();
+
+        let total: usize = weights.iter().sum();
 
         if mask_total <= total * 2 / 3 {
             return Err(NSVerifyErr::MissingSignatures);
@@ -284,6 +290,10 @@ pub struct Nightshade {
     pub owner_id: AuthorityId,
     /// Number of authorities running consensus
     pub num_authorities: usize,
+    /// Weight of each authority on the consensus. Different authority have different weights
+    /// depending on their stake. Whenever we refer to more than 2 / 3 * num_authorities approvals,
+    /// it means that weights sum of approving authorities is more than 2 / 3 of the total weight sum.
+    weights: Vec<usize>,
     /// Current state (triplet) of each authority in the consensus from the point of view
     /// of the authority holding this Nightshade instance.
     pub states: Vec<State>,
@@ -334,6 +344,8 @@ impl Nightshade {
         Self {
             owner_id,
             num_authorities,
+            // TODO: Use real weights from taken from stake. This info should be public through the beacon chain.
+            weights: vec![1; num_authorities],
             states,
             is_adversary: vec![false; num_authorities],
             best_state_counter: 1,
@@ -363,7 +375,7 @@ impl Nightshade {
 
         // Verify this BareState only if it has not been successfully verified previously and ignore it forever
         if !self.seen_bare_states.contains(&state.bare_state) {
-            match state.verify(authority_id, &self.bls_public_keys) {
+            match state.verify(authority_id, &self.bls_public_keys, &self.weights) {
                 Ok(_) => self.seen_bare_states.insert(state.bare_state.clone()),
                 Err(_e) => {
                     // TODO: return more information about why verification fails
