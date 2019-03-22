@@ -58,6 +58,8 @@ pub enum BlockImportingResult {
     MissingParent { missing_indices: Vec<BlockIndex> },
     /// The block is not formed correctly or doesn't have enough signatures
     InvalidBlock,
+    /// Imported blocks are known.
+    KnownBlocks,
 }
 
 pub struct Client {
@@ -314,6 +316,8 @@ impl Client {
         &self,
         blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>
     ) -> BlockImportingResult {
+        let best_block_hash = self.beacon_client.chain.best_hash();
+        let mut has_not_known = false;
         for (beacon_block, shard_block) in blocks {
             // Check if this block was either already added, or it is already pending, or it has
             // invalid signature. Exits function even if single block is invalid.
@@ -325,6 +329,7 @@ impl Client {
             if self.beacon_client.chain.is_known_block(&hash) {
                 continue;
             }
+            has_not_known = true;
             if !Client::verify_block_hash(&beacon_block, &shard_block) {
                 return BlockImportingResult::InvalidBlock;
             }
@@ -356,12 +361,12 @@ impl Client {
             self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(beacon_block);
         }
 
-        let best_block_hash = self.beacon_client.chain.best_hash();
-
         self.try_apply_pending_blocks();
         let new_best_block_header = self.beacon_client.chain.best_header();
 
-        if new_best_block_header.block_hash() == best_block_hash {
+        if !has_not_known {
+            BlockImportingResult::KnownBlocks
+        } else if new_best_block_header.block_hash() == best_block_hash {
             BlockImportingResult::MissingParent {
                 missing_indices: self.get_missing_indices(),
             }
