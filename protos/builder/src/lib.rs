@@ -22,7 +22,7 @@ pub fn autogenerate() {
     protoc_rust::run(protoc_rust::Args {
         out_dir: PROTO_OUTPUT_DIR,
         input: input_files.as_slice(),
-        includes: &["protos"],
+        includes: &["protos", "/usr/local/include"],
         customize: Customize {
             expose_oneof: Some(true),
             ..Default::default()
