@@ -1,5 +1,6 @@
-use std::{fs, panic};
+use std::fs;
 use std::net::SocketAddr;
+use std::panic;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output};
 use std::str::FromStr;
@@ -7,10 +8,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 use client::Client;
-use configs::chain_spec::{AuthorityRotation, ChainSpec, read_or_default_chain_spec, save_chain_spec};
-use configs::ClientConfig;
+use configs::chain_spec::{
+    read_or_default_chain_spec, save_chain_spec, AuthorityRotation, ChainSpec,
+};
 use configs::network::get_peer_id_from_seed;
+use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use primitives::network::{PeerAddr, PeerInfo};
@@ -37,6 +41,11 @@ pub enum ProcessNodeState {
     Running(Child),
 }
 
+pub enum ThreadNodeState {
+    Stopped,
+    Running,
+}
+
 pub struct NodeConfig {
     pub node_info: PeerInfo,
     pub client_cfg: ClientConfig,
@@ -49,7 +58,8 @@ pub struct NodeConfig {
 impl NodeConfig {
     pub fn node_addr(&self) -> PeerAddr {
         let addr = self.network_cfg.listen_addr.expect("Node doesn't have an address");
-        PeerAddr::parse(&format!("127.0.0.1:{}/{}", addr.port(), self.network_cfg.peer_id)).expect("Failed to parse")
+        PeerAddr::parse(&format!("127.0.0.1:{}/{}", addr.port(), self.network_cfg.peer_id))
+            .expect("Failed to parse")
     }
 }
 
@@ -60,17 +70,31 @@ pub trait Node {
 
     fn start(&mut self);
 
-    fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String>;
+    fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
+        self.user().view_balance(account_id)
+    }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+        self.user().add_transaction(transaction)
+    }
 
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
+    fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
+        self.user().get_account_nonce(account_id)
+    }
 
     fn signer(&self) -> Arc<InMemorySigner>;
 
     fn as_process_mut(&mut self) -> &mut ProcessNode;
 
     fn as_thread_mut(&mut self) -> &mut ThreadNode;
+
+    fn is_running(&self) -> bool;
+
+    fn rpc_user(&self) -> RpcNodeUser {
+        RpcNodeUser::new(self.config().rpc_cfg.rpc_port)
+    }
+
+    fn user(&self) -> Box<dyn NodeUser>;
 }
 
 impl Node {
@@ -85,6 +109,7 @@ impl Node {
 pub struct ThreadNode {
     pub config: NodeConfig,
     pub client: Arc<Client>,
+    pub state: ThreadNodeState,
 }
 
 pub struct ProcessNode {
@@ -104,24 +129,13 @@ impl Node for ProcessNode {
     fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
-                let child = self.get_start_node_command().spawn().expect("start node command failed");
+                let child =
+                    self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
-                thread::sleep(Duration::from_secs(10));
+                thread::sleep(Duration::from_secs(3));
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),
         }
-    }
-
-    fn view_balance(&self, _account_id: &String) -> Result<u64, String> {
-        unimplemented!()
-    }
-
-    fn add_transaction(&self, _transaction: SignedTransaction) -> Result<(), String> {
-        unimplemented!()
-    }
-
-    fn get_account_nonce(&self, _account_id: &String) -> Option<u64> {
-        unimplemented!()
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
@@ -135,6 +149,17 @@ impl Node for ProcessNode {
 
     fn as_thread_mut(&mut self) -> &mut ThreadNode {
         unimplemented!()
+    }
+
+    fn is_running(&self) -> bool {
+        match self.state {
+            ProcessNodeState::Stopped => false,
+            ProcessNodeState::Running(_) => true,
+        }
+    }
+
+    fn user(&self) -> Box<NodeUser> {
+        Box::new(self.rpc_user())
     }
 }
 
@@ -155,31 +180,8 @@ impl Node for ThreadNode {
         thread::spawn(|| {
             alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
         });
+        self.state = ThreadNodeState::Running;
         thread::sleep(Duration::from_secs(1));
-    }
-
-    fn view_balance(&self, account_id: &String) -> Result<u64, String> {
-        let mut state_update = self.client.shard_client.get_state_update();
-        self.client
-            .shard_client
-            .trie_viewer
-            .view_account(&mut state_update, account_id)
-            .map(|x| x.amount)
-    }
-
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.client
-            .shard_client
-            .pool
-            .add_transaction(
-                transaction,
-            )
-    }
-
-    fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
-        self.client
-            .shard_client
-            .get_account_nonce(account_id.clone())
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
@@ -193,6 +195,17 @@ impl Node for ThreadNode {
     fn as_thread_mut(&mut self) -> &mut ThreadNode {
         self
     }
+
+    fn is_running(&self) -> bool {
+        match self.state {
+            ThreadNodeState::Stopped => false,
+            ThreadNodeState::Running => true,
+        }
+    }
+
+    fn user(&self) -> Box<dyn NodeUser> {
+        Box::new(ThreadNodeUser::new(self.client.clone()))
+    }
 }
 
 impl ThreadNode {
@@ -201,17 +214,15 @@ impl ThreadNode {
         let account_id = &config.client_cfg.account_id;
         let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
         let client = Arc::new(Client::new_with_signer(&config.client_cfg, signer));
-        ThreadNode { config, client }
+        let state = ThreadNodeState::Stopped;
+        ThreadNode { config, client, state }
     }
 }
 
 impl ProcessNode {
     /// Side effect: reset_storage
     pub fn new(config: NodeConfig) -> ProcessNode {
-        let result = ProcessNode {
-            config,
-            state: ProcessNodeState::Stopped,
-        };
+        let result = ProcessNode { config, state: ProcessNodeState::Stopped };
         result.reset_storage();
         result
     }
@@ -230,15 +241,28 @@ impl ProcessNode {
     /// Clear storage directory and run keygen
     pub fn reset_storage(&self) {
         let keygen_path = self.config().client_cfg.base_path.join("storage/keystore");
-        Command::new("rm").args(&["-r", self.config().client_cfg.base_path.to_str().unwrap()]).spawn().unwrap().wait().unwrap();
-        Command::new("cargo").args(&[
-            "run",
-            "--package", "keystore",
-            "--",
-            "keygen",
-            "--test-seed", self.config().client_cfg.account_id.as_str(),
-            "-p", keygen_path.to_str().unwrap(),
-        ]).spawn().expect("keygen command failed").wait().expect("keygen command failed");
+        Command::new("rm")
+            .args(&["-r", self.config().client_cfg.base_path.to_str().unwrap()])
+            .spawn()
+            .unwrap()
+            .wait()
+            .unwrap();
+        Command::new("cargo")
+            .args(&[
+                "run",
+                "--package",
+                "keystore",
+                "--",
+                "keygen",
+                "--test-seed",
+                self.config().client_cfg.account_id.as_str(),
+                "-p",
+                keygen_path.to_str().unwrap(),
+            ])
+            .spawn()
+            .expect("keygen command failed")
+            .wait()
+            .expect("keygen command failed");
     }
 
     /// Side effect: writes chain spec file
@@ -256,12 +280,18 @@ impl ProcessNode {
         start_node_command.args(&[
             "run",
             "--",
-            "--rpc_port", format!("{}", self.config().rpc_cfg.rpc_port).as_str(),
-            "--base-path", self.config().client_cfg.base_path.to_str().unwrap(),
-            "--test-network-key-seed", format!("{}", self.config().peer_id_seed).as_str(),
-            "--chain-spec-file", chain_spec_path.to_str().unwrap(),
-            "-a", account_name.as_str(),
-            "-k", format!("{}", pubkey).as_str(),
+            "--rpc_port",
+            format!("{}", self.config().rpc_cfg.rpc_port).as_str(),
+            "--base-path",
+            self.config().client_cfg.base_path.to_str().unwrap(),
+            "--test-network-key-seed",
+            format!("{}", self.config().peer_id_seed).as_str(),
+            "--chain-spec-file",
+            chain_spec_path.to_str().unwrap(),
+            "-a",
+            account_name.as_str(),
+            "-k",
+            format!("{}", pubkey).as_str(),
         ]);
         if let Some(ref addr) = self.config().node_info.addr {
             start_node_command.args(&["--addr", format!("{}", addr).as_str()]);
@@ -286,7 +316,14 @@ impl Drop for ProcessNode {
 }
 
 impl NodeConfig {
-    pub fn for_test(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec) -> Self {
+    pub fn for_test(
+        test_prefix: &str,
+        test_port: u16,
+        account_id: &str,
+        peer_id: u16,
+        boot_nodes: Vec<PeerAddr>,
+        chain_spec: ChainSpec,
+    ) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
@@ -300,7 +337,14 @@ impl NodeConfig {
     }
 
     /// Create full node that does not accept incoming connections.
-    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec) -> Self {
+    pub fn for_test_passive(
+        test_prefix: &str,
+        test_port: u16,
+        account_id: &str,
+        peer_id: u16,
+        boot_nodes: Vec<PeerAddr>,
+        chain_spec: ChainSpec,
+    ) -> Self {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
@@ -375,8 +419,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
+where
+    F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {
@@ -416,7 +460,11 @@ pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -
 }
 
 // Create some nodes
-pub fn create_nodes(num_nodes: usize, test_prefix: &str, test_port: u16) -> (u64, Vec<String>, Vec<NodeConfig>) {
+pub fn create_nodes(
+    num_nodes: usize,
+    test_prefix: &str,
+    test_port: u16,
+) -> (u64, Vec<String>, Vec<NodeConfig>) {
     let init_balance = 1_000_000_000;
     let mut account_names = vec![];
     for i in 0..num_nodes {
@@ -455,8 +503,28 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
 pub fn sample_queryable_node(nodes: &Vec<Box<Node>>) -> usize {
     let num_nodes = nodes.len();
     let mut k = rand::random::<usize>() % num_nodes;
-    while nodes[k].node_type() == NodeType::ProcessNode {
+    while !nodes[k].is_running() {
         k = rand::random::<usize>() % num_nodes;
     }
     k
+}
+
+/// TODO it makes sense to have three types of wait checks:
+/// Wait until sufficient number of nodes is caught up (> 2/3). This can be checked by looking at the block indices and verifying that the blocks are produced;
+/// Wait until a certain node is caught up and participating in a consensus. Check first-layer BLS signatures;
+/// Wait until all nodes are more-or-less caught up. Check that the max_block_index - min_block_index < threshold;
+///
+pub fn wait_for_catchup(nodes: &Vec<Box<Node>>) {
+    wait(
+        || {
+            let mut tips: Vec<_> = nodes
+                .iter()
+                .filter(|node| node.is_running())
+                .map(|node| node.user().get_best_block_index())
+                .collect();
+            tips.iter().min() == tips.iter().max()
+        },
+        1000,
+        10000,
+    );
 }

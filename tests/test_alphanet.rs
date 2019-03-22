@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use primitives::transaction::TransactionBody;
 use testlib::alphanet_utils::create_nodes;
-use testlib::alphanet_utils::Node;
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
+use testlib::alphanet_utils::Node;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
@@ -24,23 +24,20 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
-        let nonce = nodes[i].get_account_nonce(&account_names[i])
-                .unwrap_or_default()
-                + 1;
+        let nonce = nodes[i].get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
         let transaction = TransactionBody::send_money(
             nonce,
             account_names[i].as_str(),
             account_names[j].as_str(),
             1,
-        ).sign(nodes[i].signer());
+        )
+        .sign(nodes[i].signer());
         nodes[k].add_transaction(transaction).unwrap();
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 
         wait(
-            || {
-                expected_balances[j] == nodes[r].view_balance(&account_names[j]).unwrap()
-            },
+            || expected_balances[j] == nodes[r].view_balance(&account_names[j]).unwrap(),
             1000,
             trial_duration,
         );
