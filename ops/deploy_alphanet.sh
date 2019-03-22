@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-throwawaydude/alphanet:0.0.2}
+IMAGE=${1:-throwawaydude/alphanet:0.0.3}
 PREFIX=${2:-alphanet}
 STUDIO_IMAGE=${3:-throwawaydude/studio:0.0.0}
 
@@ -43,13 +43,3 @@ gcloud compute instances create-with-container ${PREFIX}-studio \
     --container-env PLATFORM=GCP \
     --container-image ${STUDIO_IMAGE} \
     --zone us-west2-a
-
-sleep 30
-pynear generate_key_pair -d keystore near.0
-pynear create_account \
-    -u http://${BOOT_NODE_IP}:3030/ \
-    -d keystore \
-    -o near.0 \
-    --account_public-key 22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV \
-    alice.near \
-    100000
