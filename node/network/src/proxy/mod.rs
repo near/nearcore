@@ -14,6 +14,7 @@ use crate::protocol::Package;
 /// Proxy Handlers implementations
 pub mod dropout;
 //pub mod throttling;
+pub mod debug;
 
 pub struct Proxy {
     handlers: Vec<Arc<ProxyHandler>>,

@@ -23,6 +23,7 @@ use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 use crate::proxy::Proxy;
+use crate::proxy::debug::DebugHandler;
 
 pub type Package = (Arc<Message>, Sender<PeerMessage>);
 
@@ -296,6 +297,18 @@ impl Protocol {
     }
 }
 
+fn spawn_proxy(_network_cfg: &NetworkConfig) -> Sender<PackedMessage> {
+    // TODO: Feed properly `ProxyHandlers`
+    let handler = Arc::new(DebugHandler {});
+
+    let mut proxy = Proxy::new(vec![handler]);
+
+    let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
+    proxy.spawn(proxy_messages_rx);
+
+    proxy_messages_tx
+}
+
 /// Spawn network tasks that process incoming and outgoing messages of various kind.
 /// Args:
 /// * `account_id`: Optional account id of the node;
@@ -338,10 +351,7 @@ pub fn spawn_network(
     ));
 
     // Create proxy
-    // TODO: Feed properly `ProxyHandlers`
-    let mut proxy = Proxy::new(vec![]);
-    let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
-    proxy.spawn(proxy_messages_rx);
+    let proxy_messages_tx = spawn_proxy(&network_cfg);
 
     let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx, proxy_messages_tx });
 
