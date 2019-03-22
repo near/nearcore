@@ -34,7 +34,7 @@ pub enum PackedMessage {
 }
 
 impl PackedMessage {
-    fn to_stream(self) -> Box<Stream<Item=Package, Error=()>> {
+    pub fn to_stream(self) -> Box<Stream<Item=Package, Error=()> + Send + Sync> {
         match self {
             PackedMessage::SingleMessage(message, channel) =>
                 Box::new(stream::once(Ok((Arc::new(message), channel)))),
