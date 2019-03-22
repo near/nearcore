@@ -5,21 +5,21 @@ use configs::ChainSpec;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use storage::BeaconChainStorage;
 
-use crate::authority::Authority;
+use crate::authority::{Authority, get_authority};
 
 pub type BeaconBlockChain =
     chain::BlockChain<SignedBeaconBlockHeader, SignedBeaconBlock, BeaconChainStorage>;
 
 pub struct BeaconClient {
     pub chain: BeaconBlockChain,
-    pub authority: RwLock<Authority>,
+    pub authority: RwLock<Box<Authority>>,
 }
 
 impl BeaconClient {
     pub fn new(genesis: SignedBeaconBlock, chain_spec: &ChainSpec, storage: Arc<RwLock<BeaconChainStorage>>) -> Self {
         let chain = chain::BlockChain::new(genesis, storage.clone());
         let authority_config = get_authority_config(chain_spec);
-        let authority = RwLock::new(Authority::new(authority_config, &chain, storage));
+        let authority = RwLock::new(get_authority(authority_config, &chain, storage));
         BeaconClient { chain, authority }
     }
 }
