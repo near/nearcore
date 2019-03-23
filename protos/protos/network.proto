@@ -37,6 +37,24 @@ message PeerMessage {
     }
 }
 
+message Snapshot {
+    repeated bytes transactions = 1;
+    repeated bytes receipts = 2;
+    bytes hash = 3;
+}
+
+message MissingPayloadRequest {
+    repeated bytes transactions = 1;
+    repeated bytes receipts = 2;
+    bytes snapshot_hash = 3;
+}
+
+message MissingPayloadResponse {
+    repeated SignedTransaction transactions = 1;
+    repeated ReceiptBlock receipts = 2;
+    bytes snapshot_hash = 3;
+}
+
 message Message {
     message BlockFetchRequest {
         uint64 request_id = 1;
@@ -51,18 +69,22 @@ message Message {
     
     message PayloadRequest {
         uint64 request_id = 1;
-        repeated bytes transaction_hashes = 2;
-        repeated bytes receipt_hashes = 3;
-    }
-    
-    message PayloadSnapshotRequest {
-        uint64 request_id = 1;
-        bytes snapshot_hash = 2;
+        MissingPayloadRequest payload = 2;
     }
     
     message PayloadResponse {
         uint64 request_id = 1;
-        ChainPayload payload = 2;
+        MissingPayloadResponse payload = 2;
+    }
+
+    message PayloadSnapshotRequest {
+        uint64 request_id = 1;
+        bytes snapshot_hash = 2;
+    }
+
+    message PayloadSnapshotResponse {
+        uint64 request_id = 1;
+        Snapshot snapshot = 2;
     }
 
     message JointBlockBLS {
@@ -96,8 +118,9 @@ message Message {
         Gossip gossip = 7;
         PayloadGossip payload_gossip = 8;
         Message.PayloadRequest payload_request = 9;
-        Message.PayloadSnapshotRequest payload_snapshot_request = 10;
-        Message.PayloadResponse payload_response = 11;
-        Message.JointBlockBLS joint_block_bls = 12;
+        Message.PayloadResponse payload_response = 10;
+        Message.PayloadSnapshotRequest payload_snapshot_request = 11;
+        Message.PayloadSnapshotResponse payload_snapshot_response = 12;
+        Message.JointBlockBLS joint_block_bls = 13;
     }
 }

@@ -7,14 +7,17 @@ use protobuf::{Message as ProtoMessage, ProtobufResult, parse_from_bytes};
 use nightshade::nightshade_task::Gossip;
 use mempool::payload_gossip::PayloadGossip;
 use primitives::beacon::SignedBeaconBlock;
-use primitives::chain::{ChainPayload, ReceiptBlock, SignedShardBlock};
+use primitives::chain::{
+    ReceiptBlock, SignedShardBlock, Snapshot,
+    MissingPayloadRequest, MissingPayloadResponse
+};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::consensus::JointBlockBLS;
 use primitives::network::ConnectedInfo;
 use primitives::types::AuthorityId;
 use primitives::traits::Base58Encoded;
-use primitives::utils::proto_to_type;
+use primitives::utils::{proto_to_type, proto_to_result};
 use near_protos::network as network_proto;
 use near_protos::chain as chain_proto;
 
@@ -50,11 +53,13 @@ pub enum Message {
     /// Announce of tx/receipts between authorities.
     PayloadGossip(Box<PayloadGossip>),
     /// Request specific tx/receipts.
-    PayloadRequest(RequestId, Vec<CryptoHash>, Vec<CryptoHash>),
+    PayloadRequest(RequestId, MissingPayloadRequest),
+    /// Response with payload for request.
+    PayloadResponse(RequestId, MissingPayloadResponse),
     /// Request payload snapshot diff.
     PayloadSnapshotRequest(RequestId, CryptoHash),
-    /// Response with payload for request.
-    PayloadResponse(RequestId, ChainPayload),
+    /// Response with snapshot for request.
+    PayloadSnapshotResponse(RequestId, Snapshot),
 
     /// Partial BLS signatures of beacon and shard blocks.
     JointBlockBLS(JointBlockBLS),
@@ -109,15 +114,8 @@ impl TryFrom<network_proto::Message> for Message {
                 payload_gossip.try_into().map(|g| Message::PayloadGossip(Box::new(g)))
             }
             Some(network_proto::Message_oneof_message_type::payload_request(request)) => {
-                let transaction_hashes = request.transaction_hashes
-                    .into_iter()
-                    .map(std::convert::Into::into)
-                    .collect();
-                let receipt_hashes = request.receipt_hashes
-                    .into_iter()
-                    .map(std::convert::Into::into)
-                    .collect();
-                Ok(Message::PayloadRequest(request.request_id, transaction_hashes, receipt_hashes))
+                let payload_request = proto_to_result(request.payload).map(std::convert::Into::into)?;
+                Ok(Message::PayloadRequest(request.request_id, payload_request))
             }
             Some(network_proto::Message_oneof_message_type::payload_snapshot_request(request)) => {
                 Ok(Message::PayloadSnapshotRequest(request.request_id, request.snapshot_hash.into()))
@@ -127,6 +125,10 @@ impl TryFrom<network_proto::Message> for Message {
                     Ok(payload) => Ok(Message::PayloadResponse(response.request_id, payload)),
                     Err(e) => Err(e)
                 }
+            }
+            Some(network_proto::Message_oneof_message_type::payload_snapshot_response(response)) => {
+                let snapshot = proto_to_result(response.snapshot).map(std::convert::Into::into)?;
+                Ok(Message::PayloadSnapshotResponse(response.request_id, snapshot))
             }
             Some(network_proto::Message_oneof_message_type::joint_block_bls(joint)) => {
                 match joint.field_type {
@@ -205,15 +207,10 @@ impl From<Message> for network_proto::Message {
             Message::PayloadGossip(payload_gossip) => {
                 network_proto::Message_oneof_message_type::payload_gossip((*payload_gossip).into())
             }
-            Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
+            Message::PayloadRequest(request_id, request) => {
                 let request = network_proto::Message_PayloadRequest {
                     request_id,
-                    transaction_hashes: RepeatedField::from_iter(
-                        transaction_hashes.into_iter().map(std::convert::Into::into)
-                    ),
-                    receipt_hashes: RepeatedField::from_iter(
-                        receipt_hashes.into_iter().map(std::convert::Into::into)
-                    ),
+                    payload: SingularPtrField::some(request.into()),
                     unknown_fields: Default::default(),
                     cached_size: Default::default(),
                 };
@@ -236,6 +233,15 @@ impl From<Message> for network_proto::Message {
                     cached_size: Default::default(),
                 };
                 network_proto::Message_oneof_message_type::payload_response(response)
+            }
+            Message::PayloadSnapshotResponse(request_id, snapshot) => {
+                let response = network_proto::Message_PayloadSnapshotResponse {
+                    request_id,
+                    snapshot: SingularPtrField::some(snapshot.into()),
+                    unknown_fields: Default::default(),
+                    cached_size: Default::default(),
+                };
+                network_proto::Message_oneof_message_type::payload_snapshot_response(response)
             }
             Message::JointBlockBLS(joint_bls) => {
                 match joint_bls {

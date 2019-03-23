@@ -1419,6 +1419,757 @@ impl ::protobuf::reflect::ProtobufValue for PeerMessage {
 }
 
 #[derive(PartialEq,Clone,Default)]
+pub struct Snapshot {
+    // message fields
+    pub transactions: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub receipts: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub hash: ::std::vec::Vec<u8>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl Snapshot {
+    pub fn new() -> Snapshot {
+        ::std::default::Default::default()
+    }
+
+    // repeated bytes transactions = 1;
+
+    pub fn clear_transactions(&mut self) {
+        self.transactions.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_transactions(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.transactions = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_transactions(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.transactions
+    }
+
+    // Take field
+    pub fn take_transactions(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.transactions, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_transactions(&self) -> &[::std::vec::Vec<u8>] {
+        &self.transactions
+    }
+
+    // repeated bytes receipts = 2;
+
+    pub fn clear_receipts(&mut self) {
+        self.receipts.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receipts(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.receipts = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_receipts(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.receipts
+    }
+
+    // Take field
+    pub fn take_receipts(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.receipts, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_receipts(&self) -> &[::std::vec::Vec<u8>] {
+        &self.receipts
+    }
+
+    // bytes hash = 3;
+
+    pub fn clear_hash(&mut self) {
+        self.hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.hash
+    }
+
+    // Take field
+    pub fn take_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_hash(&self) -> &[u8] {
+        &self.hash
+    }
+}
+
+impl ::protobuf::Message for Snapshot {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.transactions)?;
+                },
+                2 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.receipts)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.hash)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        for value in &self.transactions {
+            my_size += ::protobuf::rt::bytes_size(1, &value);
+        };
+        for value in &self.receipts {
+            my_size += ::protobuf::rt::bytes_size(2, &value);
+        };
+        if !self.hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.hash);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        for v in &self.transactions {
+            os.write_bytes(1, &v)?;
+        };
+        for v in &self.receipts {
+            os.write_bytes(2, &v)?;
+        };
+        if !self.hash.is_empty() {
+            os.write_bytes(3, &self.hash)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> Snapshot {
+        Snapshot::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "transactions",
+                    |m: &Snapshot| { &m.transactions },
+                    |m: &mut Snapshot| { &mut m.transactions },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "receipts",
+                    |m: &Snapshot| { &m.receipts },
+                    |m: &mut Snapshot| { &mut m.receipts },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "hash",
+                    |m: &Snapshot| { &m.hash },
+                    |m: &mut Snapshot| { &mut m.hash },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<Snapshot>(
+                    "Snapshot",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static Snapshot {
+        static mut instance: ::protobuf::lazy::Lazy<Snapshot> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const Snapshot,
+        };
+        unsafe {
+            instance.get(Snapshot::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for Snapshot {
+    fn clear(&mut self) {
+        self.clear_transactions();
+        self.clear_receipts();
+        self.clear_hash();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for Snapshot {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct MissingPayloadRequest {
+    // message fields
+    pub transactions: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub receipts: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub snapshot_hash: ::std::vec::Vec<u8>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl MissingPayloadRequest {
+    pub fn new() -> MissingPayloadRequest {
+        ::std::default::Default::default()
+    }
+
+    // repeated bytes transactions = 1;
+
+    pub fn clear_transactions(&mut self) {
+        self.transactions.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_transactions(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.transactions = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_transactions(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.transactions
+    }
+
+    // Take field
+    pub fn take_transactions(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.transactions, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_transactions(&self) -> &[::std::vec::Vec<u8>] {
+        &self.transactions
+    }
+
+    // repeated bytes receipts = 2;
+
+    pub fn clear_receipts(&mut self) {
+        self.receipts.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receipts(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
+        self.receipts = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_receipts(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        &mut self.receipts
+    }
+
+    // Take field
+    pub fn take_receipts(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
+        ::std::mem::replace(&mut self.receipts, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_receipts(&self) -> &[::std::vec::Vec<u8>] {
+        &self.receipts
+    }
+
+    // bytes snapshot_hash = 3;
+
+    pub fn clear_snapshot_hash(&mut self) {
+        self.snapshot_hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_snapshot_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.snapshot_hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_snapshot_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.snapshot_hash
+    }
+
+    // Take field
+    pub fn take_snapshot_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.snapshot_hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_snapshot_hash(&self) -> &[u8] {
+        &self.snapshot_hash
+    }
+}
+
+impl ::protobuf::Message for MissingPayloadRequest {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.transactions)?;
+                },
+                2 => {
+                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.receipts)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.snapshot_hash)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        for value in &self.transactions {
+            my_size += ::protobuf::rt::bytes_size(1, &value);
+        };
+        for value in &self.receipts {
+            my_size += ::protobuf::rt::bytes_size(2, &value);
+        };
+        if !self.snapshot_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.snapshot_hash);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        for v in &self.transactions {
+            os.write_bytes(1, &v)?;
+        };
+        for v in &self.receipts {
+            os.write_bytes(2, &v)?;
+        };
+        if !self.snapshot_hash.is_empty() {
+            os.write_bytes(3, &self.snapshot_hash)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> MissingPayloadRequest {
+        MissingPayloadRequest::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "transactions",
+                    |m: &MissingPayloadRequest| { &m.transactions },
+                    |m: &mut MissingPayloadRequest| { &mut m.transactions },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "receipts",
+                    |m: &MissingPayloadRequest| { &m.receipts },
+                    |m: &mut MissingPayloadRequest| { &mut m.receipts },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "snapshot_hash",
+                    |m: &MissingPayloadRequest| { &m.snapshot_hash },
+                    |m: &mut MissingPayloadRequest| { &mut m.snapshot_hash },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<MissingPayloadRequest>(
+                    "MissingPayloadRequest",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static MissingPayloadRequest {
+        static mut instance: ::protobuf::lazy::Lazy<MissingPayloadRequest> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const MissingPayloadRequest,
+        };
+        unsafe {
+            instance.get(MissingPayloadRequest::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for MissingPayloadRequest {
+    fn clear(&mut self) {
+        self.clear_transactions();
+        self.clear_receipts();
+        self.clear_snapshot_hash();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for MissingPayloadRequest {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for MissingPayloadRequest {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct MissingPayloadResponse {
+    // message fields
+    pub transactions: ::protobuf::RepeatedField<super::signed_transaction::SignedTransaction>,
+    pub receipts: ::protobuf::RepeatedField<super::chain::ReceiptBlock>,
+    pub snapshot_hash: ::std::vec::Vec<u8>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl MissingPayloadResponse {
+    pub fn new() -> MissingPayloadResponse {
+        ::std::default::Default::default()
+    }
+
+    // repeated .SignedTransaction transactions = 1;
+
+    pub fn clear_transactions(&mut self) {
+        self.transactions.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_transactions(&mut self, v: ::protobuf::RepeatedField<super::signed_transaction::SignedTransaction>) {
+        self.transactions = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_transactions(&mut self) -> &mut ::protobuf::RepeatedField<super::signed_transaction::SignedTransaction> {
+        &mut self.transactions
+    }
+
+    // Take field
+    pub fn take_transactions(&mut self) -> ::protobuf::RepeatedField<super::signed_transaction::SignedTransaction> {
+        ::std::mem::replace(&mut self.transactions, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_transactions(&self) -> &[super::signed_transaction::SignedTransaction] {
+        &self.transactions
+    }
+
+    // repeated .ReceiptBlock receipts = 2;
+
+    pub fn clear_receipts(&mut self) {
+        self.receipts.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_receipts(&mut self, v: ::protobuf::RepeatedField<super::chain::ReceiptBlock>) {
+        self.receipts = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_receipts(&mut self) -> &mut ::protobuf::RepeatedField<super::chain::ReceiptBlock> {
+        &mut self.receipts
+    }
+
+    // Take field
+    pub fn take_receipts(&mut self) -> ::protobuf::RepeatedField<super::chain::ReceiptBlock> {
+        ::std::mem::replace(&mut self.receipts, ::protobuf::RepeatedField::new())
+    }
+
+    pub fn get_receipts(&self) -> &[super::chain::ReceiptBlock] {
+        &self.receipts
+    }
+
+    // bytes snapshot_hash = 3;
+
+    pub fn clear_snapshot_hash(&mut self) {
+        self.snapshot_hash.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_snapshot_hash(&mut self, v: ::std::vec::Vec<u8>) {
+        self.snapshot_hash = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_snapshot_hash(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.snapshot_hash
+    }
+
+    // Take field
+    pub fn take_snapshot_hash(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.snapshot_hash, ::std::vec::Vec::new())
+    }
+
+    pub fn get_snapshot_hash(&self) -> &[u8] {
+        &self.snapshot_hash
+    }
+}
+
+impl ::protobuf::Message for MissingPayloadResponse {
+    fn is_initialized(&self) -> bool {
+        for v in &self.transactions {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        for v in &self.receipts {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.transactions)?;
+                },
+                2 => {
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.receipts)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.snapshot_hash)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        for value in &self.transactions {
+            let len = value.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        };
+        for value in &self.receipts {
+            let len = value.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        };
+        if !self.snapshot_hash.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.snapshot_hash);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        for v in &self.transactions {
+            os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        };
+        for v in &self.receipts {
+            os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        };
+        if !self.snapshot_hash.is_empty() {
+            os.write_bytes(3, &self.snapshot_hash)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> MissingPayloadResponse {
+        MissingPayloadResponse::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<super::signed_transaction::SignedTransaction>>(
+                    "transactions",
+                    |m: &MissingPayloadResponse| { &m.transactions },
+                    |m: &mut MissingPayloadResponse| { &mut m.transactions },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<super::chain::ReceiptBlock>>(
+                    "receipts",
+                    |m: &MissingPayloadResponse| { &m.receipts },
+                    |m: &mut MissingPayloadResponse| { &mut m.receipts },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                    "snapshot_hash",
+                    |m: &MissingPayloadResponse| { &m.snapshot_hash },
+                    |m: &mut MissingPayloadResponse| { &mut m.snapshot_hash },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<MissingPayloadResponse>(
+                    "MissingPayloadResponse",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static MissingPayloadResponse {
+        static mut instance: ::protobuf::lazy::Lazy<MissingPayloadResponse> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const MissingPayloadResponse,
+        };
+        unsafe {
+            instance.get(MissingPayloadResponse::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for MissingPayloadResponse {
+    fn clear(&mut self) {
+        self.clear_transactions();
+        self.clear_receipts();
+        self.clear_snapshot_hash();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for MissingPayloadResponse {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for MissingPayloadResponse {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
 pub struct Message {
     // message oneof groups
     pub message_type: ::std::option::Option<Message_oneof_message_type>,
@@ -1438,8 +2189,9 @@ pub enum Message_oneof_message_type {
     gossip(super::nightshade::Gossip),
     payload_gossip(super::nightshade::PayloadGossip),
     payload_request(Message_PayloadRequest),
-    payload_snapshot_request(Message_PayloadSnapshotRequest),
     payload_response(Message_PayloadResponse),
+    payload_snapshot_request(Message_PayloadSnapshotRequest),
+    payload_snapshot_response(Message_PayloadSnapshotResponse),
     joint_block_bls(Message_JointBlockBLS),
 }
 
@@ -1889,56 +2641,7 @@ impl Message {
         }
     }
 
-    // .Message.PayloadSnapshotRequest payload_snapshot_request = 10;
-
-    pub fn clear_payload_snapshot_request(&mut self) {
-        self.message_type = ::std::option::Option::None;
-    }
-
-    pub fn has_payload_snapshot_request(&self) -> bool {
-        match self.message_type {
-            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(..)) => true,
-            _ => false,
-        }
-    }
-
-    // Param is passed by value, moved
-    pub fn set_payload_snapshot_request(&mut self, v: Message_PayloadSnapshotRequest) {
-        self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(v))
-    }
-
-    // Mutable pointer to the field.
-    pub fn mut_payload_snapshot_request(&mut self) -> &mut Message_PayloadSnapshotRequest {
-        if let ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(_)) = self.message_type {
-        } else {
-            self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(Message_PayloadSnapshotRequest::new()));
-        }
-        match self.message_type {
-            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(ref mut v)) => v,
-            _ => panic!(),
-        }
-    }
-
-    // Take field
-    pub fn take_payload_snapshot_request(&mut self) -> Message_PayloadSnapshotRequest {
-        if self.has_payload_snapshot_request() {
-            match self.message_type.take() {
-                ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(v)) => v,
-                _ => panic!(),
-            }
-        } else {
-            Message_PayloadSnapshotRequest::new()
-        }
-    }
-
-    pub fn get_payload_snapshot_request(&self) -> &Message_PayloadSnapshotRequest {
-        match self.message_type {
-            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(ref v)) => v,
-            _ => Message_PayloadSnapshotRequest::default_instance(),
-        }
-    }
-
-    // .Message.PayloadResponse payload_response = 11;
+    // .Message.PayloadResponse payload_response = 10;
 
     pub fn clear_payload_response(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -1987,7 +2690,105 @@ impl Message {
         }
     }
 
-    // .Message.JointBlockBLS joint_block_bls = 12;
+    // .Message.PayloadSnapshotRequest payload_snapshot_request = 11;
+
+    pub fn clear_payload_snapshot_request(&mut self) {
+        self.message_type = ::std::option::Option::None;
+    }
+
+    pub fn has_payload_snapshot_request(&self) -> bool {
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_payload_snapshot_request(&mut self, v: Message_PayloadSnapshotRequest) {
+        self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_payload_snapshot_request(&mut self) -> &mut Message_PayloadSnapshotRequest {
+        if let ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(_)) = self.message_type {
+        } else {
+            self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(Message_PayloadSnapshotRequest::new()));
+        }
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_payload_snapshot_request(&mut self) -> Message_PayloadSnapshotRequest {
+        if self.has_payload_snapshot_request() {
+            match self.message_type.take() {
+                ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            Message_PayloadSnapshotRequest::new()
+        }
+    }
+
+    pub fn get_payload_snapshot_request(&self) -> &Message_PayloadSnapshotRequest {
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(ref v)) => v,
+            _ => Message_PayloadSnapshotRequest::default_instance(),
+        }
+    }
+
+    // .Message.PayloadSnapshotResponse payload_snapshot_response = 12;
+
+    pub fn clear_payload_snapshot_response(&mut self) {
+        self.message_type = ::std::option::Option::None;
+    }
+
+    pub fn has_payload_snapshot_response(&self) -> bool {
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_payload_snapshot_response(&mut self, v: Message_PayloadSnapshotResponse) {
+        self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(v))
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_payload_snapshot_response(&mut self) -> &mut Message_PayloadSnapshotResponse {
+        if let ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(_)) = self.message_type {
+        } else {
+            self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(Message_PayloadSnapshotResponse::new()));
+        }
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(ref mut v)) => v,
+            _ => panic!(),
+        }
+    }
+
+    // Take field
+    pub fn take_payload_snapshot_response(&mut self) -> Message_PayloadSnapshotResponse {
+        if self.has_payload_snapshot_response() {
+            match self.message_type.take() {
+                ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(v)) => v,
+                _ => panic!(),
+            }
+        } else {
+            Message_PayloadSnapshotResponse::new()
+        }
+    }
+
+    pub fn get_payload_snapshot_response(&self) -> &Message_PayloadSnapshotResponse {
+        match self.message_type {
+            ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(ref v)) => v,
+            _ => Message_PayloadSnapshotResponse::default_instance(),
+        }
+    }
+
+    // .Message.JointBlockBLS joint_block_bls = 13;
 
     pub fn clear_joint_block_bls(&mut self) {
         self.message_type = ::std::option::Option::None;
@@ -2084,12 +2885,17 @@ impl ::protobuf::Message for Message {
                 return false;
             }
         }
+        if let Some(Message_oneof_message_type::payload_response(ref v)) = self.message_type {
+            if !v.is_initialized() {
+                return false;
+            }
+        }
         if let Some(Message_oneof_message_type::payload_snapshot_request(ref v)) = self.message_type {
             if !v.is_initialized() {
                 return false;
             }
         }
-        if let Some(Message_oneof_message_type::payload_response(ref v)) = self.message_type {
+        if let Some(Message_oneof_message_type::payload_snapshot_response(ref v)) = self.message_type {
             if !v.is_initialized() {
                 return false;
             }
@@ -2164,15 +2970,21 @@ impl ::protobuf::Message for Message {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
-                    self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(is.read_message()?));
+                    self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_response(is.read_message()?));
                 },
                 11 => {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
-                    self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_response(is.read_message()?));
+                    self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_request(is.read_message()?));
                 },
                 12 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    self.message_type = ::std::option::Option::Some(Message_oneof_message_type::payload_snapshot_response(is.read_message()?));
+                },
+                13 => {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
@@ -2228,11 +3040,15 @@ impl ::protobuf::Message for Message {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
+                &Message_oneof_message_type::payload_response(ref v) => {
+                    let len = v.compute_size();
+                    my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+                },
                 &Message_oneof_message_type::payload_snapshot_request(ref v) => {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
-                &Message_oneof_message_type::payload_response(ref v) => {
+                &Message_oneof_message_type::payload_snapshot_response(ref v) => {
                     let len = v.compute_size();
                     my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
                 },
@@ -2295,18 +3111,23 @@ impl ::protobuf::Message for Message {
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
-                &Message_oneof_message_type::payload_snapshot_request(ref v) => {
+                &Message_oneof_message_type::payload_response(ref v) => {
                     os.write_tag(10, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
-                &Message_oneof_message_type::payload_response(ref v) => {
+                &Message_oneof_message_type::payload_snapshot_request(ref v) => {
                     os.write_tag(11, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
-                &Message_oneof_message_type::joint_block_bls(ref v) => {
+                &Message_oneof_message_type::payload_snapshot_response(ref v) => {
                     os.write_tag(12, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+                    os.write_raw_varint32(v.get_cached_size())?;
+                    v.write_to_with_cached_sizes(os)?;
+                },
+                &Message_oneof_message_type::joint_block_bls(ref v) => {
+                    os.write_tag(13, ::protobuf::wire_format::WireTypeLengthDelimited)?;
                     os.write_raw_varint32(v.get_cached_size())?;
                     v.write_to_with_cached_sizes(os)?;
                 },
@@ -2399,15 +3220,20 @@ impl ::protobuf::Message for Message {
                     Message::has_payload_request,
                     Message::get_payload_request,
                 ));
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_PayloadResponse>(
+                    "payload_response",
+                    Message::has_payload_response,
+                    Message::get_payload_response,
+                ));
                 fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_PayloadSnapshotRequest>(
                     "payload_snapshot_request",
                     Message::has_payload_snapshot_request,
                     Message::get_payload_snapshot_request,
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_PayloadResponse>(
-                    "payload_response",
-                    Message::has_payload_response,
-                    Message::get_payload_response,
+                fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_PayloadSnapshotResponse>(
+                    "payload_snapshot_response",
+                    Message::has_payload_snapshot_response,
+                    Message::get_payload_snapshot_response,
                 ));
                 fields.push(::protobuf::reflect::accessor::make_singular_message_accessor::<_, Message_JointBlockBLS>(
                     "joint_block_bls",
@@ -2445,8 +3271,9 @@ impl ::protobuf::Clear for Message {
         self.clear_gossip();
         self.clear_payload_gossip();
         self.clear_payload_request();
-        self.clear_payload_snapshot_request();
         self.clear_payload_response();
+        self.clear_payload_snapshot_request();
+        self.clear_payload_snapshot_response();
         self.clear_joint_block_bls();
         self.unknown_fields.clear();
     }
@@ -2899,8 +3726,7 @@ impl ::protobuf::reflect::ProtobufValue for Message_BlockResponse {
 pub struct Message_PayloadRequest {
     // message fields
     pub request_id: u64,
-    pub transaction_hashes: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
-    pub receipt_hashes: ::protobuf::RepeatedField<::std::vec::Vec<u8>>,
+    pub payload: ::protobuf::SingularPtrField<MissingPayloadRequest>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
@@ -2926,59 +3752,47 @@ impl Message_PayloadRequest {
         self.request_id
     }
 
-    // repeated bytes transaction_hashes = 2;
+    // .MissingPayloadRequest payload = 2;
 
-    pub fn clear_transaction_hashes(&mut self) {
-        self.transaction_hashes.clear();
+    pub fn clear_payload(&mut self) {
+        self.payload.clear();
+    }
+
+    pub fn has_payload(&self) -> bool {
+        self.payload.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_transaction_hashes(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
-        self.transaction_hashes = v;
+    pub fn set_payload(&mut self, v: MissingPayloadRequest) {
+        self.payload = ::protobuf::SingularPtrField::some(v);
     }
 
     // Mutable pointer to the field.
-    pub fn mut_transaction_hashes(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
-        &mut self.transaction_hashes
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_payload(&mut self) -> &mut MissingPayloadRequest {
+        if self.payload.is_none() {
+            self.payload.set_default();
+        }
+        self.payload.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_transaction_hashes(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
-        ::std::mem::replace(&mut self.transaction_hashes, ::protobuf::RepeatedField::new())
+    pub fn take_payload(&mut self) -> MissingPayloadRequest {
+        self.payload.take().unwrap_or_else(|| MissingPayloadRequest::new())
     }
 
-    pub fn get_transaction_hashes(&self) -> &[::std::vec::Vec<u8>] {
-        &self.transaction_hashes
-    }
-
-    // repeated bytes receipt_hashes = 3;
-
-    pub fn clear_receipt_hashes(&mut self) {
-        self.receipt_hashes.clear();
-    }
-
-    // Param is passed by value, moved
-    pub fn set_receipt_hashes(&mut self, v: ::protobuf::RepeatedField<::std::vec::Vec<u8>>) {
-        self.receipt_hashes = v;
-    }
-
-    // Mutable pointer to the field.
-    pub fn mut_receipt_hashes(&mut self) -> &mut ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
-        &mut self.receipt_hashes
-    }
-
-    // Take field
-    pub fn take_receipt_hashes(&mut self) -> ::protobuf::RepeatedField<::std::vec::Vec<u8>> {
-        ::std::mem::replace(&mut self.receipt_hashes, ::protobuf::RepeatedField::new())
-    }
-
-    pub fn get_receipt_hashes(&self) -> &[::std::vec::Vec<u8>] {
-        &self.receipt_hashes
+    pub fn get_payload(&self) -> &MissingPayloadRequest {
+        self.payload.as_ref().unwrap_or_else(|| MissingPayloadRequest::default_instance())
     }
 }
 
 impl ::protobuf::Message for Message_PayloadRequest {
     fn is_initialized(&self) -> bool {
+        for v in &self.payload {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         true
     }
 
@@ -2994,10 +3808,7 @@ impl ::protobuf::Message for Message_PayloadRequest {
                     self.request_id = tmp;
                 },
                 2 => {
-                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.transaction_hashes)?;
-                },
-                3 => {
-                    ::protobuf::rt::read_repeated_bytes_into(wire_type, is, &mut self.receipt_hashes)?;
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.payload)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -3014,12 +3825,10 @@ impl ::protobuf::Message for Message_PayloadRequest {
         if self.request_id != 0 {
             my_size += ::protobuf::rt::value_size(1, self.request_id, ::protobuf::wire_format::WireTypeVarint);
         }
-        for value in &self.transaction_hashes {
-            my_size += ::protobuf::rt::bytes_size(2, &value);
-        };
-        for value in &self.receipt_hashes {
-            my_size += ::protobuf::rt::bytes_size(3, &value);
-        };
+        if let Some(ref v) = self.payload.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -3029,12 +3838,11 @@ impl ::protobuf::Message for Message_PayloadRequest {
         if self.request_id != 0 {
             os.write_uint64(1, self.request_id)?;
         }
-        for v in &self.transaction_hashes {
-            os.write_bytes(2, &v)?;
-        };
-        for v in &self.receipt_hashes {
-            os.write_bytes(3, &v)?;
-        };
+        if let Some(ref v) = self.payload.as_ref() {
+            os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
     }
@@ -3082,15 +3890,10 @@ impl ::protobuf::Message for Message_PayloadRequest {
                     |m: &Message_PayloadRequest| { &m.request_id },
                     |m: &mut Message_PayloadRequest| { &mut m.request_id },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
-                    "transaction_hashes",
-                    |m: &Message_PayloadRequest| { &m.transaction_hashes },
-                    |m: &mut Message_PayloadRequest| { &mut m.transaction_hashes },
-                ));
-                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
-                    "receipt_hashes",
-                    |m: &Message_PayloadRequest| { &m.receipt_hashes },
-                    |m: &mut Message_PayloadRequest| { &mut m.receipt_hashes },
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<MissingPayloadRequest>>(
+                    "payload",
+                    |m: &Message_PayloadRequest| { &m.payload },
+                    |m: &mut Message_PayloadRequest| { &mut m.payload },
                 ));
                 ::protobuf::reflect::MessageDescriptor::new::<Message_PayloadRequest>(
                     "Message_PayloadRequest",
@@ -3115,8 +3918,7 @@ impl ::protobuf::Message for Message_PayloadRequest {
 impl ::protobuf::Clear for Message_PayloadRequest {
     fn clear(&mut self) {
         self.clear_request_id();
-        self.clear_transaction_hashes();
-        self.clear_receipt_hashes();
+        self.clear_payload();
         self.unknown_fields.clear();
     }
 }
@@ -3128,6 +3930,219 @@ impl ::std::fmt::Debug for Message_PayloadRequest {
 }
 
 impl ::protobuf::reflect::ProtobufValue for Message_PayloadRequest {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
+pub struct Message_PayloadResponse {
+    // message fields
+    pub request_id: u64,
+    pub payload: ::protobuf::SingularPtrField<MissingPayloadResponse>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl Message_PayloadResponse {
+    pub fn new() -> Message_PayloadResponse {
+        ::std::default::Default::default()
+    }
+
+    // uint64 request_id = 1;
+
+    pub fn clear_request_id(&mut self) {
+        self.request_id = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_request_id(&mut self, v: u64) {
+        self.request_id = v;
+    }
+
+    pub fn get_request_id(&self) -> u64 {
+        self.request_id
+    }
+
+    // .MissingPayloadResponse payload = 2;
+
+    pub fn clear_payload(&mut self) {
+        self.payload.clear();
+    }
+
+    pub fn has_payload(&self) -> bool {
+        self.payload.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_payload(&mut self, v: MissingPayloadResponse) {
+        self.payload = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_payload(&mut self) -> &mut MissingPayloadResponse {
+        if self.payload.is_none() {
+            self.payload.set_default();
+        }
+        self.payload.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_payload(&mut self) -> MissingPayloadResponse {
+        self.payload.take().unwrap_or_else(|| MissingPayloadResponse::new())
+    }
+
+    pub fn get_payload(&self) -> &MissingPayloadResponse {
+        self.payload.as_ref().unwrap_or_else(|| MissingPayloadResponse::default_instance())
+    }
+}
+
+impl ::protobuf::Message for Message_PayloadResponse {
+    fn is_initialized(&self) -> bool {
+        for v in &self.payload {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.request_id = tmp;
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.payload)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        if self.request_id != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.request_id, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(ref v) = self.payload.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if self.request_id != 0 {
+            os.write_uint64(1, self.request_id)?;
+        }
+        if let Some(ref v) = self.payload.as_ref() {
+            os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &::std::any::Any {
+        self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> Message_PayloadResponse {
+        Message_PayloadResponse::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "request_id",
+                    |m: &Message_PayloadResponse| { &m.request_id },
+                    |m: &mut Message_PayloadResponse| { &mut m.request_id },
+                ));
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<MissingPayloadResponse>>(
+                    "payload",
+                    |m: &Message_PayloadResponse| { &m.payload },
+                    |m: &mut Message_PayloadResponse| { &mut m.payload },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<Message_PayloadResponse>(
+                    "Message_PayloadResponse",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static Message_PayloadResponse {
+        static mut instance: ::protobuf::lazy::Lazy<Message_PayloadResponse> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const Message_PayloadResponse,
+        };
+        unsafe {
+            instance.get(Message_PayloadResponse::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for Message_PayloadResponse {
+    fn clear(&mut self) {
+        self.clear_request_id();
+        self.clear_payload();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for Message_PayloadResponse {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for Message_PayloadResponse {
     fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
         ::protobuf::reflect::ProtobufValueRef::Message(self)
     }
@@ -3332,17 +4347,17 @@ impl ::protobuf::reflect::ProtobufValue for Message_PayloadSnapshotRequest {
 }
 
 #[derive(PartialEq,Clone,Default)]
-pub struct Message_PayloadResponse {
+pub struct Message_PayloadSnapshotResponse {
     // message fields
     pub request_id: u64,
-    pub payload: ::protobuf::SingularPtrField<super::chain::ChainPayload>,
+    pub snapshot: ::protobuf::SingularPtrField<Snapshot>,
     // special fields
     pub unknown_fields: ::protobuf::UnknownFields,
     pub cached_size: ::protobuf::CachedSize,
 }
 
-impl Message_PayloadResponse {
-    pub fn new() -> Message_PayloadResponse {
+impl Message_PayloadSnapshotResponse {
+    pub fn new() -> Message_PayloadSnapshotResponse {
         ::std::default::Default::default()
     }
 
@@ -3361,43 +4376,43 @@ impl Message_PayloadResponse {
         self.request_id
     }
 
-    // .ChainPayload payload = 2;
+    // .Snapshot snapshot = 2;
 
-    pub fn clear_payload(&mut self) {
-        self.payload.clear();
+    pub fn clear_snapshot(&mut self) {
+        self.snapshot.clear();
     }
 
-    pub fn has_payload(&self) -> bool {
-        self.payload.is_some()
+    pub fn has_snapshot(&self) -> bool {
+        self.snapshot.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_payload(&mut self, v: super::chain::ChainPayload) {
-        self.payload = ::protobuf::SingularPtrField::some(v);
+    pub fn set_snapshot(&mut self, v: Snapshot) {
+        self.snapshot = ::protobuf::SingularPtrField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
-    pub fn mut_payload(&mut self) -> &mut super::chain::ChainPayload {
-        if self.payload.is_none() {
-            self.payload.set_default();
+    pub fn mut_snapshot(&mut self) -> &mut Snapshot {
+        if self.snapshot.is_none() {
+            self.snapshot.set_default();
         }
-        self.payload.as_mut().unwrap()
+        self.snapshot.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_payload(&mut self) -> super::chain::ChainPayload {
-        self.payload.take().unwrap_or_else(|| super::chain::ChainPayload::new())
+    pub fn take_snapshot(&mut self) -> Snapshot {
+        self.snapshot.take().unwrap_or_else(|| Snapshot::new())
     }
 
-    pub fn get_payload(&self) -> &super::chain::ChainPayload {
-        self.payload.as_ref().unwrap_or_else(|| super::chain::ChainPayload::default_instance())
+    pub fn get_snapshot(&self) -> &Snapshot {
+        self.snapshot.as_ref().unwrap_or_else(|| Snapshot::default_instance())
     }
 }
 
-impl ::protobuf::Message for Message_PayloadResponse {
+impl ::protobuf::Message for Message_PayloadSnapshotResponse {
     fn is_initialized(&self) -> bool {
-        for v in &self.payload {
+        for v in &self.snapshot {
             if !v.is_initialized() {
                 return false;
             }
@@ -3417,7 +4432,7 @@ impl ::protobuf::Message for Message_PayloadResponse {
                     self.request_id = tmp;
                 },
                 2 => {
-                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.payload)?;
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.snapshot)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -3434,7 +4449,7 @@ impl ::protobuf::Message for Message_PayloadResponse {
         if self.request_id != 0 {
             my_size += ::protobuf::rt::value_size(1, self.request_id, ::protobuf::wire_format::WireTypeVarint);
         }
-        if let Some(ref v) = self.payload.as_ref() {
+        if let Some(ref v) = self.snapshot.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         }
@@ -3447,7 +4462,7 @@ impl ::protobuf::Message for Message_PayloadResponse {
         if self.request_id != 0 {
             os.write_uint64(1, self.request_id)?;
         }
-        if let Some(ref v) = self.payload.as_ref() {
+        if let Some(ref v) = self.snapshot.as_ref() {
             os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
@@ -3482,8 +4497,8 @@ impl ::protobuf::Message for Message_PayloadResponse {
         Self::descriptor_static()
     }
 
-    fn new() -> Message_PayloadResponse {
-        Message_PayloadResponse::new()
+    fn new() -> Message_PayloadSnapshotResponse {
+        Message_PayloadSnapshotResponse::new()
     }
 
     fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
@@ -3496,16 +4511,16 @@ impl ::protobuf::Message for Message_PayloadResponse {
                 let mut fields = ::std::vec::Vec::new();
                 fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                     "request_id",
-                    |m: &Message_PayloadResponse| { &m.request_id },
-                    |m: &mut Message_PayloadResponse| { &mut m.request_id },
+                    |m: &Message_PayloadSnapshotResponse| { &m.request_id },
+                    |m: &mut Message_PayloadSnapshotResponse| { &mut m.request_id },
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<super::chain::ChainPayload>>(
-                    "payload",
-                    |m: &Message_PayloadResponse| { &m.payload },
-                    |m: &mut Message_PayloadResponse| { &mut m.payload },
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<Snapshot>>(
+                    "snapshot",
+                    |m: &Message_PayloadSnapshotResponse| { &m.snapshot },
+                    |m: &mut Message_PayloadSnapshotResponse| { &mut m.snapshot },
                 ));
-                ::protobuf::reflect::MessageDescriptor::new::<Message_PayloadResponse>(
-                    "Message_PayloadResponse",
+                ::protobuf::reflect::MessageDescriptor::new::<Message_PayloadSnapshotResponse>(
+                    "Message_PayloadSnapshotResponse",
                     fields,
                     file_descriptor_proto()
                 )
@@ -3513,32 +4528,32 @@ impl ::protobuf::Message for Message_PayloadResponse {
         }
     }
 
-    fn default_instance() -> &'static Message_PayloadResponse {
-        static mut instance: ::protobuf::lazy::Lazy<Message_PayloadResponse> = ::protobuf::lazy::Lazy {
+    fn default_instance() -> &'static Message_PayloadSnapshotResponse {
+        static mut instance: ::protobuf::lazy::Lazy<Message_PayloadSnapshotResponse> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const Message_PayloadResponse,
+            ptr: 0 as *const Message_PayloadSnapshotResponse,
         };
         unsafe {
-            instance.get(Message_PayloadResponse::new)
+            instance.get(Message_PayloadSnapshotResponse::new)
         }
     }
 }
 
-impl ::protobuf::Clear for Message_PayloadResponse {
+impl ::protobuf::Clear for Message_PayloadSnapshotResponse {
     fn clear(&mut self) {
         self.clear_request_id();
-        self.clear_payload();
+        self.clear_snapshot();
         self.unknown_fields.clear();
     }
 }
 
-impl ::std::fmt::Debug for Message_PayloadResponse {
+impl ::std::fmt::Debug for Message_PayloadSnapshotResponse {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-impl ::protobuf::reflect::ProtobufValue for Message_PayloadResponse {
+impl ::protobuf::reflect::ProtobufValue for Message_PayloadSnapshotResponse {
     fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
         ::protobuf::reflect::ProtobufValueRef::Message(self)
     }
@@ -4483,46 +5498,58 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x12+\n\nhand_shake\x18\x01\x20\x01(\x0b2\n.HandShakeH\0R\thandShake\x12\
     .\n\x0binfo_gossip\x18\x02\x20\x01(\x0b2\x0b.InfoGossipH\0R\ninfoGossip\
     \x12\x1a\n\x07message\x18\x03\x20\x01(\x0cH\0R\x07messageB\x0e\n\x0cmess\
-    age_type\"\xd8\r\n\x07Message\x127\n\x0econnected_info\x18\x01\x20\x01(\
-    \x0b2\x0e.ConnectedInfoH\0R\rconnectedInfo\x126\n\x0btransaction\x18\x02\
-    \x20\x01(\x0b2\x12.SignedTransactionH\0R\x0btransaction\x12)\n\x07receip\
-    t\x18\x03\x20\x01(\x0b2\r.ReceiptBlockH\0R\x07receipt\x126\n\x0eblock_an\
-    nounce\x18\x04\x20\x01(\x0b2\r.CoupledBlockH\0R\rblockAnnounce\x12L\n\
-    \x13block_fetch_request\x18\x05\x20\x01(\x0b2\x1a.Message.BlockFetchRequ\
-    estH\0R\x11blockFetchRequest\x12?\n\x0eblock_response\x18\x06\x20\x01(\
-    \x0b2\x16.Message.BlockResponseH\0R\rblockResponse\x12!\n\x06gossip\x18\
-    \x07\x20\x01(\x0b2\x07.GossipH\0R\x06gossip\x127\n\x0epayload_gossip\x18\
-    \x08\x20\x01(\x0b2\x0e.PayloadGossipH\0R\rpayloadGossip\x12B\n\x0fpayloa\
-    d_request\x18\t\x20\x01(\x0b2\x17.Message.PayloadRequestH\0R\x0epayloadR\
-    equest\x12[\n\x18payload_snapshot_request\x18\n\x20\x01(\x0b2\x1f.Messag\
-    e.PayloadSnapshotRequestH\0R\x16payloadSnapshotRequest\x12E\n\x10payload\
-    _response\x18\x0b\x20\x01(\x0b2\x18.Message.PayloadResponseH\0R\x0fpaylo\
-    adResponse\x12@\n\x0fjoint_block_bls\x18\x0c\x20\x01(\x0b2\x16.Message.J\
-    ointBlockBLSH\0R\rjointBlockBls\x1aV\n\x11BlockFetchRequest\x12\x1d\n\nr\
-    equest_id\x18\x01\x20\x01(\x04R\trequestId\x12\x12\n\x04from\x18\x02\x20\
-    \x01(\x04R\x04from\x12\x0e\n\x02to\x18\x03\x20\x01(\x04R\x02to\x1aY\n\rB\
-    lockResponse\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\x12)\
-    \n\x08response\x18\x02\x20\x03(\x0b2\r.CoupledBlockR\x08response\x1a\x85\
-    \x01\n\x0ePayloadRequest\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\tre\
-    questId\x12-\n\x12transaction_hashes\x18\x02\x20\x03(\x0cR\x11transactio\
-    nHashes\x12%\n\x0ereceipt_hashes\x18\x03\x20\x03(\x0cR\rreceiptHashes\
-    \x1a\\\n\x16PayloadSnapshotRequest\x12\x1d\n\nrequest_id\x18\x01\x20\x01\
-    (\x04R\trequestId\x12#\n\rsnapshot_hash\x18\x02\x20\x01(\x0cR\x0csnapsho\
-    tHash\x1aY\n\x0fPayloadResponse\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\
-    \x04R\trequestId\x12'\n\x07payload\x18\x02\x20\x01(\x0b2\r.ChainPayloadR\
-    \x07payload\x1a\xdf\x03\n\rJointBlockBLS\x12:\n\x07request\x18\x01\x20\
-    \x01(\x0b2\x1e.Message.JointBlockBLS.RequestH\0R\x07request\x12:\n\x07ge\
-    neral\x18\x02\x20\x01(\x0b2\x1e.Message.JointBlockBLS.GeneralH\0R\x07gen\
-    eral\x1a\x87\x01\n\x07Request\x12\x1b\n\tsender_id\x18\x01\x20\x01(\x04R\
-    \x08senderId\x12\x1f\n\x0breceiver_id\x18\x02\x20\x01(\x04R\nreceiverId\
-    \x12\x1f\n\x0bbeacon_hash\x18\x03\x20\x01(\x0cR\nbeaconHash\x12\x1d\n\ns\
-    hard_hash\x18\x04\x20\x01(\x0cR\tshardHash\x1a\xc3\x01\n\x07General\x12\
-    \x1b\n\tsender_id\x18\x01\x20\x01(\x04R\x08senderId\x12\x1f\n\x0breceive\
-    r_id\x18\x02\x20\x01(\x04R\nreceiverId\x12\x1f\n\x0bbeacon_hash\x18\x03\
-    \x20\x01(\x0cR\nbeaconHash\x12\x1d\n\nshard_hash\x18\x04\x20\x01(\x0cR\t\
-    shardHash\x12\x1d\n\nbeacon_sig\x18\x05\x20\x01(\tR\tbeaconSig\x12\x1b\n\
-    \tshard_sig\x18\x06\x20\x01(\tR\x08shardSigB\x06\n\x04typeB\x0e\n\x0cmes\
-    sage_typeb\x06proto3\
+    age_type\"^\n\x08Snapshot\x12\"\n\x0ctransactions\x18\x01\x20\x03(\x0cR\
+    \x0ctransactions\x12\x1a\n\x08receipts\x18\x02\x20\x03(\x0cR\x08receipts\
+    \x12\x12\n\x04hash\x18\x03\x20\x01(\x0cR\x04hash\"|\n\x15MissingPayloadR\
+    equest\x12\"\n\x0ctransactions\x18\x01\x20\x03(\x0cR\x0ctransactions\x12\
+    \x1a\n\x08receipts\x18\x02\x20\x03(\x0cR\x08receipts\x12#\n\rsnapshot_ha\
+    sh\x18\x03\x20\x01(\x0cR\x0csnapshotHash\"\xa0\x01\n\x16MissingPayloadRe\
+    sponse\x126\n\x0ctransactions\x18\x01\x20\x03(\x0b2\x12.SignedTransactio\
+    nR\x0ctransactions\x12)\n\x08receipts\x18\x02\x20\x03(\x0b2\r.ReceiptBlo\
+    ckR\x08receipts\x12#\n\rsnapshot_hash\x18\x03\x20\x01(\x0cR\x0csnapshotH\
+    ash\"\xfe\x0e\n\x07Message\x127\n\x0econnected_info\x18\x01\x20\x01(\x0b\
+    2\x0e.ConnectedInfoH\0R\rconnectedInfo\x126\n\x0btransaction\x18\x02\x20\
+    \x01(\x0b2\x12.SignedTransactionH\0R\x0btransaction\x12)\n\x07receipt\
+    \x18\x03\x20\x01(\x0b2\r.ReceiptBlockH\0R\x07receipt\x126\n\x0eblock_ann\
+    ounce\x18\x04\x20\x01(\x0b2\r.CoupledBlockH\0R\rblockAnnounce\x12L\n\x13\
+    block_fetch_request\x18\x05\x20\x01(\x0b2\x1a.Message.BlockFetchRequestH\
+    \0R\x11blockFetchRequest\x12?\n\x0eblock_response\x18\x06\x20\x01(\x0b2\
+    \x16.Message.BlockResponseH\0R\rblockResponse\x12!\n\x06gossip\x18\x07\
+    \x20\x01(\x0b2\x07.GossipH\0R\x06gossip\x127\n\x0epayload_gossip\x18\x08\
+    \x20\x01(\x0b2\x0e.PayloadGossipH\0R\rpayloadGossip\x12B\n\x0fpayload_re\
+    quest\x18\t\x20\x01(\x0b2\x17.Message.PayloadRequestH\0R\x0epayloadReque\
+    st\x12E\n\x10payload_response\x18\n\x20\x01(\x0b2\x18.Message.PayloadRes\
+    ponseH\0R\x0fpayloadResponse\x12[\n\x18payload_snapshot_request\x18\x0b\
+    \x20\x01(\x0b2\x1f.Message.PayloadSnapshotRequestH\0R\x16payloadSnapshot\
+    Request\x12^\n\x19payload_snapshot_response\x18\x0c\x20\x01(\x0b2\x20.Me\
+    ssage.PayloadSnapshotResponseH\0R\x17payloadSnapshotResponse\x12@\n\x0fj\
+    oint_block_bls\x18\r\x20\x01(\x0b2\x16.Message.JointBlockBLSH\0R\rjointB\
+    lockBls\x1aV\n\x11BlockFetchRequest\x12\x1d\n\nrequest_id\x18\x01\x20\
+    \x01(\x04R\trequestId\x12\x12\n\x04from\x18\x02\x20\x01(\x04R\x04from\
+    \x12\x0e\n\x02to\x18\x03\x20\x01(\x04R\x02to\x1aY\n\rBlockResponse\x12\
+    \x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\x12)\n\x08response\
+    \x18\x02\x20\x03(\x0b2\r.CoupledBlockR\x08response\x1aa\n\x0ePayloadRequ\
+    est\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequestId\x120\n\x07pay\
+    load\x18\x02\x20\x01(\x0b2\x16.MissingPayloadRequestR\x07payload\x1ac\n\
+    \x0fPayloadResponse\x12\x1d\n\nrequest_id\x18\x01\x20\x01(\x04R\trequest\
+    Id\x121\n\x07payload\x18\x02\x20\x01(\x0b2\x17.MissingPayloadResponseR\
+    \x07payload\x1a\\\n\x16PayloadSnapshotRequest\x12\x1d\n\nrequest_id\x18\
+    \x01\x20\x01(\x04R\trequestId\x12#\n\rsnapshot_hash\x18\x02\x20\x01(\x0c\
+    R\x0csnapshotHash\x1a_\n\x17PayloadSnapshotResponse\x12\x1d\n\nrequest_i\
+    d\x18\x01\x20\x01(\x04R\trequestId\x12%\n\x08snapshot\x18\x02\x20\x01(\
+    \x0b2\t.SnapshotR\x08snapshot\x1a\xdf\x03\n\rJointBlockBLS\x12:\n\x07req\
+    uest\x18\x01\x20\x01(\x0b2\x1e.Message.JointBlockBLS.RequestH\0R\x07requ\
+    est\x12:\n\x07general\x18\x02\x20\x01(\x0b2\x1e.Message.JointBlockBLS.Ge\
+    neralH\0R\x07general\x1a\x87\x01\n\x07Request\x12\x1b\n\tsender_id\x18\
+    \x01\x20\x01(\x04R\x08senderId\x12\x1f\n\x0breceiver_id\x18\x02\x20\x01(\
+    \x04R\nreceiverId\x12\x1f\n\x0bbeacon_hash\x18\x03\x20\x01(\x0cR\nbeacon\
+    Hash\x12\x1d\n\nshard_hash\x18\x04\x20\x01(\x0cR\tshardHash\x1a\xc3\x01\
+    \n\x07General\x12\x1b\n\tsender_id\x18\x01\x20\x01(\x04R\x08senderId\x12\
+    \x1f\n\x0breceiver_id\x18\x02\x20\x01(\x04R\nreceiverId\x12\x1f\n\x0bbea\
+    con_hash\x18\x03\x20\x01(\x0cR\nbeaconHash\x12\x1d\n\nshard_hash\x18\x04\
+    \x20\x01(\x0cR\tshardHash\x12\x1d\n\nbeacon_sig\x18\x05\x20\x01(\tR\tbea\
+    conSig\x12\x1b\n\tshard_sig\x18\x06\x20\x01(\tR\x08shardSigB\x06\n\x04ty\
+    peB\x0e\n\x0cmessage_typeb\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
