@@ -16,7 +16,7 @@ pub enum AuthorityRotation {
 }
 
 /// Specification of the blockchain in general.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChainSpec {
     /// Genesis state accounts: (AccountId, PK, Initial Balance, Initial TX Stake)
     pub accounts: Vec<(AccountId, ReadablePublicKey, Balance, Balance)>,
@@ -31,33 +31,19 @@ pub struct ChainSpec {
     pub authority_rotation: AuthorityRotation,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(remote = "ChainSpec")]
-struct ChainSpecRef {
-    accounts: Vec<(AccountId, ReadablePublicKey, u64, u64)>,
-    initial_authorities: Vec<(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)>,
-    genesis_wasm: Vec<u8>,
-    authority_rotation: AuthorityRotation,
-}
-
-#[derive(Deserialize, Serialize)]
-struct ChainSpecDeserializer(#[serde(with = "ChainSpecRef")] ChainSpec);
-
 pub fn serialize_chain_spec(chain_spec: ChainSpec) -> String {
-    serde_json::to_string(&ChainSpecDeserializer(chain_spec))
+    serde_json::to_string(&chain_spec)
         .expect("Error serializing the chain spec.")
 }
 
 fn deserialize_chain_spec(config: &str) -> ChainSpec {
     serde_json::from_str(config)
-        .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the chain spec.")
 }
 
 pub fn get_default_chain_spec() -> ChainSpec {
     let data = include_bytes!("../res/default_chain.json");
     serde_json::from_slice(data)
-        .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the default chain spec.")
 }
 
