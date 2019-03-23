@@ -12,9 +12,10 @@ use crate::protocol::{forward_msg, PackedMessage};
 use crate::protocol::Package;
 
 /// Proxy Handlers implementations
-pub mod dropout;
-//pub mod throttling;
+//pub mod benchmark;
 pub mod debug;
+pub mod dropout;
+pub mod throttling;
 
 pub struct Proxy {
     handlers: Vec<Arc<ProxyHandler>>,

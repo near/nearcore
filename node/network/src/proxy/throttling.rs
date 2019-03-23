@@ -33,7 +33,7 @@ impl ProxyHandler for ThrottlingHandler {
 
         let main_task = stream.for_each(move |package| {
             let mut rng = rand::thread_rng();
-            let delay = (rng.gen::<f64>() * self.max_delay_ms as f64) as u64;
+            let delay = (rng.gen::<f64>() * 10 as f64) as u64;
 
             let final_time = Delay::new(Instant::now() + Duration::from_millis(delay));
             let message_tx1 = message_tx.clone();
