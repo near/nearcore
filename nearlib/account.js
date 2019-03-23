@@ -5,6 +5,8 @@ const KeyPair = require('./signing/key_pair');
 
 /**
  * Near account and account related operations. 
+ * @example
+ * const account = new Account(nearjs.nearClient);
  */
 class Account {
     constructor(nearClient) {
@@ -17,6 +19,12 @@ class Account {
      * @param {string} publicKey public key to associate with the new account
      * @param {number} amount amount of tokens to transfer from originator account id to the new account as part of the creation. 
      * @param {string} originatorAccountId existing account on the blockchain to use for transferring tokens into the new account
+     * @example
+     * const createAccountResponse = await account.createAccount(
+     *    mainTestAccountName,
+     *    keyWithRandomSeed.getPublicKey(),
+     *    1000,
+     *    aliceAccountName);
      */
     async createAccount (newAccountId, publicKey, amount, originator) {
         const nonce = await this.nearClient.getNonce(originator);
@@ -52,6 +60,11 @@ class Account {
     * @param {string} newAccountId id of the new account
     * @param {number} amount amount of tokens to transfer from originator account id to the new account as part of the creation. 
     * @param {string} originatorAccountId existing account on the blockchain to use for transferring tokens into the new account
+    * @example
+    * const createAccountResponse = await account.createAccountWithRandomKey(
+    *     newAccountName,
+    *     amount,
+    *     aliceAccountName);
     */
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
@@ -65,8 +78,10 @@ class Account {
     }
 
     /**
-     * 
+     * Returns an existing account with a given `accountId`
      * @param {string} accountId id of the account to look up 
+     * @example
+     * const viewAccountResponse = await account.viewAccount(existingAccountId);
      */
     async viewAccount (accountId) {
         return await this.nearClient.viewAccount(accountId);

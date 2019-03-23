@@ -290,6 +290,15 @@ get_beacon_block_by_hash  {}
         client = self._get_rpc_client(args)
         return client.get_shard_block_by_hash(args.hash)
 
+    def generate_key_pair(self):
+        """Write key file for seed."""
+        parser = self._get_command_parser(self.generate_key_pair.__doc__)
+        self._add_transaction_args(parser)
+        parser.add_argument('seed', type=str)
+        args = self._get_command_args(parser)
+        client = self._get_rpc_client(args)
+        return client.generate_key_pair(args.seed)
+
 
 def run():
     MultiCommandParser()

@@ -1,11 +1,10 @@
-use primitives::aggregate_signature::{BlsPublicKey, BlsSignature};
+use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{CryptoHash, hash};
 use primitives::serialize::Decode;
 use primitives::signature::PublicKey;
 use primitives::traits::Base58Encoded;
-use primitives::traits::FromBytes;
 use primitives::transaction::{
-    AddBlsKeyTransaction, AddKeyTransaction, AsyncCall,
+    AddKeyTransaction, AsyncCall,
     CallbackInfo, CallbackResult, CreateAccountTransaction, DeleteKeyTransaction,
     ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
@@ -70,7 +69,7 @@ pub fn staking(
     sender: &mut Account,
     authority_proposals: &mut Vec<AuthorityStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if sender.amount >= body.amount && !sender.bls_public_key.is_empty() {
+    if sender.amount >= body.amount {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
             public_key: PublicKey::from(&body.public_key),
@@ -81,7 +80,7 @@ pub fn staking(
         sender.staked += body.amount;
         set(state_update, &account_id_to_bytes(COL_ACCOUNT, sender_account_id), &sender);
         Ok(vec![])
-    } else if sender.amount < body.amount {
+    } else {
         let err_msg = format!(
             "Account {} tries to stake {}, but has staked {} and only has {}",
             body.originator,
@@ -90,8 +89,6 @@ pub fn staking(
             sender.amount,
         );
         Err(err_msg)
-    } else {
-        Err(format!("Account {} already staked", body.originator))
     }
 }
 
@@ -258,25 +255,6 @@ pub fn delete_key(
     Ok(vec![])
 }
 
-pub fn add_bls_key(
-    state_update: &mut TrieUpdate,
-    body: &AddBlsKeyTransaction,
-    account: &mut Account,
-) -> Result<Vec<ReceiptTransaction>, String> {
-    let new_key = BlsPublicKey::from_bytes(&body.new_key).map_err(|e| e.to_string())?;
-    let proof = BlsSignature::from_bytes(&body.proof_of_possession).map_err(|e| e.to_string())?;
-    if !new_key.verify_proof_of_possession(&proof) {
-        return Err("Invalid proof of possession".to_string());
-    }
-    account.bls_public_key = new_key;
-    set(
-        state_update,
-        &account_id_to_bytes(COL_ACCOUNT, &body.originator),
-        &account
-    );
-    Ok(vec![])
-}
-
 
 pub fn system_create_account(
     state_update: &mut TrieUpdate,
@@ -322,6 +300,31 @@ mod tests {
     use crate::test_utils::*;
 
     use super::*;
+
+    #[test]
+    fn test_staking() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
+        let (new_root, mut apply_results) = alice.stake(root, 10);
+        assert_ne!(new_root, root);
+        let apply_result = apply_results.pop().unwrap();
+        let authority_stake = AuthorityStake {
+            account_id: alice.get_account_id(),
+            public_key: alice.signer.public_key.clone(),
+            bls_public_key: alice.signer.bls_public_key.clone(),
+            amount: 10,
+        };
+        assert_eq!(apply_result.authority_proposals, vec![authority_stake]);
+    }
+
+    #[test]
+    fn test_staking_over_limit() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
+        let (new_root, apply_results) = alice.stake(root, 1000);
+        assert_eq!(new_root, root);
+        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
+    }
 
     #[test]
     fn test_upload_contract() {

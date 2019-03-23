@@ -18,8 +18,11 @@ variables:
 .install_protos: &install_protos
     sudo apt-get install -y unzip &&
     wget -O /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
-    unzip -p /tmp/protoc.zip bin/protoc | sudo tee /usr/local/bin/protoc 1> /dev/null &&
-    sudo chmod 755 /usr/local/bin/protoc
+    sudo unzip /tmp/protoc.zip -d protoc &&
+    sudo mv protoc/bin/* /usr/local/bin/ &&
+    sudo mv protoc/include/* /usr/local/include/ &&
+    sudo chmod 755 /usr/local/bin/protoc &&
+    sudo chmod 755 /usr/local/include/google
 
 .setup_python: &setup_python
     sudo apt-get install -y python-dev

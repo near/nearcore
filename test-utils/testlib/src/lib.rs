@@ -1,2 +1,2 @@
 pub mod alphanet_utils;
-pub mod generate_test_spec;
+pub mod node_user;

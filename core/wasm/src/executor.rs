@@ -16,8 +16,6 @@ use wasmer_runtime::{
     units::Pages,
 };
 
-const PUBLIC_FUNCTION_PREFIX: &str = "near_func_";
-
 pub struct ExecutionOutcome {
     pub gas_used: Gas,
     pub mana_used: Mana,
@@ -84,10 +82,7 @@ pub fn execute<'a>(
 
     instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
 
-    // All public functions should start with `PUBLIC_FUNCTION_PREFIX` in WASM.
-    let method_name = format!("{}{}",
-        PUBLIC_FUNCTION_PREFIX,
-        std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?);
+    let method_name = std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
 
     match instance.call(&method_name, &[]) {
         Ok(_) => Ok(ExecutionOutcome {

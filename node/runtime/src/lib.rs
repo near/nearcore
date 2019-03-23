@@ -14,9 +14,8 @@ use std::collections::{HashMap, hash_map::Entry};
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{CryptoHash, hash};
-use primitives::signature::{bs58_serializer, PublicKey};
+use primitives::signature::PublicKey;
 use primitives::serialize::{Decode, Encode};
 use primitives::types::{
     AccountId, AccountingInfo, AuthorityStake,
@@ -61,9 +60,6 @@ const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
-    // TODO: REMOVE THIS!
-    #[serde(with = "bs58_serializer")]
-    pub bls_public_key: BlsPublicKey,
     pub nonce: u64,
     // amount + staked is the total value of the account
     pub amount: u64,
@@ -73,7 +69,7 @@ pub struct Account {
 
 impl Account {
     pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { public_keys, bls_public_key: BlsPublicKey::empty(), nonce: 0, amount, staked: 0, code_hash }
+        Account { public_keys, nonce: 0, amount, staked: 0, code_hash }
     }
 }
 
@@ -330,13 +326,6 @@ impl Runtime {
                     }
                     TransactionBody::DeleteKey(ref t) => {
                         system::delete_key(
-                            state_update,
-                            t,
-                            &mut sender
-                        )
-                    }
-                    TransactionBody::AddBlsKey(ref t) => {
-                        system::add_bls_key(
                             state_update,
                             t,
                             &mut sender
@@ -924,7 +913,6 @@ impl Runtime {
                 &account_id_to_bytes(COL_ACCOUNT, &account_id),
                 &Account {
                     public_keys: vec![PublicKey::from(&public_key.0)],
-                    bls_public_key: BlsPublicKey::empty(),
                     amount: *balance,
                     nonce: 0,
                     staked: 0,

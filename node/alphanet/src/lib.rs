@@ -53,6 +53,8 @@ pub fn start_from_client(
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (inc_final_signatures_tx, inc_final_signatures_rx) = channel(1024);
+        let (out_final_signatures_tx, out_final_signatures_rx) = channel(1024);
         let (inc_chain_state_tx, inc_chain_state_rx) = channel(1024);
         let (out_block_fetch_tx, out_block_fetch_rx) = channel(1024);
 
@@ -66,6 +68,8 @@ pub fn start_from_client(
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
+            out_final_signatures_tx,
+            inc_final_signatures_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
@@ -95,6 +99,8 @@ pub fn start_from_client(
             out_block_rx,
             payload_request_rx,
             payload_response_tx,
+            inc_final_signatures_tx,
+            out_final_signatures_rx,
             inc_payload_gossip_tx,
             out_payload_gossip_rx,
             inc_chain_state_tx,
@@ -115,12 +121,12 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 
 #[cfg(test)]
 mod tests {
-    use client::BlockProductionResult;
     use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
     use primitives::transaction::TransactionBody;
+    use primitives::test_utils::TestSignedBlock;
 
-    use testlib::alphanet_utils::{configure_chain_spec, wait, Node};
+    use testlib::alphanet_utils::{configure_chain_spec, wait, NodeConfig, ThreadNode, Node};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -128,26 +134,23 @@ mod tests {
     fn two_nodes() {
         let (test_prefix, test_port) = ("two_nodes", 7000);
         let chain_spec = configure_chain_spec();
-        let alice = Node::for_test(
+        let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "alice.near",
             1,
             vec![],
             chain_spec.clone(),
-        );
-        let bob = Node::for_test(
+        ));
+        let mut bob = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "bob.near",
             2,
-            vec![alice.node_addr()],
+            vec![alice.config().node_addr()],
             chain_spec,
-        );
+        ));
         alice
-            .client
-            .shard_client
-            .pool
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
             )
@@ -159,33 +162,20 @@ mod tests {
         // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.client.shard_client.chain.best_block().index() >= 2
-                    && bob.client.shard_client.chain.best_block().index() >= 2
+                alice.client.shard_client.chain.best_index() >= 2
+                    && bob.client.shard_client.chain.best_index() >= 2
             },
             500,
             600000,
         );
 
         // Check that transaction and it's receipt were included.
-        let mut state_update = alice.client.shard_client.get_state_update();
         assert_eq!(
-            alice
-                .client
-                .shard_client
-                .trie_viewer
-                .view_account(&mut state_update, &"alice.near".to_string())
-                .unwrap()
-                .amount,
+            alice.view_balance(&"alice.near".to_string()).unwrap(),
             9999990
         );
         assert_eq!(
-            alice
-                .client
-                .shard_client
-                .trie_viewer
-                .view_account(&mut state_update, &"bob.near".to_string())
-                .unwrap()
-                .amount,
+            alice.view_balance(&"bob.near".to_string()).unwrap(),
             110
         );
     }
@@ -197,68 +187,54 @@ mod tests {
     fn test_three_nodes_sync() {
         let (test_prefix, test_port) = ("three_nodes_sync", 7010);
         let chain_spec = configure_chain_spec();
-        let alice = Node::for_test(
+        let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "alice.near",
             1,
             vec![],
             chain_spec.clone(),
-        );
-        let bob = Node::for_test(
+        ));
+        let mut bob = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "bob.near",
             2,
-            vec![alice.node_addr()],
+            vec![alice.config().node_addr()],
             chain_spec.clone(),
-        );
-        let charlie = Node::for_test_passive(
+        ));
+        let mut charlie = ThreadNode::new(NodeConfig::for_test_passive(
             test_prefix,
             test_port,
             "charlie.near",
             3,
-            vec![bob.node_addr()],
-            chain_spec,
-        );
+            vec![bob.config().node_addr()],
+            chain_spec.clone(),
+        ));
 
-        let (mut beacon_block, mut shard_block) =
-            match alice.client.try_produce_block(1, ChainPayload::default()) {
-                BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (*beacon_block, *shard_block)
-                }
-                _ => panic!("Should produce block"),
-            };
-        // Sign by bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
-        alice.client.try_import_blocks(beacon_block, shard_block);
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            alice.client.prepare_block(ChainPayload::default());
+        // Sign by alice & bob to make this blocks valid.
+        let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
+        let signers = vec![alice.signer(), bob.signer()];
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob
-            .client
-            .shard_client
-            .pool
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
-            )
-            .unwrap();
+            ).unwrap();
 
         alice.start();
         bob.start();
         charlie.start();
 
-        wait(|| charlie.client.shard_client.chain.best_block().index() >= 3, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 3, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        let mut state_update = charlie.client.shard_client.get_state_update();
         assert_eq!(
-            charlie
-                .client
-                .shard_client
-                .trie_viewer
-                .view_account(&mut state_update, &"bob.near".to_string())
-                .unwrap()
-                .amount,
+            charlie.view_balance(&"bob.near".to_string()).unwrap(),
             110
         );
     }
@@ -270,37 +246,31 @@ mod tests {
     fn test_late_transaction() {
         let (test_prefix, test_port) = ("late_transaction", 7020);
         let chain_spec = configure_chain_spec();
-        let alice = Node::for_test(
+        let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "alice.near",
             1,
             vec![],
             chain_spec.clone(),
-        );
-        let bob = Node::for_test(
+        ));
+        let mut bob = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "bob.near",
             2,
-            vec![alice.node_addr()],
+            vec![alice.config().node_addr()],
             chain_spec.clone(),
-        );
-        let (mut beacon_block, mut shard_block) =
-            match alice.client.try_produce_block(1, ChainPayload::default()) {
-                BlockProductionResult::Success(beacon_block, shard_block) => {
-                    (*beacon_block, *shard_block)
-                }
-                _ => panic!("Should produce block"),
-            };
-        // Sign by bob to make this blocks valid.
-        beacon_block.add_signature(&beacon_block.sign(bob.signer()), 1);
-        shard_block.add_signature(&shard_block.sign(bob.signer()), 1);
-        alice.client.try_import_blocks(beacon_block, shard_block);
+        ));
+        let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
+        // Sign by alice & bob to make this blocks valid.
+        let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
+        let signers = vec![alice.signer(), bob.signer()];
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
-        bob.client
-            .shard_client
-            .pool
+        bob
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10)
                     .sign(alice.signer()),
@@ -311,19 +281,12 @@ mod tests {
         bob.start();
 
         wait(|| {
-            alice.client.shard_client.chain.best_block().index() >= 3
+            alice.client.shard_client.chain.best_index() >= 3
         }, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        let mut state_update = alice.client.shard_client.get_state_update();
         assert_eq!(
-            alice
-                .client
-                .shard_client
-                .trie_viewer
-                .view_account(&mut state_update, &"bob.near".to_string())
-                .unwrap()
-                .amount,
+            alice.view_balance(&"bob.near".to_string()).unwrap(),
             110
         );
     }
@@ -334,48 +297,48 @@ mod tests {
     fn test_new_nodes_catchup() {
         let (test_prefix, test_port) = ("new_node_catchup", 7030);
         let chain_spec = configure_chain_spec();
-        let alice = Node::for_test(
+        let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "alice.near",
             1,
             vec![],
             chain_spec.clone(),
-        );
-        let bob = Node::for_test(
+        ));
+        let mut bob = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "bob.near",
             2,
-            vec![alice.node_addr()],
+            vec![alice.config().node_addr()],
             chain_spec.clone(),
-        );
-        let charlie = Node::for_test(
+        ));
+        let mut charlie = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "charlie.near",
             3,
-            vec![bob.node_addr()],
+            vec![bob.config().node_addr()],
             chain_spec.clone(),
-        );
-        let dan = Node::for_test(
+        ));
+        let mut dan = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
             "dan.near",
             4,
-            vec![charlie.node_addr()],
+            vec![charlie.config().node_addr()],
             chain_spec,
-        );
+        ));
 
         alice.start();
         bob.start();
 
-        wait(|| alice.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| alice.client.shard_client.chain.best_index() >= 2, 500, 60000);
 
         charlie.start();
         dan.start();
-        wait(|| charlie.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
-        wait(|| dan.client.shard_client.chain.best_block().index() >= 2, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 2, 500, 60000);
+        wait(|| dan.client.shard_client.chain.best_index() >= 2, 500, 60000);
 
     }
 }

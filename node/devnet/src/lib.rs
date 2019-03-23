@@ -1,16 +1,17 @@
 //! Starts DevNet either from args or the provided configs.
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
-use futures::sync::mpsc::channel;
 use futures::future;
 use futures::stream::Stream;
+use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
+use configs::{ClientConfig, DevNetConfig, get_devnet_configs, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use std::time::Duration;
+use primitives::signer::InMemorySigner;
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -18,7 +19,9 @@ pub fn start() {
 }
 
 pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
-    let client = Arc::new(Client::new(&client_cfg));
+    let mut client = Client::new(&client_cfg);
+    client.signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let client = Arc::new(client);
     start_from_client(client, devnet_cfg, rpc_cfg);
 }
 
@@ -37,6 +40,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         let (_, payload_response_rx) = channel(1024);
         let (_, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (_, inc_final_signatures_rx) = channel(1024);
+        let (out_final_signatures_tx, _) = channel(1024);
         let (_, inc_chain_state_rx) = channel(1024);
         let (out_block_fetch_tx, _) = channel(1024);
 
@@ -51,6 +56,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
+            out_final_signatures_tx,
+            inc_final_signatures_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
@@ -80,14 +87,13 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 mod tests {
     use std::path::PathBuf;
     use std::thread;
+    use std::time::Duration;
 
-    use testlib::alphanet_utils::wait;
-    use primitives::block_traits::SignedBlock;
     use primitives::signer::InMemorySigner;
     use primitives::transaction::TransactionBody;
+    use testlib::alphanet_utils::wait;
 
     use super::*;
-    use std::time::Duration;
 
     const TMP_DIR: &str = "../../tmp/devnet";
 
@@ -106,13 +112,15 @@ mod tests {
         let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
         let rpc_cfg = configs::RPCConfig::default();
 
-        let client = Arc::new(Client::new(&client_cfg));
+        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+        let mut client = Client::new(&client_cfg);
+        client.signer = signer.clone();
+        let client = Arc::new(client);
         let client1 = client.clone();
         thread::spawn(|| {
             start_from_client(client1, devnet_cfg, rpc_cfg);
         });
 
-        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
         client
             .shard_client
             .pool
@@ -120,7 +128,7 @@ mod tests {
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
             )
             .unwrap();
-        wait(|| client.shard_client.chain.best_block().index() >= 2, 50, 10000);
+        wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
 
         // Check that transaction and it's receipt were included.
         let mut state_update = client.shard_client.get_state_update();

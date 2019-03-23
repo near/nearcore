@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use configs::ChainSpec;
+use configs::{ChainSpec, chain_spec::AuthorityRotation};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{CryptoHash, hash};
 use primitives::signature::PublicKey;
@@ -10,9 +10,9 @@ use primitives::signer::{InMemorySigner, TransactionSigner, BlockSigner};
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall,
     Callback, CallbackInfo, CallbackResult,
-    CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
-    ReceiptTransaction, SignedTransaction,
-    TransactionBody
+    CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, 
+    FunctionCallTransaction, StakeTransaction, ReceiptBody,
+    ReceiptTransaction, SignedTransaction, TransactionBody
 };
 use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash};
 use storage::{Trie, TrieUpdate};
@@ -53,9 +53,7 @@ pub fn generate_test_chain_spec() -> (ChainSpec, Vec<Arc<InMemorySigner>>) {
         ],
         initial_authorities: vec![("alice.near".to_string(), alice_signer.public_key().to_readable(), alice_signer.bls_public_key().to_readable(), 50)],
         genesis_wasm,
-        beacon_chain_epoch_length: 2,
-        beacon_chain_num_seats_per_slot: 1,
-        boot_nodes: vec![],
+        authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
     }, vec![Arc::new(alice_signer), Arc::new(bob_signer)])
 }
 
@@ -149,7 +147,7 @@ impl Runtime {
 
 pub struct User {
     runtime: Runtime,
-    account_id: String,
+    account_id: AccountId,
     nonce: u64,
     trie: Arc<Trie>,
     pub signer: Arc<InMemorySigner>,
@@ -170,6 +168,10 @@ impl User {
             trie,
             signer,
         }, root)
+    }
+
+    pub fn get_account_id(&self) -> AccountId {
+        self.account_id.clone()
     }
 
     pub fn send_tx(
@@ -289,6 +291,22 @@ impl User {
             nonce: self.nonce,
             originator: self.account_id.clone(),
             cur_key: key.0[..].to_vec()
+        });
+        self.nonce += 1;
+        self.send_tx(root, tx_body)
+    }
+
+    pub fn stake(
+        &mut self,
+        root: MerkleHash,
+        amount: u64,
+    ) -> (MerkleHash, Vec<ApplyResult>) {
+        let tx_body = TransactionBody::Stake(StakeTransaction {
+            nonce: self.nonce,
+            originator: self.account_id.clone(),
+            amount,
+            public_key: self.signer.public_key.to_string(),
+            bls_public_key: self.signer.bls_public_key.to_string(),
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)

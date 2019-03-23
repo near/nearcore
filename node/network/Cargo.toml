@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 bincode = { "version" = "1.0", features = ["i128"] }
 byteorder = "1.2.7"
-bytes = "0.2"
+bytes = "0.4"
 env_logger = "0.5"
 futures = "0.1"
 log = "0.4"
@@ -17,8 +17,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 tokio = "0.1"
-tokio-codec = "0.1"
-tokio-serde-cbor = "0.3"
+protobuf = "2.4"
 
 beacon = { path = "../../node/beacon" }
 chain = { path = "../../core/chain" }

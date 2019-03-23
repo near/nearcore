@@ -22,9 +22,9 @@ pub enum ChainId {
     ShardChain(u32),
 }
 
-impl Into<u32> for ChainId {
-    fn into(self) -> u32 {
-        match self {
+impl From<ChainId> for u32 {
+    fn from(id: ChainId) -> u32 {
+        match id {
             ChainId::BeaconChain => 0u32,
             ChainId::ShardChain(i) => i + 1,
         }
@@ -160,8 +160,14 @@ where
     pub fn add_block(&mut self, block: B) -> io::Result<()> {
         self.set_best_block_hash(block.block_hash())?;
         self.set_hash_by_index(block.index(), block.block_hash())?;
-        self.set_header(&block.block_hash(), block.header().clone())?;
+        self.set_header(&block.block_hash(), block.header())?;
         self.set_block(&block.block_hash(), block)
+    }
+
+    pub fn add_header(&mut self, header: B::SignedHeader) -> io::Result<()> {
+        self.set_best_block_hash(header.block_hash())?;
+        self.set_hash_by_index(header.index(), header.block_hash())?;
+        self.set_header(&header.block_hash(), header)
     }
 
     #[inline]
