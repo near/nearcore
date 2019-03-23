@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-throwawaydude/alphanet:0.0.3}
+IMAGE=${1:-nearprotocol/alphanet:0.1.0}
 PREFIX=${2:-alphanet}
-STUDIO_IMAGE=${3:-throwawaydude/studio:0.0.0}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.0}
 ZONE=${4:-us-west2-a}
 
 echo "Starting 4 nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
@@ -49,3 +49,41 @@ gcloud compute instances create-with-container ${PREFIX}-studio \
     --container-image ${STUDIO_IMAGE} \
     --zone ${ZONE}
 
+# borrowed from https://stackoverflow.com/a/20369590
+spinner()
+{
+    local pid=$!
+    local delay=0.75
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+STUDIO_IP=$(
+gcloud compute instances describe ${PREFIX}-studio \
+    --zone us-west2-a | grep natIP | \
+    awk '{print $2}'
+)
+
+wait_for_studio()
+{
+    while :
+    do
+        STATUS_CODE=$(curl -I ${STUDIO_IP} 2>/dev/null | head -n 1 | cut -d$' ' -f2);
+        if [[ ${STATUS_CODE} -eq 200 ]]; then
+            exit 0
+        fi
+        sleep 1
+    done
+}
+
+echo "Alphanet HTTP interface is accessible at ${BOOT_NODE_IP}:3030"
+echo "Waiting for studio instance to start. This could take a few minutes..."
+wait_for_studio & spinner
+echo "NEARStudio is now accessible at http://${STUDIO_IP}"
