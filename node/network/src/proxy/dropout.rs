@@ -10,7 +10,7 @@ pub struct DropoutHandler {
 }
 
 impl DropoutHandler {
-    fn new(dropout_rate: f64) -> Self {
+    pub fn new(dropout_rate: f64) -> Self {
         Self {
             dropout_rate
         }

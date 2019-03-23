@@ -21,6 +21,7 @@ pub struct NetworkConfig {
     pub reconnect_delay: Duration,
     pub gossip_interval: Duration,
     pub gossip_sample_size: usize,
+    pub proxy_handler_names: Vec<String>,
 }
 
 pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
@@ -127,5 +128,6 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         reconnect_delay: Duration::from_millis(reconnect_delay_ms),
         gossip_interval: Duration::from_millis(gossip_interval_ms),
         gossip_sample_size,
+        proxy_handler_names: vec![],
     }
 }

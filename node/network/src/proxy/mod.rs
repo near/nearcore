@@ -11,6 +11,8 @@ use crate::peer::PeerMessage;
 use crate::protocol::{forward_msg, PackedMessage};
 use crate::protocol::Package;
 
+mod registry;
+
 /// Proxy Handlers implementations
 //pub mod benchmark;
 pub mod debug;
@@ -40,7 +42,7 @@ impl Proxy {
     pub fn spawn(&mut self, inc_messages: Receiver<PackedMessage>) {
         let mut stream: Box<Stream<Item=Package, Error=()> + Send + Sync> = Box::new(PackedMessageStream::new(inc_messages));
 
-        for mut handler in self.handlers.iter() {
+        for handler in self.handlers.iter() {
             stream = handler.pipe_stream(stream);
         }
 

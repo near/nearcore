@@ -102,6 +102,7 @@ impl Node {
             reconnect_delay: Duration::from_millis(50),
             gossip_interval: Duration::from_millis(50),
             gossip_sample_size: 10,
+            proxy_handler_names: vec![],
         };
 
         let rpc_cfg = RPCConfig { rpc_port };

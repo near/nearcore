@@ -17,7 +17,7 @@ pub struct ThrottlingHandler {
 }
 
 impl ThrottlingHandler {
-    fn new(max_delay_ms: u64) -> Self {
+    pub fn new(max_delay_ms: u64) -> Self {
         Self {
             max_delay_ms
         }

@@ -20,9 +20,8 @@ use primitives::serialize::Decode;
 use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
 use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
-use crate::peer::{ChainStateRetriever, Peer, PeerMessage};
+use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
-use crate::proxy::debug::DebugHandler;
 use crate::proxy::Proxy;
 
 pub type Package = (Arc<Message>, Sender<PeerMessage>);
@@ -302,11 +301,11 @@ impl Protocol {
     }
 }
 
-fn spawn_proxy(_network_cfg: &NetworkConfig) -> Sender<PackedMessage> {
-    // TODO: Feed properly `ProxyHandlers`
-    let handler = Arc::new(DebugHandler {});
-
-    let mut proxy = Proxy::new(vec![handler]);
+/// Build Proxy and spawn using specified ProxyHandlers from NetworkConfig.
+fn spawn_proxy(network_cfg: &NetworkConfig) -> Sender<PackedMessage> {
+    let handlers: Vec<_> = network_cfg.proxy_handler_names.iter()
+        .map(|name| Proxy::get_handler(name)).collect();
+    let mut proxy = Proxy::new(handlers);
 
     let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
     proxy.spawn(proxy_messages_rx);

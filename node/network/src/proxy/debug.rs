@@ -1,10 +1,15 @@
 use futures::Stream;
-use rand::Rng;
 
 use crate::protocol::Package;
 use crate::proxy::ProxyHandler;
 
 pub struct DebugHandler {}
+
+impl DebugHandler {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
 /// Messages will be dropped with probability `dropout_rate `
 impl ProxyHandler for DebugHandler {
