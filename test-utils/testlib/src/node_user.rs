@@ -66,7 +66,7 @@ impl NodeUser for RpcNodeUser {
         let url = format!("{}{}", self.url, "/submit_transaction");
         let mut response =
             client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
-        let response: SubmitTransactionResponse = response.json().unwrap();
+        let _response: SubmitTransactionResponse = response.json().unwrap();
         Ok(())
     }
 

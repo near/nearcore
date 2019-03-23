@@ -455,7 +455,6 @@ pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -
         initial_authorities,
         genesis_wasm,
         authority_rotation: AuthorityRotation::ProofOfAuthority,
-        boot_nodes: vec![],
     }
 }
 
@@ -517,7 +516,7 @@ pub fn sample_queryable_node(nodes: &Vec<Box<Node>>) -> usize {
 pub fn wait_for_catchup(nodes: &Vec<Box<Node>>) {
     wait(
         || {
-            let mut tips: Vec<_> = nodes
+            let tips: Vec<_> = nodes
                 .iter()
                 .filter(|node| node.is_running())
                 .map(|node| node.user().get_best_block_index())

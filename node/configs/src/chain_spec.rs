@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::network::PeerAddr;
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::io::Write;
 
@@ -17,7 +16,7 @@ pub enum AuthorityRotation {
 }
 
 /// Specification of the blockchain in general.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChainSpec {
     /// Genesis state accounts: (AccountId, PK, Initial Balance, Initial TX Stake)
     pub accounts: Vec<(AccountId, ReadablePublicKey, Balance, Balance)>,
@@ -30,38 +29,21 @@ pub struct ChainSpec {
 
     /// Define authority rotation strategy.
     pub authority_rotation: AuthorityRotation,
-
-    pub boot_nodes: Vec<PeerAddr>,
 }
-
-#[derive(Serialize, Deserialize)]
-#[serde(remote = "ChainSpec")]
-struct ChainSpecRef {
-    accounts: Vec<(AccountId, ReadablePublicKey, u64, u64)>,
-    initial_authorities: Vec<(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)>,
-    genesis_wasm: Vec<u8>,
-    authority_rotation: AuthorityRotation,
-    boot_nodes: Vec<PeerAddr>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct ChainSpecDeserializer(#[serde(with = "ChainSpecRef")] ChainSpec);
 
 pub fn serialize_chain_spec(chain_spec: ChainSpec) -> String {
-    serde_json::to_string(&ChainSpecDeserializer(chain_spec))
+    serde_json::to_string(&chain_spec)
         .expect("Error serializing the chain spec.")
 }
 
 fn deserialize_chain_spec(config: &str) -> ChainSpec {
     serde_json::from_str(config)
-        .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the chain spec.")
 }
 
-pub fn get_default_chain_spec() -> ChainSpec {
+fn get_default_chain_spec() -> ChainSpec {
     let data = include_bytes!("../res/default_chain.json");
     serde_json::from_slice(data)
-        .map(|ChainSpecDeserializer(c)| c)
         .expect("Error deserializing the default chain spec.")
 }
 
@@ -91,7 +73,6 @@ fn test_deserialize() {
         "initial_authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD", 50)],
         "genesis_wasm": [0,1],
         "authority_rotation": {"ThresholdedProofOfStake": {"epoch_length": 10, "num_seats_per_slot": 100}},
-        "boot_nodes": [],
     });
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(

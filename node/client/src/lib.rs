@@ -629,7 +629,6 @@ mod tests {
             // TODO fix authority rotation
             // authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
             authority_rotation: AuthorityRotation::ProofOfAuthority,
-            boot_nodes: vec![],
         };
 
         // Start both clients.
