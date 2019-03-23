@@ -336,7 +336,7 @@ mod tests {
         println!("Gas used for simple call {}", outcome.gas_used);
 
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"{\"result\":\"hello Alice\"}"),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"\"hello Alice\""),
             _ => assert!(false, "Expected returned value"),
         };
     }

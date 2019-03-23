@@ -67,7 +67,7 @@ class Near {
             console.log(`[${contractAccountId}]: ${line}`);
         });
         const json = JSON.parse(Buffer.from(response.result).toString());
-        return json.result;
+        return json;
     }
 
     /**
