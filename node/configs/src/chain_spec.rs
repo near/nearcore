@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::network::PeerAddr;
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::io::Write;
 
@@ -30,8 +29,6 @@ pub struct ChainSpec {
 
     /// Define authority rotation strategy.
     pub authority_rotation: AuthorityRotation,
-
-    pub boot_nodes: Vec<PeerAddr>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -41,7 +38,6 @@ struct ChainSpecRef {
     initial_authorities: Vec<(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)>,
     genesis_wasm: Vec<u8>,
     authority_rotation: AuthorityRotation,
-    boot_nodes: Vec<PeerAddr>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -91,7 +87,6 @@ fn test_deserialize() {
         "initial_authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD", 50)],
         "genesis_wasm": [0,1],
         "authority_rotation": {"ThresholdedProofOfStake": {"epoch_length": 10, "num_seats_per_slot": 100}},
-        "boot_nodes": [],
     });
     let spec = deserialize_chain_spec(&data.to_string());
     assert_eq!(
