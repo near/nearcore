@@ -41,7 +41,7 @@ fn deserialize_chain_spec(config: &str) -> ChainSpec {
         .expect("Error deserializing the chain spec.")
 }
 
-pub fn get_default_chain_spec() -> ChainSpec {
+fn get_default_chain_spec() -> ChainSpec {
     let data = include_bytes!("../res/default_chain.json");
     serde_json::from_slice(data)
         .expect("Error deserializing the default chain spec.")
