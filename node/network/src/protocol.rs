@@ -20,10 +20,10 @@ use primitives::serialize::Decode;
 use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
 use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
-use crate::peer::{ChainStateRetriever, PeerMessage};
+use crate::peer::{ChainStateRetriever, Peer, PeerMessage};
 use crate::peer_manager::PeerManager;
-use crate::proxy::Proxy;
 use crate::proxy::debug::DebugHandler;
+use crate::proxy::Proxy;
 
 pub type Package = (Arc<Message>, Sender<PeerMessage>);
 
@@ -194,7 +194,7 @@ impl Protocol {
     fn send_gossip(&self, g: Gossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
             let message = Message::Gossip(Box::new(g));
-            self.send_message(vec![ch], message);
+            self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND GSP] Channel for receiver_id={} not found, where account_id={:?}, sender_id={}",
                    g.receiver_id,
@@ -206,7 +206,7 @@ impl Protocol {
     fn send_payload_gossip(&self, g: PayloadGossip) {
         if let Some(ch) = self.get_authority_channel(g.receiver_id) {
             let message = Message::PayloadGossip(Box::new(g));
-            self.send_message(vec![ch], message);
+            self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND TX GSP] Channel for {} not found.", g.receiver_id);
         }
@@ -220,7 +220,7 @@ impl Protocol {
                 channels.push(ch);
             }
         }
-        self.send_message(channels, message);
+        self.send_broadcast(message, channels);
     }
 
     fn send_block_fetch_request(&self, peer_id: &PeerId, from_index: BlockIndex, til_index: BlockIndex) {
@@ -228,7 +228,7 @@ impl Protocol {
             // TODO: make proper request ids.
             let request_id = 1;
             let message = Message::BlockFetchRequest(request_id, from_index, til_index);
-            self.send_message(vec![ch], message);
+            self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -242,7 +242,7 @@ impl Protocol {
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let message = Message::BlockResponse(request_id, blocks);
-            self.send_message(vec![ch], message);
+            self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
         }
@@ -256,7 +256,7 @@ impl Protocol {
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(authority_id) {
                     let message = Message::PayloadSnapshotRequest(request_id, hash);
-                    self.send_message(vec![ch], message);
+                    self.send_single(message, ch);
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
                 }
@@ -273,20 +273,25 @@ impl Protocol {
         info!("Send payload to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let message = Message::PayloadResponse(request_id, payload);
-            self.send_message(vec![ch], message);
+            self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND PAYLOAD RSP] Channel for {} not found, account_id={:?}", peer_id, self.peer_manager.node_info.account_id);
         }
     }
 
+    fn send_broadcast(&self, message: Message, channels: Vec<Sender<PeerMessage>>) {
+        let packed_message = PackedMessage::BroadcastMessage(message, channels);
+        self.send_message(packed_message);
+    }
+
+    fn send_single(&self, message: Message, channel: Sender<PeerMessage>) {
+        let packed_message = PackedMessage::SingleMessage(message, channel);
+        self.send_message(packed_message);
+    }
+
     /// Pass message through active proxies handlers and result messages are sent over channel `ch`.
     /// Take owner of `message`.
-    fn send_message(&self, channels: Vec<Sender<PeerMessage>>, message: Message) {
-        let packed_message = match channels.len() {
-            1 => PackedMessage::SingleMessage(message, channels[0].clone()),
-            _ => PackedMessage::BroadcastMessage(message, channels),
-        };
-
+    fn send_message(&self, packed_message: PackedMessage) {
         let task = self.proxy_messages_tx
             .clone()
             .send(packed_message)
