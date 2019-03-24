@@ -282,11 +282,7 @@ class NearLib(object):
             'method_name': function_name,
             'args': args,
         }
-        result = self._call_rpc('call_view_function', params)
-        try:
-            return json.loads(bytearray(result['result']).decode('utf-8'))
-        except json.JSONDecodeError:
-            return result
+        return self._call_rpc('call_view_function', params)
 
     def check_health(self):
         url = "{}healthz".format(self._server_url)
