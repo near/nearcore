@@ -4,7 +4,7 @@ import "protos/chain.proto";
 import "protos/signed_transaction.proto";
 import "protos/receipt.proto";
 import "protos/nightshade.proto";
-import "google/protobuf/wrappers.proto";
+import "protos/wrappers.proto";
 
 message PeerInfo {
     bytes id = 1;
