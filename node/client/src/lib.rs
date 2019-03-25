@@ -58,7 +58,7 @@ pub enum BlockImportingResult {
     MissingParent { missing_indices: Vec<BlockIndex> },
     /// The block is not formed correctly or doesn't have enough signatures
     InvalidBlock,
-    /// Imported blocks are known.
+    /// All blocks that we tried to import were already known.
     KnownBlocks,
 }
 
@@ -334,7 +334,7 @@ impl Client {
                 return BlockImportingResult::InvalidBlock;
             }
             let mut bls_keys = self.get_authority_keys(beacon_block.index());
-            // TODO Because get_authority_keys return empty array if block index is too high, we just try to apply pending blocks and retry.
+            // TODO(763): Because get_authority_keys return empty array if block index is too high, we just try to apply pending blocks and retry.
             // This is a bit suboptimal behavior (for example importing in reverse won't work properly), design here a better mechanics.
             if bls_keys.is_empty() {
                 // We hit block index that doesn't have yet computed authorities.

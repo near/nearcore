@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::{stream, stream::Stream};
+use futures::stream::Stream;
 use futures::future;
 use futures::Future;
 use futures::sink::Sink;
@@ -417,17 +417,5 @@ where
         .send(el)
         .map(|_| ())
         .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
-    tokio::spawn(task);
-}
-
-#[allow(dead_code)]
-fn forward_msgs<T>(ch: Sender<T>, els: Vec<T>)
-where
-    T: Send + 'static,
-{
-    let task = ch
-        .send_all(stream::iter_ok(els))
-        .map(|_| ())
-        .map_err(|e| warn!(target: "network", "Error forwarding messages: {}", e));
     tokio::spawn(task);
 }
