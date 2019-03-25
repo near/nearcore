@@ -85,7 +85,7 @@ or
 cargo run --package=devnet
 ```
 
- ### Testing
+### Testing
 
 In order to run tests currently, you must setup `pynear`:
 
