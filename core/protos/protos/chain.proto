@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-import "protos/types.proto";
-import "protos/receipt.proto";
-import "protos/signed_transaction.proto";
+import "types.proto";
+import "receipt.proto";
+import "signed_transaction.proto";
 
 message ChainState {
     bytes genesis_hash = 1;
