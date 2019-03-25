@@ -11,7 +11,6 @@ impl DebugHandler {
     }
 }
 
-/// Messages will be dropped with probability `dropout_rate `
 impl ProxyHandler for DebugHandler {
     fn pipe_stream(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) ->
     Box<Stream<Item=Package, Error=()> + Send + Sync>

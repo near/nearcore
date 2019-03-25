@@ -14,7 +14,7 @@ use crate::protocol::Package;
 mod registry;
 
 /// Proxy Handlers implementations
-//pub mod benchmark;
+pub mod benchmark;
 pub mod debug;
 pub mod dropout;
 pub mod throttling;

@@ -31,18 +31,22 @@ impl ProxyHandler for ThrottlingHandler {
     {
         let (message_tx, message_rx) = channel(1024);
 
+        let max_delay_ms = self.max_delay_ms;
+
         let main_task = stream.for_each(move |package| {
             let mut rng = rand::thread_rng();
-            let delay = (rng.gen::<f64>() * 10 as f64) as u64;
+            let delay = (rng.gen::<f64>() * max_delay_ms as f64) as u64;
 
             let final_time = Delay::new(Instant::now() + Duration::from_millis(delay));
             let message_tx1 = message_tx.clone();
 
             let wait_task = final_time.and_then(|_| {
-                message_tx1
+                let task = message_tx1
                     .send(package)
                     .map(|_| ())
                     .map_err(|_| ());
+
+                tokio::spawn(task);
                 Ok(())
             }).map_err(|_| ());
 

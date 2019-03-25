@@ -4,11 +4,12 @@ use crate::proxy::{Proxy, ProxyHandler};
 use crate::proxy::debug::DebugHandler;
 use crate::proxy::dropout::DropoutHandler;
 use crate::proxy::throttling::ThrottlingHandler;
+use crate::proxy::benchmark::BenchmarkHandler;
 
 impl Proxy {
     pub fn get_handler(name: &str) -> Arc<ProxyHandler> {
         let handler: Arc<ProxyHandler> = match &name.to_lowercase()[..] {
-//            "benchmark" => Arc::new(BenchmarkHandler::new()),
+            "benchmark" => Arc::new(BenchmarkHandler::new()),
 
             "debug" => Arc::new(DebugHandler::new()),
 
