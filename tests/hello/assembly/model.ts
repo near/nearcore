@@ -21,7 +21,3 @@ export class MyCallbackResult {
     rs: MyContractPromiseResult[];
     n: string;
 }
-
-export class ResultWrappedMyCallbackResult {
-  result: MyCallbackResult;
-}

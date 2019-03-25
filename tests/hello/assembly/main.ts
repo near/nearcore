@@ -3,7 +3,7 @@ export { memory };
 
 import { context, storage, ContractPromise, ContractPromiseResult, near } from "./near";
 
-import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult, ResultWrappedMyCallbackResult } from "./model.near";
+import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model.near";
 
 export function hello(name: string): string {
 
@@ -122,7 +122,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
     allRes[i] = new MyContractPromiseResult();
     allRes[i].ok = contractResults[i].success;
     if (allRes[i].ok && contractResults[i].buffer != null && contractResults[i].buffer.length > 0) {
-      allRes[i].r = ResultWrappedMyCallbackResult.decode(contractResults[i].buffer).result;
+      allRes[i].r = MyCallbackResult.decode(contractResults[i].buffer);
     }
   } 
   let result: MyCallbackResult = {
