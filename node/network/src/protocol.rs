@@ -22,7 +22,7 @@ use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
-use crate::proxy::Proxy;
+use crate::proxy::{Proxy, ProxyHandler};
 
 pub type Package = (Arc<Message>, Sender<PeerMessage>);
 
@@ -302,9 +302,7 @@ impl Protocol {
 }
 
 /// Build Proxy and spawn using specified ProxyHandlers from NetworkConfig.
-fn spawn_proxy(network_cfg: &NetworkConfig) -> Sender<PackedMessage> {
-    let handlers: Vec<_> = network_cfg.proxy_handler_names.iter()
-        .map(|name| Proxy::get_handler(name)).collect();
+fn spawn_proxy(handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
     let mut proxy = Proxy::new(handlers);
 
     let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
@@ -324,6 +322,9 @@ fn spawn_proxy(network_cfg: &NetworkConfig) -> Sender<PackedMessage> {
 /// * `inc_block_tx`: Channel where protocol places incoming blocks;
 /// * `out_blocks_rx`: Channel where from protocol reads blocks that should be sent for
 ///   announcements.
+/// * `proxy_handlers`: Message are sent through proxy handlers before being sent to the network,
+/// Handlers can see/drop/modify/replicate each message.
+/// Note: Use empty vector when no proxy handler will be used
 pub fn spawn_network(
     client: Arc<Client>,
     account_id: Option<AccountId>,
@@ -338,6 +339,7 @@ pub fn spawn_network(
     out_payload_gossip_rx: Receiver<PayloadGossip>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
     out_block_fetch_rx: Receiver<(PeerId, BlockIndex, BlockIndex)>,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) {
     let (inc_msg_tx, inc_msg_rx) = channel(1024);
     let (_, out_msg_rx) = channel(1024);
@@ -355,7 +357,7 @@ pub fn spawn_network(
     ));
 
     // Create proxy
-    let proxy_messages_tx = spawn_proxy(&network_cfg);
+    let proxy_messages_tx = spawn_proxy(proxy_handlers);
 
     let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx, proxy_messages_tx });
 

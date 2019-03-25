@@ -9,4 +9,4 @@ mod peer_manager;
 mod protocol;
 #[cfg(test)]
 mod testing_utils;
-mod proxy;
+pub mod proxy;

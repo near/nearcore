@@ -19,6 +19,8 @@ use primitives::signer::InMemorySigner;
 use primitives::signer::TransactionSigner;
 use primitives::signer::BlockSigner;
 
+use network::proxy::ProxyHandler;
+
 const TMP_DIR: &str = "../../tmp/testnet";
 
 pub fn configure_chain_spec() -> ChainSpec {
@@ -33,10 +35,11 @@ pub struct Node {
     pub client_cfg: ClientConfig,
     pub network_cfg: NetworkConfig,
     pub rpc_cfg: RPCConfig,
+    pub proxy_handlers: Vec<Arc<ProxyHandler>>,
 }
 
 impl Node {
-    pub fn for_test(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec) -> Self {
+    pub fn for_test(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec, proxy_handlers: Vec<Arc<ProxyHandler>>) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
@@ -45,12 +48,13 @@ impl Node {
             Some(&addr),
             test_port + 1000 + peer_id,
             boot_nodes,
-            chain_spec
+            chain_spec,
+            proxy_handlers,
         )
     }
 
     /// Create full node that does not accept incoming connections.
-    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec) -> Self {
+    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec, handlers: Vec<Arc<ProxyHandler>>) -> Self {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
@@ -58,7 +62,8 @@ impl Node {
             None,
             test_port + 1000 + peer_id,
             boot_nodes,
-            chain_spec
+            chain_spec,
+            handlers,
         )
     }
     pub fn new(
@@ -69,6 +74,7 @@ impl Node {
         rpc_port: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
@@ -102,14 +108,13 @@ impl Node {
             reconnect_delay: Duration::from_millis(50),
             gossip_interval: Duration::from_millis(50),
             gossip_sample_size: 10,
-            proxy_handler_names: vec![],
         };
 
         let rpc_cfg = RPCConfig { rpc_port };
 
         let signer = Arc::new(InMemorySigner::from_seed(&account_id, &account_id));
         let client = Arc::new(Client::new_with_signer(&client_cfg, signer));
-        Node { client, node_info, client_cfg, network_cfg, rpc_cfg }
+        Node { client, node_info, client_cfg, network_cfg, rpc_cfg, proxy_handlers }
     }
 
     #[inline]
@@ -122,8 +127,9 @@ impl Node {
         let account_id = self.client_cfg.account_id.clone();
         let network_cfg = self.network_cfg.clone();
         let rpc_cfg = self.rpc_cfg.clone();
+        let proxy_handlers = self.proxy_handlers.clone();
         thread::spawn(|| {
-            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
+            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg, proxy_handlers);
         });
         thread::sleep(Duration::from_secs(1));
     }
@@ -146,8 +152,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-where
-    F: Fn() -> bool,
+    where
+        F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {

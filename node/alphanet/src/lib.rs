@@ -13,6 +13,7 @@ use coroutines::client_task::ClientTask;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
+use network::proxy::ProxyHandler;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
@@ -25,7 +26,9 @@ pub fn start_from_configs(
     rpc_cfg: RPCConfig,
 ) {
     let client = Arc::new(Client::new(&client_cfg));
-    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg)
+    // Use empty pipeline to launch nodes on production.
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
+    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg, proxy_handlers)
 }
 
 pub fn start_from_client(
@@ -33,6 +36,7 @@ pub fn start_from_client(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) {
     let node_task = futures::lazy(move || {
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
@@ -99,6 +103,7 @@ pub fn start_from_client(
             out_payload_gossip_rx,
             inc_chain_state_tx,
             out_block_fetch_rx,
+            proxy_handlers,
         );
 
         Ok(())
@@ -135,6 +140,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            vec![],
         );
         let bob = Node::for_test(
             test_prefix,
@@ -143,6 +149,7 @@ mod tests {
             2,
             vec![alice.node_addr()],
             chain_spec,
+            vec![],
         );
         alice
             .client
@@ -204,6 +211,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            vec![],
         );
         let bob = Node::for_test(
             test_prefix,
@@ -212,6 +220,7 @@ mod tests {
             2,
             vec![alice.node_addr()],
             chain_spec.clone(),
+            vec![],
         );
         let charlie = Node::for_test_passive(
             test_prefix,
@@ -220,6 +229,7 @@ mod tests {
             3,
             vec![bob.node_addr()],
             chain_spec,
+            vec![],
         );
 
         let (mut beacon_block, mut shard_block) =
@@ -277,6 +287,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            vec![],
         );
         let bob = Node::for_test(
             test_prefix,
@@ -285,6 +296,7 @@ mod tests {
             2,
             vec![alice.node_addr()],
             chain_spec.clone(),
+            vec![],
         );
         let (mut beacon_block, mut shard_block) =
             match alice.client.try_produce_block(1, ChainPayload::default()) {
@@ -341,6 +353,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            vec![],
         );
         let bob = Node::for_test(
             test_prefix,
@@ -349,6 +362,7 @@ mod tests {
             2,
             vec![alice.node_addr()],
             chain_spec.clone(),
+            vec![],
         );
         let charlie = Node::for_test(
             test_prefix,
@@ -357,6 +371,7 @@ mod tests {
             3,
             vec![bob.node_addr()],
             chain_spec.clone(),
+            vec![],
         );
         let dan = Node::for_test(
             test_prefix,
@@ -365,6 +380,7 @@ mod tests {
             4,
             vec![charlie.node_addr()],
             chain_spec,
+            vec![],
         );
 
         alice.start();
