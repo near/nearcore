@@ -25,6 +25,7 @@ members = [
     "core/nightshade",
     "core/wasm",
     "core/wasm/runtest",
+    "core/protos",
     "node/alphanet",
     "node/beacon",
     "node/client",
