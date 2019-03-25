@@ -18,7 +18,7 @@ def build(package, tag, is_release=True, use_buildkit=True):
     current_directory = os.path.abspath(os.path.dirname(__file__))
     docker_file = os.path.join(current_directory, 'Dockerfile')
     repo_root = os.path.join(current_directory, '..')
-    command = "docker build {build_args} -f {docker_file} -t {tag} {path}".format(
+    command = "sudo -E docker build {build_args} -f {docker_file} -t {tag} {path}".format(
         build_args=build_args,
         docker_file=docker_file,
         tag=tag,

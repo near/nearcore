@@ -19,6 +19,11 @@ class Near {
      * Constructs near with an instance of nearclient.
      * @constructor
      * @param {NearClient} nearClient
+     * @example
+     * const nearClient = new nearlib.NearClient(
+     *   walletAccount, 
+     *   new nearlib.LocalNodeConnection(config.nodeUrl));
+     * const near = new nearlib.Near(nearClient);
      */
     constructor(nearClient) {
         this.nearClient = nearClient;
@@ -27,6 +32,8 @@ class Near {
     /**
      * Generate a default configuration for nearlib
      * @param {string} nodeUrl url of the near node to connect to
+     * @example
+     * Near.createDefaultConfig();
      */
     static createDefaultConfig(nodeUrl = 'http://localhost:3030') {
         return new Near(new NearClient(
@@ -40,6 +47,11 @@ class Near {
      * @param {string} contractAccountId account id of the contract
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
+     * @example
+     * const viewFunctionResponse = await near.callViewFunction(
+     *   contractAccountId, 
+     *   methodName, 
+     *   args);
      */
     async callViewFunction(contractAccountId, methodName, args) {
         if (!args) {
@@ -66,6 +78,13 @@ class Near {
      * @param {string} contractAccountId account id of the contract
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
+     * @example
+     * const scheduleResult = await near.scheduleFunctionCall(
+     *     0,
+     *     aliceAccountName,
+     *     contractName,
+     *     'setValue', // this is the function defined in a wasm file that we are calling
+     *     setArgs);
      */
     async scheduleFunctionCall(amount, originator, contractId, methodName, args) {
         if (!args) {
@@ -106,6 +125,8 @@ class Near {
      * Deploys a smart contract to the block chain
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
+     * @example
+     * const response =  await nearjs.deployContract(contractName, data);
      */
     async deployContract(contractId, wasmByteArray) {
         const nonce = await this.nearClient.getNonce(contractId);
@@ -136,6 +157,9 @@ class Near {
     /**
      * Get a status of a single transaction identified by the transaction hash.
      * @param {string} transactionHash unique identifier of the transaction
+     * @example
+     * // get the result of a transaction status call
+     * const result = (await this.getTransactionStatus(transactionHash)).result
      */
     async getTransactionStatus(transactionHash) {
         const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
@@ -154,6 +178,8 @@ class Near {
      * @param {string | object} transactionResponseOrHash hash of transaction or object returned from {@link submitTransaction}
      * @param {object} options object used to pass named parameters
      * @param {string} options.contractAccountId specifies contract ID for better logs and error messages
+     * @example
+     * const result = await this.waitForTransactionResult(transactionHash);
      */
     async waitForTransactionResult(transactionResponseOrHash, options = {}) {
         const transactionHash = transactionResponseOrHash.hasOwnProperty('hash') ? transactionResponseOrHash.hash : transactionResponseOrHash;
@@ -203,7 +229,13 @@ class Near {
      * @param {string[]} options.viewMethods list of view methods to load (which don't change state)
      * @param {string[]} options.changeMethods list of methods to load that change state
      * @returns {object} object with methods corresponding to given contract methods.
-     *
+     * @example
+     * // this example would be a counter app with a contract that contains the incrementCounter and decrementCounter methods
+     * window.contract = await near.loadContract(config.contractName, {
+     *   viewMethods: ["getCounter"],
+     *   changeMethods: ["incrementCounter", "decrementCounter"],
+     *   sender: nearlib.dev.myAccountId
+     * });
      */
     async loadContract(contractAccountId, options) {
         // TODO: Move this to account context to avoid options.sender

@@ -16,7 +16,7 @@ RUN apt-get update -qq && apt-get install -y \
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.32.0
+    RUST_VERSION=nightly
 
 RUN curl https://sh.rustup.rs -sSf | \
     sh -s -- -y --no-modify-path --default-toolchain $RUST_VERSION
@@ -28,11 +28,12 @@ ENV CARGO_TARGET_DIR=/tmp/target
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build -p $PACKAGE $RELEASE_FLAG
-
-# Copy binaries into normal layers
-RUN --mount=type=cache,target=/tmp/target \
-    cp /tmp/target/$PROFILE/$PACKAGE /usr/local/bin/
+    cargo build -p $PACKAGE $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/$PACKAGE /usr/local/bin/ && \
+    cargo build -p testlib --bin generate-test-spec $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/generate-test-spec /usr/local/bin/ && \
+    cargo build -p keystore $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/keystore /usr/local/bin/
 
 # ===== SECOND STAGE ======
 
@@ -49,9 +50,11 @@ RUN mkdir -p /root/.local/share/nearcore && \
 	ln -s /root/.local/share/nearcore /data
 
 COPY --from=builder /usr/local/bin/$PACKAGE /usr/local/bin
+COPY --from=builder /usr/local/bin/generate-test-spec /usr/local/bin
+COPY --from=builder /usr/local/bin/keystore /usr/local/bin
+
+COPY docker/scripts/run_alphanet /usr/local/bin/run_alphanet
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 
-# This is required for supporting multiple packages
-RUN ln -s /usr/local/bin/$PACKAGE /docker_command
-CMD ["/docker_command"]
+CMD ["/usr/local/bin/run_alphanet"]

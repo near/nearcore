@@ -12072,6 +12072,16 @@ class KeyPair {
 
     /**
      * Get the secret key.
+     * @example
+     * ```JavaScript
+     *  // Passing existing key into a function to store in local storage
+     *  async setKey(accountId, key) {
+     *      window.localStorage.setItem(
+     *          BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
+     *      window.localStorage.setItem(
+     *          BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+     *  }
+     *```
      */
     getSecretKey() {
         return this.secretKey;

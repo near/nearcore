@@ -3,10 +3,12 @@ use std::thread;
 use std::time::Duration;
 
 use primitives::transaction::TransactionBody;
-use testlib::alphanet_utils::{create_nodes, NodeType, Node, sample_queryable_node};
+use primitives::types::AccountId;
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
-use primitives::types::AccountId;
+use testlib::alphanet_utils::{
+    create_nodes, sample_queryable_node, wait_for_catchup, Node, NodeType,
+};
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -21,7 +23,8 @@ fn send_transaction(
     account_names: &Vec<AccountId>,
     nonces: &Vec<u64>,
     from: usize,
-    to: usize) {
+    to: usize,
+) {
     let k = sample_queryable_node(nodes);
     nodes[k]
         .add_transaction(
@@ -31,18 +34,19 @@ fn send_transaction(
                 account_names[to].as_str(),
                 1,
             )
-                .sign(nodes[from].signer()),
+            .sign(nodes[from].signer()),
         )
         .unwrap();
 }
 
-// TODO: remove this test after debugging test_kill_2
 fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     warmup();
-    // Start all nodes, crash node#2, proceed, restart node #2
+    // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
     let crash1 = 2;
+    let crash2 = 3;
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
     nodes[crash1].node_type = NodeType::ProcessNode;
+    nodes[crash2].node_type = NodeType::ProcessNode;
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
 
@@ -63,6 +67,9 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         if trial == num_trials * 2 / 3 {
             println!("Restarting node {}", crash1);
             nodes[crash1].start();
+            wait_for_catchup(&nodes);
+            println!("Killing node {}", crash2);
+            nodes[crash2].as_process_mut().kill();
         }
 
         let (i, j) = sample_two_nodes(num_nodes);
@@ -73,9 +80,7 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         let t = sample_queryable_node(&nodes);
         wait(
             || {
-                let amt = nodes[t]
-                    .view_balance(&account_names[j])
-                    .unwrap();
+                let amt = nodes[t].view_balance(&account_names[j]).unwrap();
                 expected_balances[j] == amt
             },
             1000,
@@ -114,9 +119,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
             send_transaction(&nodes, &account_names, &nonces, i, j);
             thread::sleep(Duration::from_secs(2));
             let t = sample_queryable_node(&nodes);
-            assert_eq!(nodes[t]
-                .view_balance(&account_names[j])
-                .unwrap(), expected_balances[j]);
+            assert_eq!(nodes[t].view_balance(&account_names[j]).unwrap(), expected_balances[j]);
 
             println!("Restarting node {}", crash1);
             nodes[crash1].start();
@@ -134,9 +137,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         let t = sample_queryable_node(&nodes);
         wait(
             || {
-                let amt = nodes[t]
-                    .view_balance(&account_names[j])
-                    .unwrap();
+                let amt = nodes[t].view_balance(&account_names[j]).unwrap();
                 expected_balances[j] == amt
             },
             1000,
@@ -145,14 +146,13 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     }
 }
 
-
 #[test]
 fn test_4_20_kill1() {
-    test_kill_1(4, 20, "4_20", 3300);
+    test_kill_1(4, 10, "4_10_kill1", 3300);
 }
 
 #[ignore]
 #[test]
 fn test_4_20_kill2() {
-    test_kill_2(4, 20, "4_20_kill2", 3300);
+    test_kill_2(4, 10, "4_10_kill2", 3300);
 }

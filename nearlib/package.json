@@ -31,7 +31,7 @@
     "test": "jest test",
     "lint": "eslint .",
     "fix": "eslint . --fix",
-    "doc": "documentation readme near.js account.js signing/key_pair.js -f md --shallow --section=API --readme-file=API.md"
+    "doc": "documentation readme near.js account.js wallet-account.js signing/key_pair.js -f md --shallow --section=API --readme-file=API.md"
   },
   "author": "Evguenia Degtiareva"
 }

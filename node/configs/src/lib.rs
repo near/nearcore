@@ -19,15 +19,12 @@ pub use crate::{
 };
 
 pub fn get_alphanet_configs() -> (ClientConfig, NetworkConfig, RPCConfig) {
-    let matches = App::new("Near Alphanet")
+    let matches = App::new("Near TestNet")
         .args(&client::get_args())
         .args(&network::get_args())
         .args(&rpc::get_args())
         .get_matches();
-
-    let client_cfg = client::from_matches(&matches);
-    let network_cfg = network::from_matches(&client_cfg, &matches);
-    (client_cfg, network_cfg, rpc::from_matches(&matches))
+    (client::from_matches(&matches), network::from_matches(&matches), rpc::from_matches(&matches))
 }
 
 pub fn get_devnet_configs() -> (ClientConfig, DevNetConfig, RPCConfig) {
