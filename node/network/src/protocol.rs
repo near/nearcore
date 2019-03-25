@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::{stream, stream::Stream};
+use futures::stream::Stream;
 use futures::future;
 use futures::Future;
 use futures::sink::Sink;
@@ -52,7 +52,7 @@ struct Protocol {
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
-    inc_block_tx: Sender<(PeerId, CoupledBlock)>,
+    inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>)>,
     payload_response_tx: Sender<PayloadResponse>,
     inc_final_signatures_tx: Sender<JointBlockBLS>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
@@ -90,7 +90,7 @@ impl Protocol {
             Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
             Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
             Message::BlockAnnounce(block) => {
-                forward_msg(self.inc_block_tx.clone(), (peer_id, *block));
+                forward_msg(self.inc_block_tx.clone(), (peer_id, vec![*block]));
             }
             Message::BlockFetchRequest(request_id, from_index, til_index) => {
                 match self.client.fetch_blocks_range(from_index, til_index) {
@@ -101,10 +101,10 @@ impl Protocol {
                     }
                 }
             }
-            Message::BlockResponse(_request_id, mut blocks) => {
-                forward_msgs(
+            Message::BlockResponse(_request_id, blocks) => {
+                forward_msg(
                     self.inc_block_tx.clone(),
-                    blocks.drain(..).map(|b| (peer_id, b)).collect(),
+                    (peer_id, blocks),
                 );
             }
             Message::PayloadRequest(request_id, transaction_hashes, receipt_hashes) => {
@@ -316,7 +316,7 @@ pub fn spawn_network(
     network_cfg: NetworkConfig,
     inc_gossip_tx: Sender<Gossip>,
     out_gossip_rx: Receiver<Gossip>,
-    inc_block_tx: Sender<(PeerId, CoupledBlock)>,
+    inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>)>,
     out_block_rx: Receiver<(Vec<PeerId>, CoupledBlock)>,
     payload_request_rx: Receiver<(BlockIndex, PayloadRequest)>,
     payload_response_tx: Sender<PayloadResponse>,
@@ -417,16 +417,5 @@ where
         .send(el)
         .map(|_| ())
         .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
-    tokio::spawn(task);
-}
-
-fn forward_msgs<T>(ch: Sender<T>, els: Vec<T>)
-where
-    T: Send + 'static,
-{
-    let task = ch
-        .send_all(stream::iter_ok(els))
-        .map(|_| ())
-        .map_err(|e| warn!(target: "network", "Error forwarding messages: {}", e));
     tokio::spawn(task);
 }
