@@ -33,6 +33,21 @@ variables:
 .build_wasm: &build_wasm
     cd tests/hello && npm install && npm run build && cd ../..
 
+.code_coverage: &code_coverage
+    wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
+    tar xzf master.tar.gz &&
+    cd kcov-master &&
+    mkdir build &&
+    cd build &&
+    cmake .. &&
+    make &&
+    make install DESTDIR=../../kcov-build &&
+    cd ../.. &&
+    rm -rf kcov-master &&
+    for file in target/debug/examplerust-*; do [ -x "${file}" ] || continue; mkdir -p "target/cov/$(basename $file)"; ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
+    bash <(curl -s https://codecov.io/bash) &&
+    echo "Uploaded code coverage"
+
 stages:
     - rust
     - libs
@@ -53,6 +68,7 @@ test_cargo:
     - cargo build --benches --all
     - cargo test --all --verbose
     after_script:
+    - *code_coverage
     - *cleanup_obsolete_cache
 
 release_build:
