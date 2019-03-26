@@ -15,6 +15,7 @@ use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
+use primitives::types::Nonce;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
