@@ -391,33 +391,33 @@ impl Trie {
         hash: Option<CryptoHash>,
         partial: NibbleSlice,
         death_row: &mut HashMap<CryptoHash, u32>,
-    ) -> Result<Option<TrieNode>, String> {
+    ) -> Result<(Option<TrieNode>, bool), String> {
         match node {
-            TrieNode::Empty => Ok(Some(node)),
+            TrieNode::Empty => Ok((Some(node), false)),
             TrieNode::Leaf(key, value) => {
                 if NibbleSlice::from_encoded(&key).0 == partial {
                     if let Some(hash) = hash {
                         *death_row.entry(hash).or_insert(0) += 1
                     }
-                    Ok(None)
+                    Ok((None, true))
                 } else {
-                    Ok(Some(TrieNode::Leaf(key, value)))
+                    Ok((Some(TrieNode::Leaf(key, value)), false))
                 }
             }
             TrieNode::Branch(mut children, value) => {
-                if let Some(hash) = hash {
-                    *death_row.entry(hash).or_insert(0) += 1;
-                }
                 if partial.is_empty() {
+                    if let Some(hash) = hash {
+                        *death_row.entry(hash).or_insert(0) += 1;
+                    }
                     if children.iter().filter(|&x| x.is_some()).count() == 0 {
-                        Ok(None)
+                        Ok((None, true))
                     } else {
-                        Ok(Some(TrieNode::Branch(children, None)))
+                        Ok((Some(TrieNode::Branch(children, None)), value.is_none()))
                     }
                 } else {
                     let idx = partial.at(0) as usize;
                     if let Some(node_or_hash) = children[idx].take() {
-                        let new_node = match node_or_hash {
+                        let (new_node, changed) = match node_or_hash {
                             NodeHandle::Hash(hash) => self.delete(
                                 self.retrieve_node(&hash)?,
                                 Some(hash),
@@ -432,32 +432,37 @@ impl Trie {
                             Some(node) => Some(NodeHandle::InMemory(Box::new(node))),
                             None => None,
                         };
+                        if let Some(hash) = hash {
+                            if changed {
+                                *death_row.entry(hash).or_insert(0) += 1;
+                            }
+                        }
                         if children.iter().filter(|x| x.is_some()).count() == 0 {
                             match value {
-                                Some(value) => Ok(Some(TrieNode::Leaf(
-                                    NibbleSlice::new(&[]).encoded(true).into_vec(),
-                                    value,
-                                ))),
-                                None => Ok(None),
+                                Some(value) => Ok((
+                                    Some(TrieNode::Leaf(
+                                        NibbleSlice::new(&[]).encoded(true).into_vec(),
+                                        value,
+                                    )),
+                                    true,
+                                )),
+                                None => Ok((None, true)),
                             }
                         } else {
-                            Ok(Some(TrieNode::Branch(children, value)))
+                            Ok((Some(TrieNode::Branch(children, value)), changed))
                         }
                     } else {
-                        Ok(Some(TrieNode::Branch(children, value)))
+                        Ok((Some(TrieNode::Branch(children, value)), false))
                     }
                 }
             }
             TrieNode::Extension(key, child) => {
-                if let Some(hash) = hash {
-                    *death_row.entry(hash).or_insert(0) += 1
-                }
                 let (common_prefix, existing_len) = {
                     let existing_key = NibbleSlice::from_encoded(&key).0;
                     (existing_key.common_prefix(&partial), existing_key.len())
                 };
                 if common_prefix == existing_len {
-                    let result = match child {
+                    let (result, changed) = match child {
                         NodeHandle::Hash(hash) => self.delete(
                             self.retrieve_node(&hash)?,
                             Some(hash),
@@ -468,15 +473,20 @@ impl Trie {
                             self.delete(*node, None, partial.mid(existing_len), death_row)?
                         }
                     };
-                    // TODO: fix tree if the child is not a branch.
-                    match result {
-                        Some(node) => {
-                            Ok(Some(TrieNode::Extension(key, NodeHandle::InMemory(Box::new(node)))))
+                    if let Some(hash) = hash {
+                        if changed {
+                            *death_row.entry(hash).or_insert(0) += 1
                         }
-                        None => Ok(None),
+                    }
+                    match result {
+                        Some(node) => Ok((
+                            Some(TrieNode::Extension(key, NodeHandle::InMemory(Box::new(node)))),
+                            changed,
+                        )),
+                        None => Ok((None, true)),
                     }
                 } else {
-                    Ok(Some(TrieNode::Extension(key, child)))
+                    Ok((Some(TrieNode::Extension(key, child)), false))
                 }
             }
         }
@@ -537,8 +547,8 @@ impl Trie {
                         .delete(root_node, last_root, key, &mut death_row)
                         .expect("Failed to remove element")
                     {
-                        Some(value) => value,
-                        None => TrieNode::Empty,
+                        (Some(value), _) => value,
+                        (None, _) => TrieNode::Empty,
                     };
                     last_root = None;
                 }
@@ -955,11 +965,16 @@ mod tests {
         let empty_root = Trie::empty_root();
         let mut initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
-            (vec![99, 44, 100, 58, 58, 50], Some(vec![1]))];
+            (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
+            (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
+        ];
         let (db_changes, root) = trie.update(&empty_root, initial.drain(..));
         trie.apply_changes(db_changes).is_ok();
 
-        let mut changes = vec![(vec![99, 44, 100, 58, 58, 45, 49], None)];
+        let mut changes = vec![
+            (vec![99, 44, 100, 58, 58, 45, 49], None),
+            (vec![99, 44, 100, 58, 58, 50, 52], None),
+        ];
         let (db_changes, root) = trie.update(&root, changes.drain(..));
         trie.apply_changes(db_changes).is_ok();
         for r in trie.iter(&root).unwrap() {

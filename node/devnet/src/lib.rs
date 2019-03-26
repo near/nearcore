@@ -133,7 +133,7 @@ mod tests {
         let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
         client_cfg.log_level = log::LevelFilter::Info;
-        let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
+        let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5), replay_storage: String::default() };
         let rpc_cfg = configs::RPCConfig::default();
 
         let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
