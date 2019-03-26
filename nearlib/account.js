@@ -32,13 +32,15 @@ class Account {
         const createAccount = CreateAccountTransaction.create({
             originator,
             newAccountId,
-            amount,
             publicKey,
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
         if (nonce !== 0) {
             createAccount.nonce = nonce;
+        }
+        if (amount !== 0) {
+            createAccount.amount = amount;
         }
 
         const buffer = CreateAccountTransaction.encode(createAccount).finish();
