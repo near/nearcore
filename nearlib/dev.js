@@ -24,7 +24,7 @@ module.exports = {
      */
     connect: async function(options = {}) {
         // construct full options objects based on params, and fill in with defaults.
-        const fullRuntimeOptions = Object.assign({}, options);
+        const fullRuntimeOptions = Object.assign({deps: {}}, options);
         if (fullRuntimeOptions.useDevAccount) {
             fullRuntimeOptions.accountId = devAccountName;
             fullRuntimeOptions.key = devKey;
@@ -70,7 +70,7 @@ module.exports = {
         return tempUserAccountId;
     },
     get myAccountId() {
-        return this.deps.storage.localStorage.getItem(storageAccountIdKey);
+        return this.deps.storage.getItem(storageAccountIdKey);
     },
     /**
      * Function to create an account on local node. This will not work on non-dev environments.
