@@ -1,13 +1,13 @@
+use protobuf::well_known_types::BytesValue;
+use protobuf::SingularPtrField;
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::convert::{TryFrom, TryInto};
-use protobuf::SingularPtrField;
-use protobuf::well_known_types::BytesValue;
 
+use near_protos::receipt as receipt_proto;
 use near_protos::signed_transaction as transaction_proto;
 use near_protos::Message as ProtoMessage;
-use near_protos::receipt as receipt_proto;
 
 use crate::logging;
 
@@ -15,7 +15,8 @@ use super::hash::{hash, CryptoHash};
 use super::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use super::signer::TransactionSigner;
 use super::types::{
-    AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, ShardId, StructSignature,
+    AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
+    StructSignature,
 };
 use super::utils::{account_to_shard_id, proto_to_result};
 
@@ -34,7 +35,7 @@ pub enum TransactionBody {
 }
 
 impl TransactionBody {
-    pub fn send_money(nonce: u64, originator: &str, receiver: &str, amount: u64) -> Self {
+    pub fn send_money(nonce: Nonce, originator: &str, receiver: &str, amount: u64) -> Self {
         TransactionBody::SendMoney(SendMoneyTransaction {
             nonce,
             originator: originator.to_string(),
@@ -51,7 +52,7 @@ impl TransactionBody {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct CreateAccountTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     pub new_account_id: AccountId,
     pub amount: u64,
@@ -98,7 +99,7 @@ impl fmt::Debug for CreateAccountTransaction {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub contract_id: AccountId,
     pub wasm_byte_array: Vec<u8>,
 }
@@ -140,7 +141,7 @@ impl From<DeployContractTransaction> for transaction_proto::DeployContractTransa
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     pub contract_id: AccountId,
     pub method_name: Vec<u8>,
@@ -191,7 +192,7 @@ impl fmt::Debug for FunctionCallTransaction {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SendMoneyTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     pub receiver: AccountId,
     pub amount: Balance,
@@ -223,7 +224,7 @@ impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct StakeTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     pub amount: Balance,
     pub public_key: String,
@@ -258,7 +259,7 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SwapKeyTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     // one of the current keys to the account that will be swapped out
     pub cur_key: Vec<u8>,
@@ -302,7 +303,7 @@ impl fmt::Debug for SwapKeyTransaction {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct AddKeyTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     pub new_key: Vec<u8>,
 }
@@ -337,7 +338,7 @@ impl fmt::Debug for AddKeyTransaction {
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeleteKeyTransaction {
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub originator: AccountId,
     pub cur_key: Vec<u8>,
 }
@@ -611,17 +612,15 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
         match proto_to_result(proto.accounting_info) {
-            Ok(accounting_info) => {
-                Ok(AsyncCall {
-                    amount: proto.amount,
-                    mana: proto.mana,
-                    method_name: proto.method_name,
-                    args: proto.args,
-                    callback: proto.callback.into_option().map(std::convert::Into::into),
-                    accounting_info: accounting_info.into(),
-                })
-            }
-            Err(e) => Err(e)
+            Ok(accounting_info) => Ok(AsyncCall {
+                amount: proto.amount,
+                mana: proto.mana,
+                method_name: proto.method_name,
+                args: proto.args,
+                callback: proto.callback.into_option().map(std::convert::Into::into),
+                accounting_info: accounting_info.into(),
+            }),
+            Err(e) => Err(e),
         }
     }
 }
@@ -771,13 +770,11 @@ impl TryFrom<receipt_proto::CallbackResult> for CallbackResult {
 
     fn try_from(proto: receipt_proto::CallbackResult) -> Result<Self, Self::Error> {
         match proto_to_result(proto.info) {
-            Ok(info) => {
-                Ok(CallbackResult {
-                    info: info.into(),
-                    result: proto.result.into_option().map(|v| v.value),
-                })
-            }
-            Err(e) => Err(e)
+            Ok(info) => Ok(CallbackResult {
+                info: info.into(),
+                result: proto.result.into_option().map(|v| v.value),
+            }),
+            Err(e) => Err(e),
         }
     }
 }
@@ -839,18 +836,16 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
                 accounting.try_into().map(ReceiptBody::ManaAccounting)
             }
-            None => unreachable!()
+            None => unreachable!(),
         };
         match body {
-            Ok(body) => {
-                Ok(ReceiptTransaction {
-                    originator: proto.originator,
-                    receiver: proto.receiver,
-                    nonce: proto.nonce.into(),
-                    body    
-                })
-            }
-            Err(e) => Err(e)
+            Ok(body) => Ok(ReceiptTransaction {
+                originator: proto.originator,
+                receiver: proto.receiver,
+                nonce: proto.nonce.into(),
+                body,
+            }),
+            Err(e) => Err(e),
         }
     }
 }

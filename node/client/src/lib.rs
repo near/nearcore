@@ -22,7 +22,9 @@ use configs::ClientConfig;
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{ChainPayload, SignedShardBlock};
+use primitives::chain::{
+    ChainPayload, SignedShardBlock, MissingPayloadRequest, MissingPayloadResponse
+};
 use primitives::hash::{CryptoHash, hash_struct};
 use primitives::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
@@ -495,10 +497,9 @@ impl Client {
     /// Fetch transaction / receipts by hash from mempool.
     pub fn fetch_payload(
         &self,
-        _transaction_hashes: Vec<CryptoHash>,
-        _receipt_hashes: Vec<CryptoHash>,
-    ) -> Result<ChainPayload, String> {
-        Ok(ChainPayload::new(vec![], vec![]))
+        missing_payload_request: MissingPayloadRequest
+    ) -> MissingPayloadResponse {
+        self.shard_client.pool.fetch_payload(missing_payload_request)
     }
 }
 

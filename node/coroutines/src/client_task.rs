@@ -571,7 +571,6 @@ impl ClientTask {
                     .map(|_| ())
                     .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
             );
-            pool.add_pending(authority_id, hash);
         } else {
             let send_confirmation = self
                 .control_tx
@@ -588,25 +587,46 @@ impl ClientTask {
     /// Process incoming payload response.
     fn process_payload_response(&self, payload_response: PayloadResponse) {
         let pool = &self.client.shard_client.pool;
-        if let Err(e) = match payload_response {
-            PayloadResponse::General(payload) => pool.add_payload(payload),
-            PayloadResponse::BlockProposal(authority_id, payload) => {
-                pool.add_payload_snapshot(authority_id, payload)
+        match payload_response {
+            PayloadResponse::General(authority_id, response) => {
+                match pool.add_missing_payload(authority_id, response) {
+                    Ok(snapshot_hash) => {
+                        let send_confirmation = self
+                            .control_tx
+                            .clone()
+                            .send(Control::PayloadConfirmation(authority_id, snapshot_hash))
+                            .map(|_| ())
+                            .map_err(
+                                |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
+                            );
+                        tokio::spawn(send_confirmation);
+                    }
+                    Err(e) => warn!(target: "mempool", "Fail to add missing payload: {}", e)
+                }
+            } 
+            PayloadResponse::BlockProposal(authority_id, snapshot) => {
+                let hash = snapshot.get_hash();
+                if let Some(request) = pool.add_payload_snapshot(authority_id, snapshot) {
+                    let block_index = self.client.beacon_client.chain.best_index();
+                    tokio::spawn(
+                        self.payload_request_tx
+                            .clone()
+                            .send((block_index, PayloadRequest::General(authority_id, request)))
+                            .map(|_| ())
+                            .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
+                    );
+                } else {
+                    let send_confirmation = self
+                        .control_tx
+                        .clone()
+                        .send(Control::PayloadConfirmation(authority_id, hash))
+                        .map(|_| ())
+                        .map_err(
+                            |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
+                        );
+                    tokio::spawn(send_confirmation);
+                }
             }
-        } {
-            warn!(target: "mempool", "Failed to add incoming payload: {}", e);
-        }
-
-        for (authority_id, hash) in pool.ready_snapshots() {
-            let send_confirmation = self
-                .control_tx
-                .clone()
-                .send(Control::PayloadConfirmation(authority_id, hash))
-                .map(|_| ())
-                .map_err(
-                    |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
-                );
-            tokio::spawn(send_confirmation);
         }
     }
 

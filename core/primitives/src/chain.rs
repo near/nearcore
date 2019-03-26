@@ -14,6 +14,7 @@ use super::types::{AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialS
 use super::utils::{proto_to_result, proto_to_type};
 use near_protos::chain as chain_proto;
 use near_protos::types as types_proto;
+use near_protos::network as network_proto;
 use protobuf::{SingularPtrField, RepeatedField};
 
 const PROTO_ERROR: &str = "Bad Proto";
@@ -209,7 +210,7 @@ pub struct ReceiptBlock {
     // sufficient to uniquely identify the 
     // receipt block because of the uniqueness
     // of nonce in receipts
-    pub hash: CryptoHash,
+    hash: CryptoHash,
 }
 
 impl TryFrom<chain_proto::ReceiptBlock> for ReceiptBlock {
@@ -277,6 +278,12 @@ impl Hash for ReceiptBlock {
     }
 }
 
+impl Borrow<CryptoHash> for ReceiptBlock {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
 impl ReceiptBlock {
     pub fn new(
         header: SignedShardBlockHeader,
@@ -287,6 +294,10 @@ impl ReceiptBlock {
         ReceiptBlock {
             header, path, receipts, hash
         }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
     }
 }
 
@@ -482,16 +493,6 @@ impl Payload for ChainPayload {
     }
 }
 
-pub enum PayloadRequest {
-    General(Vec<CryptoHash>, Vec<CryptoHash>),
-    BlockProposal(AuthorityId, CryptoHash),
-}
-
-pub enum PayloadResponse {
-    General(ChainPayload),
-    BlockProposal(AuthorityId, ChainPayload),
-}
-
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct ChainState {
     pub genesis_hash: CryptoHash,
@@ -515,5 +516,192 @@ impl From<ChainState> for chain_proto::ChainState {
             unknown_fields: Default::default(),
             cached_size: Default::default(),
         }
+    }
+}
+
+/// request missing parts of the payload snapshot which has hash snapshot_hash
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct MissingPayloadRequest {
+    pub transactions: Vec<CryptoHash>,
+    pub receipts: Vec<CryptoHash>,
+    pub snapshot_hash: CryptoHash
+}
+
+impl From<network_proto::MissingPayloadRequest> for MissingPayloadRequest {
+    fn from(proto: network_proto::MissingPayloadRequest) -> Self {
+        let transactions: Vec<_> = proto.transactions
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+        let receipts: Vec<_> = proto.receipts
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+        MissingPayloadRequest { 
+            transactions, 
+            receipts,
+            snapshot_hash: proto.snapshot_hash.into(),
+        }
+    }
+}
+
+impl From<MissingPayloadRequest> for network_proto::MissingPayloadRequest {
+    fn from(response: MissingPayloadRequest) -> Self {
+        let transactions = RepeatedField::from_iter(
+            response.transactions.into_iter().map(std::convert::Into::into)
+        );
+        let receipts = RepeatedField::from_iter(
+            response.receipts.into_iter().map(std::convert::Into::into)
+        );
+        network_proto::MissingPayloadRequest {
+            transactions, receipts,
+            snapshot_hash: response.snapshot_hash.into(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
+/// response to missing parts of the payload snapshot which has hash snapshot_hash
+/// it is basically a ChainPayload except that snapshot_hash is not the hash of the payload
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct MissingPayloadResponse {
+    pub transactions: Vec<SignedTransaction>,
+    pub receipts: Vec<ReceiptBlock>,
+    pub snapshot_hash: CryptoHash,
+}
+
+impl TryFrom<network_proto::MissingPayloadResponse> for MissingPayloadResponse {
+    type Error = String;
+
+    fn try_from(proto: network_proto::MissingPayloadResponse) -> Result<Self, Self::Error> {
+        let transactions: Vec<_> = proto.transactions
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+        let receipts: Result<Vec<_>, _> = proto.receipts
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect();
+        Ok(MissingPayloadResponse { 
+            transactions, 
+            receipts: receipts?,
+            snapshot_hash: proto.snapshot_hash.into() 
+        })
+    }
+}
+
+impl From<MissingPayloadResponse> for network_proto::MissingPayloadResponse {
+    fn from(response: MissingPayloadResponse) -> Self {
+        let transactions = RepeatedField::from_iter(
+            response.transactions.into_iter().map(std::convert::Into::into)
+        );
+        let receipts = RepeatedField::from_iter(
+            response.receipts.into_iter().map(std::convert::Into::into)
+        );
+        network_proto::MissingPayloadResponse {
+            transactions, receipts,
+            snapshot_hash: response.snapshot_hash.into(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
+impl MissingPayloadResponse {
+    pub fn is_empty(&self) -> bool {
+        self.transactions.is_empty() && self.receipts.is_empty()
+    }
+}
+
+pub enum PayloadRequest {
+    General(AuthorityId, MissingPayloadRequest),
+    BlockProposal(AuthorityId, CryptoHash),
+}
+
+pub enum PayloadResponse {
+    General(AuthorityId, MissingPayloadResponse),
+    BlockProposal(AuthorityId, Snapshot),
+}
+
+/// snapshot of payload. Stores only necessary information for retrieving
+/// the actual payload.
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub transactions: Vec<CryptoHash>,
+    pub receipts: Vec<CryptoHash>,
+    hash: CryptoHash,
+}
+
+impl From<network_proto::Snapshot> for Snapshot {
+    fn from(proto: network_proto::Snapshot) -> Self {
+        let transactions = proto.transactions
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+        let receipts = proto.receipts
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+        Snapshot { transactions, receipts, hash: proto.hash.into() }
+    }
+}
+
+impl From<Snapshot> for network_proto::Snapshot {
+    fn from(snapshot: Snapshot) -> Self {
+        let transactions = RepeatedField::from_iter(
+            snapshot.transactions.into_iter().map(std::convert::Into::into)
+        );
+        let receipts = RepeatedField::from_iter(
+            snapshot.receipts.into_iter().map(std::convert::Into::into)
+        );
+        network_proto::Snapshot { 
+            transactions,
+            receipts,
+            hash: snapshot.hash.into(),
+            unknown_fields: Default::default(),
+            cached_size: Default::default(),
+        }
+    }
+}
+
+impl PartialEq for Snapshot {
+    fn eq(&self, other: &Snapshot) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Eq for Snapshot {}
+
+impl Hash for Snapshot {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state)
+    }
+}
+
+impl Borrow<CryptoHash> for Snapshot {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
+impl Snapshot {
+    pub fn new(transactions: Vec<CryptoHash>, receipts: Vec<CryptoHash>) -> Self {
+        let hash = hash_struct(&(&transactions, &receipts));
+        Snapshot { transactions, receipts, hash }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.transactions.is_empty() && self.receipts.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.transactions.clear();
+        self.receipts.clear();
+        self.hash = CryptoHash::default();
     }
 }

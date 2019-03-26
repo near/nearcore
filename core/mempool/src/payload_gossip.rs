@@ -1,13 +1,13 @@
-use std::sync::Arc;
 use std::convert::TryFrom;
+use std::sync::Arc;
 
-use primitives::types::{AuthorityId, BlockIndex};
-use primitives::chain::ChainPayload;
-use primitives::signature::Signature;
-use primitives::hash::hash_struct;
-use primitives::signer::BlockSigner;
-use primitives::utils::proto_to_type;
 use near_protos::nightshade as nightshade_proto;
+use primitives::chain::ChainPayload;
+use primitives::hash::hash_struct;
+use primitives::signature::Signature;
+use primitives::signer::BlockSigner;
+use primitives::types::{AuthorityId, BlockIndex};
+use primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -24,16 +24,14 @@ impl TryFrom<nightshade_proto::PayloadGossip> for PayloadGossip {
 
     fn try_from(proto: nightshade_proto::PayloadGossip) -> Result<Self, Self::Error> {
         match proto_to_type(proto.payload) {
-            Ok(payload) => {
-                Ok(PayloadGossip {
-                    sender_id: proto.sender_id as AuthorityId,
-                    receiver_id: proto.receiver_id as AuthorityId,
-                    payload,
-                    block_index: proto.block_index,
-                    signature: Signature::from(&proto.signature)
-                })
-            }
-            Err(e) => Err(e)
+            Ok(payload) => Ok(PayloadGossip {
+                sender_id: proto.sender_id as AuthorityId,
+                receiver_id: proto.receiver_id as AuthorityId,
+                payload,
+                block_index: proto.block_index,
+                signature: Signature::from(&proto.signature),
+            }),
+            Err(e) => Err(e),
         }
     }
 }
@@ -52,9 +50,14 @@ impl From<PayloadGossip> for nightshade_proto::PayloadGossip {
     }
 }
 
-
 impl PayloadGossip {
-    pub fn new(block_index: BlockIndex, sender_id: AuthorityId, receiver_id: AuthorityId, payload: ChainPayload, signer: Arc<BlockSigner>) -> Self {
+    pub fn new(
+        block_index: BlockIndex,
+        sender_id: AuthorityId,
+        receiver_id: AuthorityId,
+        payload: ChainPayload,
+        signer: Arc<BlockSigner>,
+    ) -> Self {
         let hash = hash_struct(&(receiver_id, &payload));
         PayloadGossip {
             block_index,

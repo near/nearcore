@@ -499,7 +499,6 @@ mod tests {
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 2);
         client.pool.add_transaction(tx).unwrap();
-        println!("{}", client.pool.len());
         assert!(client.pool.is_empty());
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 6);
         client.pool.add_transaction(tx).unwrap();

@@ -15,6 +15,7 @@ use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
+use primitives::types::Nonce;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
@@ -101,7 +102,7 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
 /// Returns transactions and the new nonce.
 fn deploy_test_contract(
     deployer_signer: Arc<InMemorySigner>,
-    mut next_nonce: u64,
+    mut next_nonce: Nonce,
 ) -> (SignedTransaction, SignedTransaction, u64) {
     // Create account for the contract.
     let contract_signer = Arc::new(InMemorySigner::from_seed(CONTRACT_ID, CONTRACT_ID));
@@ -131,7 +132,7 @@ fn deploy_test_contract(
 /// Create transaction that calls the contract.
 fn call_contract(
     deployer_signer: Arc<InMemorySigner>,
-    mut next_nonce: u64,
+    mut next_nonce: Nonce,
     method_name: &str,
     args: &str,
 ) -> (SignedTransaction, u64) {
