@@ -1,4 +1,7 @@
 #!/bin/bash
 set -ex
 
-cd tests/hello && npm install && npm run build && cd ../..
+cd tests/hello
+rm -rf node_modules
+npm install
+npm run build
