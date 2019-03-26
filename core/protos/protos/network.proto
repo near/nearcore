@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-import "protos/chain.proto";
-import "protos/signed_transaction.proto";
-import "protos/receipt.proto";
-import "protos/nightshade.proto";
-import "google/protobuf/wrappers.proto";
+import "chain.proto";
+import "signed_transaction.proto";
+import "receipt.proto";
+import "nightshade.proto";
+import "wrappers.proto";
 
 message PeerInfo {
     bytes id = 1;

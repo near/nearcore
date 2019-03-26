@@ -393,7 +393,7 @@ impl NightshadeTask {
             // TODO: This message is discarded if we haven't received the proposal yet.
             let gossip = Gossip::new(
                 self.owner_id(),
-                author,
+                message.sender_id,
                 GossipBody::PayloadRequest(vec![author]),
                 self.signer.clone(),
                 self.block_index.unwrap(),

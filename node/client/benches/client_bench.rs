@@ -50,7 +50,6 @@ fn get_chain_spec() -> (ChainSpec, Arc<InMemorySigner>, Arc<InMemorySigner>) {
         )],
         genesis_wasm,
         authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 1, num_seats_per_slot: 1 },
-        boot_nodes: vec![],
     };
     (spec, Arc::new(alice_signer), Arc::new(bob_signer))
 }

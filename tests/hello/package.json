@@ -2,14 +2,13 @@
     "name": "hello-wasm",
     "version": "0.0.1",
     "dependencies": {
-        "assemblyscript": "github:nearprotocol/assemblyscript.git#wasm-new-read-api",
         "assemblyscript-json": "github:nearprotocol/assemblyscript-json",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#wasm-new-read-api"
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
     },
     "scripts": {
         "build": "near build --out_file hello.wasm && cp ./out/hello.wasm .."
     },
     "devDependencies": {
-        "near-shell": "github:nearprotocol/near-shell.git#wasm-new-read-api"
+        "near-shell": "github:nearprotocol/near-shell.git#remove-result"
     }
 }

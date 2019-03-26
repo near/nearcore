@@ -13,9 +13,6 @@ path = "node/src/main.rs"
 [dependencies]
 alphanet = { path = "./node/alphanet" }
 
-[build-dependencies]
-protos-autogen = { path = "./protos/builder" }
-
 [workspace]
 members = [
     "core/chain",

@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use clap::{Arg, ArgMatches};
 
-use crate::ClientConfig;
 use primitives::network::PeerAddr;
 use primitives::{hash::hash, types::PeerId};
 
@@ -88,7 +87,7 @@ pub fn get_peer_id_from_seed(seed: u32) -> PeerId {
     hash(&array)
 }
 
-pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
+pub fn from_matches(matches: &ArgMatches) -> NetworkConfig {
     let listen_addr =
         matches.value_of("addr").map(|value| value.parse::<SocketAddr>().expect("Cannot parse address"));
     let test_network_key_seed =
@@ -96,7 +95,7 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
 
     let parsed_boot_nodes =
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
-    let mut boot_nodes: Vec<_> = parsed_boot_nodes
+    let boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
             PeerAddr::parse(&addr_id).expect("Cannot parse address")
         })
@@ -110,12 +109,6 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
     let gossip_sample_size =
         matches.value_of("gossip_sample_size").map(|x| x.parse::<usize>().unwrap()).unwrap();
 
-    if boot_nodes.is_empty() {
-        boot_nodes = client_config.chain_spec.boot_nodes.to_vec();
-    } else if !client_config.chain_spec.boot_nodes.is_empty() {
-        // TODO(#222): Maybe return an error here instead of panicking.
-        panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
-    }
     let peer_id = get_peer_id_from_seed(test_network_key_seed);
     if listen_addr.is_some() {
         println!("To boot from this node: {}/{}", listen_addr.unwrap(), String::from(&peer_id));

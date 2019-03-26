@@ -26,6 +26,14 @@ class KeyPair {
 
     /**
      * Get the secret key.
+     * @example
+     *  // Passing existing key into a function to store in local storage
+     *  async setKey(accountId, key) {
+     *      window.localStorage.setItem(
+     *          BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
+     *      window.localStorage.setItem(
+     *          BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+     *  }
      */
     getSecretKey() {
         return this.secretKey;
@@ -33,6 +41,13 @@ class KeyPair {
 
     /**
      * Generate a new keypair from a random seed
+     * @example
+     * const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+     * keyWithRandomSeed.getPublicKey()
+     * // returns [PUBLIC_KEY]
+     * 
+     * keyWithRandomSeed.getSecretKey()
+     * // returns [SECRET_KEY]
      */
     static async fromRandomSeed() {
         var newKeypair = nacl.sign.keyPair();
@@ -45,6 +60,8 @@ class KeyPair {
     /**
      * Encode a buffer as string using bs58
      * @param {Buffer} buffer 
+     * @example
+     * KeyPair.encodeBufferInBs58(key.publicKey)
      */
     static encodeBufferInBs58(buffer) {
         const bytes = Buffer.from(buffer);

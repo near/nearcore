@@ -30,7 +30,7 @@ use shard::ShardBlockExtraInfo;
 pub struct ClientTask {
     client: Arc<Client>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
-    incoming_block_rx: Receiver<(PeerId, (SignedBeaconBlock, SignedShardBlock))>,
+    incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>)>,
     /// Outgoing blocks produced by this peer that can be imported by other peers.
     out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
     /// Consensus created by the current instance of Nightshade or pass-through consensus.
@@ -133,8 +133,8 @@ impl Stream for ClientTask {
             }
 
             match self.incoming_block_rx.poll() {
-                Ok(Async::Ready(Some((peer_id, (beacon_block, shard_block))))) => {
-                    if let ind @ Some(_) = self.try_import_block(peer_id, beacon_block, shard_block) {
+                Ok(Async::Ready(Some((peer_id, blocks)))) => {
+                    if let ind @ Some(_) = self.try_import_blocks(peer_id, blocks) {
                         new_block_index = ind;
                     }
                     continue;
@@ -295,7 +295,7 @@ impl Stream for ClientTask {
 impl ClientTask {
     pub fn new(
         client: Arc<Client>,
-        incoming_block_rx: Receiver<(PeerId, (SignedBeaconBlock, SignedShardBlock))>,
+        incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>)>,
         out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
         consensus_rx: Receiver<ConsensusBlockProposal>,
         control_tx: Sender<Control>,
@@ -365,6 +365,9 @@ impl ClientTask {
         let (owner_uid, mapping) =
             self.client.get_uid_to_authority_map(beacon_block.index());
         if let Some(owner) = owner_uid {
+            // TODO fail somewhere much earlier if our keys don't match chain spec
+            assert_eq!(mapping.get(&owner).as_ref().unwrap().public_key, self.client.signer.public_key);
+            assert_eq!(mapping.get(&owner).as_ref().unwrap().bls_public_key, self.client.signer.bls_public_key);
             let beacon_sig = beacon_block.sign(self.client.signer.clone());
             beacon_block.add_signature(&beacon_sig, owner);
             let shard_sig = shard_block.sign(self.client.signer.clone());
@@ -429,15 +432,19 @@ impl ClientTask {
 
     /// Tries importing block. If succeeds returns index of the block with the highest index.
     /// If some blocks are missing, requests network to fetch them.
-    fn try_import_block(
+    fn try_import_blocks(
         &mut self,
         peer_id: PeerId,
-        beacon_block: SignedBeaconBlock,
-        shard_block: SignedShardBlock,
+        blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>
     ) -> Option<BlockIndex> {
-        self.assumed_peer_last_index.insert(peer_id, beacon_block.index());
+        if blocks.is_empty() {
+            return None;
+        }
+        let latest_index = blocks.iter().map(|(b, _)| b.index()).max().unwrap();
+        self.assumed_peer_last_index.insert(peer_id, latest_index);
         // TODO: clonning here sucks, is there a better way?
-        match self.client.try_import_blocks(beacon_block.clone(), shard_block.clone()) {
+        let (last_beacon_block, last_shard_block) = blocks.last().unwrap().clone();
+        match self.client.try_import_blocks(blocks) {
             BlockImportingResult::Success { new_index } => {
                 info!(target: "client",
                     "Successfully imported block(s) up to {}, account_id={:?}",
@@ -457,7 +464,7 @@ impl ClientTask {
                 for h in shards_to_remove {
                     self.unfinalized_shard_blocks.remove(&h);
                 }
-                self.announce_block(beacon_block, shard_block);
+                self.announce_block(last_beacon_block, last_shard_block);
                 Some(new_index)
             },
             BlockImportingResult::MissingParent { missing_indices, .. } => {
@@ -525,6 +532,7 @@ impl ClientTask {
         }
         beacon_block.signature.add_signature(&beacon_sig, authority_id);
         shard_block.signature.add_signature(&shard_sig, authority_id);
+
         self.try_import_produced(beacon_hash, shard_hash)
     }
 
