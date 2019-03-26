@@ -230,7 +230,7 @@ mod tests {
         bob.start();
         charlie.start();
 
-        wait(|| charlie.client.shard_client.chain.best_index() >= 3, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
         assert_eq!(
@@ -281,7 +281,7 @@ mod tests {
         bob.start();
 
         wait(|| {
-            alice.client.shard_client.chain.best_index() >= 3
+            alice.client.shard_client.chain.best_index() >= 4
         }, 500, 60000);
 
         // Check that non-authority synced into the same state.
