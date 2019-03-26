@@ -19,10 +19,10 @@ pub struct BeaconChainStorage {
     proposals: LruCache<Vec<u8>, Vec<AuthorityStake>>,
     /// Participation of authorities per slot in which they have happened.
     participation: LruCache<Vec<u8>, AuthorityMask>,
-    /// Records the blocks that it processed for the given blocks.
+    /// Records the blocks that it processed for the given epochs.
     processed_blocks: LruCache<Vec<u8>, HashSet<Slot>>,
 
-    // The following is a derived information which we do not want to recompute.
+    // The following is derived information which we do not want to recompute.
     /// Computed thresholds for each epoch.
     thresholds: LruCache<Vec<u8>, u64>,
     /// Authorities that were accepted for the given slots.

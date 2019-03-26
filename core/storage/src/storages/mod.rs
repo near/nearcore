@@ -80,9 +80,13 @@ pub struct BlockChainStorage<H, B> {
     chain_id: ChainId,
     storage: Arc<KeyValueDB>,
     genesis_hash: Option<CryptoHash>,
+    // keyed by hash
     best_block_hash: LruCache<Vec<u8>, CryptoHash>,
+    // keyed by hash
     headers: LruCache<Vec<u8>, H>,
+    // keyed by hash
     blocks: LruCache<Vec<u8>, B>,
+    // keyed by index
     block_indices: LruCache<Vec<u8>, CryptoHash>,
 }
 

@@ -17,8 +17,11 @@ use std::sync::Arc;
 /// Shard chain
 pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
+    // keyed by transaction hash
     transaction_results: LruCache<Vec<u8>, TransactionResult>,
+    // keyed by transaction hash
     transaction_addresses: LruCache<Vec<u8>, TransactionAddress>,
+    // keyed by block index
     receipts: LruCache<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
     // Records the largest transaction nonce per account
     tx_nonce: LruCache<Vec<u8>, u64>,
