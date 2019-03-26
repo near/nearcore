@@ -29,7 +29,8 @@ pub struct Pool {
     // transactions need to be grouped by account, and within each account,
     // ordered by nonce so that runtime will not ignore some of the transactions
     transactions: RwLock<HashMap<AccountId, BTreeMap<u64, SignedTransaction>>>,
-    // store the map that allows us to lookup transaction by hash
+    // store the map (transaction hash -> (account_id, nonce))
+    // that allows us to lookup transaction by hash
     transaction_info: RwLock<HashMap<CryptoHash, (AccountId, u64)>>,
     receipts: RwLock<HashSet<ReceiptBlock>>,
     storage: Arc<RwLock<ShardChainStorage>>,
@@ -151,8 +152,9 @@ impl Pool {
         Ok(())
     }
 
-    /// add requested transactions and receipts from peer. Move snapshot from pending_snapshots
-    /// to snapshots
+    /// Add requested transactions and receipts from the peer who sends the missing payload response.
+    /// Update `known_to` to include the include the authority id of the peer.
+    /// Move snapshot from `pending_snapshots` to `snapshots`.
     pub fn add_missing_payload(
         &self,
         author: AuthorityId,
@@ -425,8 +427,9 @@ impl Pool {
         MissingPayloadResponse { transactions, receipts, snapshot_hash: request.snapshot_hash }
     }
 
-    /// add snapshot sent by peer to pending_snapshots and request the missing
-    /// transactions/receipts from peer
+    /// Add snapshot sent by peer to `pending_snapshots` if there are missing transactions or receipts.
+    /// In this case, also request the missing transactions/receipts from the peer who sends the
+    /// snapshot. Otherwise add the snapshot to `snapshots`.
     pub fn add_payload_snapshot(
         &self,
         authority_id: AuthorityId,
