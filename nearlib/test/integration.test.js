@@ -41,6 +41,27 @@ describe('dev connect', () => {
         };
     });
 
+    test('test dev connect like template', async () => {
+        window.localStorage = createFakeStorage();
+        // Mocking some
+        let tmpCreate = dev.createAccountWithContractHelper;
+        let devConfig = dev.getConfig;
+        dev.getConfig = async () => "THE_CONFIG";
+        dev.createAccountWithContractHelper = async (nearConfig, newAccountId, publicKey) => {
+            expect(nearConfig).toEqual("THE_CONFIG");
+            return await dev.createAccountWithLocalNodeConnection(newAccountId, publicKey);
+        };
+        // Calling
+        let near = await dev.connect();
+        // Restoring mocked functions
+        dev.getConfig = devConfig;
+        dev.createAccountWithContractHelper = tmpCreate;
+        let accId = dev.myAccountId;
+        let accjs = new Account(near.nearClient);
+        const viewAccountResponse = await accjs.viewAccount(accId);
+        expect(viewAccountResponse.account_id).toEqual(accId);
+    });
+
     test('test dev connect with no account creates a new account', async () => {
         await dev.connect(options);
         expect(Object.keys(deps.keyStore.keys).length).toEqual(2); // one key for dev account and one key for the new account.
