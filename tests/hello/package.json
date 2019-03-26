@@ -9,6 +9,6 @@
         "build": "near build --out_file hello.wasm && cp ./out/hello.wasm .."
     },
     "devDependencies": {
-        "near-shell": "github:nearprotocol/near-shell.git#remove-result"
+        "near-shell": "0.0.13"
     }
 }
