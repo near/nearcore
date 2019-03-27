@@ -162,8 +162,8 @@ mod tests {
         // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.client.shard_client.chain.best_index() >= 2
-                    && bob.client.shard_client.chain.best_index() >= 2
+                alice.client.shard_client.chain.best_index() >= 3
+                    && bob.client.shard_client.chain.best_index() >= 3
             },
             500,
             600000,

@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::Async;
 use futures::future::Future;
-use futures::Poll;
 use futures::sink::Sink;
-use futures::Stream;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+use futures::Async;
+use futures::Poll;
+use futures::Stream;
 use tokio::timer::Interval;
 
 use client::BlockImportingResult;
@@ -121,10 +121,10 @@ impl Stream for ClientTask {
             match self.inc_chain_state_rx.poll() {
                 Ok(Async::Ready(Some((peer_id, chain_state)))) => {
                     self.process_peer_state(peer_id, chain_state);
-                },
+                }
                 Ok(Async::Ready(None)) => {
                     peer_sync_ended = true;
-                },
+                }
                 Ok(Async::NotReady) => (),
                 Err(()) => {
                     warn!(target: "client", "Error reading from peer sync");
@@ -341,7 +341,7 @@ impl ClientTask {
         &mut self,
         consensus_block_header: ConsensusBlockProposal,
     ) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
-        info!(target: "client", "Producing block for account_id={:?}, index {}", self.client.account_id, consensus_block_header.index);
+        info!(target: "client", "Producing block for account_id={:?}, proposal={:?}, index {}", self.client.account_id, consensus_block_header.proposal.hash, consensus_block_header.index);
         let payload = match self
             .client
             .shard_client
@@ -360,14 +360,18 @@ impl ClientTask {
                 );
             }
         };
-        let (mut beacon_block, mut shard_block, shard_extra) =
-            self.client.prepare_block(payload);
-        let (owner_uid, mapping) =
-            self.client.get_uid_to_authority_map(beacon_block.index());
+        let (mut beacon_block, mut shard_block, shard_extra) = self.client.prepare_block(payload);
+        let (owner_uid, mapping) = self.client.get_uid_to_authority_map(beacon_block.index());
         if let Some(owner) = owner_uid {
             // TODO fail somewhere much earlier if our keys don't match chain spec
-            assert_eq!(mapping.get(&owner).as_ref().unwrap().public_key, self.client.signer.public_key);
-            assert_eq!(mapping.get(&owner).as_ref().unwrap().bls_public_key, self.client.signer.bls_public_key);
+            assert_eq!(
+                mapping.get(&owner).as_ref().unwrap().public_key,
+                self.client.signer.public_key
+            );
+            assert_eq!(
+                mapping.get(&owner).as_ref().unwrap().bls_public_key,
+                self.client.signer.bls_public_key
+            );
             let beacon_sig = beacon_block.sign(self.client.signer.clone());
             beacon_block.add_signature(&beacon_sig, owner);
             let shard_sig = shard_block.sign(self.client.signer.clone());
@@ -380,15 +384,16 @@ impl ClientTask {
                     self.out_final_signatures_tx
                         .clone()
                         .send((
-                                  beacon_block.index(),
-                                  JointBlockBLS::General {
-                            beacon_hash: beacon_block.hash,
-                            shard_hash: shard_block.hash,
-                            beacon_sig: beacon_sig.clone(),
-                            shard_sig: shard_sig.clone(),
-                            sender_id: owner,
-                            receiver_id: *other_id,
-                        }))
+                            beacon_block.index(),
+                            JointBlockBLS::General {
+                                beacon_hash: beacon_block.hash,
+                                shard_hash: shard_block.hash,
+                                beacon_sig: beacon_sig.clone(),
+                                shard_sig: shard_sig.clone(),
+                                sender_id: owner,
+                                receiver_id: *other_id,
+                            },
+                        ))
                         .map(|_| ())
                         .map_err(
                             |e| error!(target: "client", "Error sending final BLS parts: {}", e),
@@ -396,7 +401,10 @@ impl ClientTask {
                 );
             }
         } else {
-            panic!(format!("Preparing block while not being authority for this block: {:?}", beacon_block));
+            panic!(format!(
+                "Preparing block while not being authority for this block: {:?}",
+                beacon_block
+            ));
         }
         (beacon_block, shard_block, shard_extra)
     }
@@ -425,7 +433,11 @@ impl ClientTask {
         let (shard_block, shard_block_info) =
             self.unfinalized_shard_blocks.remove(&shard_hash).unwrap();
         assert!(shard_block.signature.authority_count() == present);
-        self.client.try_import_produced(beacon_block.clone(), shard_block.clone(), shard_block_info);
+        self.client.try_import_produced(
+            beacon_block.clone(),
+            shard_block.clone(),
+            shard_block_info,
+        );
         self.announce_block(beacon_block, shard_block);
         Some(self.client.beacon_client.chain.best_index())
     }
@@ -435,7 +447,7 @@ impl ClientTask {
     fn try_import_blocks(
         &mut self,
         peer_id: PeerId,
-        blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>
+        blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>,
     ) -> Option<BlockIndex> {
         if blocks.is_empty() {
             return None;
@@ -466,17 +478,18 @@ impl ClientTask {
                 }
                 self.announce_block(last_beacon_block, last_shard_block);
                 Some(new_index)
-            },
+            }
             BlockImportingResult::MissingParent { missing_indices, .. } => {
                 warn!(target: "client", "Missing indicies {:?}, account_id={:?}", missing_indices, self.client.account_id);
-                let (from_index, til_index) = (missing_indices.iter().min().unwrap(), missing_indices.iter().max().unwrap());
+                let (from_index, til_index) =
+                    (missing_indices.iter().min().unwrap(), missing_indices.iter().max().unwrap());
                 tokio::spawn(
                     self.out_block_fetch_tx.clone().send((peer_id, *from_index, *til_index)).map(|_| ()).map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
                 );
                 None
-            },
+            }
             // TODO: if block is invalid, we can extend `out_block_fetch_tx` channel to also handle banning actions.
-            _ => None
+            _ => None,
         }
     }
 
@@ -537,25 +550,44 @@ impl ClientTask {
     }
 
     fn announce_block(&mut self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
-        let peer_ids = self.assumed_peer_last_index.iter().filter_map(|(peer_id, last_index)| {
-            if *last_index < beacon_block.index() { Some(*peer_id) } else { None }
-        }).collect();
+        let peer_ids = self
+            .assumed_peer_last_index
+            .iter()
+            .filter_map(
+                |(peer_id, last_index)| {
+                    if *last_index < beacon_block.index() {
+                        Some(*peer_id)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .collect();
         for last_index in self.assumed_peer_last_index.values_mut() {
             *last_index = max(*last_index, beacon_block.index());
         }
-        info!("Announcing block {} to {:?}, peer_last_index: {:?}", beacon_block.index(), peer_ids, self.assumed_peer_last_index);
+        info!(
+            "Announcing block {} to {:?}, peer_last_index: {:?}",
+            beacon_block.index(),
+            peer_ids,
+            self.assumed_peer_last_index
+        );
         tokio::spawn(
             self.out_block_tx
                 .clone()
                 .send((peer_ids, (beacon_block, shard_block)))
                 .map(|_| ())
-                .map_err(|e| error!(target: "client", "Error sending block announcement: {}", e))
+                .map_err(|e| error!(target: "client", "Error sending block announcement: {}", e)),
         );
     }
 
-    fn get_or_request_payload(&self, authority_id: AuthorityId, hash: CryptoHash) {
+    fn get_or_request_payload(
+        &self,
+        authority_id: AuthorityId,
+        hash: CryptoHash,
+    ) {
+        let block_index = self.client.beacon_client.chain.best_index() + 1;
         let pool = &self.client.shard_client.pool;
-        let block_index = self.client.beacon_client.chain.best_index();
         debug!(
             target: "client",
             "Checking payload confirmation, authority_id={} for hash={} from other authority_id={}",
@@ -601,9 +633,9 @@ impl ClientTask {
                             );
                         tokio::spawn(send_confirmation);
                     }
-                    Err(e) => warn!(target: "mempool", "Fail to add missing payload: {}", e)
+                    Err(e) => warn!(target: "mempool", "Fail to add missing payload: {}", e),
                 }
-            } 
+            }
             PayloadResponse::BlockProposal(authority_id, snapshot) => {
                 let hash = snapshot.get_hash();
                 if let Some(request) = pool.add_payload_snapshot(authority_id, snapshot) {
@@ -633,8 +665,7 @@ impl ClientTask {
     /// Resets MemPool and returns NS control for next block.
     fn restart_pool_nightshade(&self, block_index: BlockIndex) -> Control {
         let index = self.client.beacon_client.chain.best_index() + 1;
-        let (owner_uid, uid_to_authority_map) =
-            self.client.get_uid_to_authority_map(index);
+        let (owner_uid, uid_to_authority_map) = self.client.get_uid_to_authority_map(index);
 
         if owner_uid.is_none() {
             self.client.shard_client.pool.reset(None, None);
@@ -664,7 +695,9 @@ impl ClientTask {
 
     fn gossip_payload(&self) {
         let pool = &self.client.shard_client.pool;
-        for payload_gossip in pool.prepare_payload_gossip(self.client.beacon_client.chain.best_index()) {
+        for payload_gossip in
+            pool.prepare_payload_gossip(self.client.beacon_client.chain.best_index())
+        {
             tokio::spawn(
                 self.out_payload_gossip_tx
                     .clone()
@@ -684,9 +717,9 @@ impl ClientTask {
     ) {
         if !self.unfinalized_shard_blocks.contains_key(&shard_hash)
             && !self.client.shard_client.chain.is_known_block(&shard_hash)
-            {
-                return;
-            }
+        {
+            return;
+        }
         let block_index = match self.unfinalized_beacon_blocks.get(&beacon_hash) {
             Some(b) => b.index(),
             None => match self.client.beacon_client.chain.get_block(&BlockId::Hash(beacon_hash)) {
@@ -701,14 +734,17 @@ impl ClientTask {
             tokio::spawn(
                 self.out_final_signatures_tx
                     .clone()
-                    .send((block_index, JointBlockBLS::General {
-                        beacon_hash,
-                        shard_hash,
-                        beacon_sig,
-                        shard_sig,
-                        sender_id: receiver_id,
-                        receiver_id: sender_id,
-                    }))
+                    .send((
+                        block_index,
+                        JointBlockBLS::General {
+                            beacon_hash,
+                            shard_hash,
+                            beacon_sig,
+                            shard_sig,
+                            sender_id: receiver_id,
+                            receiver_id: sender_id,
+                        },
+                    ))
                     .map(|_| ())
                     .map_err(|e| error!(target: "client", "Error sending final BLS parts: {}", e)),
             );
@@ -717,17 +753,15 @@ impl ClientTask {
 
     fn request_bls_signatures(&self) {
         for (beacon_hash, beacon_block) in self.unfinalized_beacon_blocks.iter() {
-            let (owner_uid, _) =
-                self.client.get_uid_to_authority_map(beacon_block.index());
+            let (owner_uid, _) = self.client.get_uid_to_authority_map(beacon_block.index());
             let owner_uid = match owner_uid {
                 Some(id) => id,
                 None => return,
             };
-            for (auth_id, auth_present) in
-                beacon_block.signature.authority_mask.iter().enumerate()
-                {
-                    if !*auth_present {
-                        tokio::spawn(
+            for (auth_id, auth_present) in beacon_block.signature.authority_mask.iter().enumerate()
+            {
+                if !*auth_present {
+                    tokio::spawn(
                             self.out_final_signatures_tx
                                 .clone()
                                 .send((beacon_block.index(), JointBlockBLS::Request {
@@ -741,14 +775,16 @@ impl ClientTask {
                                     |e| error!(target: "client", "Error sending final BLS parts: {}", e),
                                 ),
                         );
-                    }
                 }
+            }
         }
     }
 
     fn process_payload_gossip(&self, payload_gossip: PayloadGossip) {
         let pool = &self.client.shard_client.pool;
-        if let Err(err) = pool.add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id) {
+        if let Err(err) =
+            pool.add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id)
+        {
             warn!(target: "client", "Failed to process payload gossip: {}", err);
         }
     }

@@ -115,9 +115,9 @@ impl Protocol {
                 self.send_payload_response(&peer_id, request_id, response)
             }
             Message::PayloadSnapshotRequest(request_id, hash) => {
-                let block_index = self.client.beacon_client.chain.best_index();
+                let block_index = self.client.beacon_client.chain.best_index() + 1;
                 if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
-                    info!("Payload snapshot request from {} for {}", authority_id, hash);
+                    info!("Payload snapshot request from {} for {} (block index = {}, self = {})", authority_id, hash, block_index, self.client.account_id);
                     match self.client.shard_client.pool.on_snapshot_request(authority_id, hash) {
                         Ok(snapshot) => {
                             self.send_snapshot_response(&peer_id, request_id, snapshot);
@@ -135,9 +135,9 @@ impl Protocol {
             }
             Message::PayloadResponse(_request_id, missing_payload) => {
                 // TODO: check request id and pull block_index from there.
-                let block_index = self.client.beacon_client.chain.best_index();
+                let block_index = self.client.beacon_client.chain.best_index() + 1;
                 if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
-                    info!("Payload response from {} / {}", peer_id, authority_id);
+                    info!("Payload response from {} / {} (block index = {}, self = {})", peer_id, authority_id, block_index, self.client.account_id);
                     forward_msg(
                         self.payload_response_tx.clone(),
                         PayloadResponse::General(authority_id, missing_payload),
@@ -149,7 +149,7 @@ impl Protocol {
                 }
             }
             Message::PayloadSnapshotResponse(_response_id, snapshot) => {
-                let block_index = self.client.beacon_client.chain.best_index();
+                let block_index = self.client.beacon_client.chain.best_index() + 1;
                 if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
                     info!("Snapshot response from {} / {}", peer_id, authority_id);
                     forward_msg(
