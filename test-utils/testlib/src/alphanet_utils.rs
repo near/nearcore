@@ -367,7 +367,7 @@ impl NodeConfig {
     ) -> Self {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
-            id: get_peer_id_from_seed(peer_id_seed),
+            id: get_peer_id_from_seed(Some(peer_id_seed)),
             addr: if addr.is_some() {
                 Some(SocketAddr::from_str(addr.unwrap()).unwrap())
             } else {

@@ -1,6 +1,7 @@
 use std::mem;
 use std::net::SocketAddr;
 use std::time::Duration;
+use rand;
 
 use clap::{Arg, ArgMatches};
 
@@ -77,21 +78,26 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     ]
 }
 
-pub fn get_peer_id_from_seed(seed: u32) -> PeerId {
-    let bytes: [u8; 4] = unsafe { mem::transmute(seed) };
+pub fn get_peer_id_from_seed(seed: Option<u32>) -> PeerId {
+    if let Some(seed) = seed {
+        let bytes: [u8; 4] = unsafe { mem::transmute(seed) };
 
-    let mut array = [0; 32];
-    for (count, b) in bytes.iter().enumerate() {
-        array[array.len() - count - 1] = *b;
+        let mut array = [0; 32];
+        for (count, b) in bytes.iter().enumerate() {
+            array[array.len() - count - 1] = *b;
+        }
+        hash(&array)
+    } else {
+        let array: [u8; 32] = rand::random();
+        primitives::hash::CryptoHash::new(&array)
     }
-    hash(&array)
 }
 
 pub fn from_matches(matches: &ArgMatches) -> NetworkConfig {
     let listen_addr =
         matches.value_of("addr").map(|value| value.parse::<SocketAddr>().expect("Cannot parse address"));
     let test_network_key_seed =
-        matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap()).unwrap_or(0);
+        matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap());
 
     let parsed_boot_nodes =
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
