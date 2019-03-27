@@ -10,7 +10,7 @@ use futures::sync::mpsc::channel;
 use log::info;
 
 use client::Client;
-use configs::{ClientConfig, DevNetConfig, get_devnet_configs, RPCConfig};
+use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
 use primitives::signer::InMemorySigner;
@@ -21,7 +21,11 @@ fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path
     let mut other_client_cfg = client_cfg.clone();
     other_client_cfg.base_path = PathBuf::from(other_base_path);
     let other_client = Client::new(&other_client_cfg);
-    info!("Replay storage from {}, last block index = {}", other_base_path, other_client.beacon_client.chain.best_index());
+    info!(
+        "Replay storage from {}, last block index = {}",
+        other_base_path,
+        other_client.beacon_client.chain.best_index()
+    );
     let mut index = client.beacon_client.chain.best_index();
     while index <= other_client.beacon_client.chain.best_index() {
         let beacon_block =
@@ -43,8 +47,12 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
     let mut client = Client::new(&client_cfg);
     client.signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
     let client = Arc::new(client);
-    if !devnet_cfg.replay_storage.is_empty() {
-        replay_storage(client.clone(), client_cfg, &devnet_cfg.replay_storage);
+    if devnet_cfg.replay_storage.is_some() {
+        replay_storage(
+            client.clone(),
+            client_cfg,
+            &devnet_cfg.replay_storage.clone().expect("Just checked"),
+        );
     }
     start_from_client(client, devnet_cfg, rpc_cfg);
 }
@@ -133,7 +141,10 @@ mod tests {
         let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
         client_cfg.log_level = log::LevelFilter::Info;
-        let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5), replay_storage: String::default() };
+        let devnet_cfg = configs::DevNetConfig {
+            block_period: Duration::from_millis(5),
+            replay_storage: None,
+        };
         let rpc_cfg = configs::RPCConfig::default();
 
         let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));

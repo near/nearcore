@@ -7,7 +7,7 @@ pub struct DevNetConfig {
     /// How often devnet produces blocks.
     pub block_period: Duration,
     /// Path to storage to replay blocks from.
-    pub replay_storage: String,
+    pub replay_storage: Option<String>,
 }
 
 pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
@@ -31,6 +31,6 @@ pub fn from_matches(matches: &ArgMatches) -> DevNetConfig {
         .value_of("test_block_period")
         .map(|x| Duration::from_millis(x.parse::<u64>().unwrap()))
         .unwrap();
-    let replay_storage = matches.value_of("replay_storage").unwrap();
-    DevNetConfig { block_period, replay_storage: replay_storage.to_string() }
+    let replay_storage = matches.value_of("replay_storage").map(std::string::ToString::to_string);
+    DevNetConfig { block_period, replay_storage }
 }
