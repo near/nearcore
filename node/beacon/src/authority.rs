@@ -6,10 +6,10 @@ use std::sync::{Arc, RwLock};
 
 use log::Level::Debug;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use byteorder::{ByteOrder, LittleEndian};
 
 use configs::{chain_spec::AuthorityRotation, AuthorityConfig};
 use primitives::beacon::SignedBeaconBlockHeader;
-use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
 use storage::BeaconChainStorage;
@@ -77,20 +77,19 @@ pub struct POAAuthority {
 
 impl POAAuthority {
     pub fn new(initial_proposals: Vec<AuthorityStake>, blockchain: &BeaconBlockChain) -> Self {
-        Self { initial_proposals, seed: blockchain.best_hash() }
+        Self { initial_proposals, seed: blockchain.genesis_hash() }
     }
 }
 
 impl Authority for POAAuthority {
-    fn process_block_header(&mut self, header: &SignedBeaconBlockHeader) {
-        self.seed = header.block_hash();
-    }
+    fn process_block_header(&mut self, _header: &SignedBeaconBlockHeader) {}
 
-    fn get_authorities(&self, _slot: Slot) -> Result<Vec<AuthorityStake>, String> {
+    fn get_authorities(&self, slot: Slot) -> Result<Vec<AuthorityStake>, String> {
         let mut authorities = self.initial_proposals.clone();
-        // Shuffle initial proposals with given seed.
+        // Shuffle initial proposals with genesis seed + slot.
         let mut rng_seed = [0; 32];
         rng_seed.copy_from_slice(self.seed.as_ref());
+        LittleEndian::write_u64(&mut rng_seed, slot);
         let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
         authorities.shuffle(&mut rng);
         Ok(authorities)
@@ -551,6 +550,7 @@ mod test {
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
         let mut last_hash = bc.chain.genesis_hash();
+        assert_ne!(authority.get_authorities(1).unwrap(), authority.get_authorities(2).unwrap());
         for i in 1..4 {
             let mut block = SignedBeaconBlock::new(i, last_hash, vec![], CryptoHash::default());
             block.signature.authority_mask = vec![true; 4];
