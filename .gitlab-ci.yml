@@ -7,6 +7,7 @@ variables:
     BUILD_TARGET: ubuntu
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
+    APT_CACHE_DIR: apt-cache
 
 .setup_rust: &setup_rust
     rustup default nightly
@@ -34,6 +35,8 @@ variables:
     cd tests/hello && npm install && npm run build && cd ../..
 
 .code_coverage: &code_coverage
+    mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
+    apt-get -qq -o dir::cache::archives="$APT_CACHE_DIR" install -y binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev cmake gcc &&
     wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
     tar xzf master.tar.gz &&
     cd kcov-master &&
@@ -41,16 +44,20 @@ variables:
     cd build &&
     cmake .. &&
     make &&
-    sudo make install &&
+    make install DESTDIR=../../kcov-build &&
     cd ../.. &&
     rm -rf kcov-master &&
-    for file in target/debug/*; do [ -x "${file}" ] || continue; mkdir -p "target/cov/$(basename $file)"; kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
+    for file in target/debug/*; do [ -x "${file}" ] || continue; mkdir -p "target/cov/$(basename $file)"; ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
     bash <(curl -s https://codecov.io/bash) &&
     echo "Uploaded code coverage"
 
 stages:
     - rust
     - libs
+
+cache:
+    paths:
+        - apt-cache
 
 test_cargo:
     stage: rust
