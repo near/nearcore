@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/alphanet:0.1.0}
+IMAGE=${1:-nearprotocol/alphanet:0.1.1}
 
 sudo docker run -d --name alphanet0 -p 3000:3000 -p 3030:3030 -e "BOOT_NODE_IP=127.0.0.1" -e "NODE_NUM=0" -e "TOTAL_NODES=4" ${IMAGE}
 sudo docker run -d --name alphanet1 --add-host=alphanet0:172.17.0.2 -e "BOOT_NODE_IP=172.17.0.2" -e "NODE_NUM=1" -e "TOTAL_NODES=4" ${IMAGE}
