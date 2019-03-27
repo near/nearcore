@@ -564,6 +564,7 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "node-http 0.1.0",
  "primitives 0.1.0",
+ "storage 0.0.1",
  "testlib 0.1.0",
  "tokio 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

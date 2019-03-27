@@ -10,6 +10,7 @@ use primitives::types::AccountId;
 const DEFAULT_BASE_PATH: &str = ".";
 const DEFAULT_LOG_LEVEL: &str = "Info";
 
+#[derive(Clone)]
 pub struct ClientConfig {
     pub base_path: PathBuf,
     pub account_id: AccountId,
