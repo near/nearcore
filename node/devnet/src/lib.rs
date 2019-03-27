@@ -32,7 +32,7 @@ fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path
             other_client.beacon_client.chain.get_block(&BlockId::Number(index)).unwrap();
         let shard_block =
             other_client.shard_client.chain.get_block(&BlockId::Number(index)).unwrap();
-        client.try_import_blocks(beacon_block, shard_block);
+        client.try_import_blocks(vec![(beacon_block, shard_block)]);
         index += 1;
     }
     info!("Finished replaying storage: index={}", client.beacon_client.chain.best_index());
