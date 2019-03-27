@@ -12,13 +12,21 @@ gcloud compute firewall-rules create alphanet-instance \
     --allow tcp:3000,tcp:3030 \
     --target-tags=alphanet-instance
 
-gcloud compute instances create-with-container ${PREFIX}-0 \
+gcloud compute disks create --size 10GB --zone ${ZONE} \
+    ${PREFIX}-persistent-0 \
+    ${PREFIX}-persistent-1 \
+    ${PREFIX}-persistent-2 \
+    ${PREFIX}-persistent-3
+
+gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-env BOOT_NODE_IP=127.0.0.1 \
     --container-env NODE_NUM=0 \
     --container-env TOTAL_NODES=4 \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
-    --tags=alphanet-instance
+    --tags=alphanet-instance \
+    --disk name=${PREFIX}-persistent-0 \
+    --container-mount-disk mount-path="/srv/near"
 
 BOOT_NODE_IP=$(
 gcloud compute instances describe ${PREFIX}-0 \
@@ -27,29 +35,35 @@ gcloud compute instances describe ${PREFIX}-0 \
 )
 echo "Connect to boot node: ${BOOT_NODE_IP}:3000/7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t"
 
-gcloud compute instances create-with-container ${PREFIX}-1 \
+gcloud beta compute instances create-with-container ${PREFIX}-1 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
     --container-env NODE_NUM=1 \
     --container-env TOTAL_NODES=4 \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
-    --tags=alphanet-instance
+    --tags=alphanet-instance \
+    --disk=name=${PREFIX}-persistent-1 \
+    --container-mount-disk=mount-path="/srv/near"
 
-gcloud compute instances create-with-container ${PREFIX}-2 \
+gcloud beta compute instances create-with-container ${PREFIX}-2 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
     --container-env NODE_NUM=2 \
     --container-env TOTAL_NODES=4 \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
-    --tags=alphanet-instance
+    --tags=alphanet-instance \
+    --disk=name=${PREFIX}-persistent-2 \
+    --container-mount-disk=mount-path="/srv/near"
 
-gcloud compute instances create-with-container ${PREFIX}-3 \
+gcloud beta compute instances create-with-container ${PREFIX}-3 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
     --container-env NODE_NUM=3 \
     --container-env TOTAL_NODES=4 \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
-    --tags=alphanet-instance
+    --tags=alphanet-instance \
+    --disk=name=${PREFIX}-persistent-3 \
+    --container-mount-disk=mount-path="/srv/near"
 
 gcloud compute firewall-rules create alphanet-studio \
     --allow tcp:80 \
