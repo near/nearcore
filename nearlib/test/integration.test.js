@@ -124,12 +124,12 @@ test('view pre-defined account works and returns correct name', async () => {
 test('create account and then view account returns the created account', async () => {
     const newAccountName = await generateUniqueString('create.account.test');
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
-    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 0, aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
     const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
-        amount: 1,
+        amount: 0,
         code_hash: newAccountCodeHash,
         stake: 0,
     };

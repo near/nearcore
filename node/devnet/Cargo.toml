@@ -15,6 +15,7 @@ coroutines = { path = "../coroutines" }
 node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
+storage = { path = "../../core/storage" }
 
 [dev-dependencies]
 alphanet = { path = "../alphanet" }
