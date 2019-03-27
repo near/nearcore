@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/alphanet:0.1.0}
+IMAGE=${1:-nearprotocol/alphanet:0.1.1}
 PREFIX=${2:-alphanet}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.2}
 ZONE=${4:-us-west2-a}
+REGION=${5:-us-west2}
 
 echo "Starting 4 nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
@@ -18,6 +19,8 @@ gcloud compute disks create --size 10GB --zone ${ZONE} \
     ${PREFIX}-persistent-2 \
     ${PREFIX}-persistent-3
 
+gcloud beta compute addresses create ${PREFIX}-0 --region ${REGION}
+
 gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-env BOOT_NODE_IP=127.0.0.1 \
     --container-env NODE_NUM=0 \
@@ -29,9 +32,7 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-mount-disk mount-path="/srv/near"
 
 BOOT_NODE_IP=$(
-gcloud compute instances describe ${PREFIX}-0 \
-    --zone ${ZONE} | grep natIP | \
-    awk '{print $2}'
+    gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION}  | head -n 1 | awk '{print $2}'
 )
 echo "Connect to boot node: ${BOOT_NODE_IP}:3000/7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t"
 
