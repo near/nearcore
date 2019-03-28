@@ -465,7 +465,7 @@ impl Nightshade {
         let mut seen_bare_states = HashSet::new();
         seen_bare_states.insert(states[owner_id].bare_state.clone());
 
-        // TODO: Use real weights from taken from stake. This info should be public through the beacon chain.
+        // TODO(#378): Use real weights from stake. This info should be public through the beacon chain.
         let weights = vec![1; num_authorities];
         let best_state_weight = weights[owner_id];
         let total_weight = weights.iter().sum();
