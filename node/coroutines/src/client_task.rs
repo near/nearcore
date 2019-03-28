@@ -30,7 +30,7 @@ use shard::ShardBlockExtraInfo;
 pub struct ClientTask {
     client: Arc<Client>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
-    incoming_block_rx: Receiver<(PeerId, (SignedBeaconBlock, SignedShardBlock))>,
+    incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>)>,
     /// Outgoing blocks produced by this peer that can be imported by other peers.
     out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
     /// Consensus created by the current instance of Nightshade or pass-through consensus.
@@ -133,8 +133,8 @@ impl Stream for ClientTask {
             }
 
             match self.incoming_block_rx.poll() {
-                Ok(Async::Ready(Some((peer_id, (beacon_block, shard_block))))) => {
-                    if let ind @ Some(_) = self.try_import_block(peer_id, beacon_block, shard_block) {
+                Ok(Async::Ready(Some((peer_id, blocks)))) => {
+                    if let ind @ Some(_) = self.try_import_blocks(peer_id, blocks) {
                         new_block_index = ind;
                     }
                     continue;
@@ -295,7 +295,7 @@ impl Stream for ClientTask {
 impl ClientTask {
     pub fn new(
         client: Arc<Client>,
-        incoming_block_rx: Receiver<(PeerId, (SignedBeaconBlock, SignedShardBlock))>,
+        incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>)>,
         out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
         consensus_rx: Receiver<ConsensusBlockProposal>,
         control_tx: Sender<Control>,
@@ -432,15 +432,19 @@ impl ClientTask {
 
     /// Tries importing block. If succeeds returns index of the block with the highest index.
     /// If some blocks are missing, requests network to fetch them.
-    fn try_import_block(
+    fn try_import_blocks(
         &mut self,
         peer_id: PeerId,
-        beacon_block: SignedBeaconBlock,
-        shard_block: SignedShardBlock,
+        blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>
     ) -> Option<BlockIndex> {
-        self.assumed_peer_last_index.insert(peer_id, beacon_block.index());
+        if blocks.is_empty() {
+            return None;
+        }
+        let latest_index = blocks.iter().map(|(b, _)| b.index()).max().unwrap();
+        self.assumed_peer_last_index.insert(peer_id, latest_index);
         // TODO: clonning here sucks, is there a better way?
-        match self.client.try_import_blocks(beacon_block.clone(), shard_block.clone()) {
+        let (last_beacon_block, last_shard_block) = blocks.last().unwrap().clone();
+        match self.client.try_import_blocks(blocks) {
             BlockImportingResult::Success { new_index } => {
                 info!(target: "client",
                     "Successfully imported block(s) up to {}, account_id={:?}",
@@ -460,7 +464,7 @@ impl ClientTask {
                 for h in shards_to_remove {
                     self.unfinalized_shard_blocks.remove(&h);
                 }
-                self.announce_block(beacon_block, shard_block);
+                self.announce_block(last_beacon_block, last_shard_block);
                 Some(new_index)
             },
             BlockImportingResult::MissingParent { missing_indices, .. } => {
@@ -567,7 +571,6 @@ impl ClientTask {
                     .map(|_| ())
                     .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
             );
-            pool.add_pending(authority_id, hash);
         } else {
             let send_confirmation = self
                 .control_tx
@@ -584,25 +587,46 @@ impl ClientTask {
     /// Process incoming payload response.
     fn process_payload_response(&self, payload_response: PayloadResponse) {
         let pool = &self.client.shard_client.pool;
-        if let Err(e) = match payload_response {
-            PayloadResponse::General(payload) => pool.add_payload(payload),
-            PayloadResponse::BlockProposal(authority_id, payload) => {
-                pool.add_payload_snapshot(authority_id, payload)
+        match payload_response {
+            PayloadResponse::General(authority_id, response) => {
+                match pool.add_missing_payload(authority_id, response) {
+                    Ok(snapshot_hash) => {
+                        let send_confirmation = self
+                            .control_tx
+                            .clone()
+                            .send(Control::PayloadConfirmation(authority_id, snapshot_hash))
+                            .map(|_| ())
+                            .map_err(
+                                |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
+                            );
+                        tokio::spawn(send_confirmation);
+                    }
+                    Err(e) => warn!(target: "mempool", "Fail to add missing payload: {}", e)
+                }
+            } 
+            PayloadResponse::BlockProposal(authority_id, snapshot) => {
+                let hash = snapshot.get_hash();
+                if let Some(request) = pool.add_payload_snapshot(authority_id, snapshot) {
+                    let block_index = self.client.beacon_client.chain.best_index();
+                    tokio::spawn(
+                        self.payload_request_tx
+                            .clone()
+                            .send((block_index, PayloadRequest::General(authority_id, request)))
+                            .map(|_| ())
+                            .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
+                    );
+                } else {
+                    let send_confirmation = self
+                        .control_tx
+                        .clone()
+                        .send(Control::PayloadConfirmation(authority_id, hash))
+                        .map(|_| ())
+                        .map_err(
+                            |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
+                        );
+                    tokio::spawn(send_confirmation);
+                }
             }
-        } {
-            warn!(target: "mempool", "Failed to add incoming payload: {}", e);
-        }
-
-        for (authority_id, hash) in pool.ready_snapshots() {
-            let send_confirmation = self
-                .control_tx
-                .clone()
-                .send(Control::PayloadConfirmation(authority_id, hash))
-                .map(|_| ())
-                .map_err(
-                    |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
-                );
-            tokio::spawn(send_confirmation);
         }
     }
 

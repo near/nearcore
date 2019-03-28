@@ -103,7 +103,7 @@ def test_set_get_values(
             .format(contract_name)
         out = CliHelpers(port).run_command(command_)
         data = json.loads(out)
-        assert data['result'] == value
+        assert data == value
 
     _wait_for_state_change()
 

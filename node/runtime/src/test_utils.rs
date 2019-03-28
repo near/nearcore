@@ -2,28 +2,23 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use configs::{ChainSpec, chain_spec::AuthorityRotation};
+use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
-use primitives::hash::{CryptoHash, hash};
+use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
-use primitives::signer::{InMemorySigner, TransactionSigner, BlockSigner};
+use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 use primitives::transaction::{
-    AddKeyTransaction, AsyncCall,
-    Callback, CallbackInfo, CallbackResult,
-    CreateAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, 
-    FunctionCallTransaction, StakeTransaction, ReceiptBody,
-    ReceiptTransaction, SignedTransaction, TransactionBody
+    AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
+    DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
+    ReceiptTransaction, SignedTransaction, StakeTransaction, TransactionBody,
 };
-use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash};
-use storage::{Trie, TrieUpdate};
+use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash, Nonce};
 use storage::test_utils::create_trie;
+use storage::{Trie, TrieUpdate};
 
 use crate::state_viewer::TrieViewer;
 
-use super::{
-    ApplyResult, ApplyState, callback_id_to_bytes,
-    Runtime, set
-};
+use super::{callback_id_to_bytes, set, ApplyResult, ApplyState, Runtime};
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -57,7 +52,9 @@ pub fn generate_test_chain_spec() -> (ChainSpec, Vec<Arc<InMemorySigner>>) {
     }, vec![Arc::new(alice_signer), Arc::new(bob_signer)])
 }
 
-pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime, Arc<Trie>, MerkleHash) {
+pub fn get_runtime_and_trie_from_chain_spec(
+    chain_spec: &ChainSpec,
+) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
     let runtime = Runtime {};
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -65,7 +62,7 @@ pub fn get_runtime_and_trie_from_chain_spec(chain_spec: &ChainSpec) -> (Runtime,
         trie_update,
         &chain_spec.accounts,
         &chain_spec.genesis_wasm,
-        &chain_spec.initial_authorities
+        &chain_spec.initial_authorities,
     );
     trie.apply_changes(db_changes).unwrap();
     (runtime, trie, genesis_root)
@@ -130,7 +127,9 @@ impl Runtime {
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
             };
-            receipts = vec![to_receipt_block(apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect())];
+            receipts = vec![to_receipt_block(
+                apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect(),
+            )];
             txs = vec![];
         }
     }
@@ -148,7 +147,7 @@ impl Runtime {
 pub struct User {
     runtime: Runtime,
     account_id: AccountId,
-    nonce: u64,
+    nonce: Nonce,
     trie: Arc<Trie>,
     pub signer: Arc<InMemorySigner>,
 }
@@ -158,16 +157,10 @@ impl User {
         runtime: Runtime,
         account_id: &str,
         trie: Arc<Trie>,
-        root: MerkleHash
+        root: MerkleHash,
     ) -> (Self, MerkleHash) {
         let signer = Arc::new(InMemorySigner::from_seed(&account_id, &account_id));
-        (User {
-            runtime,
-            account_id: account_id.to_string(),
-            nonce: 1,
-            trie,
-            signer,
-        }, root)
+        (User { runtime, account_id: account_id.to_string(), nonce: 1, trie, signer }, root)
     }
 
     pub fn get_account_id(&self) -> AccountId {
@@ -177,18 +170,17 @@ impl User {
     pub fn send_tx(
         &mut self,
         root: CryptoHash,
-        tx_body: TransactionBody
+        tx_body: TransactionBody,
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let transaction = tx_body.sign(self.signer.clone());
         let apply_state = ApplyState {
             root,
             shard_id: 0,
             parent_block_hash: CryptoHash::default(),
-            block_index: 0
+            block_index: 0,
         };
-        let apply_results = self.runtime.apply_all_vec(
-            self.trie.clone(), apply_state, vec![], vec![transaction]
-        );
+        let apply_results =
+            self.runtime.apply_all_vec(self.trie.clone(), apply_state, vec![], vec![transaction]);
         let last_apply_result = apply_results[apply_results.len() - 1].clone();
         self.trie.apply_changes(last_apply_result.db_changes).unwrap();
         (last_apply_result.root, apply_results)
@@ -198,9 +190,10 @@ impl User {
         &mut self,
         root: MerkleHash,
         destination: &str,
-        amount: u64
+        amount: u64,
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let tx_body = TransactionBody::send_money(self.nonce, &self.account_id.clone(), destination, amount);
+        let tx_body =
+            TransactionBody::send_money(self.nonce, &self.account_id.clone(), destination, amount);
         self.nonce += 1;
         self.send_tx(root, tx_body)
     }
@@ -209,7 +202,7 @@ impl User {
         &mut self,
         root: MerkleHash,
         account_id: &str,
-        amount: u64
+        amount: u64,
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let signer = InMemorySigner::from_seed(account_id, account_id);
         self.create_account_with_key(root, account_id, amount, signer.public_key())
@@ -220,14 +213,14 @@ impl User {
         root: MerkleHash,
         account_id: &str,
         amount: u64,
-        pub_key: PublicKey
+        pub_key: PublicKey,
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: self.nonce,
             originator: self.account_id.clone(),
             new_account_id: account_id.to_string(),
             amount,
-            public_key: pub_key.0[..].to_vec()
+            public_key: pub_key.0[..].to_vec(),
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
@@ -237,7 +230,7 @@ impl User {
         &mut self,
         root: MerkleHash,
         contract_id: &str,
-        wasm_binary: &[u8]
+        wasm_binary: &[u8],
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::DeployContract(DeployContractTransaction {
             nonce: self.nonce,
@@ -254,29 +247,25 @@ impl User {
         contract_id: &str,
         method_name: &str,
         args: Vec<u8>,
-        amount: u64
+        amount: u64,
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::FunctionCall(FunctionCallTransaction {
-                nonce: self.nonce,
-                originator: self.account_id.clone(),
-                contract_id: contract_id.to_string(),
-                method_name: method_name.as_bytes().to_vec(),
-                args,
-                amount,
+            nonce: self.nonce,
+            originator: self.account_id.clone(),
+            contract_id: contract_id.to_string(),
+            method_name: method_name.as_bytes().to_vec(),
+            args,
+            amount,
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
     }
 
-    pub fn add_key(
-        &mut self,
-        root: MerkleHash,
-        key: PublicKey
-    ) -> (MerkleHash, Vec<ApplyResult>) {
+    pub fn add_key(&mut self, root: MerkleHash, key: PublicKey) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::AddKey(AddKeyTransaction {
             nonce: self.nonce,
             originator: self.account_id.clone(),
-            new_key: key.0[..].to_vec()
+            new_key: key.0[..].to_vec(),
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
@@ -290,17 +279,13 @@ impl User {
         let tx_body = TransactionBody::DeleteKey(DeleteKeyTransaction {
             nonce: self.nonce,
             originator: self.account_id.clone(),
-            cur_key: key.0[..].to_vec()
+            cur_key: key.0[..].to_vec(),
         });
         self.nonce += 1;
         self.send_tx(root, tx_body)
     }
 
-    pub fn stake(
-        &mut self,
-        root: MerkleHash,
-        amount: u64,
-    ) -> (MerkleHash, Vec<ApplyResult>) {
+    pub fn stake(&mut self, root: MerkleHash, amount: u64) -> (MerkleHash, Vec<ApplyResult>) {
         let tx_body = TransactionBody::Stake(StakeTransaction {
             nonce: self.nonce,
             originator: self.account_id.clone(),
@@ -321,10 +306,13 @@ impl User {
             root,
             shard_id: 0,
             parent_block_hash: CryptoHash::default(),
-            block_index: 0
+            block_index: 0,
         };
         let apply_results = self.runtime.apply_all_vec(
-            self.trie.clone(), apply_state, vec![to_receipt_block(vec![receipt])], vec![]
+            self.trie.clone(),
+            apply_state,
+            vec![to_receipt_block(vec![receipt])],
+            vec![],
         );
         let last_apply_result = apply_results[apply_results.len() - 1].clone();
         self.trie.apply_changes(last_apply_result.db_changes).unwrap();
@@ -348,11 +336,8 @@ impl User {
                 args,
                 0,
                 0,
-                AccountingInfo {
-                    originator: self.account_id.clone(),
-                    contract_id: None,
-                },
-            ))
+                AccountingInfo { originator: self.account_id.clone(), contract_id: None },
+            )),
         );
         self.send_receipt(root, receipt)
     }
@@ -369,18 +354,11 @@ impl User {
             method.as_bytes().to_vec(),
             args,
             0,
-            AccountingInfo {
-                originator: self.account_id.clone(),
-                contract_id: None,
-            },
+            AccountingInfo { originator: self.account_id.clone(), contract_id: None },
         );
         callback.results.resize(1, None);
         let mut state_update = TrieUpdate::new(self.trie.clone(), root);
-        set(
-            &mut state_update,
-            &callback_id_to_bytes(&id.clone()),
-            &callback
-        );
+        set(&mut state_update, &callback_id_to_bytes(&id.clone()), &callback);
         let (new_root, transaction) = state_update.finalize();
         self.trie.apply_changes(transaction).unwrap();
         let receipt = ReceiptTransaction::new(
@@ -390,7 +368,7 @@ impl User {
             ReceiptBody::Callback(CallbackResult::new(
                 CallbackInfo::new(id.clone(), 0, self.account_id.clone()),
                 None,
-            ))
+            )),
         );
         self.send_receipt(new_root, receipt)
     }
@@ -402,9 +380,7 @@ pub fn setup_test_contract(wasm_binary: &[u8]) -> (User, CryptoHash) {
     let (root_with_account, _) = user.create_account(root, "test_contract", 0);
     assert_ne!(root_with_account, root);
     let (mut user, root) = User::new(user.runtime, "test_contract", user.trie, root_with_account);
-    let (root_with_contract_code, _) = user.deploy_contract(
-        root, "test_contract", wasm_binary
-    );
+    let (root_with_contract_code, _) = user.deploy_contract(root, "test_contract", wasm_binary);
     assert_ne!(root_with_contract_code, root);
     User::new(user.runtime, "alice.near", user.trie, root_with_contract_code)
 }

@@ -21,9 +21,7 @@ variables:
     wget -O /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
     sudo unzip /tmp/protoc.zip -d protoc &&
     sudo mv protoc/bin/* /usr/local/bin/ &&
-    sudo mv protoc/include/* /usr/local/include/ &&
-    sudo chmod 755 /usr/local/bin/protoc &&
-    sudo chmod 755 /usr/local/include/google
+    sudo chmod 755 /usr/local/bin/protoc
 
 .setup_python: &setup_python
     sudo apt-get install -y python-dev
@@ -31,23 +29,10 @@ variables:
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +2 -delete
 
-.build_wasm: &build_wasm
-    cd tests/hello && npm install && npm run build && cd ../..
-
 .code_coverage: &code_coverage
     mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
     apt-get -qq -o dir::cache::archives="$APT_CACHE_DIR" install -y binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev cmake gcc &&
-    wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-    tar xzf master.tar.gz &&
-    cd kcov-master &&
-    mkdir build &&
-    cd build &&
-    cmake .. &&
-    make &&
-    make install DESTDIR=../../kcov-build &&
-    cd ../.. &&
-    rm -rf kcov-master &&
-    for file in target/debug/*; do [ -x "${file}" ] || continue; mkdir -p "target/cov/$(basename $file)"; sudo ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done
+    ./scripts/coverage.sh
 
 stages:
     - rust
@@ -69,12 +54,11 @@ test_cargo:
     script:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
-    - *build_wasm
+    - ./scripts/build_wasm.sh
     - cargo build --benches --all
     - cargo test --all --verbose
     after_script:
     - *code_coverage
-    - bash <(curl -s https://codecov.io/bash) && echo "Uploaded code coverage"
     - *cleanup_obsolete_cache
 
 release_build:
@@ -97,11 +81,7 @@ test_nearlib:
     dependencies:
         - release_build
     script:
-    - ./target/release/devnet &
-    - ./scripts/waitonserver.sh
-    - *build_wasm
-    - cd nearlib && npm install && npm run build && npm run doc && npm test && cd ..
-    - ./scripts/kill_devnet.sh
+    - ./scripts/test_nearlib.sh
 
 test_pynear:
     stage: libs
