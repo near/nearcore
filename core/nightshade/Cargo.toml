@@ -19,6 +19,7 @@ serde_derive = "1.0"
 bs58 = "0.2.0"
 elapsed = "0.1"
 protobuf = "2.4"
+tokio-utils = { path = "../../node/tokio-utils" }
 
 [dev-dependencies]
 bencher = "0.1.5"

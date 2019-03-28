@@ -342,7 +342,7 @@ impl NightshadeTask {
 
     fn send_gossip(&self, message: Gossip) {
         let copied_tx = self.out_gossips.clone();
-        tokio::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
+        tokio_utils::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
             error!("Error sending state. {:?}", e);
         }));
     }
@@ -442,7 +442,7 @@ impl NightshadeTask {
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
             move |_| error!("Failed to request confirmation for ({},{:?})", authority, hash),
         );
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
     }
 
     fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlockProposal>) {
@@ -593,7 +593,7 @@ impl Stream for NightshadeTask {
                             self.consensus_reported = true;
 
                             if self.confirmed_proposals[outcome.author] {
-                                tokio::spawn(
+                                tokio_utils::spawn(
                                     self.consensus_sender
                                         .clone()
                                         .send(ConsensusBlockProposal {

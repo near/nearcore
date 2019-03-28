@@ -33,7 +33,7 @@ pub fn spawn_consensus(
                             proposal: BlockProposal { author: 0, hash },
                             index: beacon_block_index,
                         };
-                        tokio::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {
+                        tokio_utils::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {
                             error!("Failure sending pass-through consensus {}", e);
                         }));
                     }
