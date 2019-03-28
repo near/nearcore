@@ -13,7 +13,7 @@ gcloud compute firewall-rules create alphanet-instance \
     --allow tcp:3000,tcp:3030 \
     --target-tags=alphanet-instance
 
-gcloud compute disks create --size 10GB --zone ${ZONE} \
+gcloud compute disks create --size 200GB --zone ${ZONE} \
     ${PREFIX}-persistent-0 \
     ${PREFIX}-persistent-1 \
     ${PREFIX}-persistent-2 \
@@ -29,7 +29,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --zone ${ZONE} \
     --tags=alphanet-instance \
     --disk name=${PREFIX}-persistent-0 \
-    --container-mount-disk mount-path="/srv/near"
+    --container-mount-disk mount-path="/srv/near" \
+    --boot-disk-size 200GB
 
 BOOT_NODE_IP=$(
     gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION}  | head -n 1 | awk '{print $2}'
@@ -44,7 +45,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-1 \
     --zone ${ZONE} \
     --tags=alphanet-instance \
     --disk=name=${PREFIX}-persistent-1 \
-    --container-mount-disk=mount-path="/srv/near"
+    --container-mount-disk=mount-path="/srv/near" \
+    --boot-disk-size 200GB
 
 gcloud beta compute instances create-with-container ${PREFIX}-2 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
@@ -54,7 +56,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-2 \
     --zone ${ZONE} \
     --tags=alphanet-instance \
     --disk=name=${PREFIX}-persistent-2 \
-    --container-mount-disk=mount-path="/srv/near"
+    --container-mount-disk=mount-path="/srv/near" \
+    --boot-disk-size 200GB
 
 gcloud beta compute instances create-with-container ${PREFIX}-3 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
@@ -64,7 +67,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-3 \
     --zone ${ZONE} \
     --tags=alphanet-instance \
     --disk=name=${PREFIX}-persistent-3 \
-    --container-mount-disk=mount-path="/srv/near"
+    --container-mount-disk=mount-path="/srv/near" \
+    --boot-disk-size 200GB
 
 gcloud compute firewall-rules create alphanet-studio \
     --allow tcp:80 \
