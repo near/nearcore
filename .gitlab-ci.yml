@@ -28,9 +28,6 @@ variables:
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +2 -delete
 
-.build_wasm: &build_wasm
-    cd tests/hello && npm install && npm run build && cd ../..
-
 stages:
     - rust
     - libs
@@ -47,7 +44,7 @@ test_cargo:
     script:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
-    - *build_wasm
+    - ./scripts/build_wasm.sh
     - cargo build --benches --all
     - cargo test --all --verbose
     after_script:
@@ -73,12 +70,7 @@ test_nearlib:
     dependencies:
         - release_build
     script:
-    - ./target/release/devnet &
-    - ./scripts/waitonserver.sh
-    - *build_wasm
-    - cd nearlib && npm install && npm run build && npm run doc && npm test && cd ..
-    - mkdir new_project && cd new_project && npm install near-shell && node_modules/near-shell/near new_project && npm install && npm run-script build && npm test && cd ..
-    - ./scripts/kill_devnet.sh
+    - ./scripts/test_nearlib.sh
 
 test_pynear:
     stage: libs
