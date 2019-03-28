@@ -3,7 +3,6 @@ use testlib::alphanet_utils::wait;
 use testlib::alphanet_utils::Node;
 use primitives::transaction::TransactionBody;
 
-use network::proxy::debug::DebugHandler;
 use std::sync::Arc;
 use network::proxy::ProxyHandler;
 

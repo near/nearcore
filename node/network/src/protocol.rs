@@ -319,18 +319,13 @@ fn get_proxy_handler(proxy_handler_type: &ProxyHandlerType) -> Arc<ProxyHandler>
 /// At least one between `network_cfg.proxy_handlers` and `proxy_handlers` should be empty.
 /// * `network_cfg.proxy_handlers` is not empty when running nodes with given proxy handlers from config.
 /// * `proxy_handlers` is not empty when running particular tests.
-fn spawn_proxy(network_cfg: NetworkConfig, handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
-    let mut proxy;
-
-    // Try to get proxy_handlers from config
-    if network_cfg.proxy_handlers.len() > 0 {
-        proxy = Proxy::new(
-            network_cfg.proxy_handlers.iter().map(|ph_type| get_proxy_handler(ph_type)).collect()
-        );
-    } else {
-        proxy = Proxy::new(handlers);
+fn spawn_proxy(network_cfg: NetworkConfig, mut handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
+    // Combine passed proxies with the proxies from the config.
+    for proxy_type in &network_cfg.proxy_handlers {
+        handlers.push(get_proxy_handler(proxy_type));
     }
 
+    let proxy = Proxy::new(handlers);
     let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
     proxy.spawn(proxy_messages_rx);
 
