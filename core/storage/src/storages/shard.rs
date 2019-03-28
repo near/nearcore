@@ -2,15 +2,14 @@ use super::{extend_with_cache, read_with_cache, write_with_cache, StorageResult}
 use super::{BlockChainStorage, GenericStorage};
 use super::{ChainId, KeyValueDB};
 use super::{
-    COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS,
-    COL_RECEIPT_BLOCK, COL_TX_NONCE,
+    CACHE_SIZE, COL_RECEIPT_BLOCK, COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS,
+    COL_TX_NONCE,
 };
-use primitives::chain::{
-    SignedShardBlock, SignedShardBlockHeader, ReceiptBlock
-};
+use lru::LruCache;
+use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::hash::CryptoHash;
 use primitives::transaction::{TransactionAddress, TransactionResult};
-use primitives::types::{BlockIndex, ShardId, AccountId};
+use primitives::types::{AccountId, BlockIndex, ShardId};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -18,11 +17,14 @@ use std::sync::Arc;
 /// Shard chain
 pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
-    transaction_results: HashMap<Vec<u8>, TransactionResult>,
-    transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
-    receipts: HashMap<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
+    // keyed by transaction hash
+    transaction_results: LruCache<Vec<u8>, TransactionResult>,
+    // keyed by transaction hash
+    transaction_addresses: LruCache<Vec<u8>, TransactionAddress>,
+    // keyed by block index
+    receipts: LruCache<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
     // Records the largest transaction nonce per account
-    tx_nonce: HashMap<Vec<u8>, u64>,
+    tx_nonce: LruCache<Vec<u8>, u64>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -38,10 +40,10 @@ impl ShardChainStorage {
     pub fn new(storage: Arc<KeyValueDB>, shard_id: u32) -> Self {
         Self {
             generic_storage: BlockChainStorage::new(storage, ChainId::ShardChain(shard_id)),
-            transaction_results: Default::default(),
-            transaction_addresses: Default::default(),
-            receipts: Default::default(),
-            tx_nonce: Default::default(),
+            transaction_results: LruCache::new(CACHE_SIZE),
+            transaction_addresses: LruCache::new(CACHE_SIZE),
+            receipts: LruCache::new(CACHE_SIZE),
+            tx_nonce: LruCache::new(CACHE_SIZE),
         }
     }
 
@@ -140,16 +142,15 @@ impl ShardChainStorage {
     pub fn receipt_block(
         &mut self,
         index: BlockIndex,
-        shard_id: ShardId
+        shard_id: ShardId,
     ) -> StorageResult<&ReceiptBlock> {
         read_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_RECEIPT_BLOCK,
             &mut self.receipts,
-            &self.generic_storage.enc_index(index)
-        ).map(|receipts| {
-            receipts.and_then(|r| r.get(&shard_id))
-        })
+            &self.generic_storage.enc_index(index),
+        )
+        .map(|receipts| receipts.and_then(|r| r.get(&shard_id)))
     }
 
     pub fn extend_receipts(
