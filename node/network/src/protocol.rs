@@ -24,7 +24,9 @@ use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 use crate::proxy::{Proxy, ProxyHandler};
 
-pub type Package = (Arc<Message>, Sender<PeerMessage>);
+/// Tuple containing one single message (pointer) and one channel to send the message through.
+/// Used for Proxy, they implement a stream of `SimplePackedMessage`.
+pub type SimplePackedMessage = (Arc<Message>, Sender<PeerMessage>);
 
 /// Package containing messages and channels to send results after going through proxy handlers.
 pub enum PackedMessage {
@@ -34,7 +36,7 @@ pub enum PackedMessage {
 }
 
 impl PackedMessage {
-    pub fn to_stream(self) -> Box<Stream<Item=Package, Error=()> + Send + Sync> {
+    pub fn to_stream(self) -> Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync> {
         match self {
             PackedMessage::SingleMessage(message, channel) =>
                 Box::new(stream::once(Ok((Arc::new(message), channel)))),

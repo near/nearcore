@@ -7,7 +7,7 @@ use primitives::serialize::Encode;
 
 use crate::peer::PeerMessage;
 use crate::protocol::{forward_msg, PackedMessage};
-use crate::protocol::Package;
+use crate::protocol::SimplePackedMessage;
 
 mod registry;
 
@@ -38,7 +38,7 @@ impl Proxy {
 
     /// Spawn proxies, start task that polls messages and pass them through proxy handlers.
     pub fn spawn(&mut self, inc_messages: Receiver<PackedMessage>) {
-        let mut stream: Box<Stream<Item=Package, Error=()> + Send + Sync> = Box::new(inc_messages.map(|pm| pm.to_stream()).flatten());
+        let mut stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync> = Box::new(inc_messages.map(|pm| pm.to_stream()).flatten());
 
         for handler in self.handlers.iter() {
             stream = handler.pipe_stream(stream);
@@ -48,7 +48,7 @@ impl Proxy {
     }
 
     /// Send message received from the proxy to their final destination.
-    fn send_final_message(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) {
+    fn send_final_message(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) {
         let task = stream.for_each(move |(message, channel)| {
             let data = Encode::encode(&message).unwrap();
             forward_msg(channel, PeerMessage::Message(data));
@@ -61,5 +61,5 @@ impl Proxy {
 
 /// ProxyHandler interface.
 pub trait ProxyHandler: Send + Sync {
-    fn pipe_stream(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) -> Box<Stream<Item=Package, Error=()> + Send + Sync>;
+    fn pipe_stream(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) -> Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>;
 }

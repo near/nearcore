@@ -7,7 +7,7 @@ use futures::sync::mpsc::channel;
 use rand::Rng;
 use tokio::timer::Delay;
 
-use crate::protocol::Package;
+use crate::protocol::SimplePackedMessage;
 use crate::proxy::ProxyHandler;
 
 /// Messages passing through this handler will be delayed by a random number of milliseconds
@@ -26,8 +26,8 @@ impl ThrottlingHandler {
 
 /// Messages will be dropped with probability `dropout_rate `
 impl ProxyHandler for ThrottlingHandler {
-    fn pipe_stream(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) ->
-    Box<Stream<Item=Package, Error=()> + Send + Sync>
+    fn pipe_stream(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) ->
+    Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>
     {
         let (message_tx, message_rx) = channel(1024);
 

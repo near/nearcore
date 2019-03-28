@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use futures::Stream;
 
-use crate::protocol::Package;
+use crate::protocol::SimplePackedMessage;
 use crate::proxy::ProxyHandler;
 
 pub struct BenchmarkHandler {
@@ -22,8 +22,8 @@ impl BenchmarkHandler {
 
 /// Messages will be dropped with probability `dropout_rate `
 impl ProxyHandler for BenchmarkHandler {
-    fn pipe_stream(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) ->
-    Box<Stream<Item=Package, Error=()> + Send + Sync>
+    fn pipe_stream(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) ->
+    Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>
     {
         let instants = self.instants.clone();
 

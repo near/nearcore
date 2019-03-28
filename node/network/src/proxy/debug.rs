@@ -1,6 +1,6 @@
 use futures::Stream;
 
-use crate::protocol::Package;
+use crate::protocol::SimplePackedMessage;
 use crate::proxy::ProxyHandler;
 
 pub struct DebugHandler {}
@@ -12,8 +12,8 @@ impl DebugHandler {
 }
 
 impl ProxyHandler for DebugHandler {
-    fn pipe_stream(&self, stream: Box<Stream<Item=Package, Error=()> + Send + Sync>) ->
-    Box<Stream<Item=Package, Error=()> + Send + Sync>
+    fn pipe_stream(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) ->
+    Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>
     {
         Box::new(stream.map(|package| {
             println!("{:?}", package);
