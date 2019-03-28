@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use futures::Poll;
 use futures::stream::Stream;
 use futures::sync::mpsc::Receiver;
-use tokio::prelude::Async;
 
 use primitives::serialize::Encode;
 
@@ -40,7 +38,7 @@ impl Proxy {
 
     /// Spawn proxies, start task that polls messages and pass them through proxy handlers.
     pub fn spawn(&mut self, inc_messages: Receiver<PackedMessage>) {
-        let mut stream: Box<Stream<Item=Package, Error=()> + Send + Sync> = Box::new(PackedMessageStream::new(inc_messages));
+        let mut stream: Box<Stream<Item=Package, Error=()> + Send + Sync> = Box::new(inc_messages.map(|pm| pm.to_stream()).flatten());
 
         for handler in self.handlers.iter() {
             stream = handler.pipe_stream(stream);
@@ -60,56 +58,6 @@ impl Proxy {
         tokio::spawn(task);
     }
 }
-
-/// Data structure used uniquely to concatenate messages from `inc_messages`
-struct PackedMessageStream {
-    inc_message: Receiver<PackedMessage>,
-    active_stream: Option<Box<Stream<Item=Package, Error=()>>>,
-}
-
-impl PackedMessageStream {
-    fn new(inc_message: Receiver<PackedMessage>) -> Self {
-        Self {
-            inc_message,
-            active_stream: None,
-        }
-    }
-}
-
-impl Stream for PackedMessageStream {
-    type Item = Package;
-    type Error = ();
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        loop {
-            // Try to consume current stream
-            if let Some(stream) = &mut self.active_stream {
-                let package_option = try_ready!(stream.poll());
-
-                if let Some(package) = package_option {
-                    return Ok(Async::Ready(Some(package)));
-                } else {
-                    // If the stream was completely consumed drop it
-                    self.active_stream.take();
-                }
-            }
-
-            let packed_message_option = try_ready!(self.inc_message.poll());
-
-            if let Some(packed_message) = packed_message_option {
-                self.active_stream = Some(Box::new(packed_message.to_stream()));
-            } else {
-                break;
-            }
-        }
-
-        Ok(Async::Ready(None))
-    }
-}
-
-unsafe impl Send for PackedMessageStream {}
-
-unsafe impl Sync for PackedMessageStream {}
 
 /// ProxyHandler interface.
 pub trait ProxyHandler: Send + Sync {
