@@ -3,7 +3,7 @@ set -e
 
 IMAGE=${1:-nearprotocol/alphanet:0.1.1}
 PREFIX=${2:-alphanet}
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.2}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.3}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 

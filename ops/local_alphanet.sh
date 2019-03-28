@@ -7,7 +7,7 @@ sudo docker run -d --name alphanet0 -p 3000:3000 -p 3030:3030 -e "BOOT_NODE_IP=1
 sudo docker run -d --name alphanet1 --add-host=alphanet0:172.17.0.2 -e "BOOT_NODE_IP=172.17.0.2" -e "NODE_NUM=1" -e "TOTAL_NODES=4" ${IMAGE}
 sudo docker run -d --name alphanet2 --add-host=alphanet0:172.17.0.2 -e "BOOT_NODE_IP=172.17.0.2" -e "NODE_NUM=2" -e "TOTAL_NODES=4" ${IMAGE}
 sudo docker run -d --name alphanet3 --add-host=alphanet0:172.17.0.2 -e "BOOT_NODE_IP=172.17.0.2" -e "NODE_NUM=3" -e "TOTAL_NODES=4" ${IMAGE}
-sudo docker run -d --name studio -p 80:80 --add-host=alphanet0:127.17.0.2 -e "DEVNET_HOST=http://172.17.0.2" nearprotocol/studio:0.1.2
+sudo docker run -d --name studio -p 80:80 --add-host=alphanet0:127.17.0.2 -e "DEVNET_HOST=http://172.17.0.2" nearprotocol/studio:0.1.3
 
 # borrowed from https://stackoverflow.com/a/20369590
 spinner()
