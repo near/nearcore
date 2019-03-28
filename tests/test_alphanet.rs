@@ -28,8 +28,8 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
 
-    // Add proxy handlers to this pipeline. Each node will use same pipeline, but it is not needed.
-    let mut proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
+    // Add proxy handlers to the pipeline.
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
 
     // Launch nodes in a chain, such that X+1 node boots from X node.
     for i in 0..num_nodes {

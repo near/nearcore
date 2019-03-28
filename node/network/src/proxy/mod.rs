@@ -9,8 +9,6 @@ use crate::peer::PeerMessage;
 use crate::protocol::{forward_msg, PackedMessage};
 use crate::protocol::SimplePackedMessage;
 
-mod registry;
-
 /// Proxy Handlers implementations
 pub mod benchmark;
 pub mod debug;

@@ -23,6 +23,9 @@ use crate::message::{ConnectedInfo, CoupledBlock, Message, RequestId};
 use crate::peer::{ChainStateRetriever, PeerMessage};
 use crate::peer_manager::PeerManager;
 use crate::proxy::{Proxy, ProxyHandler};
+use configs::network::ProxyHandlerType;
+use crate::proxy::dropout::DropoutHandler;
+use crate::proxy::debug::DebugHandler;
 
 /// Tuple containing one single message (pointer) and one channel to send the message through.
 /// Used for Proxy, they implement a stream of `SimplePackedMessage`.
@@ -303,9 +306,30 @@ impl Protocol {
     }
 }
 
-/// Build Proxy and spawn using specified ProxyHandlers from NetworkConfig.
-fn spawn_proxy(handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
-    let mut proxy = Proxy::new(handlers);
+fn get_proxy_handler(proxy_handler_type: &ProxyHandlerType) -> Arc<ProxyHandler> {
+    match proxy_handler_type {
+        ProxyHandlerType::Dropout(dropout_rate) => Arc::new(DropoutHandler::new(*dropout_rate)),
+        ProxyHandlerType::Debug => Arc::new(DebugHandler::new()),
+    }
+}
+
+/// Build Proxy and spawn using specified ProxyHandlers from NetworkConfig
+/// or custom ProxyHandler for testing particular features.
+///
+/// At least one between `network_cfg.proxy_handlers` and `proxy_handlers` should be empty.
+/// * `network_cfg.proxy_handlers` is not empty when running nodes with given proxy handlers from config.
+/// * `proxy_handlers` is not empty when running particular tests.
+fn spawn_proxy(network_cfg: NetworkConfig, handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
+    let mut proxy;
+
+    // Try to get proxy_handlers from config
+    if network_cfg.proxy_handlers.len() > 0 {
+        proxy = Proxy::new(
+            network_cfg.proxy_handlers.iter().map(|ph_type| get_proxy_handler(ph_type)).collect()
+        );
+    } else {
+        proxy = Proxy::new(handlers);
+    }
 
     let (proxy_messages_tx, proxy_messages_rx) = channel(1024);
     proxy.spawn(proxy_messages_rx);
@@ -325,8 +349,8 @@ fn spawn_proxy(handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
 /// * `out_blocks_rx`: Channel where from protocol reads blocks that should be sent for
 ///   announcements.
 /// * `proxy_handlers`: Message are sent through proxy handlers before being sent to the network,
-/// Handlers can see/drop/modify/replicate each message.
-/// Note: Use empty vector when no proxy handler will be used
+///   Handlers can see/drop/modify/replicate each message.
+///   Note: Use empty vector when no proxy handler will be used.
 pub fn spawn_network(
     client: Arc<Client>,
     account_id: Option<AccountId>,
@@ -359,7 +383,7 @@ pub fn spawn_network(
     ));
 
     // Create proxy
-    let proxy_messages_tx = spawn_proxy(proxy_handlers);
+    let proxy_messages_tx = spawn_proxy(network_cfg, proxy_handlers);
 
     let protocol = Arc::new(Protocol { client, peer_manager, inc_gossip_tx, inc_payload_gossip_tx, inc_block_tx, payload_response_tx, inc_chain_state_tx, proxy_messages_tx });
 

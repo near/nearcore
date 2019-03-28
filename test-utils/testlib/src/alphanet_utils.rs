@@ -54,7 +54,7 @@ impl Node {
     }
 
     /// Create full node that does not accept incoming connections.
-    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec, handlers: Vec<Arc<ProxyHandler>>) -> Self {
+    pub fn for_test_passive(test_prefix: &str, test_port: u16, account_id: &str, peer_id: u16, boot_nodes: Vec<PeerAddr>, chain_spec: ChainSpec, proxy_handlers: Vec<Arc<ProxyHandler>>) -> Self {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
             account_id,
@@ -63,9 +63,10 @@ impl Node {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
-            handlers,
+            proxy_handlers,
         )
     }
+
     pub fn new(
         name: &str,
         account_id: &str,
@@ -108,6 +109,7 @@ impl Node {
             reconnect_delay: Duration::from_millis(50),
             gossip_interval: Duration::from_millis(50),
             gossip_sample_size: 10,
+            proxy_handlers: vec![],
         };
 
         let rpc_cfg = RPCConfig { rpc_port };
