@@ -13,6 +13,7 @@ pub mod benchmark;
 pub mod debug;
 pub mod dropout;
 pub mod throttling;
+pub mod predicate;
 
 pub struct Proxy {
     handlers: Vec<Arc<ProxyHandler>>,
