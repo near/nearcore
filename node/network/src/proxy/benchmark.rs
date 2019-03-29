@@ -1,21 +1,104 @@
-use std::cmp::min;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use futures::future::Future;
 use futures::Stream;
+use log::warn;
+use tokio::timer::Interval;
 
+use crate::message::Message;
 use crate::protocol::SimplePackedMessage;
 use crate::proxy::ProxyHandler;
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const MONITOR_LOG_PATH: &str = "monitor.log";
+const DUMP_EVERY_X_SEC: u64 = 1;
+
 pub struct BenchmarkHandler {
-    instants: Arc<RwLock<Vec<Instant>>>
+    started: Arc<RwLock<bool>>,
+    message_type_counter: Arc<RwLock<Vec<usize>>>,
+}
+
+fn message_enum_index(message: &Message) -> usize {
+    match message {
+        Message::Gossip(_) => 0,
+        Message::Connected(_) => 1,
+        Message::Transaction(_) => 2,
+        Message::Receipt(_) => 3,
+        Message::BlockAnnounce(_) => 4,
+        Message::BlockFetchRequest(_, _, _) => 5,
+        Message::BlockResponse(_, _) => 6,
+        Message::PayloadGossip(_) => 7,
+        Message::PayloadRequest(_, _, _) => 8,
+        Message::PayloadSnapshotRequest(_, _) => 9,
+        Message::PayloadResponse(_, _) => 10,
+    }
+}
+
+/// Build string identifier for Message.
+/// Inverse of `message_enum_index` order.
+fn message_enum_id(index: usize) -> String {
+    match index {
+        0 => "Gossip",
+        1 => "Connected",
+        2 => "Transaction",
+        3 => "Receipt",
+        4 => "BlockAnnounce",
+        5 => "BlockFetchRequest",
+        6 => "BlockResponse",
+        7 => "PayloadGossip",
+        8 => "PayloadRequest",
+        9 => "PayloadSnapshotRequest",
+        10 => "PayloadResponse",
+        _ => panic!("Invalid message enum index."),
+    }.to_string()
 }
 
 impl BenchmarkHandler {
     pub fn new() -> Self {
         Self {
-            instants: Arc::new(RwLock::new(vec![]))
+            started: Arc::new(RwLock::new(false)),
+            message_type_counter: Arc::new(RwLock::new(vec![0; 11])),
+        }
+    }
+
+    /// This function can't be called on new method, because there must exist a tokio
+    fn start(&self) {
+        let counter = self.message_type_counter.clone();
+
+        let dump_task = Interval::new_interval(Duration::from_secs(DUMP_EVERY_X_SEC))
+            .for_each(move |_| {
+                BenchmarkHandler::dump(counter.clone());
+                Ok(())
+            }).map(|_| ()).map_err(|e| warn!("Error dumping data. {:?}", e));
+
+        tokio::spawn(dump_task);
+    }
+
+    fn is_started(&self) -> bool {
+        *self.started.read().expect(POISONED_LOCK_ERR)
+    }
+
+    pub fn dump(message_type_counter: Arc<RwLock<Vec<usize>>>) {
+        let counters = message_type_counter.read().expect(POISONED_LOCK_ERR);
+
+        let path = Path::new(MONITOR_LOG_PATH);
+
+        let mut file = match OpenOptions::new().create(true).append(true).open(path) {
+            Err(why) => panic!("Fail opening file {:?}: {:?}", path, why),
+            Ok(file) => file,
+        };
+
+        file.write_all(&format!("\n{:?}\n", Instant::now()).into_bytes())
+            .expect(format!("Fail writing to {:?}", path).as_ref());
+
+        for (index, count) in counters.iter().enumerate() {
+            file.write_all(&format!("{:?}: {:?}\n", message_enum_id(index), count).into_bytes())
+                .expect(format!("Fail writing to {:?}", path).as_ref());
         }
     }
 }
@@ -25,23 +108,18 @@ impl ProxyHandler for BenchmarkHandler {
     fn pipe_stream(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) ->
     Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>
     {
-        let instants = self.instants.clone();
+        // Call start only once.
+        if !self.is_started() {
+            // Can't start without an active tokio runtime.
+            self.start();
+        }
+
+        let counter = self.message_type_counter.clone();
 
         Box::new(stream.map(move |package| {
-            let now = Instant::now();
+            let index = message_enum_index(&package.0);
 
-            instants.write().expect("The lock was poisoned.").push(now);
-
-            let guard = instants.read().expect("The lock was poisoned.");
-
-            let size = min(1000, guard.len());
-
-            if size > 1 {
-                let delta = guard[guard.len() - 1] - guard[guard.len() - size];
-                let x = delta.as_millis() as f64;
-                let messages_per_second = (size as f64) / x * 1000f64;
-                println!("Messages per second: {}", messages_per_second);
-            }
+            counter.write().expect(POISONED_LOCK_ERR)[index] += 1;
 
             package
         }))

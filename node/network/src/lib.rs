@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate futures;
 
 pub use crate::protocol::spawn_network;

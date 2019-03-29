@@ -3,9 +3,9 @@ use testlib::alphanet_utils::wait;
 use testlib::alphanet_utils::Node;
 use primitives::transaction::TransactionBody;
 
-use network::proxy::debug::DebugHandler;
 use std::sync::Arc;
 use network::proxy::ProxyHandler;
+use network::proxy::benchmark::BenchmarkHandler;
 
 fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
     let i = rand::random::<usize>() % num_nodes;
@@ -29,7 +29,9 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let mut boot_nodes = vec![];
 
     // Add proxy handlers to the pipeline.
-    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![
+        Arc::new(BenchmarkHandler::new())
+    ];
 
     // Launch nodes in a chain, such that X+1 node boots from X node.
     for i in 0..num_nodes {
