@@ -520,7 +520,7 @@ impl From<ChainState> for chain_proto::ChainState {
 }
 
 /// request missing parts of the payload snapshot which has hash snapshot_hash
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct MissingPayloadRequest {
     pub transactions: Vec<CryptoHash>,
     pub receipts: Vec<CryptoHash>,
@@ -564,7 +564,7 @@ impl From<MissingPayloadRequest> for network_proto::MissingPayloadRequest {
 
 /// response to missing parts of the payload snapshot which has hash snapshot_hash
 /// it is basically a ChainPayload except that snapshot_hash is not the hash of the payload
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct MissingPayloadResponse {
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<ReceiptBlock>,

@@ -31,7 +31,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Message passed over the network from peer to peer.
 /// Box's are used when message is significantly larger than other enum members.
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum Message {
     /// On peer connected, information about their chain.

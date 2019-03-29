@@ -47,7 +47,7 @@ impl Proxy {
     /// Send message received from the proxy to their final destination.
     fn send_final_message(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) {
         let task = stream.for_each(move |(message, channel)| {
-            let data = encode_message(message).unwrap();
+            let data = encode_message((*message).clone()).unwrap();
             forward_msg(channel, PeerMessage::Message(data));
             Ok(())
         });

@@ -10,7 +10,7 @@ use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct PayloadGossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
