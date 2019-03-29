@@ -15,10 +15,14 @@ use byteorder::{ByteOrder, LittleEndian};
 
 type Result<T> = ::std::result::Result<T, Error>;
 
-type BufferTypeIndex = u32;
+type DataTypeIndex = u32;
 
-pub const BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID: BufferTypeIndex = 1;
-pub const BUFFER_TYPE_CURRENT_ACCOUNT_ID: BufferTypeIndex = 2;
+pub const DATA_TYPE_ORIGINATOR_ACCOUNT_ID: DataTypeIndex = 1;
+pub const DATA_TYPE_CURRENT_ACCOUNT_ID: DataTypeIndex = 2;
+pub const DATA_TYPE_STORAGE: DataTypeIndex = 3;
+pub const DATA_TYPE_INPUT: DataTypeIndex = 4;
+pub const DATA_TYPE_RESULT: DataTypeIndex = 5;
+pub const DATA_TYPE_STORAGE_ITER: DataTypeIndex = 6;
 
 pub struct Runtime<'a> {
     ext: &'a mut External,
@@ -105,11 +109,6 @@ impl<'a> Runtime<'a> {
         Ok(LittleEndian::read_u32(&buf))
     }
 
-    fn read_buffer(&self, offset: usize) -> Result<Vec<u8>> {
-        let len: u32 = self.memory_get_u32(offset)?;
-        self.memory_get(offset + 4, len as usize)
-    }
-
     fn random_u8(&mut self) -> u8 {
         if self.random_buffer_offset >= self.random_seed.len() {
             self.random_seed = hash(&self.random_seed).into();
@@ -119,6 +118,7 @@ impl<'a> Runtime<'a> {
         self.random_seed[self.random_buffer_offset - 1]
     }
 
+    /// Reads AssemblyScript string from utf-16
     fn read_string(&self, offset: usize) -> Result<String> {
         let len: u32 = self.memory_get_u32(offset)?;
         let buffer = self.memory_get(offset + 4, (len * 2) as usize)?;
@@ -134,8 +134,8 @@ impl<'a> Runtime<'a> {
         Ok(self.promise_ids.get(promise_index as usize).ok_or(Error::InvalidPromiseIndex)?.clone())
     }
 
-    fn read_and_parse_account_id(&self, offset: u32) -> Result<AccountId> {
-        let buf = self.read_buffer(offset as usize)?;
+    fn read_and_parse_account_id(&self, ptr: u32, len: u32) -> Result<AccountId> {
+        let buf = self.memory_get(ptr as usize, len as usize)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| Error::BadUtf8)?;
         if !is_valid_account_id(&account_id) {
             return Err(Error::InvalidAccountId);
@@ -177,59 +177,39 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    /// Returns length of the value from the storage
-    fn storage_read_len(&mut self, key_ptr: u32) -> Result<u32> {
-        let key = self.read_buffer(key_ptr as usize)?;
-        let val = self
-            .ext
-            .storage_get(&key)
-            .map_err(|_| Error::StorageUpdateError)?;
-        let len = match val {
-            Some(v) => v.len(),
-            None => 0,
-        };
-        debug!(target: "wasm", "storage_read_len('{}') => {}", pretty_utf8(&key), len);
-        Ok(len as u32)
-    }
-
-    /// Reads from the storage to wasm memory
-    fn storage_read_into(&mut self, key_ptr: u32, val_ptr: u32) -> Result<()> {
-        let key = self.read_buffer(key_ptr as usize)?;
-        let val = self
-            .ext
-            .storage_get(&key)
-            .map_err(|_| Error::StorageUpdateError)?;
-        if let Some(buf) = val {
-            self.memory_set(val_ptr as usize, &buf)?;
-            debug!(target: "wasm", "storage_read_into('{}') => '{}'", pretty_utf8(&key), pretty_utf8(&buf));
-        }
-        Ok(())
-    }
-
     /// Writes to storage from wasm memory
-    fn storage_write(&mut self, key_ptr: u32, val_ptr: u32) -> Result<()> {
-        let key = self.read_buffer(key_ptr as usize)?;
-        let val = self.read_buffer(val_ptr as usize)?;
-        // TODO: Charge gas for storage
+    fn storage_write(&mut self, key_len: u32, key_ptr: u32, value_len: u32, value_ptr: u32) -> Result<()> {
+        let key = self.memory_get(key_ptr as usize, key_len as usize)?;
+        let value = self.memory_get(value_ptr as usize, value_len as usize)?;
 
         self.ext
-            .storage_set(&key, &val)
+            .storage_set(&key, &value)
             .map_err(|_| Error::StorageUpdateError)?;
-        debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&val));
+        debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&value));
         Ok(())
     }
 
     /// Remove key from storage
-    fn storage_remove(&mut self, key_ptr: u32) -> Result<()> {
-        let key = self.read_buffer(key_ptr as usize)?;
+    fn storage_remove(&mut self, key_len: u32, key_ptr: u32) -> Result<()> {
+        let key = self.memory_get(key_ptr as usize, key_len as usize)?;
         self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
         debug!(target: "wasm", "storage_remove('{}')", pretty_utf8(&key));
         Ok(())
     }
 
+    /// Returns whether the key is present in the storage
+    fn storage_has_key(&mut self, key_len: u32, key_ptr: u32) -> Result<u32> {
+        let key = self.memory_get(key_ptr as usize, key_len as usize)?;
+        // TODO(#743): Improve performance of has_key. Don't need to retrive the value.
+        let val = self.ext.storage_get(&key).map_err(|_| Error::StorageReadError)?;
+        let res = val.is_some();
+        debug!(target: "wasm", "storage_has_key('{}') -> {}", pretty_utf8(&key), res);
+        Ok(res as u32)
+    }
+
     /// Gets iterator for keys with given prefix
-    fn storage_iter(&mut self, prefix_ptr: u32) -> Result<u32> {
-        let prefix = self.read_buffer(prefix_ptr as usize)?;
+    fn storage_iter(&mut self, prefix_len: u32, prefix_ptr: u32) -> Result<u32> {
+        let prefix = self.memory_get(prefix_ptr as usize, prefix_len as usize)?;
         let storage_id = self
             .ext
             .storage_iter(&prefix)
@@ -248,30 +228,6 @@ impl<'a> Runtime<'a> {
         Ok(key.is_some() as u32)
     }
 
-    /// Returns length of next key in iterator or 0 if there is no next value.
-    fn storage_iter_peek_len(&mut self, storage_id: u32) -> Result<u32> {
-        let key = self
-            .ext
-            .storage_iter_peek(storage_id)
-            .map_err(|_| Error::StorageUpdateError)?;
-        match key {
-            Some(key) => Ok(key.len() as u32),
-            None => Ok(0)
-        }
-    }
-
-    /// Writes next key in iterator to given buffer.
-    fn storage_iter_peek_into(&mut self, storage_id: u32, val_ptr: u32) -> Result<()> {
-        let key = self
-            .ext
-            .storage_iter_peek(storage_id)
-            .map_err(|_| Error::StorageUpdateError)?;
-        if let Some(buf) = key {
-            self.memory_set(val_ptr as usize, &buf)?;
-        }
-        Ok(())
-    }
-
     fn gas(&mut self, gas_amount: u32) -> Result<()> {
         if self.charge_gas(Gas::from(gas_amount)) {
             Ok(())
@@ -280,15 +236,22 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn promise_create(&mut self, account_id_ptr: u32, method_name_ptr: u32, arguments_ptr: u32, mana: u32, amount: u64) -> Result<u32> {
-        let account_id = self.read_and_parse_account_id(account_id_ptr)?;
-        let method_name = self.read_buffer(method_name_ptr as usize)?;
+    fn promise_create(
+        &mut self,
+        account_id_len: u32, account_id_ptr: u32,
+        method_name_len: u32, method_name_ptr: u32,
+        arguments_len: u32, arguments_ptr: u32,
+        mana: u32,
+        amount: u64
+    ) -> Result<u32> {
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
 
         if let Some(b'_') = method_name.get(0) {
             return Err(Error::PrivateMethod);
         }
 
-        let arguments = self.read_buffer(arguments_ptr as usize)?;
+        let arguments = self.memory_get(arguments_ptr as usize, arguments_len as usize)?;
 
         // Charging separately reserved mana + 1 to call this promise.
         self.charge_mana_or_fail(mana)?;
@@ -309,13 +272,19 @@ impl<'a> Runtime<'a> {
         Ok(promise_index as u32)
     }
 
-    fn promise_then(&mut self, promise_index: u32, method_name_ptr: u32, arguments_ptr: u32, mana: u32) -> Result<u32> {
+    fn promise_then(
+        &mut self,
+        promise_index: u32,
+        method_name_len: u32, method_name_ptr: u32,
+        arguments_len: u32, arguments_ptr: u32,
+        mana: u32
+    ) -> Result<u32> {
         let promise_id = self.promise_index_to_id(promise_index)?;
-        let method_name = self.read_buffer(method_name_ptr as usize)?;
+        let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
         if method_name.is_empty() {
             return Err(Error::EmptyMethodName);
         }
-        let arguments = self.read_buffer(arguments_ptr as usize)?;
+        let arguments = self.memory_get(arguments_ptr as usize, arguments_len as usize)?;
 
         // Charging separately reserved mana + N to add callback for the promise.
         // N is the number of callbacks in case of promise joiner.
@@ -374,16 +343,6 @@ impl<'a> Runtime<'a> {
         Ok(promise_index as u32)
     }
 
-    /// Returns length of the input (arguments)
-    fn input_read_len(&self) -> Result<u32> {
-        Ok(self.input_data.len() as u32)
-    }
-
-    /// Reads from the input (arguments) to wasm memory
-    fn input_read_into(&mut self, val_ptr: u32) -> Result<()> {
-        self.memory_set(val_ptr as usize, &self.input_data)
-    }
-
     /// Returns the number of results.
     /// Results are available as part of the callback from a promise.
     fn result_count(&self) -> Result<u32> {
@@ -396,28 +355,8 @@ impl<'a> Runtime<'a> {
         Ok(result.is_some() as u32)
     }
 
-    /// Returns length of the result (arguments)
-    fn result_read_len(&self, result_index: u32) -> Result<u32> {
-        let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
-
-        match result {
-            Some(buf) => Ok(buf.len() as u32),
-            None => Err(Error::ResultIsNotOk),
-        }
-    }
-
-    /// Read from the input to wasm memory
-    fn result_read_into(&mut self, result_index: u32, val_ptr: u32) -> Result<()> {
-        let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
-
-        match result {
-            Some(buf) => self.memory_set(val_ptr as usize, &buf),
-            None => Err(Error::ResultIsNotOk),
-        }
-    }
-
-    fn return_value(&mut self, return_val_ptr: u32) -> Result<()> {
-        let return_val = self.read_buffer(return_val_ptr as usize)?;
+    fn return_value(&mut self, value_len: u32, value_ptr: u32) -> Result<()> {
+        let return_val = self.memory_get(value_ptr as usize, value_len as usize)?;
 
         self.return_data = ReturnData::Value(return_val);
 
@@ -471,8 +410,9 @@ impl<'a> Runtime<'a> {
         Err(Error::AssertFailed)
     }
 
-    fn debug(&mut self, msg_ptr: u32) -> Result<()> {
-        let message = format!("LOG: {}", self.read_string(msg_ptr as usize).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+    fn debug(&mut self, msg_len: u32, msg_ptr: u32) -> Result<()> {
+        let val = self.memory_get(msg_ptr as usize, msg_len as usize)?;
+        let message = format!("LOG: {}", std::str::from_utf8(&val).unwrap_or_else(|_| "debug(): from_utf8 failed"));
         debug!(target: "wasm", "{}", &message);
         self.logs.push(message);
 
@@ -480,38 +420,92 @@ impl<'a> Runtime<'a> {
     }
 
     fn log(&mut self, msg_ptr: u32) -> Result<()> {
-        self.debug(msg_ptr)
+        let message = format!("LOG: {}", self.read_string(msg_ptr as usize).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+        debug!(target: "wasm", "{}", &message);
+        self.logs.push(message);
+
+        Ok(())
     }
 
-    /// Returns length of the buffer for the type/key pair
-    fn read_len(&mut self, buffer_type_index: BufferTypeIndex, _key_ptr: u32) -> Result<u32> {
-        let len = match buffer_type_index {
-            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes().len(),
-            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes().len(),
-            _ => return Err(Error::UnknownBufferTypeIndex)
+    /// Generic data read. Tries to write data into the given buffer, only if the buffer has available capacity.
+    /// Returns length of the data in bytes for the given buffer type and the given key.
+    /// NOTE: Majority of reads would be small enough in size to fit into the given preallocated buffer.
+    /// Params:
+    /// buffer_type_index -> The index of the data column type to read, e.g. storage, sender's account_id or results
+    /// key_len and key_ptr -> Depends on buffer type. Represents a key to read.
+    ///     key is either a pointer to a key buffer or a key index
+    /// max_buf_len -> Capacity of the preallocated buffer to write data into. Can be 0, if we first want to read the length
+    /// buf_ptr -> Pointer to the buffer to write data into.
+    fn data_read(
+        &mut self,
+        data_type_index: DataTypeIndex,
+        key_len: u32,
+        key: u32,
+        max_buf_len: u32,
+        buf_ptr: u32,
+    ) -> Result<u32> {
+        let tmp_vec;
+        let buf = match data_type_index {
+            DATA_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes(),
+            DATA_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
+            DATA_TYPE_STORAGE => {
+                let key = self.memory_get(key as usize, key_len as usize)?;
+                let val = self
+                    .ext
+                    .storage_get(&key)
+                    .map_err(|_| Error::StorageUpdateError)?;
+                match val {
+                    Some(v) => {
+                        tmp_vec = v;
+                        &tmp_vec[..]
+                    }
+                    None => &[],
+                }
+            }
+            DATA_TYPE_INPUT => self.input_data,
+            DATA_TYPE_RESULT => {
+                let result = self
+                    .result_data
+                    .get(key as usize)
+                    .ok_or(Error::InvalidResultIndex)?;
+
+                match result {
+                    Some(v) => &v[..],
+                    None => return Err(Error::ResultIsNotOk),
+                }
+
+            },
+            DATA_TYPE_STORAGE_ITER => {
+                let storage_id = key;
+                let key_buf = self
+                    .ext
+                    .storage_iter_peek(storage_id)
+                    .map_err(|_| Error::StorageUpdateError)?;
+                match key_buf {
+                    Some(v) => {
+                        tmp_vec = v;
+                        &tmp_vec[..]
+                    }
+                    None => &[],
+                }
+            }
+            _ => return Err(Error::UnknownDataTypeIndex)
         };
-        Ok(len as u32)
+        if buf.len() <= max_buf_len as usize {
+            self.memory_set(buf_ptr as usize, &buf)?;
+        }
+        Ok(buf.len() as u32)
     }
 
-    /// Writes content of the buffer for the type/key pair into given pointer
-    fn read_into(&mut self, buffer_type_index: BufferTypeIndex, _key_ptr: u32, val_ptr: u32) -> Result<()> {
-        let buf = match buffer_type_index {
-            BUFFER_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes(),
-            BUFFER_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
-            _ => return Err(Error::UnknownBufferTypeIndex)
-        };
-        self.memory_set(val_ptr as usize, buf)
-    }
-
-    fn hash(&mut self, buf_ptr: u32, out_ptr: u32) -> Result<()> {
-        let buf = self.read_buffer(buf_ptr as usize)?;
+    fn hash(&mut self, value_len: u32, value_ptr: u32, buf_ptr: u32) -> Result<()> {
+        let buf = self.memory_get(value_ptr as usize, value_len as usize)?;
         let buf_hash = hash(&buf);
 
-        self.memory_set(out_ptr as usize, buf_hash.as_ref())
+        self.memory_set(buf_ptr as usize, buf_hash.as_ref())
     }
 
-    fn hash32(&self, buf_ptr: u32) -> Result<u32> {
-        let buf = self.read_buffer(buf_ptr as usize)?;
+    fn hash32(&self, value_len: u32, value_ptr: u32) -> Result<u32> {
+        let buf = self.memory_get(value_ptr as usize, value_len as usize)?;
         let buf_hash = hash(&buf);
         let buf_hash_ref = buf_hash.as_ref();
 
@@ -594,40 +588,41 @@ pub mod imports {
     wrapped_imports! {
         // Storage related
         // name               // func          // signature
-        "storage_read_len" => storage_read_len<[key_ptr: u32] -> [u32]>,
-        "storage_read_into" => storage_read_into<[key_ptr: u32, val_ptr: u32] -> []>,
-        "storage_iter" => storage_iter<[prefix_ptr: u32] -> [u32]>,
+        // Storage write. Writes given value for the given key.
+        "storage_write" => storage_write<[key_len: u32, key_ptr: u32, value_len: u32, value_ptr: u32] -> []>,
+        "storage_iter" => storage_iter<[prefix_len: u32, prefix_ptr: u32] -> [u32]>,
         "storage_iter_next" => storage_iter_next<[storage_id: u32] -> [u32]>,
-        "storage_iter_peek_len" => storage_iter_peek_len<[storage_id: u32] -> [u32]>,
-        "storage_iter_peek_into" => storage_iter_peek_into<[storage_id: u32, val_ptr: u32] -> []>,
-        "storage_write" => storage_write<[key_ptr: u32, val_ptr: u32] -> []>,
-        "storage_remove" => storage_remove<[key_ptr: u32] -> []>,
-        // TODO(#350): Refactor all reads and writes into generic reads. 
-        // Generic data read. Returns the length of the buffer for the type/key.
-        "read_len" => read_len<[buffer_type_index: u32, _key_ptr: u32] -> [u32]>,
-        // Generic data read. Writes content of the buffer for the type/key into the given pointer.
-        "read_into" => read_into<[buffer_type_index: u32, _key_ptr: u32, val_ptr: u32] -> []>,
+        "storage_remove" => storage_remove<[key_len: u32, key_ptr: u32] -> []>,
+        "storage_has_key" => storage_has_key<[key_len: u32, key_ptr: u32] -> [u32]>,
+        // Generic data read. Tries to write data into the given buffer, only if the buffer has available capacity.
+        "data_read" => data_read<[data_type_index: u32, key_len: u32, key: u32, max_buf_len: u32, buf_ptr: u32] -> [u32]>,
 
         // Promises, callbacks and async calls
         // Creates a new promise that makes an async call to some other contract.
-        "promise_create" => promise_create<[account_id_ptr: u32, method_name_ptr: u32, arguments_ptr: u32, mana: u32, amount: u64] -> [u32]>,
+        "promise_create" => promise_create<[
+            account_id_len: u32, account_id_ptr: u32,
+            method_name_len: u32, method_name_ptr: u32,
+            arguments_len: u32, arguments_ptr: u32,
+            mana: u32,
+            amount: u64
+        ] -> [u32]>,
         // Attaches a callback to a given promise. This promise can be either an
         // async call or multiple joined promises.
         // NOTE: The given promise can't be a callback.
-        "promise_then" => promise_then<[promise_index: u32, method_name_ptr: u32, arguments_ptr: u32, mana: u32] -> [u32]>,
+        "promise_then" => promise_then<[
+            promise_index: u32,
+            method_name_len: u32, method_name_ptr: u32,
+            arguments_len: u32, arguments_ptr: u32,
+            mana: u32
+        ] -> [u32]>,
         // Joins 2 given promises together and returns a new promise.
         "promise_and" => promise_and<[promise_index1: u32, promise_index2: u32] -> [u32]>,
-        // Returns total byte length of the arguments.
-        "input_read_len" => input_read_len<[] -> [u32]>,
-        "input_read_into" => input_read_into<[val_ptr: u32] -> []>,
         // Returns the number of returned results for this callback.
         "result_count" => result_count<[] -> [u32]>,
         "result_is_ok" => result_is_ok<[result_index: u32] -> [u32]>,
-        "result_read_len" => result_read_len<[result_index: u32] -> [u32]>,
-        "result_read_into" => result_read_into<[result_index: u32, val_ptr: u32] -> []>,
 
         // Called to return value from the function.
-        "return_value" => return_value<[return_val_ptr: u32] -> []>,
+        "return_value" => return_value<[value_len: u32, value_ptr: u32] -> []>,
         // Called to return promise from the function.
         "return_promise" => return_promise<[promise_index: u32] -> []>,
 
@@ -645,16 +640,19 @@ pub mod imports {
 
         // Contracts can assert properties. E.g. check the amount available mana.
         "assert" => assert<[expression: u32] -> []>,
+        // Assembly Script specific abort
         "abort" => abort<[msg_ptr: u32, filename_ptr: u32, line: u32, col: u32] -> []>,
-        // Hashes given buffer and writes 32 bytes of result in the given pointer.
-        "hash" => hash<[buf_ptr: u32, out_ptr: u32] -> []>,
-        // Hashes given buffer and returns first 32 bits as u32.
-        "hash32" => hash32<[buf_ptr: u32] -> [u32]>,
+        // Hashes given value and writes 32 bytes of result in the given pointer.
+        "hash" => hash<[value_len: u32, value_ptr: u32, buf_ptr: u32] -> []>,
+        // Hashes given value and returns first 32 bits as u32.
+        "hash32" => hash32<[value_len: u32, value_ptr: u32] -> [u32]>,
         // Fills given buffer of given length with random values.
-        "random_buf" => random_buf<[len: u32, out_ptr: u32] -> []>,
+        "random_buf" => random_buf<[buf_len: u32, buf_ptr: u32] -> []>,
         // Returns random u32.
         "random32" => random32<[] -> [u32]>,
-        "debug" => debug<[msg_ptr: u32] -> []>,
+        // Prints to logs utf-8 string using given msg and msg_ptr
+        "debug" => debug<[msg_len: u32, msg_ptr: u32] -> []>,
+        // Prints to logs given AssemblyScript string in utf-16 format
         "log" => log<[msg_ptr: u32] -> []>,
 
         // Function for the injected gas counter. Automatically called by the gas meter.

@@ -3,11 +3,10 @@ use std::sync::Arc;
 use futures::stream::Stream;
 use futures::sync::mpsc::Receiver;
 
-use primitives::serialize::Encode;
-
-use crate::peer::PeerMessage;
+use primitives::network::PeerMessage;
 use crate::protocol::{forward_msg, PackedMessage};
 use crate::protocol::SimplePackedMessage;
+use crate::message::encode_message;
 
 /// Proxy Handlers implementations
 pub mod benchmark;
@@ -48,7 +47,7 @@ impl Proxy {
     /// Send message received from the proxy to their final destination.
     fn send_final_message(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) {
         let task = stream.for_each(move |(message, channel)| {
-            let data = Encode::encode(&message).unwrap();
+            let data = encode_message(message).unwrap();
             forward_msg(channel, PeerMessage::Message(data));
             Ok(())
         });

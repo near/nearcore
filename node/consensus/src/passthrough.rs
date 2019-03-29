@@ -8,7 +8,7 @@ use tokio::{self, timer::Interval};
 use client::Client;
 use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
 use primitives::hash::CryptoHash;
-use primitives::block_traits::SignedBlock;
+use primitives::block_traits::SignedHeader;
 use nightshade::nightshade_task::Control;
 
 pub fn spawn_consensus(
@@ -25,8 +25,8 @@ pub fn spawn_consensus(
                 // First check previous block was produced.
                 if client.beacon_client.chain.best_index() >= beacon_block_index {
                     let hash = client.shard_client.pool.snapshot_payload();
-                    let last_shard_block = client.shard_client.chain.best_block();
-                    let receipt_block = client.shard_client.get_receipt_block(last_shard_block.index(), last_shard_block.shard_id());
+                    let last_shard_block_header = client.shard_client.chain.best_header();
+                    let receipt_block = client.shard_client.get_receipt_block(last_shard_block_header.index(), last_shard_block_header.shard_id());
                     if hash != CryptoHash::default() || receipt_block.is_some() {
                         beacon_block_index += 1;
                         let c = ConsensusBlockProposal {

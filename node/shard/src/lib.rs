@@ -90,7 +90,7 @@ impl ShardClient {
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
-        let root = self.chain.best_block().merkle_root_state();
+        let root = self.chain.best_header().body.merkle_root_state;
         TrieUpdate::new(self.trie.clone(), root)
     }
 
@@ -186,14 +186,14 @@ impl ShardClient {
         let receipt_merkle_root = block.body.header.receipt_merkle_root;
         let (shard_block, shard_block_extra) = self.prepare_new_block(
             block.body.header.parent_hash,
-            block.body.receipts,
-            block.body.transactions,
+            block.body.receipts.clone(),
+            block.body.transactions.clone(),
         );
         if shard_block.body.header.merkle_root_state == state_merkle_root
             && shard_block.body.header.receipt_merkle_root == receipt_merkle_root
         {
             self.insert_block(
-                &shard_block,
+                &block,
                 shard_block_extra.db_changes,
                 shard_block_extra.tx_results,
                 shard_block_extra.largest_tx_nonce,
@@ -499,7 +499,6 @@ mod tests {
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 2);
         client.pool.add_transaction(tx).unwrap();
-        println!("{}", client.pool.len());
         assert!(client.pool.is_empty());
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 6);
         client.pool.add_transaction(tx).unwrap();

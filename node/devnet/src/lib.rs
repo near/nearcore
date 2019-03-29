@@ -1,16 +1,42 @@
 //! Starts DevNet either from args or the provided configs.
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
-use futures::sync::mpsc::channel;
 use futures::future;
 use futures::stream::Stream;
+use futures::sync::mpsc::channel;
+use log::info;
 
 use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use std::time::Duration;
+use primitives::signer::InMemorySigner;
+use primitives::types::BlockId;
+
+/// Re-applies blocks from the start into new client.
+fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path: &str) {
+    let mut other_client_cfg = client_cfg.clone();
+    other_client_cfg.base_path = PathBuf::from(other_base_path);
+    let other_client = Client::new(&other_client_cfg);
+    info!(
+        "Replay storage from {}, last block index = {}",
+        other_base_path,
+        other_client.beacon_client.chain.best_index()
+    );
+    let mut index = client.beacon_client.chain.best_index();
+    while index <= other_client.beacon_client.chain.best_index() {
+        let beacon_block =
+            other_client.beacon_client.chain.get_block(&BlockId::Number(index)).unwrap();
+        let shard_block =
+            other_client.shard_client.chain.get_block(&BlockId::Number(index)).unwrap();
+        client.try_import_blocks(vec![(beacon_block, shard_block)]);
+        index += 1;
+    }
+    info!("Finished replaying storage: index={}", client.beacon_client.chain.best_index());
+}
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
@@ -18,7 +44,16 @@ pub fn start() {
 }
 
 pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
-    let client = Arc::new(Client::new(&client_cfg));
+    let mut client = Client::new(&client_cfg);
+    client.signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let client = Arc::new(client);
+    if devnet_cfg.replay_storage.is_some() {
+        replay_storage(
+            client.clone(),
+            client_cfg,
+            &devnet_cfg.replay_storage.clone().expect("Just checked"),
+        );
+    }
     start_from_client(client, devnet_cfg, rpc_cfg);
 }
 
@@ -37,6 +72,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         let (_, payload_response_rx) = channel(1024);
         let (_, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
+        let (_, inc_final_signatures_rx) = channel(1024);
+        let (out_final_signatures_tx, _) = channel(1024);
         let (_, inc_chain_state_rx) = channel(1024);
         let (out_block_fetch_tx, _) = channel(1024);
 
@@ -51,6 +88,8 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
+            out_final_signatures_tx,
+            inc_final_signatures_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
@@ -63,7 +102,7 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         spawn_consensus(client.clone(), consensus_tx, control_rx, devnet_cfg.block_period);
 
         // Spawn tasks to consume not used channels.
-        tokio::spawn(out_block_rx.for_each(move |_| { future::ok(()) }));
+        tokio::spawn(out_block_rx.for_each(move |_| future::ok(())));
         Ok(())
     });
 
@@ -80,14 +119,13 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 mod tests {
     use std::path::PathBuf;
     use std::thread;
+    use std::time::Duration;
 
-    use testlib::alphanet_utils::wait;
-    use primitives::block_traits::SignedBlock;
     use primitives::signer::InMemorySigner;
     use primitives::transaction::TransactionBody;
+    use testlib::alphanet_utils::wait;
 
     use super::*;
-    use std::time::Duration;
 
     const TMP_DIR: &str = "../../tmp/devnet";
 
@@ -103,16 +141,21 @@ mod tests {
         let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
         client_cfg.log_level = log::LevelFilter::Info;
-        let devnet_cfg = configs::DevNetConfig { block_period: Duration::from_millis(5) };
+        let devnet_cfg = configs::DevNetConfig {
+            block_period: Duration::from_millis(5),
+            replay_storage: None,
+        };
         let rpc_cfg = configs::RPCConfig::default();
 
-        let client = Arc::new(Client::new(&client_cfg));
+        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+        let mut client = Client::new(&client_cfg);
+        client.signer = signer.clone();
+        let client = Arc::new(client);
         let client1 = client.clone();
         thread::spawn(|| {
             start_from_client(client1, devnet_cfg, rpc_cfg);
         });
 
-        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
         client
             .shard_client
             .pool
@@ -120,7 +163,7 @@ mod tests {
                 TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
             )
             .unwrap();
-        wait(|| client.shard_client.chain.best_block().index() >= 2, 50, 10000);
+        wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
 
         // Check that transaction and it's receipt were included.
         let mut state_update = client.shard_client.get_state_update();

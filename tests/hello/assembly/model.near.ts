@@ -1,16 +1,12 @@
 
-      import { near } from "./near";
+      import { storage, near } from "./near";
       import { JSONEncoder} from "./json/encoder"
       import { JSONDecoder, ThrowingJSONHandler, DecoderState  } from "./json/decoder"
       import {PromiseArgs as wrapped_PromiseArgs, InputPromiseArgs as wrapped_InputPromiseArgs, MyContractPromiseResult as wrapped_MyContractPromiseResult, MyCallbackResult as wrapped_MyCallbackResult, ResultWrappedMyCallbackResult as wrapped_ResultWrappedMyCallbackResult} from "./model";
 
       // Runtime functions
       @external("env", "return_value")
-      declare function return_value(value_ptr: u32): void;
-      @external("env", "input_read_len")
-      declare function input_read_len(): u32;
-      @external("env", "input_read_into")
-      declare function input_read_into(ptr: usize): void;
+      declare function return_value(value_len: usize, value_ptr: usize): void;
     
 export function __near_encode_PromiseArgs(
           value: wrapped_PromiseArgs,

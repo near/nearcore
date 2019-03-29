@@ -25,6 +25,7 @@ impl State {
         &self,
         authority: AuthorityId,
         public_keys: &Vec<BlsPublicKey>,
+        weights: &Vec<usize>,
     ) -> Result<(), NSVerifyErr> {
         // Check this is a valid triplet
         self.bare_state.verify()?;
@@ -37,13 +38,13 @@ impl State {
             // If primary confidence is greater than zero there must be a proof for it
             if let Some(primary_proof) = &self.primary_proof {
                 // Check primary_proof is ok
-                primary_proof.verify(&public_keys)?;
+                primary_proof.verify(&public_keys, &weights)?;
                 if self.bare_state.secondary_confidence > 0 {
                     // If secondary confidence is greater than zero there must be a proof for it
                     // Note that secondary confidence can be only greater than zero if primary confidence is greater than zero
                     if let Some(secondary_proof) = &self.secondary_proof {
                         // Check secondary_proof is ok
-                        secondary_proof.verify(&public_keys)?;
+                        secondary_proof.verify(&public_keys, &weights)?;
                         let cur_bs = &self.bare_state;
                         let primary_bs = &primary_proof.bare_state;
                         let secondary_bs = &secondary_proof.bare_state;

@@ -25,7 +25,7 @@ pub struct SecretKey<E: Engine> {
     scalar: E::Fr,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PublicKey<E: Engine> {
     // G1 is the small-and-fast group.  G2 is the big-and-slow group.  Either one can be used for
     // public keys, and the other for signatures.  Since signature aggregation only needs to be
@@ -135,6 +135,12 @@ impl<E: Engine> PublicKey<E> {
         let lhs = E::pairing(E::G1Affine::one(), signature.point);
         let rhs = E::pairing(self.point, h);
         lhs == rhs
+    }
+}
+
+impl<E: Engine> fmt::Debug for PublicKey<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", bs58::encode(self.compress().as_ref()).into_string())
     }
 }
 

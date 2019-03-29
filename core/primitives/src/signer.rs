@@ -72,7 +72,9 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 
 #[derive(Serialize, Deserialize)]
 pub struct BlockProducerKeyFile {
+    #[serde(with = "signature::bs58_serializer")]
     pub public_key: PublicKey,
+    #[serde(with = "signature::bs58_serializer")]
     pub secret_key: SecretKey,
     #[serde(with = "signature::bs58_serializer")]
     pub bls_public_key: BlsPublicKey,

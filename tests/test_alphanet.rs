@@ -1,51 +1,19 @@
-use testlib::alphanet_utils::generate_test_chain_spec;
-use testlib::alphanet_utils::wait;
-use testlib::alphanet_utils::Node;
+use std::thread;
+use std::time::Duration;
+
 use primitives::transaction::TransactionBody;
-
-use std::sync::Arc;
-use network::proxy::ProxyHandler;
-
-fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
-    let i = rand::random::<usize>() % num_nodes;
-    // Should be a different node.
-    let mut j = rand::random::<usize>() % (num_nodes - 1);
-    if j >= i {
-        j += 1;
-    }
-    (i, j)
-}
+use testlib::alphanet_utils::create_nodes;
+use testlib::alphanet_utils::Node;
+use testlib::alphanet_utils::sample_two_nodes;
+use testlib::alphanet_utils::wait;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
-    let init_balance = 1_000_000_000;
-    let mut account_names = vec![];
+    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
+
+    let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
     for i in 0..num_nodes {
-        account_names.push(format!("near.{}", i));
+        nodes[i].start();
     }
-    let chain_spec = generate_test_chain_spec(&account_names, init_balance);
-
-    let mut nodes = vec![];
-    let mut boot_nodes = vec![];
-
-    // Add proxy handlers to the pipeline.
-    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
-
-    // Launch nodes in a chain, such that X+1 node boots from X node.
-    for i in 0..num_nodes {
-        let node = Node::for_test(
-            test_prefix,
-            test_port,
-            account_names[i].as_str(),
-            i as u16 + 1,
-            boot_nodes,
-            chain_spec.clone(),
-            proxy_handlers.clone(),
-        );
-        boot_nodes = vec![node.node_addr()];
-        node.start();
-        nodes.push(node);
-    }
-    //        thread::sleep(Duration::from_secs(10));
 
     // Execute N trials. In each trial we submit a transaction to a random node i, that sends
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
@@ -56,51 +24,26 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
-        let nonce = nodes[i]
-                .client
-                .shard_client
-                .get_account_nonce(account_names[i].clone())
-                .unwrap_or_default()
-                + 1;
-        nodes[k]
-            .client
-            .shard_client
-            .pool
-            .add_transaction(
-                TransactionBody::send_money(
-                    nonce,
-                    account_names[i].as_str(),
-                    account_names[j].as_str(),
-                    1,
-                )
-                .sign(nodes[i].signer()),
-            )
-            .unwrap();
+        let nonce = nodes[i].get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
+        let transaction = TransactionBody::send_money(
+            nonce,
+            account_names[i].as_str(),
+            account_names[j].as_str(),
+            1,
+        )
+            .sign(nodes[i].signer());
+        nodes[k].add_transaction(transaction).unwrap();
         expected_balances[i] -= 1;
         expected_balances[j] += 1;
 
         wait(
-            || {
-                let mut state_update = nodes[r].client.shard_client.get_state_update();
-                let amt = nodes[r]
-                    .client
-                    .shard_client
-                    .trie_viewer
-                    .view_account(&mut state_update, &account_names[j])
-                    .unwrap()
-                    .amount;
-                expected_balances[j] == amt
-            },
+            || expected_balances[j] == nodes[r].view_balance(&account_names[j]).unwrap(),
             1000,
             trial_duration,
         );
+        thread::sleep(Duration::from_millis(500));
     }
 }
-
-// DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
-// If you add multiple tests and they start failing consider splitting it into several *.rs files
-// to ensure they are not run in parallel.
-
 
 #[test]
 fn test_4_10_multiple_nodes() {

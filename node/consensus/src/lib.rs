@@ -14,5 +14,4 @@ extern crate rand;
 extern crate tokio;
 extern crate typed_arena;
 
-pub mod adapters;
 pub mod passthrough;

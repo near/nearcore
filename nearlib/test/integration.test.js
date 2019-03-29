@@ -41,6 +41,27 @@ describe('dev connect', () => {
         };
     });
 
+    test('test dev connect like template', async () => {
+        window.localStorage = createFakeStorage();
+        // Mocking some
+        let tmpCreate = dev.createAccountWithContractHelper;
+        let devConfig = dev.getConfig;
+        dev.getConfig = async () => "THE_CONFIG";
+        dev.createAccountWithContractHelper = async (nearConfig, newAccountId, publicKey) => {
+            expect(nearConfig).toEqual("THE_CONFIG");
+            return await dev.createAccountWithLocalNodeConnection(newAccountId, publicKey);
+        };
+        // Calling
+        let near = await dev.connect();
+        // Restoring mocked functions
+        dev.getConfig = devConfig;
+        dev.createAccountWithContractHelper = tmpCreate;
+        let accId = dev.myAccountId;
+        let accjs = new Account(near.nearClient);
+        const viewAccountResponse = await accjs.viewAccount(accId);
+        expect(viewAccountResponse.account_id).toEqual(accId);
+    });
+
     test('test dev connect with no account creates a new account', async () => {
         await dev.connect(options);
         expect(Object.keys(deps.keyStore.keys).length).toEqual(2); // one key for dev account and one key for the new account.
@@ -103,12 +124,12 @@ test('view pre-defined account works and returns correct name', async () => {
 test('create account and then view account returns the created account', async () => {
     const newAccountName = await generateUniqueString('create.account.test');
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
-    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, aliceAccountName);
+    const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 0, aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
     const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
-        amount: 1,
+        amount: 0,
         code_hash: newAccountCodeHash,
         stake: 0,
     };
@@ -231,7 +252,7 @@ describe('with deployed contract', () => {
         await expect(contract.triggerAssert()).rejects.toThrow(/Transaction .+ failed.+expected to fail/);
         expect(logs.length).toBe(3);
         expect(logs[0]).toEqual(`[${contractName}]: LOG: log before assert`);
-        expect(logs[1]).toMatch(new RegExp(`^\\[${contractName}\\]: ABORT: "expected to fail" filename: "main.ts" line: \\d+ col: \\d+$`));
+        expect(logs[1]).toMatch(new RegExp(`^\\[${contractName}\\]: ABORT: "expected to fail" filename: "../out/main.ts" line: \\d+ col: \\d+$`));
         expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer(CallError(Runtime(User { msg: "Error: AssertFailed" })))`);
     });
 
