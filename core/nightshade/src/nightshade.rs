@@ -193,12 +193,18 @@ impl Proof {
         Self { bare_state, mask, signature }
     }
 
-    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>) -> Result<(), NSVerifyErr> {
-        // Verify that this proof contains enough signature in order to be accepted as valid
-        let mask_total: usize = self.mask.iter().map(|&b| b as usize).sum();
-        let total = self.mask.len();
+    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>, weights: &Vec<usize>) -> Result<(), NSVerifyErr> {
+        // Verify that this proof contains enough signature in order to be accepted as valid.
+        let current_weight: usize = self.mask.iter()
+            .zip(weights)
+            .filter_map(|(bit, weight)| {
+                if *bit { Some(weight) } else { None }
+            })
+            .sum();
 
-        if mask_total <= total * 2 / 3 {
+        let total_weight: usize = weights.iter().sum();
+
+        if current_weight <= total_weight * 2 / 3 {
             return Err(NSVerifyErr::MissingSignatures);
         }
 
@@ -408,16 +414,20 @@ pub struct Nightshade {
     pub owner_id: AuthorityId,
     /// Number of authorities running consensus
     pub num_authorities: usize,
+    /// Weight of each authority on the consensus. Different authority have different weights
+    /// depending on their stake. Whenever we refer to more than 2 / 3 * num_authorities approvals,
+    /// it means that weights sum of approving authorities is more than 2 / 3 of the total weight sum.
+    pub weights: Vec<usize>,
     /// Current state (triplet) of each authority in the consensus from the point of view
     /// of the authority holding this Nightshade instance.
     pub states: Vec<State>,
     /// Bitmask informing if an authority has been marked as an adversary. All further updates
     /// from it are ignored.
     is_adversary: Vec<bool>,
-    /// Number of authorities who have the same triplet as the owner of this Nightshade instance
-    /// from its current point of view. When this counter exceeds 2 / 3 * num_authorities
-    /// confidence can increase.
-    pub best_state_counter: usize,
+    /// Weight sum of participants endorsing same triplet as the authority holding this Nightshade instance.
+    pub best_state_weight: usize,
+    /// Sum of weights of all participants on the consensus.
+    pub total_weight: usize,
     /// Triplets that have been already verified. Each different triplet is going to be verified
     /// as correct at most one time. (If verification fails, the triplet is not stored, and need
     /// to be verified again).
@@ -455,12 +465,19 @@ impl Nightshade {
         let mut seen_bare_states = HashSet::new();
         seen_bare_states.insert(states[owner_id].bare_state.clone());
 
+        // TODO(#378): Use real weights from stake. This info should be public through the beacon chain.
+        let weights = vec![1; num_authorities];
+        let best_state_weight = weights[owner_id];
+        let total_weight = weights.iter().sum();
+
         Self {
             owner_id,
             num_authorities,
+            weights,
             states,
             is_adversary: vec![false; num_authorities],
-            best_state_counter: 1,
+            best_state_weight,
+            total_weight,
             seen_bare_states,
             committed: None,
             bls_public_keys,
@@ -487,7 +504,7 @@ impl Nightshade {
 
         // Verify this BareState only if it has not been successfully verified previously and ignore it forever
         if !self.seen_bare_states.contains(&state.bare_state) {
-            match state.verify(authority_id, &self.bls_public_keys) {
+            match state.verify(authority_id, &self.bls_public_keys, &self.weights) {
                 Ok(_) => self.seen_bare_states.insert(state.bare_state.clone()),
                 Err(_e) => {
                     // TODO: return more information about why verification fails
@@ -508,11 +525,12 @@ impl Nightshade {
                 // Sign new state (Only sign this state if we are going to accept it)
                 new_state.signature = self.signer.bls_sign(&new_state.bare_state.bs_encode());
                 self.states[self.owner_id] = new_state;
-                self.best_state_counter = 1;
+                // Reset `best_state_weight` with own weight, since state just changed.
+                self.best_state_weight = self.weights[self.owner_id];
             }
 
             if state == self.states[self.owner_id] {
-                self.best_state_counter += 1;
+                self.best_state_weight += self.weights[state.bare_state.endorses.author];
             }
 
             // We MIGHT NEED to increase confidence AT MOST ONCE after have committed for first time.
@@ -524,14 +542,11 @@ impl Nightshade {
                 let mut aggregated_signature = BlsAggregateSignature::new();
                 let mut mask = vec![false; self.num_authorities];
 
-                let mut collected_proofs = 0;
-
                 // Collect proofs to create new state
                 for (a, bit) in mask.iter_mut().enumerate() {
                     if self.states[a] == *my_state {
                         *bit = true;
                         aggregated_signature.aggregate(&self.states[a].signature);
-                        collected_proofs += 1;
                     }
                 }
 
@@ -541,14 +556,12 @@ impl Nightshade {
                     aggregated_signature.get_signature(),
                 );
 
-                // Double check we already have enough proofs
-                assert_eq!(collected_proofs, self.best_state_counter);
                 let new_state = my_state.increase_confidence(proof, self.signer.clone());
                 // New state must be valid. Verifying is expensive! Enable this assert for testing.
                 // assert_eq!(new_state.verify(self.owner_id, &self.bls_public_keys), true);
                 self.seen_bare_states.insert(new_state.bare_state.clone());
                 self.states[self.owner_id] = new_state;
-                self.best_state_counter = 1;
+                self.best_state_weight = self.weights[self.owner_id];
             }
 
             if self.states[self.owner_id].can_commit() {
@@ -574,7 +587,7 @@ impl Nightshade {
     fn can_increase_confidence(&self) -> bool {
         // We can use some fancy mechanism to not increase confidence every time we can, to avoid
         // being manipulated by malicious actors into a metastable equilibrium
-        self.best_state_counter > self.num_authorities * 2 / 3
+        self.best_state_weight > self.total_weight * 2 / 3
     }
 
     /// Check if this authority have committed to some outcome.
@@ -621,21 +634,20 @@ mod tests {
         assert_eq!(a_pk.verify(&triplet.bs_encode(), &signature), true);
     }
 
-    /// Check that nodes arrive consensus on sync environment
-    fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
-        let mut ns = generate_nightshades(num_authorities);
-
+    /// Check that nodes arrive consensus on sync environment if only first `prefix` authorities
+    /// participate in the consensus.
+    fn nightshade_partial_sync(num_rounds: usize, prefix: usize, mut ns: Vec<Nightshade>) {
         for _ in 0..num_rounds {
             let mut states = vec![];
 
-            for i in 0..num_authorities {
+            for i in 0..prefix {
                 let state = ns[i].state();
                 check_state_proofs(&state);
                 states.push(state.clone());
             }
 
-            for i in 0..num_authorities {
-                for j in 0..num_authorities {
+            for i in 0..prefix {
+                for j in 0..prefix {
                     if i != j {
                         let result = ns[i].update_state(j, states[j].clone());
                         assert_eq!(result.is_ok(), true);
@@ -644,11 +656,17 @@ mod tests {
             }
         }
 
-        for i in 0..num_authorities {
+        for i in 0..prefix {
             let s = ns[i].state();
             check_state_proofs(&s);
             assert_eq!(s.can_commit(), true);
         }
+    }
+
+    /// Check that nodes arrive consensus on sync environment
+    fn nightshade_all_sync(num_authorities: usize, num_rounds: usize) {
+        let ns = generate_nightshades(num_authorities);
+        nightshade_partial_sync(num_rounds, num_authorities, ns);
     }
 
     #[test]
@@ -666,6 +684,32 @@ mod tests {
         nightshade_all_sync(10, 5);
     }
 
+    /// Run nightshade and where only authorities (0, 1, 2) are participating.
+    /// They have more than 2/3 of the total weight:
+    ///
+    ///      (5 + 1 + 3) > 2 / 3 * (5 + 1 + 3 + 2 + 2)
+    ///                9 > 2 / 3 * 13
+    ///
+    /// Hence they can make progress.
+    #[test]
+    fn test_nightshade_weights_ok() {
+        let ns = generate_nightshades_from_weights(vec![5, 1, 3, 2, 2]);
+        nightshade_partial_sync(7, 3, ns);
+    }
+
+    /// Run nightshade and where only authorities (0, 1, 2) are participating.
+    /// They don't have more than 2/3 of the total weight:
+    ///
+    ///      (4 + 1 + 3) <= 2 / 3 * (4 + 1 + 3 + 2 + 2)
+    ///                8 <= 2 / 3 * 12
+    ///
+    /// Hence they can't make progress.
+    #[test]
+    #[should_panic]
+    fn test_nightshade_weights_fail() {
+        let ns = generate_nightshades_from_weights(vec![4, 1, 3, 2, 2]);
+        nightshade_partial_sync(10, 3, ns);
+    }
 
     #[test]
     fn test_incompatible() {
