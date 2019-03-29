@@ -30,7 +30,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --tags=alphanet-instance \
     --disk name=${PREFIX}-persistent-0 \
     --container-mount-disk mount-path="/srv/near" \
-    --boot-disk-size 200GB
+    --boot-disk-size 200GB \
+    --address ${PREFIX}-0
 
 BOOT_NODE_IP=$(
     gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION}  | head -n 1 | awk '{print $2}'
