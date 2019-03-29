@@ -78,8 +78,7 @@ impl From<GroupSignature> for types_proto::GroupSignature {
         types_proto::GroupSignature {
             signature: Base58Encoded::to_base58(&signature.signature),
             authority_mask: signature.authority_mask,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -172,8 +171,7 @@ impl From<AccountingInfo> for receipt_proto::AccountingInfo {
         receipt_proto::AccountingInfo {
             originator: info.originator,
             contract_id,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -208,8 +206,7 @@ impl From<ManaAccounting> for receipt_proto::ManaAccounting {
             accounting_info: SingularPtrField::some(accounting.accounting_info.into()),
             mana_refund: accounting.mana_refund,
             gas_used: accounting.gas_used,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -256,8 +253,7 @@ impl From<AuthorityStake> for types_proto::AuthorityStake {
             public_key: authority.public_key.to_string(),
             bls_public_key: authority.bls_public_key.to_base58(),
             amount: authority.amount,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }

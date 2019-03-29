@@ -94,9 +94,6 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     warmup();
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
-
-    let a = FnProxyHandler::new(|package| Some(package));
-
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, vec![]);
     nodes[crash1].node_type = NodeType::ProcessNode;
     nodes[crash2].node_type = NodeType::ProcessNode;

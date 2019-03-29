@@ -44,8 +44,7 @@ impl From<PayloadGossip> for nightshade_proto::PayloadGossip {
             payload: SingularPtrField::some(gossip.payload.into()),
             block_index: gossip.block_index,
             signature: gossip.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }

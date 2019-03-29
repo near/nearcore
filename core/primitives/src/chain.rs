@@ -49,8 +49,7 @@ impl From<ShardBlockHeader> for chain_proto::ShardBlockHeader {
             block_index: header.index,
             merkle_root_state: header.merkle_root_state.into(),
             receipt_merkle_root: header.receipt_merkle_root.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -85,8 +84,7 @@ impl From<SignedShardBlockHeader> for chain_proto::SignedShardBlockHeader {
             body: SingularPtrField::some(header.body.into()),
             hash: header.hash.into(),
             signature: SingularPtrField::some(header.signature.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -138,8 +136,7 @@ impl From<ShardBlock> for chain_proto::ShardBlock {
             header: SingularPtrField::some(block.header.into()),
             transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
             receipts: block.receipts.into_iter().map(std::convert::Into::into).collect(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -174,8 +171,7 @@ impl From<SignedShardBlock> for chain_proto::SignedShardBlock {
             body: SingularPtrField::some(block.body.into()),
             hash: block.hash.into(),
             signature: SingularPtrField::some(block.signature.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -249,8 +245,7 @@ impl From<ReceiptBlock> for chain_proto::ReceiptBlock {
             types_proto::MerkleNode {
                 hash: hash.into(),
                 direction: dir == Direction::Left,
-                unknown_fields: Default::default(),
-                cached_size: Default::default(),
+                ..Default::default()
             }
         }));
         chain_proto::ReceiptBlock {
@@ -260,8 +255,7 @@ impl From<ReceiptBlock> for chain_proto::ReceiptBlock {
                 receipt.receipts.into_iter().map(std::convert::Into::into)
             ),
             hash: receipt.hash.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -435,8 +429,7 @@ impl From<ChainPayload> for chain_proto::ChainPayload {
                 payload.receipts.into_iter().map(std::convert::Into::into)
             ),
             hash: payload.hash.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -513,8 +506,7 @@ impl From<ChainState> for chain_proto::ChainState {
         chain_proto::ChainState {
             genesis_hash: chain_state.genesis_hash.into(),
             last_index: chain_state.last_index,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -556,8 +548,7 @@ impl From<MissingPayloadRequest> for network_proto::MissingPayloadRequest {
         network_proto::MissingPayloadRequest {
             transactions, receipts,
             snapshot_hash: response.snapshot_hash.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -602,8 +593,7 @@ impl From<MissingPayloadResponse> for network_proto::MissingPayloadResponse {
         network_proto::MissingPayloadResponse {
             transactions, receipts,
             snapshot_hash: response.snapshot_hash.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -659,8 +649,7 @@ impl From<Snapshot> for network_proto::Snapshot {
             transactions,
             receipts,
             hash: snapshot.hash.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
