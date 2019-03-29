@@ -13,6 +13,8 @@ use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use super::{account_id_to_bytes, callback_id_to_bytes, create_nonce_with_nonce, set, COL_ACCOUNT};
 
+pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
+
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
     storage_prefix: Vec<u8>,
@@ -34,7 +36,7 @@ impl<'a> RuntimeExt<'a> {
         transaction_hash: &'a CryptoHash,
     ) -> Self {
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
-        prefix.append(&mut b",".to_vec());
+        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         RuntimeExt {
             trie_update,
             storage_prefix: prefix,

@@ -241,7 +241,7 @@ impl Runtime {
                 let contract_id = transaction.body.get_contract_id();
                 if let Some(ref contract_id) = contract_id {
                     if !is_valid_account_id(&contract_id) {
-                        return Err("Invalid contract_id".to_string());
+                        return Err(format!("Invalid contract_id / receiver {} according to requirements", contract_id));
                     }
                 }
                 let mana = transaction.body.get_mana();

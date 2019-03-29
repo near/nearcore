@@ -9,9 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use client::Client;
-use configs::chain_spec::{
-    AuthorityRotation, ChainSpec, read_or_default_chain_spec, save_chain_spec,
-};
+use configs::chain_spec::{AuthorityRotation, ChainSpec};
 use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
@@ -27,9 +25,7 @@ use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 const TMP_DIR: &str = "../../tmp/testnet";
 
 pub fn configure_chain_spec() -> ChainSpec {
-    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    d.push("../../node/configs/res/poa_testnet_chain.json");
-    read_or_default_chain_spec(&Some(d))
+    ChainSpec::default_poa()
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -278,7 +274,7 @@ impl ProcessNode {
         if !self.config().client_cfg.base_path.exists() {
             fs::create_dir_all(&self.config().client_cfg.base_path).unwrap();
         }
-        save_chain_spec(&chain_spec_path, chain_spec.clone());
+        chain_spec.write_to_file(&chain_spec_path);
 
         let mut start_node_command = Command::new("cargo");
         start_node_command.args(&[
