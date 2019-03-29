@@ -3,7 +3,6 @@ use std::str::FromStr;
 
 use clap::{Arg, ArgMatches};
 
-use crate::chain_spec::read_or_default_chain_spec;
 use crate::chain_spec::ChainSpec;
 use primitives::types::AccountId;
 
@@ -25,7 +24,7 @@ impl Default for ClientConfig {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
             account_id: String::from("alice.near"),
             public_key: None,
-            chain_spec: read_or_default_chain_spec(&None),
+            chain_spec: Default::default(),
             log_level: log::LevelFilter::Info,
         }
     }
@@ -78,6 +77,6 @@ pub fn from_matches(matches: &ArgMatches) -> ClientConfig {
     let log_level = matches.value_of("log_level").map(log::LevelFilter::from_str).unwrap().unwrap();
 
     let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
-    let chain_spec = read_or_default_chain_spec(&chain_spec_path);
+    let chain_spec = ChainSpec::from_file_or_default(&chain_spec_path);
     ClientConfig { base_path, account_id, public_key, chain_spec, log_level }
 }
