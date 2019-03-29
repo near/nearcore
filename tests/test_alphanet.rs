@@ -27,7 +27,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
     // the balance of j on node k.
     let mut expected_balances = vec![init_balance; num_nodes];
-    let trial_duration = 10000;
+    let trial_duration = 60000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
