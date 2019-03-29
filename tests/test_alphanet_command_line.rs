@@ -2,13 +2,14 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use network::proxy::predicate::FnProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
+use testlib::alphanet_utils::{
+    create_nodes, Node, NodeType, sample_queryable_node, wait_for_catchup,
+};
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
-use testlib::alphanet_utils::{
-    create_nodes, sample_queryable_node, wait_for_catchup, Node, NodeType,
-};
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -34,7 +35,7 @@ fn send_transaction(
                 account_names[to].as_str(),
                 1,
             )
-            .sign(nodes[from].signer()),
+                .sign(nodes[from].signer()),
         )
         .unwrap();
 }
