@@ -40,7 +40,6 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let mut expected_balances = vec![init_balance; num_nodes];
     let trial_duration = 10000;
     for trial in 0..num_trials {
-        println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
         let nonce = nodes[i].get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
