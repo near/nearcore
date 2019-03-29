@@ -410,10 +410,9 @@ mod test {
             ));
         }
         ChainSpec {
-            accounts: Default::default(),
-            genesis_wasm: Default::default(),
             initial_authorities,
             authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot },
+            ..Default::default()
         }
     }
 

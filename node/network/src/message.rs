@@ -185,8 +185,7 @@ impl From<Message> for network_proto::Message {
                     request_id,
                     from,
                     to,
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::block_fetch_request(request)
             }
@@ -196,8 +195,7 @@ impl From<Message> for network_proto::Message {
                     response: RepeatedField::from_iter(
                         blocks.into_iter().map(to_coupled_block)
                     ),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::block_response(response)
             }
@@ -211,8 +209,7 @@ impl From<Message> for network_proto::Message {
                 let request = network_proto::Message_PayloadRequest {
                     request_id,
                     payload: SingularPtrField::some(request.into()),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::payload_request(request)
             }
@@ -220,8 +217,7 @@ impl From<Message> for network_proto::Message {
                 let snapshot_request = network_proto::Message_PayloadSnapshotRequest {
                     request_id,
                     snapshot_hash: snapshot_hash.into(),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::payload_snapshot_request(snapshot_request)
             }
@@ -229,8 +225,7 @@ impl From<Message> for network_proto::Message {
                 let response = network_proto::Message_PayloadResponse {
                     request_id,
                     payload: SingularPtrField::some(payload.into()),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::payload_response(response)
             }
@@ -238,8 +233,7 @@ impl From<Message> for network_proto::Message {
                 let response = network_proto::Message_PayloadSnapshotResponse {
                     request_id,
                     snapshot: SingularPtrField::some(snapshot.into()),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::payload_snapshot_response(response)
             }
@@ -257,13 +251,11 @@ impl From<Message> for network_proto::Message {
                             shard_hash: shard_hash.into(),
                             beacon_sig: beacon_sig.to_base58(),
                             shard_sig: shard_sig.to_base58(),
-                            unknown_fields: Default::default(),
-                            cached_size: Default::default(),
+                            ..Default::default()
                         };
                         let bls_proto = network_proto::Message_JointBlockBLS {
                             field_type: Some(network_proto::Message_JointBlockBLS_oneof_type::general(proto)),
-                            unknown_fields: Default::default(),
-                            cached_size: Default::default(),
+                            ..Default::default()
                         };
                         network_proto::Message_oneof_message_type::joint_block_bls(bls_proto)
                     }
@@ -276,13 +268,11 @@ impl From<Message> for network_proto::Message {
                             receiver_id: receiver_id as u64,
                             beacon_hash: beacon_hash.into(),
                             shard_hash: shard_hash.into(),
-                            unknown_fields: Default::default(),
-                            cached_size: Default::default(),
+                            ..Default::default()
                         };
                         let bls_proto = network_proto::Message_JointBlockBLS {
                             field_type: Some(network_proto::Message_JointBlockBLS_oneof_type::request(proto)),
-                            unknown_fields: Default::default(),
-                            cached_size: Default::default(),
+                            ..Default::default()
                         };
                         network_proto::Message_oneof_message_type::joint_block_bls(bls_proto)
                     }
@@ -291,8 +281,7 @@ impl From<Message> for network_proto::Message {
         };
         network_proto::Message {
             message_type: Some(message_type),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -301,8 +290,7 @@ fn to_coupled_block(blocks: CoupledBlock) -> chain_proto::CoupledBlock {
     chain_proto::CoupledBlock {
         beacon_block: SingularPtrField::some(blocks.0.into()),
         shard_block: SingularPtrField::some(blocks.1.into()),
-        unknown_fields: Default::default(),
-        cached_size: Default::default(),
+        ..Default::default()
     }
 }
 
