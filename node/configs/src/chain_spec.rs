@@ -75,7 +75,7 @@ impl ChainSpec {
         let john_signer = InMemorySigner::from_seed(john_id, john_id);
         ChainSpec {
             accounts: vec![
-                (alice_id.to_string(), alice_signer.public_key().to_readable(), 10000000, 1000),
+                (alice_id.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
                 (bob_id.to_string(), bob_signer.public_key().to_readable(), 100, 10),
                 (john_id.to_string(), john_signer.public_key().to_readable(), 10, 10),
             ],
@@ -111,7 +111,7 @@ impl Default for ChainSpec {
         let john_signer = InMemorySigner::from_seed(john_id, john_id);
         ChainSpec {
             accounts: vec![
-                (alice_id.to_string(), alice_signer.public_key().to_readable(), 10000000, 1000),
+                (alice_id.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
                 (bob_id.to_string(), bob_signer.public_key().to_readable(), 100, 10),
                 (john_id.to_string(), john_signer.public_key().to_readable(), 10, 10),
             ],
