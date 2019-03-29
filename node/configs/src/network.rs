@@ -143,11 +143,12 @@ pub fn from_matches(matches: &ArgMatches) -> NetworkConfig {
 
 /// Proxy Handlers that can be used in nodes from config file.
 ///
-/// TODO: Network Config Proxy
-/// * Populate this enum,
-/// * finish `get_handler_type`,
-/// * parse config to accept proxy handlers
-/// * build `proxy_handlers` from configs
+/// TODO(#795): Network Config Proxy
+/// * Populate ProxyHandlerType with all proxy_handler we want to have builtin.
+/// * get_handler_type is a map-like function that build ProxyHandlerType (with fixed parameters) from identifier (string).
+/// * Parse config to accept proxy handlers. (This haven't been tested)
+/// * Pass proper arguments to NetworkConfig constructor
+/// * Build proxy_handlers properly from network configs.
 #[derive(Clone)]
 pub enum ProxyHandlerType {
     Debug,
