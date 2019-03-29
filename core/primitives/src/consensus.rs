@@ -20,7 +20,7 @@ pub trait Payload: Clone + Send + Hash + Debug + Encode + Decode + 'static {
 }
 
 /// Partial BLS for the beacon and shard blocks.
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum JointBlockBLS {
     Request {

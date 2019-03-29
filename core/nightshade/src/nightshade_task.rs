@@ -77,7 +77,7 @@ impl From<Message> for nightshade_proto::Gossip_Message {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub enum GossipBody {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -85,7 +85,7 @@ pub enum GossipBody {
     PayloadReply(Vec<SignedBlockProposal>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,

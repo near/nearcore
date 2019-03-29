@@ -8,19 +8,19 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 use client::Client;
-use configs::chain_spec::{
-    AuthorityRotation, ChainSpec,
-};
-use configs::network::get_peer_id_from_seed;
+use configs::chain_spec::{AuthorityRotation, ChainSpec};
 use configs::ClientConfig;
+use configs::network::get_peer_id_from_seed;
 use configs::NetworkConfig;
 use configs::RPCConfig;
+use network::proxy::ProxyHandler;
 use primitives::network::{PeerAddr, PeerInfo};
 use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
+
+use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 
 const TMP_DIR: &str = "../../tmp/testnet";
 
@@ -51,6 +51,7 @@ pub struct NodeConfig {
     pub rpc_cfg: RPCConfig,
     pub peer_id_seed: u32,
     pub node_type: NodeType,
+    pub proxy_handlers: Vec<Arc<ProxyHandler>>,
 }
 
 impl NodeConfig {
@@ -175,8 +176,9 @@ impl Node for ThreadNode {
         let account_id = self.config().client_cfg.account_id.clone();
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
+        let proxy_handlers = self.config().proxy_handlers.clone();
         thread::spawn(|| {
-            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
+            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg, proxy_handlers);
         });
         self.state = ThreadNodeState::Running;
         thread::sleep(Duration::from_secs(1));
@@ -321,6 +323,7 @@ impl NodeConfig {
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
@@ -331,6 +334,7 @@ impl NodeConfig {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
+            proxy_handlers,
         )
     }
 
@@ -342,6 +346,7 @@ impl NodeConfig {
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
@@ -351,6 +356,7 @@ impl NodeConfig {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
+            proxy_handlers,
         )
     }
 
@@ -362,6 +368,7 @@ impl NodeConfig {
         rpc_port: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
@@ -395,13 +402,14 @@ impl NodeConfig {
             reconnect_delay: Duration::from_millis(50),
             gossip_interval: Duration::from_millis(50),
             gossip_sample_size: 10,
+            proxy_handlers: vec![],
         };
 
         let rpc_cfg = RPCConfig { rpc_port };
 
         let node_type = NodeType::ThreadNode;
 
-        NodeConfig { node_info, client_cfg, network_cfg, rpc_cfg, peer_id_seed, node_type }
+        NodeConfig { node_info, client_cfg, network_cfg, rpc_cfg, peer_id_seed, node_type, proxy_handlers }
     }
 }
 
@@ -417,8 +425,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-where
-    F: Fn() -> bool,
+    where
+        F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {
@@ -461,6 +469,7 @@ pub fn create_nodes(
     num_nodes: usize,
     test_prefix: &str,
     test_port: u16,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
     let init_balance = 1_000_000_000;
     let mut account_names = vec![];
@@ -479,6 +488,7 @@ pub fn create_nodes(
             i as u16 + 1,
             boot_nodes,
             chain_spec.clone(),
+            proxy_handlers.clone(),
         );
         boot_nodes = vec![node.node_addr()];
         nodes.push(node);
