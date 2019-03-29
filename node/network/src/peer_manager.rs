@@ -205,6 +205,20 @@ impl<T: ChainStateRetriever> PeerManager<T> {
             })
             .collect()
     }
+
+    pub fn get_peer_stats(&self) -> (usize, usize) {
+        let guard = self.all_peer_states.read().expect(POISONED_LOCK_ERR);
+        let active_peers = guard.iter().map(|(_, state)| {
+            let state_guard = state.read().expect(POISONED_LOCK_ERR);
+            if let PeerState::Ready { .. } = state_guard.deref() {
+                1
+            } else {
+                0
+            }
+        }).count();
+        let total_peers = guard.len();
+        (active_peers, total_peers)
+    }
 }
 
 impl<T> fmt::Debug for PeerManager<T> {

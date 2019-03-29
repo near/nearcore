@@ -7,7 +7,9 @@ use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+use tokio::timer::Interval;
 use log::{debug, error, info, warn};
+use std::time::Duration;
 
 use client::Client;
 use configs::NetworkConfig;
@@ -384,8 +386,8 @@ pub fn spawn_network(
     ));
 
     let protocol = Arc::new(Protocol {
-        client,
-        peer_manager,
+        client: client.clone(),
+        peer_manager: peer_manager.clone(),
         inc_gossip_tx,
         inc_block_tx,
         payload_response_tx,
@@ -447,6 +449,22 @@ pub fn spawn_network(
         protocol6.send_joint_block_bls_announce(block_index, b);
         future::ok(())
     });
+    tokio::spawn(task);
+
+    let peer_manager1 = peer_manager.clone();
+    let client1 = client.clone();
+    let task = Interval::new_interval(Duration::from_secs(30))
+        .fold(
+            (),
+            move |(), _| {
+                let (active_peers, known_peers) = peer_manager1.get_peer_stats();
+                info!(target: "network", "[{}] Peers: active = {}, known = {}", client1.account_id, active_peers, known_peers);
+                future::ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| error!("timer error: {}", e));
+
     tokio::spawn(task);
 }
 
