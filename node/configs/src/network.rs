@@ -156,6 +156,7 @@ pub enum ProxyHandlerType {
 }
 
 impl ProxyHandlerType {
+    #[allow(dead_code)]
     fn get_handler_type(handler_id: String) -> Option<ProxyHandlerType> {
         match handler_id.as_ref() {
             "debug" => Some(ProxyHandlerType::Debug),
