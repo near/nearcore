@@ -56,8 +56,7 @@ impl From<BlockProposal> for nightshade_proto::BlockProposal {
         nightshade_proto::BlockProposal {
             hash: block_proposal.hash.into(),
             author: block_proposal.author as u64,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -108,8 +107,7 @@ impl From<BareState> for nightshade_proto::BareState {
             primary_confidence: state.primary_confidence,
             endorses: SingularPtrField::some(state.endorses.into()),
             secondary_confidence: state.secondary_confidence,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -182,8 +180,7 @@ impl From<Proof> for nightshade_proto::Proof {
             bare_state: SingularPtrField::some(proof.bare_state.into()),
             mask: proof.mask,
             signature: proof.signature.to_base58(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -294,8 +291,7 @@ impl From<State> for nightshade_proto::State {
             primary_proof: SingularPtrField::from_option(state.primary_proof.map(std::convert::Into::into)),
             secondary_proof: SingularPtrField::from_option(state.secondary_proof.map(std::convert::Into::into)),
             signature: state.signature.to_base58(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
