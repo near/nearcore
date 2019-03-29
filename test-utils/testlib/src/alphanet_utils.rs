@@ -473,6 +473,7 @@ pub fn create_nodes(
     num_nodes: usize,
     test_prefix: &str,
     test_port: u16,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
     let init_balance = 1_000_000_000;
     let mut account_names = vec![];
@@ -482,7 +483,6 @@ pub fn create_nodes(
     let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
-    let proxy_handlers = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.
     for (i, account_name) in account_names.iter().enumerate() {
         let node = NodeConfig::for_test(
