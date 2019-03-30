@@ -17,13 +17,14 @@ finally makes using a blockchain protocol easy for both developers and consumers
 ## Quick start
 
 [Check out quick start documentation](https://docs.nearprotocol.com/quick_start), specifically:
-  - [Running DevNet](https://docs.nearprotocol.com/quick_start/advanced)
-  - [Running AlphaNet](https://docs.nearprotocol.com/quick_start/expert)
+  - [Build your first app in NEAR Studio](https://docs.nearprotocol.com/quick_start/easy)
+  - [Running local DevNet](https://docs.nearprotocol.com/quick_start/advanced)
+  - [Join TestNet](https://docs.nearprotocol.com/quick_start/expert)
   - [Build an ERC-20 contract](https://docs.nearprotocol.com/tutorials/token)
   
-Develop and deploy contracts without any setup required using [NEARStudio](https://studio.nearprotocol.com):
+Develop and deploy contracts without any setup required using [NEAR Studio](https://studio.nearprotocol.com):
 
-[![NEAR Studio Demo](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
+[![NEAR Studio](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
 
 
 ## Status
@@ -33,7 +34,7 @@ This project is currently under heavy development. Please see Issues and Milesto
 High level milestones:
 
  - [x] DevNet: a tool with fully working State Transition + WebAssembly.
- - [ ] AlphaNet: Multi-node smart-contract platform.
+ - [x] AlphaNet: Multi-node smart-contract platform.
  - [ ] BetaNet: Added economics and enchanced security.
  - [ ] TestNet: added governance module, ready to launch as MVB
  - [ ] MainNet: Launched as Minimum Viable Blockchain.
@@ -47,11 +48,12 @@ This repo contains the core NEAR Protocol node client.  It is written using the 
 
 ```bash
 curl https://sh.rustup.rs -sSf | sh
-rustup component add clippy-preview # this is optional
+source ~/.cargo/env
+rustup component add clippy-preview
 rustup default nightly
 ```
 
-You may need to activate the environment via `. ~/.cargo/env` to use `cargo`.
+You may need to activate the environment via `source ~/.cargo/env` to use `cargo` or add it to your `.bash_profile` or similar.
 
 
 ### Install dependencies
