@@ -3,20 +3,19 @@ use std::str;
 use std::time::Instant;
 
 use primitives::hash::CryptoHash;
+use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
 use primitives::utils::is_valid_account_id;
-use primitives::types::{AccountId, Balance, AccountingInfo};
-use storage::{TrieUpdate};
+use storage::TrieUpdate;
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
-use super::{
-    Account, account_id_to_bytes, get, RuntimeExt, COL_ACCOUNT, COL_CODE,
-};
+use super::ext::ACCOUNT_DATA_SEPARATOR;
+use super::{account_id_to_bytes, get, Account, RuntimeExt, COL_ACCOUNT, COL_CODE};
 use primitives::signature::PublicKey;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
-    pub values: HashMap<Vec<u8>, Vec<u8>>
+    pub values: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 pub struct TrieViewer {}
@@ -24,14 +23,13 @@ pub struct TrieViewer {}
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
     pub account: AccountId,
-    pub nonce: u64,
+    pub nonce: Nonce,
     pub amount: Balance,
     pub stake: u64,
     pub code_hash: CryptoHash,
 }
 
 impl TrieViewer {
-
     pub fn view_account(
         &self,
         state_update: &mut TrieUpdate,
@@ -42,15 +40,13 @@ impl TrieViewer {
         }
 
         match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
-            Some(account) => {
-                Ok(AccountViewCallResult {
-                    account: account_id.clone(),
-                    nonce: account.nonce,
-                    amount: account.amount,
-                    stake: account.staked,
-                    code_hash: account.code_hash
-                })
-            },
+            Some(account) => Ok(AccountViewCallResult {
+                account: account_id.clone(),
+                nonce: account.nonce,
+                amount: account.amount,
+                stake: account.staked,
+                code_hash: account.code_hash,
+            }),
             _ => Err(format!("account {} does not exist while viewing", account_id)),
         }
     }
@@ -72,22 +68,20 @@ impl TrieViewer {
     pub fn view_state(
         &self,
         state_update: &TrieUpdate,
-        account_id: &AccountId
+        account_id: &AccountId,
     ) -> Result<ViewStateResult, String> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
         let mut values = HashMap::default();
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
-        prefix.append(&mut b",".to_vec());
+        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
-                values.insert(key.to_vec(), value.to_vec());
+                values.insert(key[prefix.len()..].to_vec(), value.to_vec());
             }
         });
-        Ok(ViewStateResult {
-            values
-        })
+        Ok(ViewStateResult { values })
     }
 
     pub fn call_function(
@@ -105,41 +99,43 @@ impl TrieViewer {
         }
         let root = state_update.get_root();
         let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
-            .ok_or_else(|| format!("account {} does not have contract code", contract_id.clone()))?;
-        let wasm_res = match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id)) {
-            Some(account) => {
-                let empty_hash = CryptoHash::default();
-                let mut runtime_ext = RuntimeExt::new(
-                    &mut state_update,
-                    contract_id,
-                    &AccountingInfo {
-                        originator: contract_id.clone(),
-                        contract_id: None,
-                    },
-                    &empty_hash,
-                );
-                executor::execute(
-                    &code,
-                    method_name.as_bytes(),
-                    &args.to_owned(),
-                    &[],
-                    &mut runtime_ext,
-                    &wasm::types::Config::default(),
-                    &RuntimeContext::new(
-                        account.amount,
-                        0,
+            .ok_or_else(|| {
+                format!("account {} does not have contract code", contract_id.clone())
+            })?;
+        let wasm_res =
+            match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id))
+            {
+                Some(account) => {
+                    let empty_hash = CryptoHash::default();
+                    let mut runtime_ext = RuntimeExt::new(
+                        &mut state_update,
                         contract_id,
-                        contract_id,
-                        0,
-                        block_index,
-                        root.as_ref().into(),
-                    ),
-                )
-            }
-            None => return Err(format!("contract {} does not exist", contract_id))
-        };
+                        &AccountingInfo { originator: contract_id.clone(), contract_id: None },
+                        &empty_hash,
+                    );
+                    executor::execute(
+                        &code,
+                        method_name.as_bytes(),
+                        &args.to_owned(),
+                        &[],
+                        &mut runtime_ext,
+                        &wasm::types::Config::default(),
+                        &RuntimeContext::new(
+                            account.amount,
+                            0,
+                            contract_id,
+                            contract_id,
+                            0,
+                            block_index,
+                            root.as_ref().into(),
+                        ),
+                    )
+                }
+                None => return Err(format!("contract {} does not exist", contract_id)),
+            };
         let elapsed = now.elapsed();
-        let time_ms = (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
+        let time_ms =
+            (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
         let time_str = format!("{:.*}ms", 2, time_ms);
         match wasm_res {
             Ok(res) => {
@@ -149,7 +145,9 @@ impl TrieViewer {
                     Ok(return_data) => {
                         let (root_after, _) = state_update.finalize();
                         if root_after != root {
-                            return Err("function call for viewing tried to change storage".to_string());
+                            return Err(
+                                "function call for viewing tried to change storage".to_string()
+                            );
                         }
                         let mut result = vec![];
                         if let ReturnData::Value(buf) = return_data {
@@ -158,7 +156,8 @@ impl TrieViewer {
                         Ok(result)
                     }
                     Err(e) => {
-                        let message = format!("wasm view call execution failed with error: {:?}", e);
+                        let message =
+                            format!("wasm view call execution failed with error: {:?}", e);
                         debug!(target: "runtime", "{}", message);
                         Err(message)
                     }
@@ -175,9 +174,10 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use primitives::types::AccountId;
-    use std::collections::HashMap;
+    use super::*;
     use crate::test_utils::*;
+    use kvdb::DBValue;
+    use primitives::types::AccountId;
 
     fn alice_account() -> AccountId {
         "alice.near".to_string()
@@ -188,13 +188,8 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(
-            root, 1,
-            &alice_account(),
-            "run_test",
-            &vec![],
-            &mut logs,
-        );
+        let result =
+            viewer.call_function(root, 1, &alice_account(), "run_test", &vec![], &mut logs);
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -205,7 +200,8 @@ mod tests {
 
         let mut logs = vec![];
         let result = viewer.call_function(
-            root, 1,
+            root,
+            1,
             &"bad!contract".to_string(),
             "run_test",
             &vec![],
@@ -221,7 +217,8 @@ mod tests {
 
         let mut logs = vec![];
         let result = viewer.call_function(
-            root, 1,
+            root,
+            1,
             &alice_account(),
             "run_test_with_storage_change",
             &vec![],
@@ -234,25 +231,35 @@ mod tests {
     #[test]
     fn test_view_call_with_args() {
         let (viewer, root) = get_test_trie_viewer();
-        let args = (1..3).into_iter()
-            .flat_map(|x| encode_int(x).to_vec())
-            .collect::<Vec<_>>();
+        let args = (1..3).into_iter().flat_map(|x| encode_int(x).to_vec()).collect::<Vec<_>>();
         let mut logs = vec![];
-        let view_call_result = viewer.call_function(
-            root, 1,
-            &alice_account(),
-            "sum_with_input",
-            &args,
-            &mut logs,
-        );
+        let view_call_result =
+            viewer.call_function(root, 1, &alice_account(), "sum_with_input", &args, &mut logs);
         assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
+    }
+
+    fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {
+        let mut bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
+        bytes.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+        bytes.append(&mut suffix.clone().to_vec());
+        bytes
     }
 
     #[test]
     fn test_view_state() {
-        let (viewer, state_update) = get_test_trie_viewer();
-        let result = viewer.view_state(&state_update, &alice_account()).unwrap();
-        assert_eq!(result.values, HashMap::default());
-        // TODO: make this test actually do stuff.
+        let (_, trie, root) = get_runtime_and_trie();
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        state_update
+            .set(&account_suffix(&alice_account(), b"test123"), &DBValue::from_slice(b"123"));
+        let (new_root, db_changes) = state_update.finalize();
+        trie.apply_changes(db_changes).unwrap();
+
+        let state_update = TrieUpdate::new(trie, new_root);
+        let trie_viewer = TrieViewer {};
+        let result = trie_viewer.view_state(&state_update, &alice_account()).unwrap();
+        assert_eq!(
+            result.values,
+            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
+        );
     }
 }

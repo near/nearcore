@@ -3,17 +3,15 @@ use primitives::signature::PublicKey;
 use primitives::traits::Base58Encoded;
 use primitives::types::AuthorityStake;
 
-use crate::chain_spec::ChainSpec;
+use crate::chain_spec::{ChainSpec, AuthorityRotation};
 
 /// Configure the authority rotation.
 #[derive(Clone)]
 pub struct AuthorityConfig {
     /// List of initial proposals at genesis block.
     pub initial_proposals: Vec<AuthorityStake>,
-    /// Authority epoch length.
-    pub epoch_length: u64,
-    /// Number of seats per slot.
-    pub num_seats_per_slot: u64,
+    /// Authority rotation.
+    pub authority_rotation: AuthorityRotation,
 }
 
 pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
@@ -29,7 +27,6 @@ pub fn get_authority_config(chain_spec: &ChainSpec) -> AuthorityConfig {
         .collect();
     AuthorityConfig {
         initial_proposals: initial_authorities,
-        epoch_length: chain_spec.beacon_chain_epoch_length,
-        num_seats_per_slot: chain_spec.beacon_chain_num_seats_per_slot,
+        authority_rotation: chain_spec.authority_rotation.clone(),
     }
 }

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use bs58;
 use exonum_sodiumoxide as sodiumoxide;
@@ -8,7 +9,7 @@ use heapsize;
 use crate::logging::pretty_hash;
 use crate::serialize::Encode;
 
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
 impl CryptoHash {
@@ -25,9 +26,9 @@ impl<'a> From<&'a CryptoHash> for String {
     }
 }
 
-impl Into<CryptoHash> for String {
-    fn into(self) -> CryptoHash {
-        CryptoHash::from(bs58::decode(self).into_vec().unwrap())
+impl From<String> for CryptoHash {
+    fn from(s: String) -> CryptoHash {
+        CryptoHash::from(bs58::decode(s).into_vec().unwrap())
     }
 }
 
@@ -58,9 +59,9 @@ impl From<Vec<u8>> for CryptoHash {
     }
 }
 
-impl Into<Vec<u8>> for CryptoHash {
-    fn into(self) -> Vec<u8> {
-        (self.0).0.to_vec()
+impl From<CryptoHash> for Vec<u8> {
+    fn from(hash: CryptoHash) -> Vec<u8> {
+        (hash.0).0.to_vec()
     }
 }
 
@@ -75,6 +76,20 @@ impl fmt::Display for CryptoHash {
         write!(f, "{}", String::from(self))
     }
 }
+
+impl Hash for CryptoHash {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
+    }
+}
+
+impl PartialEq for CryptoHash {
+    fn eq(&self, other: &CryptoHash) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for CryptoHash {}
 
 pub mod bs58_format {
     use serde::de;

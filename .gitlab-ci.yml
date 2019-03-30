@@ -18,7 +18,8 @@ variables:
 .install_protos: &install_protos
     sudo apt-get install -y unzip &&
     wget -O /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
-    unzip -p /tmp/protoc.zip bin/protoc | sudo tee /usr/local/bin/protoc 1> /dev/null &&
+    sudo unzip /tmp/protoc.zip -d protoc &&
+    sudo mv protoc/bin/* /usr/local/bin/ &&
     sudo chmod 755 /usr/local/bin/protoc
 
 .setup_python: &setup_python
@@ -26,9 +27,6 @@ variables:
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +2 -delete
-
-.build_wasm: &build_wasm
-    cd tests/hello && npm install && npm run build && cd ../..
 
 stages:
     - rust
@@ -38,15 +36,15 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
-    - rustup component add clippy
+    #- rustup component add clippy
     - *setup_cache
     - *install_protos
     - *setup_python
     - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
     script:
     - rustc --version && cargo --version
-    - ./scripts/run_clippy.sh
-    - *build_wasm
+    #- ./scripts/run_clippy.sh
+    - ./scripts/build_wasm.sh
     - cargo build --benches --all
     - cargo test --all --verbose
     after_script:
@@ -72,11 +70,7 @@ test_nearlib:
     dependencies:
         - release_build
     script:
-    - ./target/release/devnet &
-    - ./scripts/waitonserver.sh
-    - *build_wasm
-    - cd nearlib && npm install && npm run build && npm run doc && npm test && cd ..
-    - ./scripts/kill_devnet.sh
+    - ./scripts/test_nearlib.sh
 
 test_pynear:
     stage: libs

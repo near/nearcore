@@ -4,15 +4,16 @@ use std::iter::Peekable;
 use kvdb::DBValue;
 
 use primitives::hash::CryptoHash;
+use primitives::transaction::{AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction};
 use primitives::types::{
-    AccountId, AccountingInfo, Balance, CallbackId,
-    Mana, PromiseId, ReceiptId,
+    AccountId, AccountingInfo, Balance, CallbackId, Mana, Nonce, PromiseId, ReceiptId,
 };
-use primitives::transaction::{AsyncCall, ReceiptTransaction, Callback, CallbackInfo, ReceiptBody};
 use storage::{TrieUpdate, TrieUpdateIterator};
-use wasm::ext::{External, Result as ExtResult, Error as ExtError};
+use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
-use super::{account_id_to_bytes, create_nonce_with_nonce, COL_ACCOUNT, callback_id_to_bytes, set};
+use super::{account_id_to_bytes, callback_id_to_bytes, create_nonce_with_nonce, set, COL_ACCOUNT};
+
+pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -21,7 +22,7 @@ pub struct RuntimeExt<'a> {
     pub callbacks: HashMap<CallbackId, Callback>,
     account_id: AccountId,
     accounting_info: AccountingInfo,
-    nonce: u64,
+    nonce: Nonce,
     transaction_hash: &'a CryptoHash,
     iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
     last_iter_id: u32,
@@ -32,11 +33,11 @@ impl<'a> RuntimeExt<'a> {
         trie_update: &'a mut TrieUpdate,
         account_id: &AccountId,
         accounting_info: &AccountingInfo,
-        transaction_hash: &'a CryptoHash
+        transaction_hash: &'a CryptoHash,
     ) -> Self {
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
-        prefix.append(&mut b",".to_vec());
-        RuntimeExt { 
+        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+        RuntimeExt {
             trie_update,
             storage_prefix: prefix,
             receipts: HashMap::new(),
@@ -69,11 +70,7 @@ impl<'a> RuntimeExt<'a> {
     /// write callbacks to stateUpdate
     pub fn flush_callbacks(&mut self) {
         for (id, callback) in self.callbacks.drain() {
-            set(
-                self.trie_update,
-                &callback_id_to_bytes(&id),
-                &callback
-            );
+            set(self.trie_update, &callback_id_to_bytes(&id), &callback);
         }
     }
 }
@@ -105,7 +102,8 @@ impl<'a> External for RuntimeExt<'a> {
             // shrinks the lifetime to the lifetime of `self`.
             unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .iter(&self.create_storage_key(prefix))
-                .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
+                .map_err(|_| ExtError::TrieIteratorError)?
+                .peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
@@ -116,7 +114,8 @@ impl<'a> External for RuntimeExt<'a> {
             self.last_iter_id,
             unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .range(&self.storage_prefix, start, end)
-                .map_err(|_| ExtError::TrieIteratorError)?.peekable(),
+                .map_err(|_| ExtError::TrieIteratorError)?
+                .peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
@@ -182,23 +181,23 @@ impl<'a> External for RuntimeExt<'a> {
         let receipt_ids = match promise_id {
             PromiseId::Receipt(r) => vec![r],
             PromiseId::Joiner(rs) => rs,
-            PromiseId::Callback(_) => return Err(ExtError::WrongPromise)
+            PromiseId::Callback(_) => return Err(ExtError::WrongPromise),
         };
-        let mut callback = Callback::new(
-            method_name,
-            arguments,
-            mana,
-            self.accounting_info.clone(),
-        );
+        let mut callback =
+            Callback::new(method_name, arguments, mana, self.accounting_info.clone());
         callback.results.resize(receipt_ids.len(), None);
         for (index, receipt_id) in receipt_ids.iter().enumerate() {
             let receipt = match self.receipts.get_mut(receipt_id) {
                 Some(r) => r,
-                _ => return Err(ExtError::PromiseIdNotFound)
+                _ => return Err(ExtError::PromiseIdNotFound),
             };
             match receipt.body {
                 ReceiptBody::NewCall(ref mut async_call) => {
-                    let callback_info = CallbackInfo::new(callback_id.as_ref().to_vec(), index, self.account_id.clone());
+                    let callback_info = CallbackInfo::new(
+                        callback_id.as_ref().to_vec(),
+                        index,
+                        self.account_id.clone(),
+                    );
                     match async_call.callback {
                         Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
                         None => {

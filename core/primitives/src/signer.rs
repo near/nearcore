@@ -72,7 +72,9 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 
 #[derive(Serialize, Deserialize)]
 pub struct BlockProducerKeyFile {
+    #[serde(with = "signature::bs58_serializer")]
     pub public_key: PublicKey,
+    #[serde(with = "signature::bs58_serializer")]
     pub secret_key: SecretKey,
     #[serde(with = "signature::bs58_serializer")]
     pub bls_public_key: BlsPublicKey,
@@ -116,7 +118,12 @@ pub fn get_block_producer_key_file(
     let key_file_string = if key_files_count > 0 {
         if let Some(p) = public_key {
             let key_file_path = key_store_path.join(Path::new(&p));
-            fs::read_to_string(key_file_path).unwrap()
+            match fs::read_to_string(key_file_path.clone()) {
+                Ok(content) => content,
+                Err(err) => {
+                    panic!("Failed to read key file {:?} with error: {}", key_file_path, err);
+                }
+            }
         } else {
             println!(
                 "Public key must be specified when there is more than one \

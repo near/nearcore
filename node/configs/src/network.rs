@@ -1,14 +1,13 @@
 use std::mem;
 use std::net::SocketAddr;
 use std::time::Duration;
+use rand;
 
 use clap::{Arg, ArgMatches};
 
-use crate::ClientConfig;
-use primitives::network::PeerInfo;
 use primitives::{hash::hash, types::PeerId};
+use primitives::network::PeerAddr;
 
-const DEFAULT_ADDR: &str = "127.0.0.1:3000";
 const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
 const DEFAULT_GOSSIP_INTERVAL_MS: &str = "50";
 const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
@@ -18,10 +17,11 @@ const DEFAULT_GOSSIP_SAMPLE_SIZE: &str = "10";
 pub struct NetworkConfig {
     pub listen_addr: Option<SocketAddr>,
     pub peer_id: PeerId,
-    pub boot_nodes: Vec<PeerInfo>,
+    pub boot_nodes: Vec<PeerAddr>,
     pub reconnect_delay: Duration,
     pub gossip_interval: Duration,
     pub gossip_sample_size: usize,
+    pub proxy_handlers: Vec<ProxyHandlerType>,
 }
 
 pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
@@ -30,7 +30,6 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .long("addr")
             .value_name("ADDR")
             .help("Address that network service listens on")
-            .default_value(DEFAULT_ADDR)
             .takes_value(true),
         Arg::with_name("boot_nodes")
             .short("b")
@@ -77,37 +76,45 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .help("Delay in ms between gossiping peers info with known peers.")
             .default_value(DEFAULT_GOSSIP_SAMPLE_SIZE)
             .takes_value(true),
+        Arg::with_name("proxy_handlers")
+            .long("proxy-handlers")
+            .value_name("PROXY_HANDLERS")
+            .help(
+                "Specify a list of proxy handler for the node. In the form:\
+                    --proxy_handler identifier
+            ",
+            )
+            .multiple(true)
+            .takes_value(true),
     ]
 }
 
-pub fn get_peer_id_from_seed(seed: u32) -> PeerId {
-    let bytes: [u8; 4] = unsafe { mem::transmute(seed) };
+pub fn get_peer_id_from_seed(seed: Option<u32>) -> PeerId {
+    if let Some(seed) = seed {
+        let bytes: [u8; 4] = unsafe { mem::transmute(seed) };
 
-    let mut array = [0; 32];
-    for (count, b) in bytes.iter().enumerate() {
-        array[array.len() - count - 1] = *b;
+        let mut array = [0; 32];
+        for (count, b) in bytes.iter().enumerate() {
+            array[array.len() - count - 1] = *b;
+        }
+        hash(&array)
+    } else {
+        let array: [u8; 32] = rand::random();
+        primitives::hash::CryptoHash::new(&array)
     }
-    hash(&array)
 }
 
-pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> NetworkConfig {
-    // TODO: make addr optional cmd argument.
+pub fn from_matches(matches: &ArgMatches) -> NetworkConfig {
     let listen_addr =
-        Some(matches.value_of("addr").unwrap().parse::<SocketAddr>().expect("Cannot parse address"));
+        matches.value_of("addr").map(|value| value.parse::<SocketAddr>().expect("Cannot parse address"));
     let test_network_key_seed =
-        matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap()).unwrap_or(0);
+        matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap());
 
     let parsed_boot_nodes =
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
-    let mut boot_nodes: Vec<_> = parsed_boot_nodes
+    let boot_nodes: Vec<_> = parsed_boot_nodes
         .map(|addr_id| {
-            let addr_id: Vec<_> = addr_id.split('/').collect();
-            let (addr, id) = (addr_id[0], addr_id[1]);
-            PeerInfo {
-                addr: Some(addr.parse::<SocketAddr>().expect("Cannot parse address")),
-                id: String::into(id.to_string()),
-                account_id: None,
-            }
+            PeerAddr::parse(&addr_id).expect("Cannot parse address")
         })
         .clone()
         .collect();
@@ -119,12 +126,6 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
     let gossip_sample_size =
         matches.value_of("gossip_sample_size").map(|x| x.parse::<usize>().unwrap()).unwrap();
 
-    if boot_nodes.is_empty() {
-        boot_nodes = client_config.chain_spec.boot_nodes.to_vec();
-    } else if !client_config.chain_spec.boot_nodes.is_empty() {
-        // TODO(#222): Maybe return an error here instead of panicking.
-        panic!("Boot nodes cannot be specified when chain spec has the boot nodes.");
-    }
     let peer_id = get_peer_id_from_seed(test_network_key_seed);
     if listen_addr.is_some() {
         println!("To boot from this node: {}/{}", listen_addr.unwrap(), String::from(&peer_id));
@@ -136,5 +137,33 @@ pub fn from_matches(client_config: &ClientConfig, matches: &ArgMatches) -> Netwo
         reconnect_delay: Duration::from_millis(reconnect_delay_ms),
         gossip_interval: Duration::from_millis(gossip_interval_ms),
         gossip_sample_size,
+        proxy_handlers: vec![],
+    }
+}
+
+/// Proxy Handlers that can be used in nodes from config file.
+///
+/// TODO(#795): Network Config Proxy
+/// * Populate ProxyHandlerType with all proxy_handler we want to have builtin.
+/// * get_handler_type is a map-like function that build ProxyHandlerType (with fixed parameters) from identifier (string).
+/// * Parse config to accept proxy handlers. (This haven't been tested)
+/// * Pass proper arguments to NetworkConfig constructor
+/// * Build proxy_handlers properly from network configs.
+#[derive(Clone)]
+pub enum ProxyHandlerType {
+    Debug,
+    Dropout(f64),
+}
+
+impl ProxyHandlerType {
+    #[allow(dead_code)]
+    fn get_handler_type(handler_id: String) -> Option<ProxyHandlerType> {
+        match handler_id.as_ref() {
+            "debug" => Some(ProxyHandlerType::Debug),
+
+            "dropout" => Some(ProxyHandlerType::Dropout(0.5f64)),
+
+            _ => None,
+        }
     }
 }

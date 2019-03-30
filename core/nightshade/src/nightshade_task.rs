@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use std::iter::FromIterator;
+use std::convert::{TryFrom, TryInto};
 
 use elapsed::measure_time;
 use futures::future::Future;
@@ -18,6 +20,9 @@ use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::{verify, PublicKey, Signature};
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
+use primitives::utils::{proto_to_type, proto_to_result};
+use near_protos::nightshade as nightshade_proto;
+use protobuf::{SingularPtrField, RepeatedField};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
 
@@ -43,7 +48,35 @@ pub struct Message {
     pub state: State,
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+impl TryFrom<nightshade_proto::Gossip_Message> for Message {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Gossip_Message) -> Result<Self, Self::Error> {
+        match proto_to_type(proto.state) {
+            Ok(state) => {
+                Ok(Message {
+                    sender_id: proto.sender_id as AuthorityId,
+                    receiver_id: proto.receiver_id as AuthorityId,
+                    state,
+                })
+            }
+            Err(e) => Err(e)
+        }
+    }
+}
+
+impl From<Message> for nightshade_proto::Gossip_Message {
+    fn from(message: Message) -> Self {
+        nightshade_proto::Gossip_Message {
+            sender_id: message.sender_id as u64,
+            receiver_id: message.receiver_id as u64,
+            state: SingularPtrField::some(message.state.into()),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub enum GossipBody {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -51,13 +84,87 @@ pub enum GossipBody {
     PayloadReply(Vec<SignedBlockProposal>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub body: GossipBody,
-    block_index: u64,
-    signature: Signature,
+    pub block_index: BlockIndex,
+    pub signature: Signature,
+}
+
+impl TryFrom<nightshade_proto::Gossip> for Gossip {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Gossip) -> Result<Self, Self::Error> {
+        let body = match proto.body {
+            Some(nightshade_proto::Gossip_oneof_body::nightshade_state_update(state_update)) => {
+                state_update.try_into().map(|update| GossipBody::NightshadeStateUpdate(Box::new(update)))
+            }
+            Some(nightshade_proto::Gossip_oneof_body::payload_request(request)) => {
+                let payload_request = request.payload_request
+                    .into_iter()
+                    .map(|x| x as AuthorityId)
+                    .collect();
+                Ok(GossipBody::PayloadRequest(payload_request))
+            }
+            Some(nightshade_proto::Gossip_oneof_body::payload_reply(reply)) => {
+                let proposals: Result<Vec<_>, _> = reply.payload_reply
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect();
+                proposals.map(GossipBody::PayloadReply)
+            }
+            None => unreachable!()
+        };
+
+        match body {
+            Ok(body) => {
+                Ok(Gossip {
+                    sender_id: proto.sender_id as AuthorityId,
+                    receiver_id: proto.receiver_id as AuthorityId,
+                    body,
+                    block_index: proto.block_index,
+                    signature: Signature::from(&proto.signature),
+                })
+            }
+            Err(e) => Err(e)
+        }
+    }
+}
+
+impl From<Gossip> for nightshade_proto::Gossip {
+    fn from(gossip: Gossip) -> nightshade_proto::Gossip {
+        let body = match gossip.body {
+            GossipBody::NightshadeStateUpdate(update) => {
+                nightshade_proto::Gossip_oneof_body::nightshade_state_update((*update).into())
+            }
+            GossipBody::PayloadRequest(request) => {
+                let request = nightshade_proto::Gossip_PayloadRequest {
+                    payload_request: request.into_iter().map(|x| x as u64).collect(),
+                    ..Default::default()
+                };
+                nightshade_proto::Gossip_oneof_body::payload_request(request)
+            }
+            GossipBody::PayloadReply(reply) => {
+                let reply = nightshade_proto::Gossip_PayloadReply {
+                    payload_reply: RepeatedField::from_iter(
+                        reply.into_iter().map(std::convert::Into::into)
+                    ),
+                    ..Default::default()
+                };
+                nightshade_proto::Gossip_oneof_body::payload_reply(reply)
+            }
+        };
+        nightshade_proto::Gossip {
+            sender_id: gossip.sender_id as u64,
+            receiver_id: gossip.receiver_id as u64,
+            body: Some(body),
+            block_index: gossip.block_index,
+            signature: gossip.signature.to_string(),
+            ..Default::default()
+        }
+    }
 }
 
 impl Gossip {
@@ -86,6 +193,30 @@ impl Gossip {
 pub struct SignedBlockProposal {
     block_proposal: BlockProposal,
     signature: Signature,
+}
+
+impl TryFrom<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::SignedBlockProposal) -> Result<Self, Self::Error> {
+        let signature = Signature::from(&proto.signature);
+        proto_to_result(proto.block_proposal).map(|proposal| {
+            SignedBlockProposal {
+                block_proposal: proposal.into(),
+                signature,
+            }
+        })
+    }
+}
+
+impl From<SignedBlockProposal> for nightshade_proto::SignedBlockProposal {
+    fn from(proposal: SignedBlockProposal) -> Self {
+        nightshade_proto::SignedBlockProposal {
+            block_proposal: SingularPtrField::some(proposal.block_proposal.into()),
+            signature: proposal.signature.to_string(),
+            ..Default::default()
+        }
+    }
 }
 
 impl SignedBlockProposal {
@@ -257,7 +388,7 @@ impl NightshadeTask {
             // TODO: This message is discarded if we haven't received the proposal yet.
             let gossip = Gossip::new(
                 self.owner_id(),
-                author,
+                message.sender_id,
                 GossipBody::PayloadRequest(vec![author]),
                 self.signer.clone(),
                 self.block_index.unwrap(),
@@ -303,7 +434,7 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
-        info!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
+        debug!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
@@ -387,7 +518,7 @@ impl Stream for NightshadeTask {
                     public_keys,
                     bls_public_keys,
                 }))) => {
-                    info!(target: "nightshade",
+                    debug!(target: "nightshade",
                           "Control channel received Reset for owner_uid={}, block_index={}, hash={:?}",
                           owner_uid, block_index, hash);
                     self.init_nightshade(
@@ -400,7 +531,7 @@ impl Stream for NightshadeTask {
                     break;
                 }
                 Ok(Async::Ready(Some(Control::Stop))) => {
-                    info!(target: "nightshade", "Control channel received Stop");
+                    debug!(target: "nightshade", "Control channel received Stop");
                     if self.nightshade.is_some() {
                         self.nightshade = None;
                         // On the next call of poll if we still don't have the state this task will be
@@ -411,7 +542,7 @@ impl Stream for NightshadeTask {
                     // is NotReady this will automatically park the task.
                 }
                 Ok(Async::Ready(Some(Control::PayloadConfirmation(authority_id, hash)))) => {
-                    info!(target: "nightshade", "Received confirmation for ({}, {:?})", authority_id, hash);
+                    debug!(target: "nightshade", "Received confirmation for ({}, {:?})", authority_id, hash);
                     // Check that we got confirmation for the current proposal
                     // and not for a proposal in a previous block index
                     if let Some(signed_block) = &self.proposals[authority_id] {
@@ -425,7 +556,7 @@ impl Stream for NightshadeTask {
                     }
                 }
                 Ok(Async::Ready(None)) => {
-                    info!(target: "nightshade", "Control channel was dropped");
+                    debug!(target: "nightshade", "Control channel was dropped");
                     return Ok(Async::Ready(None));
                 }
                 Ok(Async::NotReady) => {
@@ -471,7 +602,7 @@ impl Stream for NightshadeTask {
                                         .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                                 );
                             } else {
-                                info!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", outcome.hash, outcome.author);
+                                warn!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", outcome.hash, outcome.author);
                             }
                         }
                     }

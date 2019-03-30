@@ -33,27 +33,23 @@ impl TrieUpdate {
     pub fn remove(&mut self, key: &[u8]) {
         self.prospective.insert(key.to_vec(), None);
     }
+
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
-        // TODO(574): join with iterating over committed / perspective overlay here.
-        let mut iter = move || -> Result<(), String> {
-            let mut iter = self.trie.iter(&self.root)?;
-            iter.seek(prefix)?;
-            for x in iter {
-                let (key, _) = x?;
-                if !key.starts_with(prefix) {
-                    break;
+        match self.iter(prefix) {
+            Ok(iter) => {
+                for key in iter {
+                    f(&key);
                 }
-                f(&key);
             }
-            Ok(())
-        };
-        if let Err(e) = iter() {
-            debug!(target: "trie", "Error while iterating by prefix: {}", e);
+            Err(e) => {
+                debug!(target: "trie", "Error while iterating by prefix: {}", e);
+            }
         }
     }
+
     pub fn commit(&mut self) {
         if self.committed.is_empty() {
-            ::std::mem::swap(&mut self.prospective, &mut self.committed);
+            std::mem::swap(&mut self.prospective, &mut self.committed);
         } else {
             for (key, val) in self.prospective.iter() {
                 *self.committed.entry(key.clone()).or_default() = val.clone();

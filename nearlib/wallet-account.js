@@ -12,6 +12,16 @@ const REQUEST_ID_LENGTH = 32;
 
 const LOCAL_STORAGE_KEY_SUFFIX = '_wallet_auth_key';
 
+/**
+ * Wallet based account and signer that uses external wallet through the iframe to sign transactions.
+ * @example 
+ * // if importing WalletAccount directly
+ * const walletAccount = new WalletAccount(contractName, walletBaseUrl)
+ * // if importing in all of nearLib and calling from variable 
+ * const walletAccount = new nearlib.WalletAccount(contractName, walletBaseUrl)
+ * // To access wallet globally use:
+ * window.walletAccount = new nearlib.WalletAccount(config.contractName, walletBaseUrl);
+ */
 class WalletAccount {
 
     constructor(appKeyPrefix, walletBaseUrl = 'https://wallet.nearprotocol.com') {
@@ -27,14 +37,37 @@ class WalletAccount {
         }
     }
 
+    /**
+     * Returns true, if this WalletAccount is authorized with the wallet.
+     * @example
+     * walletAccount.isSignedIn();
+     */
     isSignedIn() {
         return !!this._authData.accountId;
     }
 
+    /**
+     * Returns authorized Account ID.
+     * @example 
+     * walletAccount.getAccountId();
+     */
     getAccountId() {
         return this._authData.accountId || '';
     }
 
+    /**
+     * Redirects current page to the wallet authentication page.
+     * @param {string} contract_id contract ID of the application
+     * @param {string} title name of the application
+     * @param {string} success_url url to redirect on success
+     * @param {string} failure_url url to redirect on failure
+     * @example
+     *   walletAccount.requestSignIn(
+     *     myContractId,
+     *     title,
+     *     onSuccessHref,
+     *     onFailureHref);
+     */
     requestSignIn(contract_id, title, success_url, failure_url) {
         const currentUrl = new URL(window.location.href);
         let newUrl = new URL(this._walletBaseUrl + LOGIN_WALLET_URL_SUFFIX);
@@ -45,7 +78,11 @@ class WalletAccount {
         newUrl.searchParams.set('app_url', currentUrl.origin);
         window.location.replace(newUrl.toString());
     }
-
+    /**
+     * Sign out from the current account
+     * @example
+     * walletAccount.signOut();
+     */
     signOut() {
         this._authData = {};
         window.localStorage.removeItem(this._authDataKey);

@@ -3,28 +3,28 @@
 ## NEAR Protocol - scalable and usable blockchain
 
 ![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
-<a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 [![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
+<a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 
 NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
 
-Through sharding it will linearly scale with number of validation nodes on the network.
+Through sharding, it will linearly scale with the number of validation nodes on the network.
 
 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
 finally makes using a blockchain protocol easy for both developers and consumers.
 
 ## Quick start
 
-[Check out quick start documentation](https://docs.nearprotocol.com/#/quick_start), specifically:
-  - [Running DevNet](https://docs.nearprotocol.com/#/quick_start#run--interact-with-devnet)
-  - [Running TestNet](https://docs.nearprotocol.com/#/quick_start#running-testnet-locally)
-  - [Build an ERC-20 contract](https://docs.nearprotocol.com/#/tutorials/erc20)
+[Check out quick start documentation](https://docs.nearprotocol.com/quick_start), specifically:
+  - [Build your first app in NEAR Studio](https://docs.nearprotocol.com/quick_start/easy)
+  - [Running local DevNet](https://docs.nearprotocol.com/quick_start/advanced)
+  - [Join TestNet](https://docs.nearprotocol.com/quick_start/expert)
+  - [Build an ERC-20 contract](https://docs.nearprotocol.com/tutorials/token)
   
-Develop and deploy contracts without any setup required using [NEARStudio](https://studio.nearprotocol.com):
+Develop and deploy contracts without any setup required using [NEAR Studio](https://studio.nearprotocol.com):
 
-[![NEAR Studio Demo](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
-
+[![NEAR Studio](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
 
 
 ## Status
@@ -34,7 +34,7 @@ This project is currently under heavy development. Please see Issues and Milesto
 High level milestones:
 
  - [x] DevNet: a tool with fully working State Transition + WebAssembly.
- - [ ] AlphaNet: Multi-node smart-contract platform.
+ - [x] AlphaNet: Multi-node smart-contract platform.
  - [ ] BetaNet: Added economics and enchanced security.
  - [ ] TestNet: added governance module, ready to launch as MVB
  - [ ] MainNet: Launched as Minimum Viable Blockchain.
@@ -47,12 +47,13 @@ This repo contains the core NEAR Protocol node client.  It is written using the 
 ### Setup rust
 
 ```bash
-$ curl https://sh.rustup.rs -sSf | sh
-# you may need to restart your shell here
-$ rustup component add clippy-preview
+curl https://sh.rustup.rs -sSf | sh
+source ~/.cargo/env
+rustup component add clippy-preview
+rustup default nightly
 ```
 
-You may need to activate the environment via `$ source ~/.cargo/env` to use `cargo`.
+You may need to activate the environment via `source ~/.cargo/env` to use `cargo` or add it to your `.bash_profile` or similar.
 
 
 ### Install dependencies
@@ -87,7 +88,7 @@ or
 cargo run --package=devnet
 ```
 
- ### Testing
+### Testing
 
 In order to run tests currently, you must setup `pynear`:
 

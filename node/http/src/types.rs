@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
-use primitives::beacon::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlock};
 use near_protos::serde::b64_format as protos_b64_format;
 use primitives::aggregate_signature::BlsPublicKey;
+use primitives::beacon::{BeaconBlockHeader, SignedBeaconBlockHeader};
+use primitives::chain::{ReceiptBlock, ShardBlock, ShardBlockHeader, SignedShardBlock};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::signature::{bs58_serializer, PublicKey};
-use primitives::types::{
-    AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, ShardId,
-};
-use primitives::chain::{ShardBlock, ShardBlockHeader, SignedShardBlock, ReceiptBlock};
 use primitives::transaction::{
-    FinalTransactionResult, SignedTransaction, TransactionResult, LogEntry,
+    FinalTransactionResult, LogEntry, SignedTransaction, TransactionResult,
+};
+use primitives::types::{
+    AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, Nonce, ShardId,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -23,7 +23,7 @@ pub struct ViewAccountResponse {
     pub account_id: AccountId,
     pub amount: Balance,
     pub stake: Balance,
-    pub nonce: u64,
+    pub nonce: Nonce,
     #[serde(with = "bs58_format")]
     pub code_hash: CryptoHash,
 }
@@ -84,9 +84,8 @@ pub struct BeaconBlockHeaderResponse {
 
 impl From<BeaconBlockHeader> for BeaconBlockHeaderResponse {
     fn from(header: BeaconBlockHeader) -> Self {
-        let authority_proposal = header.authority_proposal.into_iter()
-            .map(std::convert::Into::into)
-            .collect();
+        let authority_proposal =
+            header.authority_proposal.into_iter().map(std::convert::Into::into).collect();
         BeaconBlockHeaderResponse {
             parent_hash: header.parent_hash,
             index: header.index,
@@ -97,32 +96,19 @@ impl From<BeaconBlockHeader> for BeaconBlockHeaderResponse {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct BeaconBlockResponse {
-    pub header: BeaconBlockHeaderResponse,
-}
-
-impl From<BeaconBlock> for BeaconBlockResponse {
-    fn from(block: BeaconBlock) -> Self {
-        BeaconBlockResponse {
-            header: block.header.into()
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SignedBeaconBlockResponse {
-    pub body: BeaconBlockResponse,
+    pub header: BeaconBlockHeaderResponse,
     #[serde(with = "bs58_format")]
     pub hash: CryptoHash,
     pub signature: GroupSignature,
 }
 
-impl From<SignedBeaconBlock> for SignedBeaconBlockResponse {
-    fn from(block: SignedBeaconBlock) -> Self {
+impl From<SignedBeaconBlockHeader> for SignedBeaconBlockResponse {
+    fn from(header: SignedBeaconBlockHeader) -> Self {
         SignedBeaconBlockResponse {
-            body: block.body.into(),
-            hash: block.hash,
-            signature: block.signature,
+            header: header.body.into(),
+            hash: header.hash,
+            signature: header.signature,
         }
     }
 }
@@ -165,23 +151,15 @@ pub struct SignedTransactionResponse {
 
 impl From<SignedTransaction> for SignedTransactionResponse {
     fn from(transaction: SignedTransaction) -> Self {
-        Self {
-            body: transaction.clone().into(),
-            hash: transaction.get_hash(),
-        }
+        Self { body: transaction.clone().into(), hash: transaction.get_hash() }
     }
 }
 
 impl From<ShardBlock> for ShardBlockResponse {
     fn from(block: ShardBlock) -> Self {
-        let transactions = block.transactions.into_iter()
-            .map(SignedTransactionResponse::from)
-            .collect();
-        ShardBlockResponse {
-            header: block.header.into(),
-            transactions,
-            receipts: block.receipts,
-        }
+        let transactions =
+            block.transactions.into_iter().map(SignedTransactionResponse::from).collect();
+        ShardBlockResponse { header: block.header.into(), transactions, receipts: block.receipts }
     }
 }
 
@@ -194,10 +172,7 @@ pub struct SignedShardBlockResponse {
 
 impl From<SignedShardBlock> for SignedShardBlockResponse {
     fn from(block: SignedShardBlock) -> Self {
-        SignedShardBlockResponse {
-            body: block.body.into(),
-            hash: block.hash,
-        }
+        SignedShardBlockResponse { body: block.body.into(), hash: block.hash }
     }
 }
 
@@ -215,18 +190,18 @@ pub struct GetBlocksByIndexRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct SignedShardBlocksResponse {
-    pub blocks: Vec<SignedShardBlockResponse>
+    pub blocks: Vec<SignedShardBlockResponse>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct SignedBeaconBlocksResponse {
-    pub blocks: Vec<SignedBeaconBlockResponse>
+    pub blocks: Vec<SignedBeaconBlockResponse>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct GetTransactionRequest {
     #[serde(with = "bs58_format")]
-    pub hash: CryptoHash
+    pub hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize)]

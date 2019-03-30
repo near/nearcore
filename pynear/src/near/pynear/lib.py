@@ -3,7 +3,6 @@ from __future__ import print_function
 import base64
 import hashlib
 import json
-import sys
 
 import requests
 
@@ -72,7 +71,7 @@ class NearLib(object):
             raw = connection.read()
             if self._debug:
                 print(raw)
-            return json.loads(raw)
+            return json.loads(raw.decode('utf-8'))
         except HTTPError as e:
             if e.code == 400:
                 raise Exception(e.fp.read())
@@ -301,3 +300,6 @@ class NearLib(object):
     def get_contract_info(self, contract_account_id):
         params = {'contract_account_id': contract_account_id}
         return self._call_rpc('view_state', params)
+
+    def generate_key_pair(self, seed):
+        return self.keystore.create_key_pair(seed)

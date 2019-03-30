@@ -6,6 +6,8 @@ const KeyPair = require('./signing/key_pair');
 
 /**
  * Near account and account related operations. 
+ * @example
+ * const account = new Account(nearjs.nearClient);
  */
 class Account {
     constructor(nearClient) {
@@ -18,6 +20,12 @@ class Account {
      * @param {string} publicKey public key to associate with the new account
      * @param {number} amount amount of tokens to transfer from originator account id to the new account as part of the creation. 
      * @param {string} originatorAccountId existing account on the blockchain to use for transferring tokens into the new account
+     * @example
+     * const createAccountResponse = await account.createAccount(
+     *    mainTestAccountName,
+     *    keyWithRandomSeed.getPublicKey(),
+     *    1000,
+     *    aliceAccountName);
      */
     async createAccount (newAccountId, publicKey, amount, originator) {
         const nonce = await this.nearClient.getNonce(originator);
@@ -53,6 +61,11 @@ class Account {
     * @param {string} newAccountId id of the new account
     * @param {number} amount amount of tokens to transfer from originator account id to the new account as part of the creation. 
     * @param {string} originatorAccountId existing account on the blockchain to use for transferring tokens into the new account
+    * @example
+    * const createAccountResponse = await account.createAccountWithRandomKey(
+    *     newAccountName,
+    *     amount,
+    *     aliceAccountName);
     */
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();
@@ -66,8 +79,10 @@ class Account {
     }
 
     /**
-     * 
+     * Returns an existing account with a given `accountId`
      * @param {string} accountId id of the account to look up 
+     * @example
+     * const viewAccountResponse = await account.viewAccount(existingAccountId);
      */
     async viewAccount (accountId) {
         return await this.nearClient.viewAccount(accountId);
@@ -107,7 +122,7 @@ module.exports = {
      */
     connect: async function(options = {}) {
         // construct full options objects based on params, and fill in with defaults.
-        const fullRuntimeOptions = Object.assign({}, options);
+        const fullRuntimeOptions = Object.assign({deps: {}}, options);
         if (fullRuntimeOptions.useDevAccount) {
             fullRuntimeOptions.accountId = devAccountName;
             fullRuntimeOptions.key = devKey;
@@ -153,7 +168,7 @@ module.exports = {
         return tempUserAccountId;
     },
     get myAccountId() {
-        return window.localStorage.getItem(storageAccountIdKey);
+        return this.deps.storage.getItem(storageAccountIdKey);
     },
     /**
      * Function to create an account on local node. This will not work on non-dev environments.
@@ -254,6 +269,11 @@ class Near {
      * Constructs near with an instance of nearclient.
      * @constructor
      * @param {NearClient} nearClient
+     * @example
+     * const nearClient = new nearlib.NearClient(
+     *   walletAccount, 
+     *   new nearlib.LocalNodeConnection(config.nodeUrl));
+     * const near = new nearlib.Near(nearClient);
      */
     constructor(nearClient) {
         this.nearClient = nearClient;
@@ -262,6 +282,8 @@ class Near {
     /**
      * Generate a default configuration for nearlib
      * @param {string} nodeUrl url of the near node to connect to
+     * @example
+     * Near.createDefaultConfig();
      */
     static createDefaultConfig(nodeUrl = 'http://localhost:3030') {
         return new Near(new NearClient(
@@ -275,6 +297,11 @@ class Near {
      * @param {string} contractAccountId account id of the contract
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
+     * @example
+     * const viewFunctionResponse = await near.callViewFunction(
+     *   contractAccountId, 
+     *   methodName, 
+     *   args);
      */
     async callViewFunction(contractAccountId, methodName, args) {
         if (!args) {
@@ -290,7 +317,7 @@ class Near {
             console.log(`[${contractAccountId}]: ${line}`);
         });
         const json = JSON.parse(Buffer.from(response.result).toString());
-        return json.result;
+        return json;
     }
 
     /**
@@ -301,6 +328,13 @@ class Near {
      * @param {string} contractAccountId account id of the contract
      * @param {string} methodName method to call
      * @param {object} args arguments to pass to the method
+     * @example
+     * const scheduleResult = await near.scheduleFunctionCall(
+     *     0,
+     *     aliceAccountName,
+     *     contractName,
+     *     'setValue', // this is the function defined in a wasm file that we are calling
+     *     setArgs);
      */
     async scheduleFunctionCall(amount, originator, contractId, methodName, args) {
         if (!args) {
@@ -341,6 +375,8 @@ class Near {
      * Deploys a smart contract to the block chain
      * @param {string} contractAccountId account id of the contract
      * @param {Uint8Array} wasmArray wasm binary
+     * @example
+     * const response =  await nearjs.deployContract(contractName, data);
      */
     async deployContract(contractId, wasmByteArray) {
         const nonce = await this.nearClient.getNonce(contractId);
@@ -371,6 +407,9 @@ class Near {
     /**
      * Get a status of a single transaction identified by the transaction hash.
      * @param {string} transactionHash unique identifier of the transaction
+     * @example
+     * // get the result of a transaction status call
+     * const result = (await this.getTransactionStatus(transactionHash)).result
      */
     async getTransactionStatus(transactionHash) {
         const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
@@ -389,18 +428,28 @@ class Near {
      * @param {string | object} transactionResponseOrHash hash of transaction or object returned from {@link submitTransaction}
      * @param {object} options object used to pass named parameters
      * @param {string} options.contractAccountId specifies contract ID for better logs and error messages
+     * @example
+     * const result = await this.waitForTransactionResult(transactionHash);
      */
     async waitForTransactionResult(transactionResponseOrHash, options = {}) {
         const transactionHash = transactionResponseOrHash.hasOwnProperty('hash') ? transactionResponseOrHash.hash : transactionResponseOrHash;
         const contractAccountId = options.contractAccountId || 'unknown contract';
+        let alreadyDisplayedLogs = [];
         let result;
         for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
             await sleep(STATUS_POLL_PERIOD_MS);
             result = (await this.getTransactionStatus(transactionHash)).result;
             const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
-            flatLog.forEach(line => {
+            let j;
+            for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == flatLog[j]; j++);
+            if (j != alreadyDisplayedLogs.length) {
+                console.warn('new logs:', flatLog, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
+            }
+            for (; j < flatLog.length; j++) {
+                const line = flatLog[j];
                 console.log(`[${contractAccountId}]: ${line}`);
-            });
+                alreadyDisplayedLogs.push(line);
+            }
             if (result.status == 'Completed') {
                 return result;
             }
@@ -430,7 +479,13 @@ class Near {
      * @param {string[]} options.viewMethods list of view methods to load (which don't change state)
      * @param {string[]} options.changeMethods list of methods to load that change state
      * @returns {object} object with methods corresponding to given contract methods.
-     *
+     * @example
+     * // this example would be a counter app with a contract that contains the incrementCounter and decrementCounter methods
+     * window.contract = await near.loadContract(config.contractName, {
+     *   viewMethods: ["getCounter"],
+     *   changeMethods: ["incrementCounter", "decrementCounter"],
+     *   sender: nearlib.dev.myAccountId
+     * });
      */
     async loadContract(contractAccountId, options) {
         // TODO: Move this to account context to avoid options.sender
@@ -12064,6 +12119,14 @@ class KeyPair {
 
     /**
      * Get the secret key.
+     * @example
+     *  // Passing existing key into a function to store in local storage
+     *  async setKey(accountId, key) {
+     *      window.localStorage.setItem(
+     *          BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
+     *      window.localStorage.setItem(
+     *          BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+     *  }
      */
     getSecretKey() {
         return this.secretKey;
@@ -12071,6 +12134,13 @@ class KeyPair {
 
     /**
      * Generate a new keypair from a random seed
+     * @example
+     * const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+     * keyWithRandomSeed.getPublicKey()
+     * // returns [PUBLIC_KEY]
+     * 
+     * keyWithRandomSeed.getSecretKey()
+     * // returns [SECRET_KEY]
      */
     static async fromRandomSeed() {
         var newKeypair = nacl.sign.keyPair();
@@ -12083,6 +12153,8 @@ class KeyPair {
     /**
      * Encode a buffer as string using bs58
      * @param {Buffer} buffer 
+     * @example
+     * KeyPair.encodeBufferInBs58(key.publicKey)
      */
     static encodeBufferInBs58(buffer) {
         const bytes = Buffer.from(buffer);
@@ -12144,6 +12216,16 @@ const REQUEST_ID_LENGTH = 32;
 
 const LOCAL_STORAGE_KEY_SUFFIX = '_wallet_auth_key';
 
+/**
+ * Wallet based account and signer that uses external wallet through the iframe to sign transactions.
+ * @example 
+ * // if importing WalletAccount directly
+ * const walletAccount = new WalletAccount(contractName, walletBaseUrl)
+ * // if importing in all of nearLib and calling from variable 
+ * const walletAccount = new nearlib.WalletAccount(contractName, walletBaseUrl)
+ * // To access wallet globally use:
+ * window.walletAccount = new nearlib.WalletAccount(config.contractName, walletBaseUrl);
+ */
 class WalletAccount {
 
     constructor(appKeyPrefix, walletBaseUrl = 'https://wallet.nearprotocol.com') {
@@ -12159,14 +12241,37 @@ class WalletAccount {
         }
     }
 
+    /**
+     * Returns true, if this WalletAccount is authorized with the wallet.
+     * @example
+     * walletAccount.isSignedIn();
+     */
     isSignedIn() {
         return !!this._authData.accountId;
     }
 
+    /**
+     * Returns authorized Account ID.
+     * @example 
+     * walletAccount.getAccountId();
+     */
     getAccountId() {
         return this._authData.accountId || '';
     }
 
+    /**
+     * Redirects current page to the wallet authentication page.
+     * @param {string} contract_id contract ID of the application
+     * @param {string} title name of the application
+     * @param {string} success_url url to redirect on success
+     * @param {string} failure_url url to redirect on failure
+     * @example
+     *   walletAccount.requestSignIn(
+     *     myContractId,
+     *     title,
+     *     onSuccessHref,
+     *     onFailureHref);
+     */
     requestSignIn(contract_id, title, success_url, failure_url) {
         const currentUrl = new URL(window.location.href);
         let newUrl = new URL(this._walletBaseUrl + LOGIN_WALLET_URL_SUFFIX);
@@ -12177,7 +12282,11 @@ class WalletAccount {
         newUrl.searchParams.set('app_url', currentUrl.origin);
         window.location.replace(newUrl.toString());
     }
-
+    /**
+     * Sign out from the current account
+     * @example
+     * walletAccount.signOut();
+     */
     signOut() {
         this._authData = {};
         window.localStorage.removeItem(this._authDataKey);
@@ -12209,9 +12318,9 @@ class WalletAccount {
     }
 
     receiveMessage(event) {
-        if (event.source.location.href != this._walletBaseUrl + '/embed/') {
+        if (!this._walletBaseUrl.startsWith(event.origin)) {
             // Only processing wallet messages.
-            console.log('Wallet account ignoring message from ' + event.source.location.href);
+            console.log('Wallet account ignoring message from ' + event.origin);
             return;
         }
         let data;

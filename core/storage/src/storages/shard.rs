@@ -1,12 +1,15 @@
-use super::{extend_with_cache, read_with_cache, StorageResult};
+use super::{extend_with_cache, read_with_cache, write_with_cache, StorageResult};
 use super::{BlockChainStorage, GenericStorage};
 use super::{ChainId, KeyValueDB};
-use super::{COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS};
-use primitives::chain::SignedShardBlock;
-use primitives::chain::SignedShardBlockHeader;
+use super::{
+    CACHE_SIZE, COL_RECEIPT_BLOCK, COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS,
+    COL_TX_NONCE,
+};
+use lru::LruCache;
+use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::hash::CryptoHash;
-use primitives::transaction::TransactionAddress;
-use primitives::transaction::TransactionResult;
+use primitives::transaction::{TransactionAddress, TransactionResult};
+use primitives::types::{AccountId, BlockIndex, ShardId};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -14,8 +17,14 @@ use std::sync::Arc;
 /// Shard chain
 pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
-    transaction_results: HashMap<Vec<u8>, TransactionResult>,
-    transaction_addresses: HashMap<Vec<u8>, TransactionAddress>,
+    // keyed by transaction hash
+    transaction_results: LruCache<Vec<u8>, TransactionResult>,
+    // keyed by transaction hash
+    transaction_addresses: LruCache<Vec<u8>, TransactionAddress>,
+    // keyed by block index
+    receipts: LruCache<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
+    // Records the largest transaction nonce per account
+    tx_nonce: LruCache<Vec<u8>, u64>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -31,8 +40,10 @@ impl ShardChainStorage {
     pub fn new(storage: Arc<KeyValueDB>, shard_id: u32) -> Self {
         Self {
             generic_storage: BlockChainStorage::new(storage, ChainId::ShardChain(shard_id)),
-            transaction_results: Default::default(),
-            transaction_addresses: Default::default(),
+            transaction_results: LruCache::new(CACHE_SIZE),
+            transaction_addresses: LruCache::new(CACHE_SIZE),
+            receipts: LruCache::new(CACHE_SIZE),
+            tx_nonce: LruCache::new(CACHE_SIZE),
         }
     }
 
@@ -125,5 +136,56 @@ impl ShardChainStorage {
             }
         }
         self.generic_storage.storage.write(db_transaction)
+    }
+
+    #[inline]
+    pub fn receipt_block(
+        &mut self,
+        index: BlockIndex,
+        shard_id: ShardId,
+    ) -> StorageResult<&ReceiptBlock> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_RECEIPT_BLOCK,
+            &mut self.receipts,
+            &self.generic_storage.enc_index(index),
+        )
+        .map(|receipts| receipts.and_then(|r| r.get(&shard_id)))
+    }
+
+    pub fn extend_receipts(
+        &mut self,
+        index: BlockIndex,
+        receipts: HashMap<ShardId, ReceiptBlock>,
+    ) -> io::Result<()> {
+        write_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_RECEIPT_BLOCK,
+            &mut self.receipts,
+            &self.generic_storage.enc_index(index),
+            receipts,
+        )
+    }
+
+    pub fn tx_nonce(&mut self, account_id: AccountId) -> StorageResult<&u64> {
+        read_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TX_NONCE,
+            &mut self.tx_nonce,
+            &self.generic_storage.enc_slice(&account_id.into_bytes()),
+        )
+    }
+
+    pub fn extend_tx_nonce(&mut self, tx_nonces: HashMap<AccountId, u64>) -> io::Result<()> {
+        let updates: HashMap<_, _> = tx_nonces
+            .into_iter()
+            .map(|(k, v)| (self.generic_storage.enc_slice(&k.into_bytes()).to_vec(), v))
+            .collect();
+        extend_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TX_NONCE,
+            &mut self.tx_nonce,
+            updates,
+        )
     }
 }

@@ -5,6 +5,7 @@ Dockerfile
 
 docs/
 docker/
+!docker/scripts/
 ops/
 
 **/target
