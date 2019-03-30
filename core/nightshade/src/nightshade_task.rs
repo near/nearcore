@@ -71,13 +71,12 @@ impl From<Message> for nightshade_proto::Gossip_Message {
             sender_id: message.sender_id as u64,
             receiver_id: message.receiver_id as u64,
             state: SingularPtrField::some(message.state.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub enum GossipBody {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -85,7 +84,7 @@ pub enum GossipBody {
     PayloadReply(Vec<SignedBlockProposal>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
@@ -143,8 +142,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
             GossipBody::PayloadRequest(request) => {
                 let request = nightshade_proto::Gossip_PayloadRequest {
                     payload_request: request.into_iter().map(|x| x as u64).collect(),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 nightshade_proto::Gossip_oneof_body::payload_request(request)
             }
@@ -153,8 +151,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
                     payload_reply: RepeatedField::from_iter(
                         reply.into_iter().map(std::convert::Into::into)
                     ),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 nightshade_proto::Gossip_oneof_body::payload_reply(reply)
             }
@@ -165,8 +162,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
             body: Some(body),
             block_index: gossip.block_index,
             signature: gossip.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -218,8 +214,7 @@ impl From<SignedBlockProposal> for nightshade_proto::SignedBlockProposal {
         nightshade_proto::SignedBlockProposal {
             block_proposal: SingularPtrField::some(proposal.block_proposal.into()),
             signature: proposal.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
