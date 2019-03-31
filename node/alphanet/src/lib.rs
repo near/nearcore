@@ -10,10 +10,10 @@ use futures::sync::mpsc::channel;
 use client::Client;
 use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use coroutines::client_task::ClientTask;
+use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
-use network::proxy::ProxyHandler;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
@@ -128,10 +128,10 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 mod tests {
     use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
-    use primitives::transaction::TransactionBody;
     use primitives::test_utils::TestSignedBlock;
+    use primitives::transaction::TransactionBody;
 
-    use testlib::alphanet_utils::{configure_chain_spec, wait, NodeConfig, ThreadNode, Node};
+    use testlib::alphanet_utils::{configure_chain_spec, wait, Node, NodeConfig, ThreadNode};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -170,22 +170,16 @@ mod tests {
         // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.client.shard_client.chain.best_index() >= 2
-                    && bob.client.shard_client.chain.best_index() >= 2
+                alice.client.shard_client.chain.best_index() >= 3
+                    && bob.client.shard_client.chain.best_index() >= 3
             },
             500,
             600000,
         );
 
         // Check that transaction and it's receipt were included.
-        assert_eq!(
-            alice.view_balance(&"alice.near".to_string()).unwrap(),
-            9999990
-        );
-        assert_eq!(
-            alice.view_balance(&"bob.near".to_string()).unwrap(),
-            110
-        );
+        assert_eq!(alice.view_balance(&"alice.near".to_string()).unwrap(), 9999990);
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
     }
 
     /// Creates three nodes, two are authorities, first authority node is ahead on blocks.
@@ -232,22 +226,19 @@ mod tests {
         shard_block.sign_all(&authorities, &signers);
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
-        bob
-            .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
-            ).unwrap();
+        bob.add_transaction(
+            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+        )
+        .unwrap();
 
         alice.start();
         bob.start();
         charlie.start();
 
-        wait(|| charlie.client.shard_client.chain.best_index() >= 3, 500, 60000);
+        wait(|| charlie.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(
-            charlie.view_balance(&"bob.near".to_string()).unwrap(),
-            110
-        );
+        assert_eq!(charlie.view_balance(&"bob.near".to_string()).unwrap(), 110);
     }
 
     /// Creates two nodes, first authority node is ahead on blocks.
@@ -275,7 +266,8 @@ mod tests {
             chain_spec.clone(),
             vec![],
         ));
-        let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            alice.client.prepare_block(ChainPayload::default());
         // Sign by alice & bob to make this blocks valid.
         let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
         let signers = vec![alice.signer(), bob.signer()];
@@ -283,25 +275,18 @@ mod tests {
         shard_block.sign_all(&authorities, &signers);
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
-        bob
-            .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
-            )
-            .unwrap();
+        bob.add_transaction(
+            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+        )
+        .unwrap();
 
         alice.start();
         bob.start();
 
-        wait(|| {
-            alice.client.shard_client.chain.best_index() >= 3
-        }, 500, 60000);
+        wait(|| alice.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(
-            alice.view_balance(&"bob.near".to_string()).unwrap(),
-            110
-        );
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
     }
 
     /// Creates two authority nodes, run them for 10 blocks.
@@ -356,6 +341,5 @@ mod tests {
         dan.start();
         wait(|| charlie.client.shard_client.chain.best_index() >= 2, 500, 60000);
         wait(|| dan.client.shard_client.chain.best_index() >= 2, 500, 60000);
-
     }
 }

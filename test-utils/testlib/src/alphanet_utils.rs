@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use client::Client;
 use configs::chain_spec::{AuthorityRotation, ChainSpec};
-use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
+use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
@@ -178,7 +178,13 @@ impl Node for ThreadNode {
         let rpc_cfg = self.config().rpc_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
         thread::spawn(|| {
-            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg, proxy_handlers);
+            alphanet::start_from_client(
+                client,
+                Some(account_id),
+                network_cfg,
+                rpc_cfg,
+                proxy_handlers,
+            );
         });
         self.state = ThreadNodeState::Running;
         thread::sleep(Duration::from_secs(1));
@@ -409,7 +415,15 @@ impl NodeConfig {
 
         let node_type = NodeType::ThreadNode;
 
-        NodeConfig { node_info, client_cfg, network_cfg, rpc_cfg, peer_id_seed, node_type, proxy_handlers }
+        NodeConfig {
+            node_info,
+            client_cfg,
+            network_cfg,
+            rpc_cfg,
+            peer_id_seed,
+            node_type,
+            proxy_handlers,
+        }
     }
 }
 
@@ -425,8 +439,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
+where
+    F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {
@@ -444,7 +458,12 @@ pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let mut accounts = vec![];
     let signer = InMemorySigner::from_seed("alice.near", "alice.near");
-    accounts.push(("alice.near".to_string(), signer.public_key().to_readable(), 1_000_000 as u64, 10));
+    accounts.push((
+        "alice.near".to_string(),
+        signer.public_key().to_readable(),
+        1_000_000 as u64,
+        10,
+    ));
     let mut initial_authorities = vec![];
     for name in account_names {
         let signer = InMemorySigner::from_seed(name.as_str(), name.as_str());

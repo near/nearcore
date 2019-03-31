@@ -374,17 +374,20 @@ impl NightshadeTask {
                     if let Err(e) =
                         self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
                     {
-                        warn!(target: "nightshade", "{}", e);
+                        warn!(target: "nightshade", "Failed to update state: {}", e);
                     }
                 } else {
                     // Wait for confirmation from mempool,
                     // request was already sent when the proposal arrived.
+                    debug!(target: "nightshade", "Waiting for mempool confirmation for {} proposal, current proposals: {:?}", author, self.proposals);
                 }
             } else {
+                warn!(target: "nightshade", "Malicious gossip sender: {}, author: {}", author, message.sender_id);
                 // There is at least one malicious actor between the sender of this message
                 // and the original author of the payload. But we can't determine which is the bad actor.
             }
         } else {
+            debug!(target: "nightshade", "Gossip has missing proposal from {}", author);
             // TODO: This message is discarded if we haven't received the proposal yet.
             let gossip = Gossip::new(
                 self.owner_id(),
@@ -404,6 +407,7 @@ impl NightshadeTask {
             return;
         }
         if !gossip.verify(&self.public_keys[gossip.sender_id]) {
+            debug!(target: "nightshade", "Node: {} invalid signature from {}", self.owner_id(), gossip.sender_id);
             return;
         }
 
@@ -434,6 +438,9 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
+        if self.block_index.is_none() {
+            return;
+        }
         debug!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;

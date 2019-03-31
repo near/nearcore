@@ -1,13 +1,14 @@
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::mem;
 use std::sync::{Arc, RwLock};
 
 use log::Level::Debug;
-use rand::{rngs::StdRng, SeedableRng, seq::SliceRandom};
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use byteorder::{ByteOrder, LittleEndian};
 
-use configs::{AuthorityConfig, chain_spec::AuthorityRotation};
+use configs::{chain_spec::AuthorityRotation, AuthorityConfig};
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
@@ -49,33 +50,49 @@ pub trait Authority: Send + Sync {
 }
 
 pub fn get_authority(
-        authority_config: AuthorityConfig,
-        blockchain: &BeaconBlockChain,
-        storage: Arc<RwLock<BeaconChainStorage>>
-    ) -> Box<Authority> {
+    authority_config: AuthorityConfig,
+    blockchain: &BeaconBlockChain,
+    storage: Arc<RwLock<BeaconChainStorage>>,
+) -> Box<Authority> {
     match authority_config.authority_rotation {
-        AuthorityRotation::ProofOfAuthority => Box::new(POAAuthority::new(authority_config.initial_proposals)),
-        AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot } => Box::new(ThresholdedPOSAuthority::new(authority_config.initial_proposals, epoch_length, num_seats_per_slot, blockchain, storage))
+        AuthorityRotation::ProofOfAuthority => {
+            Box::new(POAAuthority::new(authority_config.initial_proposals, blockchain))
+        }
+        AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot } => {
+            Box::new(ThresholdedPOSAuthority::new(
+                authority_config.initial_proposals,
+                epoch_length,
+                num_seats_per_slot,
+                blockchain,
+                storage,
+            ))
+        }
     }
 }
 
 pub struct POAAuthority {
-    initial_proposals: Vec<AuthorityStake>
+    seed: CryptoHash,
+    initial_proposals: Vec<AuthorityStake>,
 }
 
 impl POAAuthority {
-    pub fn new(initial_proposals: Vec<AuthorityStake>) -> Self {
-        Self {
-            initial_proposals
-        }
+    pub fn new(initial_proposals: Vec<AuthorityStake>, blockchain: &BeaconBlockChain) -> Self {
+        Self { initial_proposals, seed: blockchain.genesis_hash() }
     }
 }
 
 impl Authority for POAAuthority {
     fn process_block_header(&mut self, _header: &SignedBeaconBlockHeader) {}
 
-    fn get_authorities(&self, _slot: Slot) -> Result<Vec<AuthorityStake>, String> {
-        Ok(self.initial_proposals.clone())
+    fn get_authorities(&self, slot: Slot) -> Result<Vec<AuthorityStake>, String> {
+        let mut authorities = self.initial_proposals.clone();
+        // Shuffle initial proposals with genesis seed + slot.
+        let mut rng_seed = [0; 32];
+        rng_seed.copy_from_slice(self.seed.as_ref());
+        LittleEndian::write_u64(&mut rng_seed, slot);
+        let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
+        authorities.shuffle(&mut rng);
+        Ok(authorities)
     }
 }
 
@@ -101,11 +118,10 @@ impl ThresholdedPOSAuthority {
     }
 
     #[inline]
-    fn epoch_to_slots(&self, epoch: Epoch) -> impl Iterator<Item=Slot> {
+    fn epoch_to_slots(&self, epoch: Epoch) -> impl Iterator<Item = Slot> {
         // Because of the genesis block that has slot 0 and is not in any epoch,
         // slots are shifted by 1.
-        epoch * self.epoch_length + 1
-            ..=(epoch + 1) * self.epoch_length // Without ..= it needs + 1.
+        epoch * self.epoch_length + 1..=(epoch + 1) * self.epoch_length // Without ..= it needs + 1.
     }
 
     /// Initializes authorities from the config and the past blocks in the beaconchain.
@@ -114,14 +130,9 @@ impl ThresholdedPOSAuthority {
         epoch_length: u64,
         num_seats_per_slot: u64,
         blockchain: &BeaconBlockChain,
-        storage: Arc<RwLock<BeaconChainStorage>>
+        storage: Arc<RwLock<BeaconChainStorage>>,
     ) -> Self {
-        let mut result = Self {
-            initial_proposals,
-            epoch_length,
-            num_seats_per_slot,
-            storage,
-        };
+        let mut result = Self { initial_proposals, epoch_length, num_seats_per_slot, storage };
         if result.storage.write().expect(POISONED_LOCK_ERR).is_authority_empty() {
             // Initial authorities operate for the first two epochs.
             let (accepted_authorities, threshold) = result.compute_threshold_accepted(
@@ -197,8 +208,7 @@ impl ThresholdedPOSAuthority {
         }
 
         // Get the threshold.
-        let num_seats =
-            self.num_seats_per_slot * self.epoch_length;
+        let num_seats = self.num_seats_per_slot * self.epoch_length;
         let stakes: Vec<_> = ordered_proposals.iter().map(|p| p.amount).collect();
         let threshold =
             find_threshold(&stakes, num_seats).expect("Threshold is not found for given proposals");
@@ -252,10 +262,8 @@ impl ThresholdedPOSAuthority {
                     .cloned()
                     .unwrap_or_else(Vec::new)
                     .into_iter();
-                let participation = storage
-                    .get_participation(s)
-                    .map(|x| x.iter())
-                    .unwrap_or_else(|| [].iter());
+                let participation =
+                    storage.get_participation(s).map(|x| x.iter()).unwrap_or_else(|| [].iter());
 
                 for (acc, participated) in accepted.zip(participation) {
                     if *participated {
@@ -302,16 +310,12 @@ impl ThresholdedPOSAuthority {
                     let new_proposals = storage.get_proposal(s).cloned().unwrap_or_else(|| vec![]);
                     proposals.extend(new_proposals);
                 }
-                self.compute_threshold_accepted(
-                    &CryptoHash::default(),
-                    proposals,
-                    rollovers,
-                )
+                self.compute_threshold_accepted(&CryptoHash::default(), proposals, rollovers)
             };
             storage.set_threshold(epoch, new_threshold);
             let slots: Vec<_> = self.epoch_to_slots(epoch).collect();
             storage.extend_accepted_authorities(
-                slots.iter().cloned().zip(accepted_authorities.drain(..)).collect()
+                slots.iter().cloned().zip(accepted_authorities.drain(..)).collect(),
             );
         }
     }
@@ -329,12 +333,11 @@ impl Authority for ThresholdedPOSAuthority {
 
                 // Update the tracker of processed slots.
                 let epoch = self.slot_to_epoch(slot);
-                let mut processed_slots =
-                    if let Some(slots) = storage.get_processed_blocks(epoch) {
-                        slots.clone()
-                    } else {
-                        HashSet::new()
-                    };
+                let mut processed_slots = if let Some(slots) = storage.get_processed_blocks(epoch) {
+                    slots.clone()
+                } else {
+                    HashSet::new()
+                };
                 processed_slots.insert(slot);
                 let len = processed_slots.len();
                 storage.set_processed_blocks(epoch, processed_slots);
@@ -476,7 +479,8 @@ mod test {
             vec![initial_authorities[1].clone(), initial_authorities[2].clone()]
         );
         assert!(authority.get_authorities(5).is_err());
-        let block1 = SignedBeaconBlock::new(1, bc.chain.genesis_hash(), vec![], CryptoHash::default());
+        let block1 =
+            SignedBeaconBlock::new(1, bc.chain.genesis_hash(), vec![], CryptoHash::default());
         let mut header1 = block1.header();
         // Authority #1 didn't show up.
         header1.signature.authority_mask = vec![true, false];
@@ -509,7 +513,8 @@ mod test {
         let chain_spec = get_test_chainspec(4, 2, 2);
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
-        let block1 = SignedBeaconBlock::new(1, bc.chain.genesis_hash(), vec![], CryptoHash::default());
+        let block1 =
+            SignedBeaconBlock::new(1, bc.chain.genesis_hash(), vec![], CryptoHash::default());
         let mut header1 = block1.header();
         header1.signature.authority_mask = vec![true, true];
         let block2 = SignedBeaconBlock::new(2, header1.block_hash(), vec![], CryptoHash::default());
@@ -520,15 +525,10 @@ mod test {
         let next_authorities = authority.get_authorities(3);
         assert!(next_authorities.is_ok());
 
-        let genesis_block = SignedBeaconBlock::new(
-            0, CryptoHash::default(), vec![], CryptoHash::default()
-        );
+        let genesis_block =
+            SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
 
-        let bc1 = BeaconClient::new(
-            genesis_block,
-            &chain_spec,
-            get_blockchain_storage(bc.chain)
-        );
+        let bc1 = BeaconClient::new(genesis_block, &chain_spec, get_blockchain_storage(bc.chain));
         let authority = bc1.authority.write().unwrap();
         assert_eq!(authority.get_authorities(3), next_authorities);
     }
@@ -546,13 +546,19 @@ mod test {
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
         let mut last_hash = bc.chain.genesis_hash();
+        assert_ne!(authority.get_authorities(1).unwrap(), authority.get_authorities(2).unwrap());
         for i in 1..4 {
             let mut block = SignedBeaconBlock::new(i, last_hash, vec![], CryptoHash::default());
             block.signature.authority_mask = vec![true; 4];
             block.signature.authority_mask[i as usize] = false;
             authority.process_block_header(&block.header());
             last_hash = block.block_hash();
-            let mut authority_accounts: Vec<AccountId> = authority.get_authorities(i).unwrap().iter().map(|s| s.account_id.clone()).collect();
+            let mut authority_accounts: Vec<AccountId> = authority
+                .get_authorities(i)
+                .unwrap()
+                .iter()
+                .map(|s| s.account_id.clone())
+                .collect();
             authority_accounts.sort();
             authority_accounts.dedup();
             assert_eq!(authority_accounts.len(), 4);
