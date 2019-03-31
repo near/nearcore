@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use futures::future;
 use futures::sink::Sink;
@@ -53,11 +52,11 @@ impl ChainStateRetriever for ClientChainStateRetriever {
 
 enum RequestType {
     /// Start and end index
-    BlockFetchRequest(u64, u64),
+    Block(u64, u64),
     /// Hash of the snapshot from which we request payload.
-    PayloadRequest(CryptoHash),
+    Payload(CryptoHash),
     /// Hash of snapshot we request
-    PayloadSnapshotRequest(CryptoHash),
+    PayloadSnapshot(CryptoHash),
 }
 
 /// Protocol responsible for actual message processing from network and sending messages.
@@ -71,16 +70,20 @@ struct Protocol {
     inc_final_signatures_tx: Sender<JointBlockBLS>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
     requests: RwLock<HashMap<RequestId, RequestType>>,
+    next_request_id: RwLock<u64>,
 }
 
 impl Protocol {
     fn update_requests(&self, request: RequestType) -> RequestId {
+        let mut request_id_guard = self.next_request_id.write().expect(POISONED_LOCK_ERR);
         let mut guard = self.requests.write().expect(POISONED_LOCK_ERR);
-        let next_request_id = guard.len() as u64;
+        let next_request_id = *request_id_guard + 1;
+        *request_id_guard += 1;
         guard.insert(next_request_id, request);
         next_request_id
     }
 
+    #[allow(clippy::cyclomatic_complexity)]
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
         let message = match decode_message(&data) {
             Ok(m) => m,
@@ -125,15 +128,20 @@ impl Protocol {
             }
             Message::BlockResponse(request_id, blocks) => {
                 match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
-                    Some(RequestType::BlockFetchRequest(start, end)) => {
+                    Some(RequestType::Block(start, end)) => {
                         let from_index = blocks[0].0.index();
                         let til_index = blocks[blocks.len() - 1].0.index();
                         if *start != from_index || *end != til_index {
                             self.peer_manager.ban_peer(&peer_id);
+                            return;
                         }
                     }
-                    _ => self.peer_manager.ban_peer(&peer_id),
+                    _ => {
+                        self.peer_manager.ban_peer(&peer_id);
+                        return;
+                    }
                 }
+                self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
                 forward_msg(self.inc_block_tx.clone(), (peer_id, blocks));
             }
             Message::PayloadRequest(request_id, missing_payload_request) => {
@@ -164,15 +172,20 @@ impl Protocol {
             }
             Message::PayloadResponse(request_id, missing_payload) => {
                 match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
-                    Some(RequestType::PayloadRequest(hash)) => {
+                    Some(RequestType::Payload(hash)) => {
                         // Only check the snapshot hash match here. Mempool will
                         // check whether the content match.
                         if *hash != missing_payload.snapshot_hash {
                             self.peer_manager.ban_peer(&peer_id);
+                            return;
                         }
                     }
-                    _ => self.peer_manager.ban_peer(&peer_id),
+                    _ => {
+                        self.peer_manager.ban_peer(&peer_id);
+                        return;
+                    }
                 }
+                self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
                 let block_index = self.client.beacon_client.chain.best_index();
                 if let Some(authority_id) =
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
@@ -190,13 +203,18 @@ impl Protocol {
             }
             Message::PayloadSnapshotResponse(request_id, snapshot) => {
                 match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
-                    Some(RequestType::PayloadSnapshotRequest(hash)) => {
+                    Some(RequestType::PayloadSnapshot(hash)) => {
                         if *hash != snapshot.get_hash() {
                             self.peer_manager.ban_peer(&peer_id);
+                            return;
                         }
                     }
-                    _ => self.peer_manager.ban_peer(&peer_id),
+                    _ => {
+                        self.peer_manager.ban_peer(&peer_id);
+                        return;
+                    }
                 }
+                self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
                 let block_index = self.client.beacon_client.chain.best_index();
                 if let Some(authority_id) =
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
@@ -294,8 +312,7 @@ impl Protocol {
         til_index: BlockIndex,
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let request_id =
-                self.update_requests(RequestType::BlockFetchRequest(from_index, til_index));
+            let request_id = self.update_requests(RequestType::Block(from_index, til_index));
             let data =
                 encode_message(Message::BlockFetchRequest(request_id, from_index, til_index))
                     .unwrap();
@@ -322,8 +339,8 @@ impl Protocol {
     fn send_payload_request(&self, block_index: BlockIndex, request: PayloadRequest) {
         match request {
             PayloadRequest::General(authority_id, payload_request) => {
-                let request_id = self
-                    .update_requests(RequestType::PayloadRequest(payload_request.snapshot_hash));
+                let request_id =
+                    self.update_requests(RequestType::Payload(payload_request.snapshot_hash));
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
                     let data = encode_message(Message::PayloadRequest(request_id, payload_request))
                         .unwrap();
@@ -333,7 +350,7 @@ impl Protocol {
                 }
             }
             PayloadRequest::BlockProposal(authority_id, hash) => {
-                let request_id = self.update_requests(RequestType::PayloadSnapshotRequest(hash));
+                let request_id = self.update_requests(RequestType::PayloadSnapshot(hash));
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
                     let data =
                         encode_message(Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
@@ -448,6 +465,7 @@ pub fn spawn_network(
         inc_payload_gossip_tx,
         inc_chain_state_tx,
         requests: Default::default(),
+        next_request_id: Default::default(),
     });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
