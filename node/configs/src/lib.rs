@@ -24,9 +24,11 @@ pub fn get_alphanet_configs() -> (ClientConfig, NetworkConfig, RPCConfig) {
         .args(&network::get_args())
         .args(&rpc::get_args())
         .get_matches();
-    let mut client_cfg = client::from_matches(&matches);
-    client_cfg.chain_spec = ChainSpec::default_poa();
-    (client_cfg, network::from_matches(&matches), rpc::from_matches(&matches))
+    (
+        client::from_matches(&matches, ChainSpec::default_poa()),
+        network::from_matches(&matches),
+        rpc::from_matches(&matches),
+    )
 }
 
 pub fn get_devnet_configs() -> (ClientConfig, DevNetConfig, RPCConfig) {
@@ -35,5 +37,9 @@ pub fn get_devnet_configs() -> (ClientConfig, DevNetConfig, RPCConfig) {
         .args(&devnet::get_args())
         .args(&rpc::get_args())
         .get_matches();
-    (client::from_matches(&matches), devnet::from_matches(&matches), rpc::from_matches(&matches))
+    (
+        client::from_matches(&matches, ChainSpec::default()),
+        devnet::from_matches(&matches),
+        rpc::from_matches(&matches),
+    )
 }
