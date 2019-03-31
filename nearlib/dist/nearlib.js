@@ -33,13 +33,15 @@ class Account {
         const createAccount = CreateAccountTransaction.create({
             originator,
             newAccountId,
-            amount,
             publicKey,
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
         if (nonce !== 0) {
             createAccount.nonce = nonce;
+        }
+        if (amount !== 0) {
+            createAccount.amount = amount;
         }
 
         const buffer = CreateAccountTransaction.encode(createAccount).finish();
@@ -258,8 +260,8 @@ const {
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction
 } = require('./protos');
 
-const MAX_STATUS_POLL_ATTEMPTS = 5;
-const STATUS_POLL_PERIOD_MS = 1000;
+const MAX_STATUS_POLL_ATTEMPTS = 10;
+const STATUS_POLL_PERIOD_MS = 2000;
 
 /**
  * Javascript library for interacting with near.
