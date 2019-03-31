@@ -70,13 +70,13 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
     ]
 }
 
-pub fn from_matches(matches: &ArgMatches) -> ClientConfig {
+pub fn from_matches(matches: &ArgMatches, default_chain_spec: ChainSpec) -> ClientConfig {
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
     let account_id = matches.value_of("account_id").map(String::from).unwrap();
     let public_key = matches.value_of("public_key").map(String::from);
     let log_level = matches.value_of("log_level").map(log::LevelFilter::from_str).unwrap().unwrap();
 
     let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
-    let chain_spec = ChainSpec::from_file_or_default(&chain_spec_path);
+    let chain_spec = ChainSpec::from_file_or_default(&chain_spec_path, default_chain_spec);
     ClientConfig { base_path, account_id, public_key, chain_spec, log_level }
 }
