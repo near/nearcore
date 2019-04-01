@@ -87,7 +87,7 @@ gcloud beta compute instances create-with-container ${PREFIX}-studio \
     --disk=name=${PREFIX}-studio-persistent \
     --container-mount-disk=mount-path="/srv/near" \
     --boot-disk-size 200GB \
-    --machine-type n1-standard-2
+    --machine-type n1-standard-4
 
 # borrowed from https://stackoverflow.com/a/20369590
 spinner()
