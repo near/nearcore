@@ -18,6 +18,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const MONITOR_LOG_PATH: &str = "monitor.log";
 const DUMP_EVERY_X_SEC: u64 = 1;
 
+#[derive(Default)]
 pub struct BenchmarkHandler {
     started: Arc<RwLock<bool>>,
     message_type_counter: Arc<RwLock<Vec<usize>>>,
@@ -63,13 +64,6 @@ fn message_enum_id(index: usize) -> String {
 }
 
 impl BenchmarkHandler {
-    pub fn new() -> Self {
-        Self {
-            started: Arc::new(RwLock::new(false)),
-            message_type_counter: Arc::new(RwLock::new(vec![0; 13])),
-        }
-    }
-
     /// This function can't be called on new method, because there must exist a tokio
     fn start(&self) {
         let counter = self.message_type_counter.clone();
@@ -98,11 +92,11 @@ impl BenchmarkHandler {
         };
 
         file.write_all(&format!("\n{:?}\n", Instant::now()).into_bytes())
-            .expect(format!("Fail writing to {:?}", path).as_ref());
+            .unwrap_or_else(|_| panic!("Fail writing to {:?}", path));
 
         for (index, count) in counters.iter().enumerate() {
             file.write_all(&format!("{:?}: {:?}\n", message_enum_id(index), count).into_bytes())
-                .expect(format!("Fail writing to {:?}", path).as_ref());
+                .unwrap_or_else(|_| panic!("Fail writing to {:?}", path));
         }
     }
 }

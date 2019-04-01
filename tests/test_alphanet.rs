@@ -13,7 +13,7 @@ use network::proxy::benchmark::BenchmarkHandler;
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![
-        Arc::new(BenchmarkHandler::new())
+        Arc::new(BenchmarkHandler::default())
     ];
 
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);

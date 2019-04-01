@@ -351,9 +351,7 @@ impl Protocol {
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let request_id = self.update_requests(RequestType::Block(from_index, til_index));
-            let data =
-                encode_message(Message::BlockFetchRequest(request_id, from_index, til_index))
-                    .unwrap();
+            let message = Message::BlockFetchRequest(request_id, from_index, til_index);
             self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
@@ -477,7 +475,7 @@ impl Protocol {
 fn get_proxy_handler(proxy_handler_type: &ProxyHandlerType) -> Arc<ProxyHandler> {
     match proxy_handler_type {
         ProxyHandlerType::Dropout(dropout_rate) => Arc::new(DropoutHandler::new(*dropout_rate)),
-        ProxyHandlerType::Debug => Arc::new(DebugHandler::new()),
+        ProxyHandlerType::Debug => Arc::new(DebugHandler::default()),
     }
 }
 
@@ -632,4 +630,3 @@ pub fn forward_msg<T>(ch: Sender<T>, el: T)
         .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
     tokio::spawn(task);
 }
-
