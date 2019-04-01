@@ -38,6 +38,8 @@ pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, String> {
 }
 
 pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, String>
-where U: TryFrom<T, Error=String> {
+where
+    U: TryFrom<T, Error = String>,
+{
     proto_to_result(proto).and_then(TryInto::try_into)
 }

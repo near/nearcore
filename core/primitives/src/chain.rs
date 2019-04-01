@@ -1,21 +1,23 @@
-use std::hash::{Hash, Hasher};
 use std::borrow::Borrow;
-use std::iter::FromIterator;
 use std::convert::{TryFrom, TryInto};
+use std::hash::{Hash, Hasher};
+use std::iter::FromIterator;
 
 use serde_derive::{Deserialize, Serialize};
 
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::consensus::Payload;
-use super::hash::{CryptoHash, hash_struct};
-use super::merkle::{MerklePath, Direction};
+use super::hash::{hash_struct, CryptoHash};
+use super::merkle::{Direction, MerklePath};
 use super::transaction::{ReceiptTransaction, SignedTransaction};
-use super::types::{AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId};
+use super::types::{
+    AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId,
+};
 use super::utils::{proto_to_result, proto_to_type};
 use near_protos::chain as chain_proto;
-use near_protos::types as types_proto;
 use near_protos::network as network_proto;
-use protobuf::{SingularPtrField, RepeatedField};
+use near_protos::types as types_proto;
+use protobuf::{RepeatedField, SingularPtrField};
 
 const PROTO_ERROR: &str = "Bad Proto";
 
@@ -66,15 +68,14 @@ impl TryFrom<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
     type Error = String;
 
     fn try_from(proto: chain_proto::SignedShardBlockHeader) -> Result<Self, Self::Error> {
-        match (proto_to_result(proto.body).map(std::convert::Into::into), proto_to_type(proto.signature)) {
+        match (
+            proto_to_result(proto.body).map(std::convert::Into::into),
+            proto_to_type(proto.signature),
+        ) {
             (Ok(body), Ok(signature)) => {
-                Ok(SignedShardBlockHeader {
-                    body,
-                    hash: proto.hash.into(),
-                    signature,
-                })
+                Ok(SignedShardBlockHeader { body, hash: proto.hash.into(), signature })
             }
-            _ => Err(PROTO_ERROR.to_string())
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -114,21 +115,12 @@ impl TryFrom<chain_proto::ShardBlock> for ShardBlock {
     type Error = String;
 
     fn try_from(proto: chain_proto::ShardBlock) -> Result<Self, Self::Error> {
-        let transactions = proto.transactions.into_iter().map(std::convert::Into::into).collect();
-        let receipts: Result<Vec<_>, _> = proto.receipts
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect();
-        match (proto.header.into_option(), receipts) {
-            (Some(header), Ok(receipts)) => {
-                Ok(ShardBlock {
-                    header: header.into(),
-                    transactions,
-                    receipts,
-                })
-            }
-            _ => Err(PROTO_ERROR.to_string())
-        }
+        let transactions =
+            proto.transactions.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let receipts =
+            proto.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let header = proto_to_result(proto.header).map(std::convert::Into::into)?;
+        Ok(ShardBlock { header, transactions, receipts })
     }
 }
 
@@ -155,15 +147,11 @@ impl TryFrom<chain_proto::SignedShardBlock> for SignedShardBlock {
     type Error = String;
 
     fn try_from(proto: chain_proto::SignedShardBlock) -> Result<Self, Self::Error> {
-         match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
+        match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
             (Ok(body), Ok(signature)) => {
-                Ok(SignedShardBlock {
-                    body,
-                    hash: proto.hash.into(),
-                    signature,
-                })
+                Ok(SignedShardBlock { body, hash: proto.hash.into(), signature })
             }
-            _ => Err(PROTO_ERROR.to_string())
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -207,7 +195,7 @@ pub struct ReceiptBlock {
     // receipts should not be empty
     pub receipts: Vec<ReceiptTransaction>,
     // hash is the hash of receipts. It is
-    // sufficient to uniquely identify the 
+    // sufficient to uniquely identify the
     // receipt block because of the uniqueness
     // of nonce in receipts
     hash: CryptoHash,
@@ -217,28 +205,21 @@ impl TryFrom<chain_proto::ReceiptBlock> for ReceiptBlock {
     type Error = String;
 
     fn try_from(proto: chain_proto::ReceiptBlock) -> Result<Self, Self::Error> {
-        let path = proto.path.into_iter().map(|node| {
-            let direction = if node.direction {
-                Direction::Left
-            } else {
-                Direction::Right
-            };
-            (node.hash.into(), direction)
-        }).collect();
-        let receipts: Result<Vec<_>, _> = proto.receipts
+        let path = proto
+            .path
             .into_iter()
-            .map(TryInto::try_into)
+            .map(|node| {
+                let direction = if node.direction { Direction::Left } else { Direction::Right };
+                (node.hash.into(), direction)
+            })
             .collect();
+        let receipts: Result<Vec<_>, _> =
+            proto.receipts.into_iter().map(TryInto::try_into).collect();
         match (proto_to_type(proto.header), receipts) {
             (Ok(header), Ok(receipts)) => {
-                Ok(ReceiptBlock {
-                       header,
-                       path,
-                       receipts,
-                       hash: proto.hash.into(),
-                })
+                Ok(ReceiptBlock { header, path, receipts, hash: proto.hash.into() })
             }
-            _ => Err(PROTO_ERROR.to_string())
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -257,7 +238,7 @@ impl From<ReceiptBlock> for chain_proto::ReceiptBlock {
             header: SingularPtrField::some(receipt.header.into()),
             path,
             receipts: RepeatedField::from_iter(
-                receipt.receipts.into_iter().map(std::convert::Into::into)
+                receipt.receipts.into_iter().map(std::convert::Into::into),
             ),
             hash: receipt.hash.into(),
             unknown_fields: Default::default(),
@@ -288,12 +269,10 @@ impl ReceiptBlock {
     pub fn new(
         header: SignedShardBlockHeader,
         path: MerklePath,
-        receipts: Vec<ReceiptTransaction>
+        receipts: Vec<ReceiptTransaction>,
     ) -> Self {
         let hash = hash_struct(&receipts);
-        ReceiptBlock {
-            header, path, receipts, hash
-        }
+        ReceiptBlock { header, path, receipts, hash }
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -405,23 +384,11 @@ impl TryFrom<chain_proto::ChainPayload> for ChainPayload {
     type Error = String;
 
     fn try_from(proto: chain_proto::ChainPayload) -> Result<Self, Self::Error> {
-        let receipts: Result<Vec<_>, _> = proto.receipts
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect();
-        match receipts {
-            Ok(receipts) => {
-                Ok(ChainPayload {
-                    transactions: proto.transactions
-                        .into_iter()
-                        .map(std::convert::Into::into)
-                        .collect(),
-                    receipts,
-                    hash: proto.hash.into(),
-                })
-            }
-            Err(e) => Err(e)
-        }
+        let transactions =
+            proto.transactions.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let receipts =
+            proto.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        Ok(ChainPayload { transactions, receipts, hash: proto.hash.into() })
     }
 }
 
@@ -429,10 +396,10 @@ impl From<ChainPayload> for chain_proto::ChainPayload {
     fn from(payload: ChainPayload) -> Self {
         chain_proto::ChainPayload {
             transactions: RepeatedField::from_iter(
-                payload.transactions.into_iter().map(std::convert::Into::into)
+                payload.transactions.into_iter().map(std::convert::Into::into),
             ),
             receipts: RepeatedField::from_iter(
-                payload.receipts.into_iter().map(std::convert::Into::into)
+                payload.receipts.into_iter().map(std::convert::Into::into),
             ),
             hash: payload.hash.into(),
             unknown_fields: Default::default(),
@@ -444,9 +411,7 @@ impl From<ChainPayload> for chain_proto::ChainPayload {
 impl ChainPayload {
     pub fn new(transactions: Vec<SignedTransaction>, receipts: Vec<ReceiptBlock>) -> Self {
         let hash = hash_struct(&(&transactions, &receipts));
-        ChainPayload {
-            transactions, receipts, hash
-        }
+        ChainPayload { transactions, receipts, hash }
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -501,10 +466,7 @@ pub struct ChainState {
 
 impl From<chain_proto::ChainState> for ChainState {
     fn from(proto: chain_proto::ChainState) -> Self {
-        ChainState {
-            genesis_hash: proto.genesis_hash.into(),
-            last_index: proto.last_index,
-        }
+        ChainState { genesis_hash: proto.genesis_hash.into(), last_index: proto.last_index }
     }
 }
 
@@ -524,37 +486,28 @@ impl From<ChainState> for chain_proto::ChainState {
 pub struct MissingPayloadRequest {
     pub transactions: Vec<CryptoHash>,
     pub receipts: Vec<CryptoHash>,
-    pub snapshot_hash: CryptoHash
+    pub snapshot_hash: CryptoHash,
 }
 
 impl From<network_proto::MissingPayloadRequest> for MissingPayloadRequest {
     fn from(proto: network_proto::MissingPayloadRequest) -> Self {
-        let transactions: Vec<_> = proto.transactions
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
-        let receipts: Vec<_> = proto.receipts
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
-        MissingPayloadRequest { 
-            transactions, 
-            receipts,
-            snapshot_hash: proto.snapshot_hash.into(),
-        }
+        let transactions: Vec<_> =
+            proto.transactions.into_iter().map(std::convert::Into::into).collect();
+        let receipts: Vec<_> = proto.receipts.into_iter().map(std::convert::Into::into).collect();
+        MissingPayloadRequest { transactions, receipts, snapshot_hash: proto.snapshot_hash.into() }
     }
 }
 
 impl From<MissingPayloadRequest> for network_proto::MissingPayloadRequest {
     fn from(response: MissingPayloadRequest) -> Self {
         let transactions = RepeatedField::from_iter(
-            response.transactions.into_iter().map(std::convert::Into::into)
+            response.transactions.into_iter().map(std::convert::Into::into),
         );
-        let receipts = RepeatedField::from_iter(
-            response.receipts.into_iter().map(std::convert::Into::into)
-        );
+        let receipts =
+            RepeatedField::from_iter(response.receipts.into_iter().map(std::convert::Into::into));
         network_proto::MissingPayloadRequest {
-            transactions, receipts,
+            transactions,
+            receipts,
             snapshot_hash: response.snapshot_hash.into(),
             unknown_fields: Default::default(),
             cached_size: Default::default(),
@@ -575,18 +528,14 @@ impl TryFrom<network_proto::MissingPayloadResponse> for MissingPayloadResponse {
     type Error = String;
 
     fn try_from(proto: network_proto::MissingPayloadResponse) -> Result<Self, Self::Error> {
-        let transactions: Vec<_> = proto.transactions
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
-        let receipts: Result<Vec<_>, _> = proto.receipts
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect();
-        Ok(MissingPayloadResponse { 
-            transactions, 
-            receipts: receipts?,
-            snapshot_hash: proto.snapshot_hash.into() 
+        let transactions =
+            proto.transactions.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let receipts =
+            proto.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        Ok(MissingPayloadResponse {
+            transactions,
+            receipts,
+            snapshot_hash: proto.snapshot_hash.into(),
         })
     }
 }
@@ -594,13 +543,13 @@ impl TryFrom<network_proto::MissingPayloadResponse> for MissingPayloadResponse {
 impl From<MissingPayloadResponse> for network_proto::MissingPayloadResponse {
     fn from(response: MissingPayloadResponse) -> Self {
         let transactions = RepeatedField::from_iter(
-            response.transactions.into_iter().map(std::convert::Into::into)
+            response.transactions.into_iter().map(std::convert::Into::into),
         );
-        let receipts = RepeatedField::from_iter(
-            response.receipts.into_iter().map(std::convert::Into::into)
-        );
+        let receipts =
+            RepeatedField::from_iter(response.receipts.into_iter().map(std::convert::Into::into));
         network_proto::MissingPayloadResponse {
-            transactions, receipts,
+            transactions,
+            receipts,
             snapshot_hash: response.snapshot_hash.into(),
             unknown_fields: Default::default(),
             cached_size: Default::default(),
@@ -635,14 +584,8 @@ pub struct Snapshot {
 
 impl From<network_proto::Snapshot> for Snapshot {
     fn from(proto: network_proto::Snapshot) -> Self {
-        let transactions = proto.transactions
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
-        let receipts = proto.receipts
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
+        let transactions = proto.transactions.into_iter().map(std::convert::Into::into).collect();
+        let receipts = proto.receipts.into_iter().map(std::convert::Into::into).collect();
         Snapshot { transactions, receipts, hash: proto.hash.into() }
     }
 }
@@ -650,12 +593,11 @@ impl From<network_proto::Snapshot> for Snapshot {
 impl From<Snapshot> for network_proto::Snapshot {
     fn from(snapshot: Snapshot) -> Self {
         let transactions = RepeatedField::from_iter(
-            snapshot.transactions.into_iter().map(std::convert::Into::into)
+            snapshot.transactions.into_iter().map(std::convert::Into::into),
         );
-        let receipts = RepeatedField::from_iter(
-            snapshot.receipts.into_iter().map(std::convert::Into::into)
-        );
-        network_proto::Snapshot { 
+        let receipts =
+            RepeatedField::from_iter(snapshot.receipts.into_iter().map(std::convert::Into::into));
+        network_proto::Snapshot {
             transactions,
             receipts,
             hash: snapshot.hash.into(),

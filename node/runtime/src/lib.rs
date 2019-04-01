@@ -11,6 +11,7 @@ extern crate storage;
 extern crate wasm;
 
 use std::collections::{hash_map::Entry, HashMap};
+use std::convert::TryFrom;
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -856,7 +857,7 @@ impl Runtime {
                 &mut state_update,
                 &account_id_to_bytes(COL_ACCOUNT, &account_id),
                 &Account {
-                    public_keys: vec![PublicKey::from(&public_key.0)],
+                    public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
