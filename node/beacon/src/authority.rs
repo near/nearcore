@@ -413,9 +413,10 @@ mod test {
             ));
         }
         ChainSpec {
+            accounts: vec![],
+            genesis_wasm: vec![],
             initial_authorities,
             authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot },
-            ..Default::default()
         }
     }
 

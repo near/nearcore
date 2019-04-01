@@ -2,7 +2,6 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use network::proxy::predicate::FnProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
 use testlib::alphanet_utils::{

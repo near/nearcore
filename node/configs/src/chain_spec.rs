@@ -97,10 +97,8 @@ impl ChainSpec {
             authority_rotation: AuthorityRotation::ProofOfAuthority,
         }
     }
-}
 
-impl Default for ChainSpec {
-    fn default() -> Self {
+    pub fn default_devnet() -> Self {
         let genesis_wasm =
             include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
         let alice_id = "alice.near";
@@ -158,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_default_spec() {
-        let spec = ChainSpec::default();
+        let spec = ChainSpec::default_devnet();
         let spec_str1 = spec.to_string();
         let spec_str2 = ChainSpec::from_str(spec_str1.as_str()).to_string();
         assert_eq!(spec_str1, spec_str2);
