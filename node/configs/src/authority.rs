@@ -3,7 +3,7 @@ use primitives::signature::PublicKey;
 use primitives::traits::Base58Encoded;
 use primitives::types::AuthorityStake;
 
-use crate::chain_spec::{ChainSpec, AuthorityRotation};
+use crate::chain_spec::{AuthorityRotation, ChainSpec};
 
 /// Configure the authority rotation.
 #[derive(Clone)]

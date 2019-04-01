@@ -10,7 +10,7 @@ use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct PayloadGossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
@@ -44,8 +44,7 @@ impl From<PayloadGossip> for nightshade_proto::PayloadGossip {
             payload: SingularPtrField::some(gossip.payload.into()),
             block_index: gossip.block_index,
             signature: gossip.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }

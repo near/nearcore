@@ -51,8 +51,8 @@ impl ChainSpec {
     }
 
     /// Read ChainSpec from a file or use the default value.
-    pub fn from_file_or_default(path: &Option<PathBuf>) -> Self {
-        path.as_ref().map(|p| Self::from_file(p)).unwrap_or_default()
+    pub fn from_file_or_default(path: &Option<PathBuf>, default: Self) -> Self {
+        path.as_ref().map(|p| Self::from_file(p)).unwrap_or(default)
     }
 
     /// Writes ChainSpec to the file.
