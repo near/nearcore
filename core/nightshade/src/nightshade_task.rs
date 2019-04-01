@@ -195,8 +195,9 @@ impl TryFrom<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
 
     fn try_from(proto: nightshade_proto::SignedBlockProposal) -> Result<Self, Self::Error> {
         let signature = Signature::try_from(proto.signature.as_str())?;
-        proto_to_result(proto.block_proposal)
-            .map(|proposal| SignedBlockProposal { block_proposal: proposal.into(), signature })
+        proto_to_result(proto.block_proposal).and_then(|proposal| {
+            Ok(SignedBlockProposal { block_proposal: proposal.try_into()?, signature })
+        })
     }
 }
 

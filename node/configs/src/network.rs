@@ -1,12 +1,14 @@
+use rand;
+use std::convert::TryFrom;
 use std::mem;
 use std::net::SocketAddr;
 use std::time::Duration;
-use rand;
 
 use clap::{Arg, ArgMatches};
 
+use primitives::hash::{hash, CryptoHash};
 use primitives::network::PeerAddr;
-use primitives::{hash::hash, types::PeerId};
+use primitives::types::PeerId;
 
 const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
 const DEFAULT_GOSSIP_INTERVAL_MS: &str = "50";
@@ -89,22 +91,22 @@ pub fn get_peer_id_from_seed(seed: Option<u32>) -> PeerId {
         hash(&array)
     } else {
         let array: [u8; 32] = rand::random();
-        primitives::hash::CryptoHash::new(&array)
+        // array is 32 bytes so we can safely unwrap here.
+        CryptoHash::try_from(array.as_ref()).unwrap()
     }
 }
 
 pub fn from_matches(matches: &ArgMatches) -> NetworkConfig {
-    let listen_addr =
-        matches.value_of("addr").map(|value| value.parse::<SocketAddr>().expect("Cannot parse address"));
+    let listen_addr = matches
+        .value_of("addr")
+        .map(|value| value.parse::<SocketAddr>().expect("Cannot parse address"));
     let test_network_key_seed =
         matches.value_of("test_network_key_seed").map(|x| x.parse::<u32>().unwrap());
 
     let parsed_boot_nodes =
         matches.values_of("boot_nodes").unwrap_or_else(clap::Values::default).map(String::from);
     let boot_nodes: Vec<_> = parsed_boot_nodes
-        .map(|addr_id| {
-            PeerAddr::parse(&addr_id).expect("Cannot parse address")
-        })
+        .map(|addr_id| PeerAddr::parse(&addr_id).expect("Cannot parse address"))
         .clone()
         .collect();
 

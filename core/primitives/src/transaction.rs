@@ -846,7 +846,7 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Ok(body) => Ok(ReceiptTransaction {
                 originator: proto.originator,
                 receiver: proto.receiver,
-                nonce: proto.nonce.into(),
+                nonce: proto.nonce.try_into()?,
                 body,
             }),
             Err(e) => Err(e),
