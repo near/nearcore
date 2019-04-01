@@ -10,6 +10,8 @@ RUN apt-get update -qq && apt-get install -y \
     cmake \
     g++ \
     protobuf-compiler \
+    pkg-config \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Build with mounted cache

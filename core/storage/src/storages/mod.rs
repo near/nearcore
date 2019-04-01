@@ -1,11 +1,11 @@
 //! Several specializations of the storage over the general-purpose key-value storage used by the
 //! generic BlockChain and by specific BeaconChain/ShardChain.
 use crate::KeyValueDB;
+use lru::LruCache;
 use primitives::block_traits::SignedBlock;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 use primitives::serialize::{Decode, Encode};
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -73,14 +73,21 @@ pub const NUM_COLS: u32 = 14;
 /// genesis in advance.
 const MISSING_GENESIS_ERR: &str = "Genesis is not set.";
 
+/// lru cache size
+const CACHE_SIZE: usize = 20;
+
 pub struct BlockChainStorage<H, B> {
     chain_id: ChainId,
     storage: Arc<KeyValueDB>,
     genesis_hash: Option<CryptoHash>,
-    best_block_hash: HashMap<Vec<u8>, CryptoHash>,
-    headers: HashMap<Vec<u8>, H>,
-    blocks: HashMap<Vec<u8>, B>,
-    block_indices: HashMap<Vec<u8>, CryptoHash>,
+    // keyed by hash
+    best_block_hash: LruCache<Vec<u8>, CryptoHash>,
+    // keyed by hash
+    headers: LruCache<Vec<u8>, H>,
+    // keyed by hash
+    blocks: LruCache<Vec<u8>, B>,
+    // keyed by index
+    block_indices: LruCache<Vec<u8>, CryptoHash>,
 }
 
 /// Specific block chain storages like beacon chain storage and shard chain storage should implement
@@ -128,10 +135,10 @@ where
             storage,
             chain_id,
             genesis_hash: None,
-            best_block_hash: Default::default(),
-            headers: Default::default(),
-            blocks: Default::default(),
-            block_indices: Default::default(),
+            best_block_hash: LruCache::new(CACHE_SIZE),
+            headers: LruCache::new(CACHE_SIZE),
+            blocks: LruCache::new(CACHE_SIZE),
+            block_indices: LruCache::new(CACHE_SIZE),
         }
     }
 
@@ -271,7 +278,7 @@ fn chain_id_to_bytes(index: &u32) -> &[u8] {
 fn write_with_cache<T: Clone + Encode>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &mut HashMap<Vec<u8>, T>,
+    cache: &mut LruCache<Vec<u8>, T>,
     key: &[u8],
     value: T,
 ) -> io::Result<()> {
@@ -280,14 +287,14 @@ fn write_with_cache<T: Clone + Encode>(
     db_transaction.put(Some(col), key, &data);
     storage.write(db_transaction)?;
     // If it has reached here then it is safe to put in cache.
-    cache.insert(key.to_vec(), value);
+    cache.put(key.to_vec(), value);
     Ok(())
 }
 
 fn extend_with_cache<T: Clone + Encode>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &mut HashMap<Vec<u8>, T>,
+    cache: &mut LruCache<Vec<u8>, T>,
     values: HashMap<Vec<u8>, T>,
 ) -> io::Result<()> {
     let mut db_transaction = storage.transaction();
@@ -299,26 +306,28 @@ fn extend_with_cache<T: Clone + Encode>(
     }
     storage.write(db_transaction)?;
     // If it has reached here then it is safe to put in cache.
-    cache.extend(cache_to_extend);
+    for (key, value) in cache_to_extend {
+        cache.put(key, value);
+    }
     Ok(())
 }
 
-fn read_with_cache<'a, T: Decode + 'a>(
+fn read_with_cache<'a, T: Decode + Clone + 'a>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &'a mut HashMap<Vec<u8>, T>,
+    cache: &'a mut LruCache<Vec<u8>, T>,
     key: &[u8],
 ) -> StorageResult<&'a T> {
-    match cache.entry(key.to_vec()) {
-        Entry::Occupied(entry) => Ok(Some(entry.into_mut())),
-        Entry::Vacant(entry) => {
-            if let Some(data) = storage.get(Some(col), key)? {
-                let result = Decode::decode(data.as_ref())?;
-                Ok(Some(entry.insert(result)))
-            } else {
-                Ok(None)
-            }
-        }
+    let key_vec = key.to_vec();
+    if cache.contains(&key_vec) {
+        let value = cache.get(&key_vec).unwrap();
+        Ok(Some(value))
+    } else if let Some(data) = storage.get(Some(col), key)? {
+        let result = Decode::decode(data.as_ref())?;
+        cache.put(key_vec.clone(), result);
+        Ok(cache.get(&key_vec))
+    } else {
+        Ok(None)
     }
 }
 
@@ -326,7 +335,7 @@ fn read_with_cache<'a, T: Decode + 'a>(
 fn prune_index<T>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &mut HashMap<Vec<u8>, T>,
+    cache: &mut LruCache<Vec<u8>, T>,
     filter: &Fn(u64) -> bool,
 ) -> io::Result<()> {
     let get_u64_from_key = |k: &[u8]| {
@@ -342,9 +351,39 @@ fn prune_index<T>(
         }
     }
     storage.write(db_transaction)?;
-    cache.retain(|k, _| {
-        let key = get_u64_from_key(k);
-        filter(key)
-    });
+
+    // LruCache does not have `retain`, so have to sort to this
+    // https://github.com/jeromefroe/lru-rs/issues/31
+    let keys: Vec<_> = cache.iter().map(|(k, _)| k.clone()).collect();
+    for key in keys {
+        if !filter(get_u64_from_key(&key)) {
+            cache.pop(&key);
+        }
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cache_read_and_write() {
+        let db = kvdb_memorydb::create(NUM_COLS);
+        let mut cache = LruCache::new(8);
+        for i in 0..8 {
+            write_with_cache(&db, 0, &mut cache, &[i as u8], i).unwrap();
+        }
+        for i in (8..12).rev() {
+            write_with_cache(&db, 0, &mut cache, &[i as u8], i).unwrap();
+        }
+        let values: Vec<_> = cache.into_iter().map(|(_, v)| *v as u32).collect();
+        assert_eq!(values, vec![8, 9, 10, 11, 7, 6, 5, 4]);
+        for i in 0..12 {
+            let result = read_with_cache(&db, 0, &mut cache, &[i as u8]);
+            assert_eq!(*result.unwrap().unwrap(), i);
+        }
+        let values: Vec<u32> = cache.into_iter().map(|(_, v)| *v as u32).collect();
+        assert_eq!(values, vec![11, 10, 9, 8, 7, 6, 5, 4]);
+    }
 }

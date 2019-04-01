@@ -2,13 +2,14 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use network::proxy::predicate::FnProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
+use testlib::alphanet_utils::{
+    create_nodes, Node, NodeType, sample_queryable_node, wait_for_catchup,
+};
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
-use testlib::alphanet_utils::{
-    create_nodes, sample_queryable_node, wait_for_catchup, Node, NodeType,
-};
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -34,7 +35,7 @@ fn send_transaction(
                 account_names[to].as_str(),
                 1,
             )
-            .sign(nodes[from].signer()),
+                .sign(nodes[from].signer()),
         )
         .unwrap();
 }
@@ -44,7 +45,7 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
     let crash1 = 2;
     let crash2 = 3;
-    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
+    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, vec![]);
     nodes[crash1].node_type = NodeType::ProcessNode;
     nodes[crash2].node_type = NodeType::ProcessNode;
 
@@ -93,7 +94,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     warmup();
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
-    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
+    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, vec![]);
     nodes[crash1].node_type = NodeType::ProcessNode;
     nodes[crash2].node_type = NodeType::ProcessNode;
 

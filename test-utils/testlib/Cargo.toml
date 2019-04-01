@@ -19,6 +19,7 @@ alphanet = { path = "../../node/alphanet" }
 chain = { path = "../../core/chain" }
 client = { path = "../../node/client" }
 configs = { path = "../../node/configs" }
+network = { path = "../../node/network" }
 primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 node-http = { path = "../../node/http" }

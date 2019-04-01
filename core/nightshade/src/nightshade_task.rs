@@ -71,13 +71,12 @@ impl From<Message> for nightshade_proto::Gossip_Message {
             sender_id: message.sender_id as u64,
             receiver_id: message.receiver_id as u64,
             state: SingularPtrField::some(message.state.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub enum GossipBody {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -85,7 +84,7 @@ pub enum GossipBody {
     PayloadReply(Vec<SignedBlockProposal>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
@@ -143,8 +142,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
             GossipBody::PayloadRequest(request) => {
                 let request = nightshade_proto::Gossip_PayloadRequest {
                     payload_request: request.into_iter().map(|x| x as u64).collect(),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 nightshade_proto::Gossip_oneof_body::payload_request(request)
             }
@@ -153,8 +151,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
                     payload_reply: RepeatedField::from_iter(
                         reply.into_iter().map(std::convert::Into::into)
                     ),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 nightshade_proto::Gossip_oneof_body::payload_reply(reply)
             }
@@ -165,8 +162,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
             body: Some(body),
             block_index: gossip.block_index,
             signature: gossip.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -218,8 +214,7 @@ impl From<SignedBlockProposal> for nightshade_proto::SignedBlockProposal {
         nightshade_proto::SignedBlockProposal {
             block_proposal: SingularPtrField::some(proposal.block_proposal.into()),
             signature: proposal.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -379,17 +374,20 @@ impl NightshadeTask {
                     if let Err(e) =
                         self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
                     {
-                        warn!(target: "nightshade", "{}", e);
+                        warn!(target: "nightshade", "Failed to update state: {}", e);
                     }
                 } else {
                     // Wait for confirmation from mempool,
                     // request was already sent when the proposal arrived.
+                    debug!(target: "nightshade", "Waiting for mempool confirmation for {} proposal, current proposals: {:?}", author, self.proposals);
                 }
             } else {
+                warn!(target: "nightshade", "Malicious gossip sender: {}, author: {}", author, message.sender_id);
                 // There is at least one malicious actor between the sender of this message
                 // and the original author of the payload. But we can't determine which is the bad actor.
             }
         } else {
+            debug!(target: "nightshade", "Gossip has missing proposal from {}", author);
             // TODO: This message is discarded if we haven't received the proposal yet.
             let gossip = Gossip::new(
                 self.owner_id(),
@@ -409,6 +407,7 @@ impl NightshadeTask {
             return;
         }
         if !gossip.verify(&self.public_keys[gossip.sender_id]) {
+            debug!(target: "nightshade", "Node: {} invalid signature from {}", self.owner_id(), gossip.sender_id);
             return;
         }
 
@@ -439,6 +438,9 @@ impl NightshadeTask {
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
+        if self.block_index.is_none() {
+            return;
+        }
         debug!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;

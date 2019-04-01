@@ -323,13 +323,13 @@ impl Client {
             // Check if this block was either already added, or it is already pending, or it has
             // invalid signature. Exits function even if single block is invalid.
             let hash = beacon_block.block_hash();
-            info!(target: "client", "Importing block index: {:?}, account_id={:?}, beacon = {:?}, shard = {:?}",
-                  beacon_block.body.header.index,
-                  self.account_id,
-                  beacon_block.hash, shard_block.hash);
             if self.beacon_client.chain.is_known_block(&hash) {
                 continue;
             }
+            info!(target: "client", "[{:?}] Importing block index: {:?}, beacon = {:?}, shard = {:?}",
+                  self.account_id,
+                  beacon_block.body.header.index,
+                  beacon_block.hash, shard_block.hash);
             has_not_known = true;
             if !Client::verify_block_hash(&beacon_block, &shard_block) {
                 return BlockImportingResult::InvalidBlock;
