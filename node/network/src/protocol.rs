@@ -8,6 +8,8 @@ use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
 use log::{debug, error, info, warn};
+use std::time::Duration;
+use tokio::timer::Interval;
 
 use client::Client;
 use configs::NetworkConfig;
@@ -61,6 +63,10 @@ impl PackedMessage {
         }
     }
 }
+
+
+/// Time interval between printing connected peers.
+const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -475,8 +481,8 @@ pub fn spawn_network(
     let proxy_messages_tx = spawn_proxy(network_cfg, proxy_handlers);
 
     let protocol = Arc::new(Protocol {
-        client,
-        peer_manager,
+        client: client.clone(),
+        peer_manager: peer_manager.clone(),
         inc_gossip_tx,
         inc_block_tx,
         payload_response_tx,
@@ -487,58 +493,82 @@ pub fn spawn_network(
     });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
-    let protocol1 = protocol.clone();
-    let task = inc_msg_rx.for_each(move |(peer_id, data)| {
-        protocol1.receive_message(peer_id, data);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        inc_msg_rx.for_each(move |(peer_id, data)| {
+            protocol.receive_message(peer_id, data);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing gossips.
-    let protocol2 = protocol.clone();
-    let task = out_gossip_rx.for_each(move |g| {
-        protocol2.send_gossip(g);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_gossip_rx.for_each(move |g| {
+            protocol.send_gossip(g);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing gossips.
-    let protocol_payload = protocol.clone();
-    let task = out_payload_gossip_rx.for_each(move |g| {
-        protocol_payload.send_payload_gossip(g);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_payload_gossip_rx.for_each(move |g| {
+            protocol.send_payload_gossip(g);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing block announcements.
-    let protocol3 = protocol.clone();
-    let task = out_block_rx.for_each(move |(peer_ids, b)| {
-        protocol3.send_block_announce(peer_ids, b);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_block_rx.for_each(move |(peer_ids, b)| {
+            protocol.send_block_announce(peer_ids, b);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that send payload requests.
-    let protocol4 = protocol.clone();
-    let task = payload_request_rx.for_each(move |(block_index, r)| {
-        protocol4.send_payload_request(block_index, r);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        payload_request_rx.for_each(move |(block_index, r)| {
+            protocol.send_payload_request(block_index, r);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that send block fetch requests.
-    let protocol5 = protocol.clone();
-    let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
-        protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
+            protocol.send_block_fetch_request(&peer_id, from_index, til_index);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
-    let protocol6 = protocol.clone();
-    let task = out_final_signatures_rx.for_each(move |(block_index, b)| {
-        protocol6.send_joint_block_bls_announce(block_index, b);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_final_signatures_rx.for_each(move |(block_index, b)| {
+            protocol.send_joint_block_bls_announce(block_index, b);
+            future::ok(())
+        })
+    };
+    tokio::spawn(task);
+
+    let task = Interval::new_interval(CONNECTED_PEERS_INT)
+        .for_each(move |_| {
+            let (active_peers, known_peers) = peer_manager.get_peer_stats();
+            info!(target: "network", "[{}] Peers: active = {}, known = {}", client.account_id, active_peers, known_peers);
+            future::ok(())
+        })
+        .map_err(|e| error!("Timer error: {}", e));
+
     tokio::spawn(task);
 }
 
