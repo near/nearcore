@@ -63,31 +63,28 @@ impl ChainSpec {
         }
     }
 
-    /// Default ChainSpec used by PoA.
+    /// Default ChainSpec used by PoA for testing.
     pub fn default_poa() -> Self {
         let genesis_wasm =
             include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_id = "alice.near";
-        let bob_id = "bob.near";
-        let john_id = "john.near";
-        let alice_signer = InMemorySigner::from_seed(alice_id, alice_id);
-        let bob_signer = InMemorySigner::from_seed(bob_id, bob_id);
-        let john_signer = InMemorySigner::from_seed(john_id, john_id);
+        let alice_signer = InMemorySigner::from_seed(ALICE_ID, ALICE_ID);
+        let bob_signer = InMemorySigner::from_seed(BOB_ID, BOB_ID);
+        let carol_signer = InMemorySigner::from_seed(CAROL_ID, CAROL_ID);
         ChainSpec {
             accounts: vec![
-                (alice_id.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
-                (bob_id.to_string(), bob_signer.public_key().to_readable(), 100, 10),
-                (john_id.to_string(), john_signer.public_key().to_readable(), 10, 10),
+                (ALICE_ID.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
+                (BOB_ID.to_string(), bob_signer.public_key().to_readable(), 100, 10),
+                (CAROL_ID.to_string(), carol_signer.public_key().to_readable(), 10, 10),
             ],
             initial_authorities: vec![
                 (
-                    alice_id.to_string(),
+                    ALICE_ID.to_string(),
                     alice_signer.public_key().to_readable(),
                     alice_signer.bls_public_key().to_readable(),
                     100,
                 ),
                 (
-                    bob_id.to_string(),
+                    BOB_ID.to_string(),
                     bob_signer.public_key().to_readable(),
                     bob_signer.bls_public_key().to_readable(),
                     100,
@@ -98,23 +95,21 @@ impl ChainSpec {
         }
     }
 
+    /// Default ChainSpec used by DevNet for testing.
     pub fn default_devnet() -> Self {
         let genesis_wasm =
             include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_id = "alice.near";
-        let bob_id = "bob.near";
-        let john_id = "john.near";
-        let alice_signer = InMemorySigner::from_seed(alice_id, alice_id);
-        let bob_signer = InMemorySigner::from_seed(bob_id, bob_id);
-        let john_signer = InMemorySigner::from_seed(john_id, john_id);
+        let alice_signer = InMemorySigner::from_seed(ALICE_ID, ALICE_ID);
+        let bob_signer = InMemorySigner::from_seed(BOB_ID, BOB_ID);
+        let carol_signer = InMemorySigner::from_seed(CAROL_ID, CAROL_ID);
         ChainSpec {
             accounts: vec![
-                (alice_id.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
-                (bob_id.to_string(), bob_signer.public_key().to_readable(), 100, 10),
-                (john_id.to_string(), john_signer.public_key().to_readable(), 10, 10),
+                (ALICE_ID.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
+                (BOB_ID.to_string(), bob_signer.public_key().to_readable(), 100, 10),
+                (CAROL_ID.to_string(), carol_signer.public_key().to_readable(), 10, 10),
             ],
             initial_authorities: vec![(
-                alice_id.to_string(),
+                ALICE_ID.to_string(),
                 alice_signer.public_key().to_readable(),
                 alice_signer.bls_public_key().to_readable(),
                 100,
@@ -124,6 +119,32 @@ impl ChainSpec {
         }
     }
 }
+
+// Some of the standard named identifiers that we use for testing.
+
+const ALICE_ID: &str = "alice.near";
+const BOB_ID: &str = "bob.near";
+const CAROL_ID: &str = "carol.near";
+const NAMED_IDS: [&str; 18] = [
+    ALICE_ID,
+    BOB_ID,
+    CAROL_ID,
+    "dan.near",
+    "eve.near",
+    "frank.near",
+    "grace.near",
+    "heidi.near",
+    "ivan.near",
+    "judy.near",
+    "mike.near",
+    "niaj.near",
+    "olivia.near",
+    "pat.near",
+    "sybil.near",
+    "trudy.near",
+    "victor.near",
+    "wendy.near"
+];
 
 #[cfg(test)]
 mod tests {
