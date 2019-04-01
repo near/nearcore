@@ -393,7 +393,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
-        logs: &mut Vec<LogEntry>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| {
@@ -422,11 +422,12 @@ impl Runtime {
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
             mana_accounting.mana_refund = wasm_res.mana_left;
-            logs.append(&mut wasm_res.logs);
+            transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
             let return_data = wasm_res
                 .return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
+            transaction_result.result = return_data.to_result();
             Self::return_data_to_receipts(
                 &mut runtime_ext,
                 return_data,
@@ -452,7 +453,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
-        logs: &mut Vec<String>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
@@ -500,13 +501,14 @@ impl Runtime {
                     .and_then(|mut res| {
                         mana_accounting.gas_used = res.gas_used;
                         mana_accounting.mana_refund = res.mana_left;
-                        logs.append(&mut res.logs);
+                        transaction_result.logs.append(&mut res.logs);
                         let balance = res.balance;
                         res.return_data
                             .map_err(|e| {
                                 format!("wasm callback execution failed with error: {:?}", e)
                             })
                             .and_then(|data| {
+                                transaction_result.result = data.to_result();
                                 Self::return_data_to_receipts(
                                     &mut runtime_ext,
                                     data,
@@ -553,7 +555,7 @@ impl Runtime {
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
-        logs: &mut Vec<String>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> =
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver));
@@ -590,7 +592,7 @@ impl Runtime {
                                 &mut receiver,
                                 &mut mana_accounting,
                                 block_index,
-                                logs,
+                                transaction_result,
                             )
                         }
                     }
@@ -603,7 +605,7 @@ impl Runtime {
                         &mut receiver,
                         &mut mana_accounting,
                         block_index,
-                        logs,
+                        transaction_result,
                     ),
                     ReceiptBody::Refund(amount) => {
                         receiver.amount += amount;
@@ -734,6 +736,7 @@ impl Runtime {
                 }
                 state_update.commit();
                 result.status = TransactionStatus::Completed;
+                result.result = Some(vec![]);
             }
             Err(s) => {
                 state_update.rollback();
@@ -761,7 +764,7 @@ impl Runtime {
                 receipt,
                 &mut tmp_new_receipts,
                 block_index,
-                &mut result.logs,
+                &mut result,
             );
             for receipt in tmp_new_receipts {
                 result.receipts.push(receipt.nonce);

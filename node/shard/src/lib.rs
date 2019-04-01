@@ -261,6 +261,7 @@ impl ShardClient {
                         hash: *r,
                         lines: receipt_result.logs.clone(),
                         receipts: receipt_result.receipts.clone(),
+                        result: receipt_result.result.clone(),
                     });
                     match self.collect_transaction_final_result(&receipt_result, logs) {
                         FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
@@ -281,6 +282,7 @@ impl ShardClient {
                 hash: *hash,
                 lines: transaction_result.logs.clone(),
                 receipts: transaction_result.receipts.clone(),
+                result: transaction_result.result.clone(),
             }],
         };
         result.status =
