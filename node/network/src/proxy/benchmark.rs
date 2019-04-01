@@ -18,7 +18,6 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const MONITOR_LOG_PATH: &str = "monitor.log";
 const DUMP_EVERY_X_SEC: u64 = 1;
 
-#[derive(Default)]
 pub struct BenchmarkHandler {
     started: Arc<RwLock<bool>>,
     message_type_counter: Arc<RwLock<Vec<usize>>>,
@@ -64,6 +63,13 @@ fn message_enum_id(index: usize) -> String {
 }
 
 impl BenchmarkHandler {
+    pub fn new() -> Self {
+        Self {
+            started: Arc::new(RwLock::new(false)),
+            message_type_counter: Arc::new(RwLock::new(vec![0; 13])),
+        }
+    }
+    
     /// This function can't be called on new method, because there must exist a tokio
     fn start(&self) {
         let counter = self.message_type_counter.clone();

@@ -63,6 +63,7 @@ impl PackedMessage {
     }
 }
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Time interval between printing connected peers.
 const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
