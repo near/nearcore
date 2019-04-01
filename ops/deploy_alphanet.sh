@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/alphanet:0.1.1}
+IMAGE=${1:-nearprotocol/alphanet:0.1.2}
 PREFIX=${2:-alphanet}
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.4}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.6}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 
@@ -76,15 +76,15 @@ gcloud compute firewall-rules create alphanet-studio \
     --target-tags=alphanet-studio
 
 gcloud compute disks create --size 200GB --zone ${ZONE} \
-    ${PREFIX}-persistent-studio \
+    ${PREFIX}-studio-persistent
 
-gcloud compute instances create-with-container ${PREFIX}-studio \
+gcloud beta compute instances create-with-container ${PREFIX}-studio \
     --container-env DEVNET_HOST=http://${BOOT_NODE_IP} \
     --container-env PLATFORM=GCP \
     --container-image ${STUDIO_IMAGE} \
     --zone ${ZONE} \
     --tags=alphanet-studio \
-    --disk=name=${PREFIX}-persistent-studio \
+    --disk=name=${PREFIX}-studio-persistent \
     --container-mount-disk=mount-path="/srv/near"
 
 # borrowed from https://stackoverflow.com/a/20369590
