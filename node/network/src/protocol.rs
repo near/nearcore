@@ -1,34 +1,34 @@
 use std::sync::Arc;
 
-use futures::stream::Stream;
 use futures::future;
-use futures::Future;
 use futures::sink::Sink;
+use futures::stream::Stream;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use tokio::timer::Interval;
+use futures::Future;
 use log::{debug, error, info, warn};
 use std::time::Duration;
+use tokio::timer::Interval;
 
 use client::Client;
 use configs::NetworkConfig;
 use mempool::payload_gossip::PayloadGossip;
-use primitives::chain::{
-    PayloadRequest, PayloadResponse, ChainState, Snapshot,
-    MissingPayloadResponse
-};
-use primitives::network::{PeerInfo, PeerMessage, ConnectedInfo};
-use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
 use nightshade::nightshade_task::Gossip;
-use primitives::consensus::JointBlockBLS;
-
-use crate::message::{
-    CoupledBlock, Message, RequestId,
-    encode_message, decode_message
+use primitives::chain::{
+    ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
+use primitives::consensus::JointBlockBLS;
+use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
+use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
+
+use crate::message::{decode_message, encode_message, CoupledBlock, Message, RequestId};
 use crate::peer::ChainStateRetriever;
 use crate::peer_manager::PeerManager;
+
+
+/// Time interval between printing connected peers.
+const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -76,9 +76,7 @@ impl Protocol {
             Message::Connected(connected_info) => {
                 info!(
                     "Peer {} connected to {} with {:?}",
-                    peer_id,
-                    self.peer_manager.node_info.id,
-                    connected_info
+                    peer_id, self.peer_manager.node_info.id, connected_info
                 );
                 self.on_new_peer(peer_id, connected_info);
             }
@@ -93,7 +91,9 @@ impl Protocol {
                 }
             }
             Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
-            Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
+            Message::PayloadGossip(gossip) => {
+                forward_msg(self.inc_payload_gossip_tx.clone(), *gossip)
+            }
             Message::BlockAnnounce(block) => {
                 forward_msg(self.inc_block_tx.clone(), (peer_id, vec![*block]));
             }
@@ -107,10 +107,7 @@ impl Protocol {
                 }
             }
             Message::BlockResponse(_request_id, blocks) => {
-                forward_msg(
-                    self.inc_block_tx.clone(),
-                    (peer_id, blocks),
-                );
+                forward_msg(self.inc_block_tx.clone(), (peer_id, blocks));
             }
             Message::PayloadRequest(request_id, missing_payload_request) => {
                 let response = self.client.fetch_payload(missing_payload_request);
@@ -118,7 +115,9 @@ impl Protocol {
             }
             Message::PayloadSnapshotRequest(request_id, hash) => {
                 let block_index = self.client.beacon_client.chain.best_index();
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                if let Some(authority_id) =
+                    self.get_authority_id_from_peer_id(block_index, &peer_id)
+                {
                     info!("Payload snapshot request from {} for {}", authority_id, hash);
                     match self.client.shard_client.pool.on_snapshot_request(authority_id, hash) {
                         Ok(snapshot) => {
@@ -138,7 +137,9 @@ impl Protocol {
             Message::PayloadResponse(_request_id, missing_payload) => {
                 // TODO: check request id and pull block_index from there.
                 let block_index = self.client.beacon_client.chain.best_index();
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                if let Some(authority_id) =
+                    self.get_authority_id_from_peer_id(block_index, &peer_id)
+                {
                     info!("Payload response from {} / {}", peer_id, authority_id);
                     forward_msg(
                         self.payload_response_tx.clone(),
@@ -152,7 +153,9 @@ impl Protocol {
             }
             Message::PayloadSnapshotResponse(_response_id, snapshot) => {
                 let block_index = self.client.beacon_client.chain.best_index();
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                if let Some(authority_id) =
+                    self.get_authority_id_from_peer_id(block_index, &peer_id)
+                {
                     info!("Snapshot response from {} / {}", peer_id, authority_id);
                     forward_msg(
                         self.payload_response_tx.clone(),
@@ -178,7 +181,11 @@ impl Protocol {
         forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }
 
-    fn get_authority_id_from_peer_id(&self, block_index: BlockIndex, peer_id: &PeerId) -> Option<AuthorityId> {
+    fn get_authority_id_from_peer_id(
+        &self,
+        block_index: BlockIndex,
+        peer_id: &PeerId,
+    ) -> Option<AuthorityId> {
         self.peer_manager.get_peer_info(peer_id).and_then(|peer_info| {
             peer_info.account_id.and_then(|account_id| {
                 let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
@@ -193,7 +200,11 @@ impl Protocol {
         })
     }
 
-    fn get_authority_channel(&self, block_index: BlockIndex, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
+    fn get_authority_channel(
+        &self,
+        block_index: BlockIndex,
+        authority_id: AuthorityId,
+    ) -> Option<Sender<PeerMessage>> {
         let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
         auth_map
             .get(&authority_id)
@@ -240,9 +251,9 @@ impl Protocol {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             // TODO: make proper request ids.
             let request_id = 1;
-            let data = encode_message(
-                Message::BlockFetchRequest(request_id, from_index, til_index)
-            ).unwrap();
+            let data =
+                encode_message(Message::BlockFetchRequest(request_id, from_index, til_index))
+                    .unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
@@ -269,17 +280,19 @@ impl Protocol {
                 // TODO: make proper request ids.
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
-                    let data = encode_message(Message::PayloadRequest(request_id, payload_request)).unwrap();
+                    let data = encode_message(Message::PayloadRequest(request_id, payload_request))
+                        .unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
                 }
-            },
+            }
             PayloadRequest::BlockProposal(authority_id, hash) => {
                 // TODO: make proper request ids.
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
-                    let data = encode_message(Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
+                    let data =
+                        encode_message(Message::PayloadSnapshotRequest(request_id, hash)).unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
@@ -288,15 +301,11 @@ impl Protocol {
         }
     }
 
-    fn send_snapshot_response(
-        &self,
-        peer_id: &PeerId,
-        request_id: RequestId,
-        snapshot: Snapshot
-    ) {
+    fn send_snapshot_response(&self, peer_id: &PeerId, request_id: RequestId, snapshot: Snapshot) {
         info!("Send snapshot to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = encode_message(Message::PayloadSnapshotResponse(request_id, snapshot)).unwrap();
+            let data =
+                encode_message(Message::PayloadSnapshotResponse(request_id, snapshot)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(
@@ -397,73 +406,81 @@ pub fn spawn_network(
     });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
-    let protocol1 = protocol.clone();
-    let task = inc_msg_rx.for_each(move |(peer_id, data)| {
-        protocol1.receive_message(peer_id, data);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        inc_msg_rx.for_each(move |(peer_id, data)| {
+            protocol.receive_message(peer_id, data);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing gossips.
-    let protocol2 = protocol.clone();
-    let task = out_gossip_rx.for_each(move |g| {
-        protocol2.send_gossip(g);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_gossip_rx.for_each(move |g| {
+            protocol.send_gossip(g);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing gossips.
-    let protocol_payload = protocol.clone();
-    let task = out_payload_gossip_rx.for_each(move |g| {
-        protocol_payload.send_payload_gossip(g);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_payload_gossip_rx.for_each(move |g| {
+            protocol.send_payload_gossip(g);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing block announcements.
-    let protocol3 = protocol.clone();
-    let task = out_block_rx.for_each(move |(peer_ids, b)| {
-        protocol3.send_block_announce(peer_ids, b);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_block_rx.for_each(move |(peer_ids, b)| {
+            protocol.send_block_announce(peer_ids, b);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that send payload requests.
-    let protocol4 = protocol.clone();
-    let task = payload_request_rx.for_each(move |(block_index, r)| {
-        protocol4.send_payload_request(block_index, r);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        payload_request_rx.for_each(move |(block_index, r)| {
+            protocol.send_payload_request(block_index, r);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that send block fetch requests.
-    let protocol5 = protocol.clone();
-    let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
-        protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
+            protocol.send_block_fetch_request(&peer_id, from_index, til_index);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
-    let protocol6 = protocol.clone();
-    let task = out_final_signatures_rx.for_each(move |(block_index, b)| {
-        protocol6.send_joint_block_bls_announce(block_index, b);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_final_signatures_rx.for_each(move |(block_index, b)| {
+            protocol.send_joint_block_bls_announce(block_index, b);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
-    let peer_manager1 = peer_manager.clone();
-    let client1 = client.clone();
-    let task = Interval::new_interval(Duration::from_secs(30))
-        .fold(
-            (),
-            move |(), _| {
-                let (active_peers, known_peers) = peer_manager1.get_peer_stats();
-                info!(target: "network", "[{}] Peers: active = {}, known = {}", client1.account_id, active_peers, known_peers);
-                future::ok(())
-            },
-        )
-        .map(|_| ())
-        .map_err(|e| error!("timer error: {}", e));
+    let task = Interval::new_interval(CONNECTED_PEERS_INT)
+        .for_each(move |_| {
+            let (active_peers, known_peers) = peer_manager.get_peer_stats();
+            info!(target: "network", "[{}] Peers: active = {}, known = {}", client.account_id, active_peers, known_peers);
+            future::ok(())
+        })
+        .map_err(|e| error!("Timer error: {}", e));
 
     tokio::spawn(task);
 }
