@@ -500,8 +500,10 @@ impl PartialEq for SignedTransaction {
     }
 }
 
-impl From<transaction_proto::SignedTransaction> for SignedTransaction {
-    fn from(t: transaction_proto::SignedTransaction) -> Self {
+impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
+    type Error = String;
+
+    fn try_from(t: transaction_proto::SignedTransaction) -> Result<Self, Self::Error> {
         let mut bytes;
         let body = match t.body {
             Some(transaction_proto::SignedTransaction_oneof_body::create_account(t)) => {
@@ -538,9 +540,11 @@ impl From<transaction_proto::SignedTransaction> for SignedTransaction {
             }
             None => unreachable!(),
         };
-        let bytes = bytes.unwrap();
+        let bytes = bytes.map_err(|e| format!("{}", e))?;
         let hash = hash(&bytes);
-        SignedTransaction { body, signature: Signature::new(&t.signature), hash }
+        let signature: Signature =
+            Signature::try_from(&t.signature as &[u8]).map_err(|e| format!("{}", e))?;
+        Ok(SignedTransaction { body, signature, hash })
     }
 }
 
@@ -830,7 +834,7 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Ok(body) => Ok(ReceiptTransaction {
                 originator: proto.originator,
                 receiver: proto.receiver,
-                nonce: proto.nonce.into(),
+                nonce: proto.nonce.try_into()?,
                 body,
             }),
             Err(e) => Err(e),

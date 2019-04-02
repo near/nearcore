@@ -1,8 +1,8 @@
+use std::convert::{TryFrom, TryInto};
+use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use std::iter::FromIterator;
-use std::convert::{TryFrom, TryInto};
 
 use elapsed::measure_time;
 use futures::future::Future;
@@ -15,14 +15,14 @@ use futures::Stream;
 use log::*;
 use tokio::timer::Delay;
 
+use near_protos::nightshade as nightshade_proto;
 use primitives::aggregate_signature::BlsPublicKey;
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::signature::{verify, PublicKey, Signature};
 use primitives::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
-use primitives::utils::{proto_to_type, proto_to_result};
-use near_protos::nightshade as nightshade_proto;
-use protobuf::{SingularPtrField, RepeatedField};
+use primitives::utils::{proto_to_result, proto_to_type};
+use protobuf::{RepeatedField, SingularPtrField};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
 
@@ -53,14 +53,12 @@ impl TryFrom<nightshade_proto::Gossip_Message> for Message {
 
     fn try_from(proto: nightshade_proto::Gossip_Message) -> Result<Self, Self::Error> {
         match proto_to_type(proto.state) {
-            Ok(state) => {
-                Ok(Message {
-                    sender_id: proto.sender_id as AuthorityId,
-                    receiver_id: proto.receiver_id as AuthorityId,
-                    state,
-                })
-            }
-            Err(e) => Err(e)
+            Ok(state) => Ok(Message {
+                sender_id: proto.sender_id as AuthorityId,
+                receiver_id: proto.receiver_id as AuthorityId,
+                state,
+            }),
+            Err(e) => Err(e),
         }
     }
 }
@@ -99,37 +97,30 @@ impl TryFrom<nightshade_proto::Gossip> for Gossip {
     fn try_from(proto: nightshade_proto::Gossip) -> Result<Self, Self::Error> {
         let body = match proto.body {
             Some(nightshade_proto::Gossip_oneof_body::nightshade_state_update(state_update)) => {
-                state_update.try_into().map(|update| GossipBody::NightshadeStateUpdate(Box::new(update)))
+                state_update
+                    .try_into()
+                    .map(|update| GossipBody::NightshadeStateUpdate(Box::new(update)))
             }
             Some(nightshade_proto::Gossip_oneof_body::payload_request(request)) => {
-                let payload_request = request.payload_request
-                    .into_iter()
-                    .map(|x| x as AuthorityId)
-                    .collect();
+                let payload_request =
+                    request.payload_request.into_iter().map(|x| x as AuthorityId).collect();
                 Ok(GossipBody::PayloadRequest(payload_request))
             }
             Some(nightshade_proto::Gossip_oneof_body::payload_reply(reply)) => {
-                let proposals: Result<Vec<_>, _> = reply.payload_reply
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect();
+                let proposals: Result<Vec<_>, _> =
+                    reply.payload_reply.into_iter().map(TryInto::try_into).collect();
                 proposals.map(GossipBody::PayloadReply)
             }
-            None => unreachable!()
+            None => unreachable!(),
         };
-
-        match body {
-            Ok(body) => {
-                Ok(Gossip {
-                    sender_id: proto.sender_id as AuthorityId,
-                    receiver_id: proto.receiver_id as AuthorityId,
-                    body,
-                    block_index: proto.block_index,
-                    signature: Signature::from(&proto.signature),
-                })
-            }
-            Err(e) => Err(e)
-        }
+        let signature = Signature::try_from(proto.signature.as_str()).map_err(|e| e.to_string())?;
+        Ok(Gossip {
+            sender_id: proto.sender_id as AuthorityId,
+            receiver_id: proto.receiver_id as AuthorityId,
+            body: body?,
+            block_index: proto.block_index,
+            signature,
+        })
     }
 }
 
@@ -149,7 +140,7 @@ impl From<Gossip> for nightshade_proto::Gossip {
             GossipBody::PayloadReply(reply) => {
                 let reply = nightshade_proto::Gossip_PayloadReply {
                     payload_reply: RepeatedField::from_iter(
-                        reply.into_iter().map(std::convert::Into::into)
+                        reply.into_iter().map(std::convert::Into::into),
                     ),
                     ..Default::default()
                 };
@@ -199,12 +190,9 @@ impl TryFrom<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
     type Error = String;
 
     fn try_from(proto: nightshade_proto::SignedBlockProposal) -> Result<Self, Self::Error> {
-        let signature = Signature::from(&proto.signature);
-        proto_to_result(proto.block_proposal).map(|proposal| {
-            SignedBlockProposal {
-                block_proposal: proposal.into(),
-                signature,
-            }
+        let signature = Signature::try_from(proto.signature.as_str())?;
+        proto_to_result(proto.block_proposal).and_then(|proposal| {
+            Ok(SignedBlockProposal { block_proposal: proposal.try_into()?, signature })
         })
     }
 }
@@ -310,10 +298,12 @@ impl NightshadeTask {
     ) {
         let num_authorities = public_keys.len();
         info!(target: "nightshade", "Init nightshade for authority {}/{}, block {}, proposal {}", owner_uid, num_authorities, block_index, hash);
-        assert!(self.block_index.is_none() ||
-                    self.block_index.unwrap() < block_index ||
-                    self.proposals[owner_uid as usize].as_ref().unwrap().block_proposal.hash == hash,
-                "Reset without increasing block index: adversarial behavior");
+        assert!(
+            self.block_index.is_none()
+                || self.block_index.unwrap() < block_index
+                || self.proposals[owner_uid as usize].as_ref().unwrap().block_proposal.hash == hash,
+            "Reset without increasing block index: adversarial behavior"
+        );
 
         self.proposals = vec![None; num_authorities];
         self.proposals[owner_uid] =
@@ -441,7 +431,12 @@ impl NightshadeTask {
         if self.block_index.is_none() {
             return;
         }
-        debug!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
+        debug!(
+            "owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}",
+            self.nightshade.as_ref().unwrap().owner_id,
+            self.block_index,
+            signed_payload
+        );
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(

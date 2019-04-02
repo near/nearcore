@@ -74,6 +74,7 @@ impl Pool {
         *self.authority_id.write().expect(POISONED_LOCK_ERR) = authority_id;
         *self.num_authorities.write().expect(POISONED_LOCK_ERR) = num_authorities;
         self.snapshots.write().expect(POISONED_LOCK_ERR).clear();
+        self.pending_snapshots.write().expect(POISONED_LOCK_ERR).clear();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -183,6 +184,21 @@ impl Pool {
                         .entry(hash)
                         .or_insert_with(HashSet::new)
                         .insert(author);
+                }
+                for transaction in snapshot.transactions.iter() {
+                    if !self
+                        .transaction_info
+                        .read()
+                        .expect(POISONED_LOCK_ERR)
+                        .contains_key(transaction)
+                    {
+                        return Err("Some transaction is missing from the response".to_string());
+                    }
+                }
+                for receipt in snapshot.receipts.iter() {
+                    if !self.receipts.read().expect(POISONED_LOCK_ERR).contains(receipt) {
+                        return Err("Some receipt is missing from the response".to_string());
+                    }
                 }
                 let hash = snapshot.get_hash();
                 self.snapshots.write().expect(POISONED_LOCK_ERR).insert(snapshot);
@@ -405,27 +421,36 @@ impl Pool {
         }
     }
 
-    pub fn fetch_payload(&self, request: MissingPayloadRequest) -> MissingPayloadResponse {
-        let transactions: Vec<_> = {
+    /// Tries to fetch the missing payload, but might not be able to due to new blocks being imported.
+    /// If that's the case, return None.
+    pub fn fetch_payload(&self, request: MissingPayloadRequest) -> Option<MissingPayloadResponse> {
+        let transactions = {
             let guard = self.transactions.read().expect(POISONED_LOCK_ERR);
             let info_guard = self.transaction_info.read().expect(POISONED_LOCK_ERR);
             request
                 .transactions
                 .into_iter()
-                .filter_map(|hash| {
+                .map(|hash| {
                     info_guard
                         .get(&hash)
                         .and_then(|(id, nonce)| guard.get(id).and_then(|map| map.get(nonce)))
                         .cloned()
                 })
-                .collect()
+                .collect::<Option<Vec<_>>>()?
         };
-        let receipts: Vec<_> = {
+        let receipts = {
             let guard = self.receipts.read().expect(POISONED_LOCK_ERR);
-            request.receipts.into_iter().filter_map(|hash| guard.get(&hash).cloned()).collect()
+            request
+                .receipts
+                .into_iter()
+                .map(|hash| guard.get(&hash).cloned())
+                .collect::<Option<Vec<_>>>()?
         };
-
-        MissingPayloadResponse { transactions, receipts, snapshot_hash: request.snapshot_hash }
+        Some(MissingPayloadResponse {
+            transactions,
+            receipts,
+            snapshot_hash: request.snapshot_hash,
+        })
     }
 
     /// Add snapshot sent by peer to `pending_snapshots` if there are missing transactions or receipts.
@@ -602,7 +627,7 @@ mod tests {
             }
         );
 
-        let missing_payload_response = pool1.fetch_payload(missing_payload_request);
+        let missing_payload_response = pool1.fetch_payload(missing_payload_request).unwrap();
         assert_eq!(
             missing_payload_response,
             MissingPayloadResponse {
@@ -615,5 +640,57 @@ mod tests {
         let hash = pool2.add_missing_payload(0, missing_payload_response).unwrap();
         assert_eq!(hash, snapshot_hash);
         assert!(pool2.snapshots.read().expect(POISONED_LOCK_ERR).contains(&snapshot_hash));
+        assert!(pool2.pending_snapshots.read().expect(POISONED_LOCK_ERR).is_empty())
+    }
+
+    #[test]
+    fn test_missing_payload() {
+        let (storage, trie, signers) = get_test_chain();
+        let transactions: Vec<_> = (1..5)
+            .map(|i| {
+                TransactionBody::SendMoney(SendMoneyTransaction {
+                    nonce: i,
+                    originator: "alice.near".to_string(),
+                    receiver: "bob.near".to_string(),
+                    amount: i,
+                })
+                .sign(signers[0].clone())
+            })
+            .collect();
+        let pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
+        for i in 0..3 {
+            pool1.add_transaction(transactions[i].clone()).unwrap();
+        }
+        let pool2 = Pool::new(signers[0].clone(), storage, trie);
+        for i in 1..4 {
+            pool2.add_transaction(transactions[i].clone()).unwrap();
+        }
+        let snapshot_hash = pool1.snapshot_payload();
+        let snapshot =
+            pool1.snapshots.read().expect(POISONED_LOCK_ERR).get(&snapshot_hash).cloned().unwrap();
+        let missing_payload_request = pool2.add_payload_snapshot(0, snapshot).unwrap();
+        assert_eq!(
+            missing_payload_request,
+            MissingPayloadRequest {
+                transactions: vec![transactions[0].get_hash()],
+                receipts: vec![],
+                snapshot_hash,
+            }
+        );
+
+        // pool1 imports a block
+        let block = SignedShardBlock::new(
+            0,
+            1,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            transactions.clone(),
+            vec![],
+            CryptoHash::default(),
+        );
+        pool1.import_block(&block);
+
+        let missing_payload_response = pool1.fetch_payload(missing_payload_request);
+        assert!(missing_payload_response.is_none());
     }
 }

@@ -69,7 +69,7 @@ impl BenchmarkHandler {
             message_type_counter: Arc::new(RwLock::new(vec![0; 13])),
         }
     }
-
+    
     /// This function can't be called on new method, because there must exist a tokio
     fn start(&self) {
         let counter = self.message_type_counter.clone();
@@ -98,11 +98,11 @@ impl BenchmarkHandler {
         };
 
         file.write_all(&format!("\n{:?}\n", Instant::now()).into_bytes())
-            .expect(format!("Fail writing to {:?}", path).as_ref());
+            .unwrap_or_else(|_| panic!("Fail writing to {:?}", path));
 
         for (index, count) in counters.iter().enumerate() {
             file.write_all(&format!("{:?}: {:?}\n", message_enum_id(index), count).into_bytes())
-                .expect(format!("Fail writing to {:?}", path).as_ref());
+                .unwrap_or_else(|_| panic!("Fail writing to {:?}", path));
         }
     }
 }

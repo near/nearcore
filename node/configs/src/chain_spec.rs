@@ -37,17 +37,12 @@ impl ChainSpec {
         serde_json::to_string(self).expect("Error serializing the chain spec.")
     }
 
-    /// Deserializes ChainSpec from a string.
-    pub fn from_str(config: &str) -> Self {
-        serde_json::from_str(config).expect("Error deserializing the chain spec.")
-    }
-
     /// Reads ChainSpec from a file.
     pub fn from_file(path: &PathBuf) -> Self {
         let mut file = File::open(path).expect("Could not open chain spec file.");
         let mut contents = String::new();
         file.read_to_string(&mut contents).expect("Could not read from chain spec file.");
-        ChainSpec::from_str(&contents)
+        ChainSpec::from(contents.as_str())
     }
 
     /// Read ChainSpec from a file or use the default value.
@@ -127,6 +122,12 @@ impl Default for ChainSpec {
     }
 }
 
+impl From<&str> for ChainSpec {
+    fn from(config: &str) -> Self {
+        serde_json::from_str(config).expect("Error deserializing the chain spec.")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ChainSpec;
@@ -141,7 +142,7 @@ mod tests {
             "genesis_wasm": [0,1],
             "authority_rotation": {"ThresholdedProofOfStake": {"epoch_length": 10, "num_seats_per_slot": 100}},
         });
-        let spec = ChainSpec::from_str(&data.to_string());
+        let spec = ChainSpec::from(data.to_string().as_str());
         assert_eq!(
             spec.initial_authorities[0],
             (
@@ -160,7 +161,7 @@ mod tests {
     fn test_default_spec() {
         let spec = ChainSpec::default();
         let spec_str1 = spec.to_string();
-        let spec_str2 = ChainSpec::from_str(spec_str1.as_str()).to_string();
+        let spec_str2 = ChainSpec::from(spec_str1.as_str()).to_string();
         assert_eq!(spec_str1, spec_str2);
     }
 }

@@ -10,6 +10,7 @@ use primitives::transaction::{
 };
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
 use primitives::utils::is_valid_account_id;
+use std::convert::TryFrom;
 use storage::TrieUpdate;
 
 use crate::{get_tx_stake_key, TxTotalStake};
@@ -68,8 +69,9 @@ pub fn staking(
     if sender.amount >= body.amount {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
-            public_key: PublicKey::from(&body.public_key),
-            bls_public_key: BlsPublicKey::from_base58(&body.bls_public_key).unwrap(),
+            public_key: PublicKey::try_from(body.public_key.as_str())?,
+            bls_public_key: BlsPublicKey::from_base58(&body.bls_public_key)
+                .map_err(|e| format!("{}", e))?,
             amount: body.amount,
         });
         sender.amount -= body.amount;
@@ -182,7 +184,7 @@ pub fn add_key(
     body: &AddKeyTransaction,
     account: &mut Account,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    let new_key = PublicKey::new(&body.new_key)?;
+    let new_key = PublicKey::try_from(&body.new_key as &[u8]).map_err(|e| format!("{}", e))?;
     let num_keys = account.public_keys.len();
     account.public_keys.retain(|&x| x != new_key);
     if account.public_keys.len() < num_keys {
@@ -198,7 +200,7 @@ pub fn delete_key(
     body: &DeleteKeyTransaction,
     account: &mut Account,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    let cur_key = PublicKey::new(&body.cur_key)?;
+    let cur_key = PublicKey::try_from(&body.cur_key as &[u8]).map_err(|e| format!("{}", e))?;
     let num_keys = account.public_keys.len();
     account.public_keys.retain(|&x| x != cur_key);
     if account.public_keys.len() == num_keys {
@@ -224,7 +226,7 @@ pub fn system_create_account(
     }
     let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
 
-    let public_key = PublicKey::new(&call.args)?;
+    let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
     set(state_update, &account_id_bytes, &new_account);
     // TODO(#347): Remove default TX staking once tx staking is properly implemented
