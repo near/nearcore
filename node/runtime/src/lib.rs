@@ -217,32 +217,40 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let sender_account_id = transaction.body.get_originator();
-        if !is_valid_account_id(&sender_account_id) {
-            return Err("Invalid originator account_id".to_string());
-        }
         let sender: Option<Account> =
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id));
         match sender {
             Some(mut sender) => {
                 if transaction.body.get_nonce() <= sender.nonce {
+                    // in this case, no need to update sender's nonce
                     return Err(format!(
                         "Transaction nonce {} must be larger than sender nonce {}",
                         transaction.body.get_nonce(),
                         sender.nonce,
                     ));
                 }
+                // Update nonce regardless of whether the transaction succeeds. This is done
+                // before verifying signatures because signatures are verified already in mempool.
+                // However, it is possible, although rare, that the key is swapped out before this
+                // transaction is applied. We do not treat this case specially now.
+                sender.nonce = transaction.body.get_nonce();
+                set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id), &sender);
+                state_update.commit();
+
                 if !verify_transaction_signature(&transaction, &sender.public_keys) {
                     return Err(format!(
                         "transaction not signed with a public key of originator {:?}",
                         transaction.body.get_originator()
                     ));
                 }
-                sender.nonce = transaction.body.get_nonce();
-                set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id), &sender);
+
                 let contract_id = transaction.body.get_contract_id();
                 if let Some(ref contract_id) = contract_id {
                     if !is_valid_account_id(&contract_id) {
-                        return Err(format!("Invalid contract_id / receiver {} according to requirements", contract_id));
+                        return Err(format!(
+                            "Invalid contract_id / receiver {} according to requirements",
+                            contract_id
+                        ));
                     }
                 }
                 let mana = transaction.body.get_mana();
@@ -974,7 +982,6 @@ mod tests {
         assert_eq!(apply_results.len(), 1);
         // Signed TX successfully generated
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
-        assert_eq!(root, apply_results[0].root);
     }
 
     #[test]
@@ -986,7 +993,6 @@ mod tests {
         assert_eq!(apply_results.len(), 1);
         // Signed TX successfully generated
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
-        assert_eq!(root, apply_results[0].root);
     }
 
     #[test]
@@ -1200,6 +1206,18 @@ mod tests {
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
         let (new_root, _) = alice.deploy_contract(root, &alice_account(), wasm_binary);
+        let mut state_update = TrieUpdate::new(trie, new_root);
+        let account: Account =
+            get(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &alice_account())).unwrap();
+        assert_eq!(account.nonce, 1);
+    }
+
+    #[test]
+    fn test_nonce_updated_when_tx_failed() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let (new_root, _) = alice.send_money(root, &bob_account(), 10000);
+        assert_ne!(new_root, root);
         let mut state_update = TrieUpdate::new(trie, new_root);
         let account: Account =
             get(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &alice_account())).unwrap();
