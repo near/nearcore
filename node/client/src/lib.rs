@@ -494,7 +494,7 @@ impl Client {
     pub fn fetch_payload(
         &self,
         missing_payload_request: MissingPayloadRequest,
-    ) -> MissingPayloadResponse {
+    ) -> Option<MissingPayloadResponse> {
         self.shard_client.pool.fetch_payload(missing_payload_request)
     }
 }

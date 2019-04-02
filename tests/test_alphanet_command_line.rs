@@ -9,6 +9,9 @@ use testlib::alphanet_utils::{
 };
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
+use std::sync::Arc;
+use network::proxy::ProxyHandler;
+use network::proxy::benchmark::BenchmarkHandler;
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -41,12 +44,16 @@ fn send_transaction(
 
 fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     warmup();
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![
+        Arc::new(BenchmarkHandler::new())
+    ];
     // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
     let crash1 = 2;
     let crash2 = 3;
-    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, vec![]);
-    nodes[crash1].node_type = NodeType::ProcessNode;
-    nodes[crash2].node_type = NodeType::ProcessNode;
+    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);
+    for i in 0..num_nodes {
+        nodes[i].node_type = if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
+    }
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
 
@@ -59,17 +66,21 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     let trial_duration = 10000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
-        if trial == num_trials / 3 {
+        if trial % 10 == 3 {
             println!("Killing node {}", crash1);
-            nodes[crash1].as_process_mut().kill();
+            nodes[crash1].kill();
             thread::sleep(Duration::from_secs(2));
         }
-        if trial == num_trials * 2 / 3 {
+        if trial % 10 == 6 {
             println!("Restarting node {}", crash1);
             nodes[crash1].start();
             wait_for_catchup(&nodes);
             println!("Killing node {}", crash2);
-            nodes[crash2].as_process_mut().kill();
+            nodes[crash2].kill();
+        }
+        if trial % 10 == 9 {
+            println!("Restarting node {}", crash2);
+            nodes[crash2].start();
         }
 
         let (i, j) = sample_two_nodes(num_nodes);

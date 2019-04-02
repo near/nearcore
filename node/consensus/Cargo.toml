@@ -22,3 +22,4 @@ chain = { path = "../../core/chain" }
 coroutines = { path = "../coroutines" }
 nightshade = { path = "../../core/nightshade" }
 mempool = { path = "../../core/mempool" }
+tokio-utils = { path = "../tokio-utils" }

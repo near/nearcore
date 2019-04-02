@@ -5,26 +5,39 @@ extern crate serde_derive;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use futures::Future;
 use futures::sync::mpsc::channel;
+use log::error;
+use tokio::prelude::stream::Stream;
+use tokio_signal::unix::Signal;
 
 use client::Client;
-use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
 use coroutines::client_task::ClientTask;
 use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
+use tokio_utils::ShutdownableThread;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
-    start_from_configs(client_cfg, network_cfg, rpc_cfg);
+    let mut handle = start_from_configs(client_cfg, network_cfg, rpc_cfg);
+    tokio::run(
+        Signal::new(tokio_signal::unix::SIGINT)
+            .flatten_stream()
+            .into_future()
+            .map(drop)
+            .map_err(|_| error!("Error listening to SIGINT")),
+    );
+    handle.shutdown();
 }
 
 pub fn start_from_configs(
     client_cfg: ClientConfig,
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
-) {
+) -> ShutdownableThread {
     let client = Arc::new(Client::new(&client_cfg));
     // Use empty pipeline to launch nodes on production.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
@@ -37,7 +50,7 @@ pub fn start_from_client(
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
-) {
+) -> ShutdownableThread {
     let node_task = futures::lazy(move || {
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
 
@@ -115,7 +128,7 @@ pub fn start_from_client(
         Ok(())
     });
 
-    tokio::run(node_task);
+    ShutdownableThread::start(node_task)
 }
 
 fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
