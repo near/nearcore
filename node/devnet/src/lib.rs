@@ -7,7 +7,7 @@ use std::time::Duration;
 use futures::future;
 use futures::stream::Stream;
 use futures::sync::mpsc::channel;
-use log::{error, info};
+use log::info;
 
 use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
@@ -16,8 +16,6 @@ use coroutines::client_task::ClientTask;
 use primitives::signer::InMemorySigner;
 use primitives::types::BlockId;
 use tokio_utils::ShutdownableThread;
-use tokio_signal::unix::Signal;
-use futures::future::Future;
 
 /// Re-applies blocks from the start into new client.
 fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path: &str) {
@@ -43,15 +41,8 @@ fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
-    let mut handle = start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
-    tokio::run(
-        Signal::new(tokio_signal::unix::SIGINT)
-            .flatten_stream()
-            .into_future()
-            .map(drop)
-            .map_err(|_| error!("Error listening to SIGINT")),
-    );
-    handle.shutdown();
+    let handle = start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
+    handle.wait_sigint_and_shutdown();
 }
 
 pub fn start_from_configs(

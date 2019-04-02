@@ -5,11 +5,7 @@ extern crate serde_derive;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use futures::Future;
 use futures::sync::mpsc::channel;
-use log::error;
-use tokio::prelude::stream::Stream;
-use tokio_signal::unix::Signal;
 
 use client::Client;
 use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
@@ -22,15 +18,8 @@ use tokio_utils::ShutdownableThread;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
-    let mut handle = start_from_configs(client_cfg, network_cfg, rpc_cfg);
-    tokio::run(
-        Signal::new(tokio_signal::unix::SIGINT)
-            .flatten_stream()
-            .into_future()
-            .map(drop)
-            .map_err(|_| error!("Error listening to SIGINT")),
-    );
-    handle.shutdown();
+    let handle = start_from_configs(client_cfg, network_cfg, rpc_cfg);
+    handle.wait_sigint_and_shutdown();
 }
 
 pub fn start_from_configs(

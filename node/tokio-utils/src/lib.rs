@@ -5,6 +5,8 @@ use std::{panic, thread};
 use tokio::prelude::Future;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use tokio_signal::unix::Signal;
+use futures::stream::Stream;
 
 struct InitializedState {
     thread: JoinHandle<()>,
@@ -34,17 +36,28 @@ impl ShutdownableThread {
         ShutdownableThread { state }
     }
 
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(mut self) {
         if let Some(InitializedState { thread, shutdown_tx }) = self.state.take() {
             let _ = shutdown_tx.send(()).map_err(|_| error!("Error sending shutdown signal"));
             let _ = thread.join().expect("Error joining child thread");
         }
     }
 
-    pub fn join(&mut self) {
+    pub fn join(mut self) {
         if let Some(InitializedState { thread, shutdown_tx: _ }) = self.state.take() {
             let _ = thread.join().expect("Error joining child thread");
         }
+    }
+
+    pub fn wait_sigint_and_shutdown(self) {
+        tokio::run(
+            Signal::new(tokio_signal::unix::SIGINT)
+                .flatten_stream()
+                .into_future()
+                .map(drop)
+                .map_err(|_| error!("Error listening to SIGINT")),
+        );
+        self.shutdown();
     }
 }
 

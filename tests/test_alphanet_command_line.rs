@@ -12,6 +12,7 @@ use testlib::alphanet_utils::wait;
 use std::sync::Arc;
 use network::proxy::ProxyHandler;
 use network::proxy::benchmark::BenchmarkHandler;
+use testlib::test_locks::heavy_test;
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -63,7 +64,7 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
 
     let mut expected_balances = vec![init_balance; num_nodes];
     let mut nonces = vec![1; num_nodes];
-    let trial_duration = 10000;
+    let trial_duration = 20000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
         if trial % 10 == 3 {
@@ -105,8 +106,9 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, vec![]);
-    nodes[crash1].node_type = NodeType::ProcessNode;
-    nodes[crash2].node_type = NodeType::ProcessNode;
+    for i in 0..num_nodes {
+        nodes[i].node_type = if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
+    }
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
 
@@ -116,16 +118,16 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
 
     let mut expected_balances = vec![init_balance; num_nodes];
     let mut nonces = vec![1; num_nodes];
-    let trial_duration = 10000;
+    let trial_duration = 20000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
-        if trial == num_trials / 3 {
+        if trial % 5 == 2 {
             // Here we kill two nodes, make sure transactions stop going through,
             // then restart one of the nodes
             println!("Killing nodes {}, {}", crash1, crash2);
-            nodes[crash1].as_process_mut().kill();
-            nodes[crash2].as_process_mut().kill();
+            nodes[crash1].kill();
+            nodes[crash2].kill();
 
             send_transaction(&nodes, &account_names, &nonces, i, j);
             thread::sleep(Duration::from_secs(2));
@@ -136,7 +138,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
             nodes[crash1].start();
         } else {
             send_transaction(&nodes, &account_names, &nonces, i, j);
-            if trial == num_trials * 2 / 3 {
+            if trial % 5 == 4 {
                 // Restart the second of the nodes killed earlier
                 println!("Restarting node {}", crash2);
                 nodes[crash2].start();
@@ -159,11 +161,11 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
 
 #[test]
 fn test_4_20_kill1() {
-    test_kill_1(4, 10, "4_10_kill1", 3300);
+    heavy_test(|| test_kill_1(4, 10, "4_10_kill1", 3300));
 }
 
-#[ignore]
 #[test]
+#[ignore]
 fn test_4_20_kill2() {
-    test_kill_2(4, 10, "4_10_kill2", 3300);
+    heavy_test(|| test_kill_2(4, 5, "4_10_kill2", 3300));
 }
