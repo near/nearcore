@@ -10,6 +10,8 @@ RUN apt-get update -qq && apt-get install -y \
     cmake \
     g++ \
     protobuf-compiler \
+    pkg-config \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Build with mounted cache
@@ -53,6 +55,7 @@ COPY --from=builder /usr/local/bin/$PACKAGE /usr/local/bin
 COPY --from=builder /usr/local/bin/generate-test-spec /usr/local/bin
 COPY --from=builder /usr/local/bin/keystore /usr/local/bin
 
+COPY docker/scripts/hosted_alphanet_chain_spec.json /tmp/hosted_alphanet_chain_spec.json
 COPY docker/scripts/run_alphanet /usr/local/bin/run_alphanet
 
 ENTRYPOINT ["/sbin/my_init", "--"]

@@ -1,5 +1,5 @@
 # Configuration for weekly-digest - https://github.com/apps/weekly-digest
-publishDay: fri
+publishDay: 5
 canPublishIssues: true
 canPublishPullRequests: true
 canPublishContributors: true

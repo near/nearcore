@@ -1,16 +1,16 @@
-use std::fmt;
 use std::convert::TryFrom;
+use std::fmt;
 
 use crate::aggregate_signature::{
-    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature
+    BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
 };
 use crate::hash::CryptoHash;
 use crate::logging::pretty_hash;
 use crate::signature::{bs58_serializer, PublicKey, Signature};
 use crate::traits::{Base58Encoded, ToBytes};
-use crate::utils::{to_string_value, proto_to_result};
-use near_protos::types as types_proto;
+use crate::utils::{proto_to_result, to_string_value};
 use near_protos::receipt as receipt_proto;
+use near_protos::types as types_proto;
 use protobuf::SingularPtrField;
 
 /// Public key alias. Used to human readable public key.
@@ -64,12 +64,9 @@ impl TryFrom<types_proto::GroupSignature> for GroupSignature {
     type Error = String;
 
     fn try_from(proto: types_proto::GroupSignature) -> Result<Self, String> {
-        Base58Encoded::from_base58(&proto.signature).map(|signature| {
-            GroupSignature {
-                signature,
-                authority_mask: proto.authority_mask,
-            }
-        }).map_err(|e| format!("cannot decode signature {:?}", e))
+        Base58Encoded::from_base58(&proto.signature)
+            .map(|signature| GroupSignature { signature, authority_mask: proto.authority_mask })
+            .map_err(|e| format!("cannot decode signature {:?}", e))
     }
 }
 
@@ -78,15 +75,19 @@ impl From<GroupSignature> for types_proto::GroupSignature {
         types_proto::GroupSignature {
             signature: Base58Encoded::to_base58(&signature.signature),
             authority_mask: signature.authority_mask,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
 
 impl fmt::Debug for GroupSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} {:?}", self.authority_mask, pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string()))
+        write!(
+            f,
+            "{:?} {:?}",
+            self.authority_mask,
+            pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string())
+        )
     }
 }
 
@@ -161,7 +162,7 @@ impl From<receipt_proto::AccountingInfo> for AccountingInfo {
     fn from(proto: receipt_proto::AccountingInfo) -> Self {
         AccountingInfo {
             originator: proto.originator,
-            contract_id: proto.contract_id.into_option().map(|s| s.value)
+            contract_id: proto.contract_id.into_option().map(|s| s.value),
         }
     }
 }
@@ -172,8 +173,7 @@ impl From<AccountingInfo> for receipt_proto::AccountingInfo {
         receipt_proto::AccountingInfo {
             originator: info.originator,
             contract_id,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -190,14 +190,12 @@ impl TryFrom<receipt_proto::ManaAccounting> for ManaAccounting {
 
     fn try_from(proto: receipt_proto::ManaAccounting) -> Result<Self, Self::Error> {
         match proto_to_result(proto.accounting_info) {
-            Ok(info) => {
-                Ok(ManaAccounting {
-                    accounting_info: info.into(),
-                    mana_refund: proto.mana_refund,
-                    gas_used: proto.gas_used
-                })
-            }
-            Err(e) => Err(e)
+            Ok(info) => Ok(ManaAccounting {
+                accounting_info: info.into(),
+                mana_refund: proto.mana_refund,
+                gas_used: proto.gas_used,
+            }),
+            Err(e) => Err(e),
         }
     }
 }
@@ -208,8 +206,7 @@ impl From<ManaAccounting> for receipt_proto::ManaAccounting {
             accounting_info: SingularPtrField::some(accounting.accounting_info.into()),
             mana_refund: accounting.mana_refund,
             gas_used: accounting.gas_used,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -238,14 +235,14 @@ impl TryFrom<types_proto::AuthorityStake> for AuthorityStake {
     type Error = String;
 
     fn try_from(proto: types_proto::AuthorityStake) -> Result<Self, Self::Error> {
-        BlsPublicKey::from_base58(&proto.bls_public_key).map(|key| {
-            AuthorityStake {
-                account_id: proto.account_id,
-                public_key: PublicKey::from(&proto.public_key),
-                bls_public_key: key,
-                amount: proto.amount
-            }
-        }).map_err(|e| format!("cannot decode signature {:?}", e))   
+        let bls_key = BlsPublicKey::from_base58(&proto.bls_public_key)
+            .map_err(|e| format!("cannot decode signature {:?}", e))?;
+        Ok(AuthorityStake {
+            account_id: proto.account_id,
+            public_key: PublicKey::try_from(proto.public_key.as_str())?,
+            bls_public_key: bls_key,
+            amount: proto.amount,
+        })
     }
 }
 
@@ -256,8 +253,7 @@ impl From<AuthorityStake> for types_proto::AuthorityStake {
             public_key: authority.public_key.to_string(),
             bls_public_key: authority.bls_public_key.to_base58(),
             amount: authority.amount,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }

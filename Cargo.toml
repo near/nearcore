@@ -34,6 +34,7 @@ members = [
     "protos/builder",
     "node/runtime",
     "node/shard",
+    "node/tokio-utils",
     "test-utils/keygen",
     "test-utils/testlib",
 ]
@@ -52,6 +53,7 @@ alphanet = { path = "./node/alphanet" }
 keystore = { path = "./test-utils/keygen" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
+network = { path = "./node/network" }
 configs = { path = "./node/configs" }
 client = { path = "./node/client" }
 testlib = { path = "./test-utils/testlib" }

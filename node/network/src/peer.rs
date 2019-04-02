@@ -100,7 +100,7 @@ pub struct Peer<T> {
 impl<T: ChainStateRetriever> Peer<T> {
     fn spawn_peer(self) {
         let inc_msg_tx = self.inc_msg_tx.clone();
-        tokio::spawn(
+        tokio_utils::spawn(
             self.map_err(|e| warn!(target: "network", "Error receiving message: {}", e))
                 .forward(inc_msg_tx.sink_map_err(
                     |e| warn!(target: "network", "Error forwarding incoming messages: {}", e),
@@ -181,7 +181,7 @@ impl<T: ChainStateRetriever> Peer<T> {
 
     fn on_peer_connected(&self, handshake: Handshake) {
         let data = encode_message(Message::Connected(handshake.connected_info)).unwrap();
-        tokio::spawn(
+        tokio_utils::spawn(
             self.inc_msg_tx
                 .clone()
                 .send((handshake.peer_id, data))
@@ -222,7 +222,7 @@ fn framed_stream_to_channel_with_handshake(
             "Error forwarding outgoing messages to the TcpStream sink: {}", e)
         }))
         .map(|_| ());
-    tokio::spawn(hand_task.then(|_| fwd_task));
+    tokio_utils::spawn(hand_task.then(|_| fwd_task));
     (out_msg_tx, stream)
 }
 

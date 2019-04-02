@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -12,23 +13,18 @@ use crate::serialize::Encode;
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
-impl CryptoHash {
-    pub fn new(data: &[u8]) -> Self {
-        let mut d = [0; 32];
-        d.copy_from_slice(data);
-        CryptoHash(Digest(d))
-    }
-}
-
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
         bs58::encode(h.0).into_string()
     }
 }
 
-impl From<String> for CryptoHash {
-    fn from(s: String) -> CryptoHash {
-        CryptoHash::from(bs58::decode(s).into_vec().unwrap())
+impl TryFrom<String> for CryptoHash {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        let bytes = bs58::decode(s).into_vec().map_err(|e| format!("{}", e))?;
+        Self::try_from(bytes)
     }
 }
 
@@ -50,12 +46,24 @@ impl AsMut<[u8]> for CryptoHash {
     }
 }
 
-impl From<Vec<u8>> for CryptoHash {
-    fn from(v: Vec<u8>) -> Self {
-        let mut array = [0; 32];
-        let bytes = &v.as_slice()[..32];
-        array.copy_from_slice(bytes);
-        CryptoHash(Digest(array))
+impl TryFrom<&[u8]> for CryptoHash {
+    type Error = String;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != 32 {
+            return Err("incorrect length for hash".to_string());
+        }
+        let mut buf = [0; 32];
+        buf.copy_from_slice(bytes);
+        Ok(CryptoHash(Digest(buf)))
+    }
+}
+
+impl TryFrom<Vec<u8>> for CryptoHash {
+    type Error = String;
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(v.as_ref())
     }
 }
 
@@ -96,6 +104,7 @@ pub mod bs58_format {
     use serde::{Deserialize, Deserializer, Serializer};
 
     use super::{bs58, CryptoHash};
+    use std::convert::TryFrom;
 
     pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -111,7 +120,7 @@ pub mod bs58_format {
         let s = String::deserialize(deserializer)?;
         let mut array = [0; 32];
         match bs58::decode(s).into(&mut array) {
-            Ok(_) => Ok(CryptoHash::new(&array)),
+            Ok(_) => CryptoHash::try_from(array.as_ref()).map_err(de::Error::custom),
             Err(e) => Err(de::Error::custom(e.to_string())),
         }
     }

@@ -2,15 +2,18 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use bencher::{Bencher, benchmark_group, benchmark_main};
+use bencher::{benchmark_group, benchmark_main, Bencher};
 use serde_json::Value;
 
 use client::Client;
-use configs::{ChainSpec, ClientConfig, chain_spec::AuthorityRotation};
+use configs::{
+    chain_spec::{AuthorityRotation, DefaultIdType},
+    ChainSpec, ClientConfig,
+};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::signer::{InMemorySigner, TransactionSigner};
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
@@ -21,39 +24,6 @@ const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
 const BOB_ACC_ID: &str = "bob.near";
 const CONTRACT_ID: &str = "contract.near";
-const DEFAULT_BALANCE: u64 = 10_000_000;
-const DEFAULT_STAKE: u64 = 1_000_000;
-
-fn get_chain_spec() -> (ChainSpec, Arc<InMemorySigner>, Arc<InMemorySigner>) {
-    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let alice_signer = InMemorySigner::from_seed(ALICE_ACC_ID, ALICE_ACC_ID);
-    let bob_signer = InMemorySigner::from_seed(BOB_ACC_ID, BOB_ACC_ID);
-    let spec = ChainSpec {
-        accounts: vec![
-            (
-                ALICE_ACC_ID.to_string(),
-                alice_signer.public_key().to_readable(),
-                DEFAULT_BALANCE,
-                DEFAULT_STAKE,
-            ),
-            (
-                BOB_ACC_ID.to_string(),
-                bob_signer.public_key().to_readable(),
-                DEFAULT_BALANCE,
-                DEFAULT_STAKE,
-            ),
-        ],
-        initial_authorities: vec![(
-            ALICE_ACC_ID.to_string(),
-            alice_signer.public_key().to_readable(),
-            alice_signer.bls_public_key().to_readable(),
-            DEFAULT_STAKE,
-        )],
-        genesis_wasm,
-        authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 1, num_seats_per_slot: 1 },
-    };
-    (spec, Arc::new(alice_signer), Arc::new(bob_signer))
-}
 
 fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySigner>) {
     let mut base_path = Path::new(TMP_DIR).to_owned();
@@ -63,7 +33,10 @@ fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySign
     }
     let mut cfg = ClientConfig::default();
     cfg.base_path = base_path;
-    let (chain_spec, alice_signer, bob_signer) = get_chain_spec();
+    let (chain_spec, signers) =
+        ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+    let alice_signer = signers[0].clone();
+    let bob_signer = signers[1].clone();
     cfg.chain_spec = chain_spec;
     cfg.log_level = log::LevelFilter::Off;
     (Client::new(&cfg), alice_signer, bob_signer)
@@ -86,8 +59,7 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
             transactions = batches.remove(0);
         }
         let payload = ChainPayload::new(transactions, prev_receipt_blocks);
-        let (beacon_block, shard_block, shard_extra) =
-            client.prepare_block(payload);
+        let (beacon_block, shard_block, shard_extra) = client.prepare_block(payload);
         let (_beacon_block, shard_block) =
             client.try_import_produced(beacon_block, shard_block, shard_extra);
         prev_receipt_blocks = client

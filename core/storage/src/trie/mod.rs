@@ -4,6 +4,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 pub use kvdb::DBValue;
 use primitives::hash::{hash, CryptoHash};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -75,7 +76,7 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
         if bitmap & pos != 0 {
             let mut arr = vec![0; 32];
             cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::new(&arr));
+            *child = Some(CryptoHash::try_from(arr).unwrap());
         }
         pos <<= 1;
     }
@@ -155,7 +156,7 @@ impl RawTrieNode {
                 cursor.read_exact(&mut key)?;
                 let mut child = vec![0; 32];
                 cursor.read_exact(&mut child)?;
-                Ok(RawTrieNode::Extension(key, CryptoHash::new(&child)))
+                Ok(RawTrieNode::Extension(key, CryptoHash::try_from(child).unwrap()))
             }
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
         }
@@ -168,6 +169,12 @@ impl RcTrieNode {
         cursor.write_all(data)?;
         cursor.write_u32::<LittleEndian>(rc)?;
         Ok(cursor.into_inner())
+    }
+
+    fn decode_raw(bytes: &Vec<u8>) -> Result<(Vec<u8>, u32), std::io::Error> {
+        let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
+        let rc = cursor.read_u32::<LittleEndian>()?;
+        Ok((bytes[..bytes.len() - 4].to_vec(), rc))
     }
 
     fn decode(bytes: &Vec<u8>) -> Result<(RawTrieNode, u32), std::io::Error> {
@@ -192,6 +199,17 @@ impl Trie {
 
     pub fn empty_root() -> CryptoHash {
         CryptoHash::default()
+    }
+
+    fn retrieve_raw_node(&self, hash: &CryptoHash) -> Option<(Vec<u8>, u32)> {
+        if let Ok(Some(bytes)) = self.storage.read().expect(POISONED_LOCK_ERR).get_state(hash) {
+            match RcTrieNode::decode_raw(&bytes) {
+                Ok((bytes, rc)) => Some((bytes, rc)),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
     }
 
     fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNode, String> {
@@ -385,47 +403,48 @@ impl Trie {
         }
     }
 
+    /// Deletes a node from the trie which has key = `partial` given root node.
+    /// Returns (new root node or `None` if this was the node to delete, was it updated).
+    /// While deleting keeps track of all the removed / updated nodes in `death_row`.
     fn delete(
         &self,
         node: TrieNode,
         hash: Option<CryptoHash>,
         partial: NibbleSlice,
         death_row: &mut HashMap<CryptoHash, u32>,
-    ) -> Result<Option<TrieNode>, String> {
+    ) -> Result<(Option<TrieNode>, bool), String> {
         match node {
-            TrieNode::Empty => Ok(Some(node)),
+            TrieNode::Empty => Ok((Some(node), false)),
             TrieNode::Leaf(key, value) => {
                 if NibbleSlice::from_encoded(&key).0 == partial {
                     if let Some(hash) = hash {
                         *death_row.entry(hash).or_insert(0) += 1
                     }
-                    Ok(None)
+                    Ok((None, true))
                 } else {
-                    Ok(Some(TrieNode::Leaf(key, value)))
+                    Ok((Some(TrieNode::Leaf(key, value)), false))
                 }
             }
             TrieNode::Branch(mut children, value) => {
-                if let Some(hash) = hash {
-                    *death_row.entry(hash).or_insert(0) += 1;
-                }
                 if partial.is_empty() {
+                    if let Some(hash) = hash {
+                        *death_row.entry(hash).or_insert(0) += 1;
+                    }
                     if children.iter().filter(|&x| x.is_some()).count() == 0 {
-                        Ok(None)
+                        Ok((None, true))
                     } else {
-                        Ok(Some(TrieNode::Branch(children, None)))
+                        Ok((Some(TrieNode::Branch(children, None)), value.is_none()))
                     }
                 } else {
                     let idx = partial.at(0) as usize;
                     if let Some(node_or_hash) = children[idx].take() {
-                        let new_node = match node_or_hash {
-                            NodeHandle::Hash(hash) => {
-                                self.delete(
-                                    self.retrieve_node(&hash)?,
-                                    Some(hash),
-                                    partial.mid(1),
-                                    death_row,
-                                )?
-                            },
+                        let (new_node, changed) = match node_or_hash {
+                            NodeHandle::Hash(hash) => self.delete(
+                                self.retrieve_node(&hash)?,
+                                Some(hash),
+                                partial.mid(1),
+                                death_row,
+                            )?,
                             NodeHandle::InMemory(node) => {
                                 self.delete(*node, None, partial.mid(1), death_row)?
                             }
@@ -434,32 +453,37 @@ impl Trie {
                             Some(node) => Some(NodeHandle::InMemory(Box::new(node))),
                             None => None,
                         };
+                        if let Some(hash) = hash {
+                            if changed {
+                                *death_row.entry(hash).or_insert(0) += 1;
+                            }
+                        }
                         if children.iter().filter(|x| x.is_some()).count() == 0 {
                             match value {
-                                Some(value) => Ok(Some(TrieNode::Leaf(
-                                    NibbleSlice::new(&[]).encoded(true).into_vec(),
-                                    value,
-                                ))),
-                                None => Ok(None),
+                                Some(value) => Ok((
+                                    Some(TrieNode::Leaf(
+                                        NibbleSlice::new(&[]).encoded(true).into_vec(),
+                                        value,
+                                    )),
+                                    true,
+                                )),
+                                None => Ok((None, true)),
                             }
                         } else {
-                            Ok(Some(TrieNode::Branch(children, value)))
+                            Ok((Some(TrieNode::Branch(children, value)), changed))
                         }
                     } else {
-                        Ok(Some(TrieNode::Branch(children, value)))
+                        Ok((Some(TrieNode::Branch(children, value)), false))
                     }
                 }
             }
             TrieNode::Extension(key, child) => {
-                if let Some(hash) = hash {
-                    *death_row.entry(hash).or_insert(0) += 1
-                }
                 let (common_prefix, existing_len) = {
                     let existing_key = NibbleSlice::from_encoded(&key).0;
                     (existing_key.common_prefix(&partial), existing_key.len())
                 };
                 if common_prefix == existing_len {
-                    let result = match child {
+                    let (result, changed) = match child {
                         NodeHandle::Hash(hash) => self.delete(
                             self.retrieve_node(&hash)?,
                             Some(hash),
@@ -470,15 +494,20 @@ impl Trie {
                             self.delete(*node, None, partial.mid(existing_len), death_row)?
                         }
                     };
-                    // TODO: fix tree if the child is not a branch.
-                    match result {
-                        Some(node) => {
-                            Ok(Some(TrieNode::Extension(key, NodeHandle::InMemory(Box::new(node)))))
+                    if let Some(hash) = hash {
+                        if changed {
+                            *death_row.entry(hash).or_insert(0) += 1
                         }
-                        None => Ok(None),
+                    }
+                    match result {
+                        Some(node) => Ok((
+                            Some(TrieNode::Extension(key, NodeHandle::InMemory(Box::new(node)))),
+                            changed,
+                        )),
+                        None => Ok((None, true)),
                     }
                 } else {
-                    Ok(Some(TrieNode::Extension(key, child)))
+                    Ok((Some(TrieNode::Extension(key, child)), false))
                 }
             }
         }
@@ -515,8 +544,12 @@ impl Trie {
         };
         let data = rc_node.encode().expect("Failed to serialize");
         let key = hash(&data);
-        let entry = nodes.entry(key).or_insert((data, 0));
-        entry.1 += 1;
+        if let Some(value) = nodes.get_mut(&key) {
+            value.1 += 1;
+        } else {
+            let node_rc = if let Some((_, rc)) = self.retrieve_raw_node(&key) { rc } else { 0 };
+            nodes.insert(key, (data, node_rc + 1));
+        }
         key
     }
 
@@ -539,8 +572,8 @@ impl Trie {
                         .delete(root_node, last_root, key, &mut death_row)
                         .expect("Failed to remove element")
                     {
-                        Some(value) => value,
-                        None => TrieNode::Empty,
+                        (Some(value), _) => value,
+                        (None, _) => TrieNode::Empty,
                     };
                     last_root = None;
                 }
@@ -549,14 +582,28 @@ impl Trie {
         let mut db_changes = HashMap::default();
 
         let mut nodes = HashMap::default();
-        // TODO: The reference counting doesn't account for the number of existing nodes in
-        // storage that were not touched by this update.
         let new_root = self.flatten_nodes(root_node, &mut nodes);
-        for (key, (value, rc)) in nodes.drain() {
-            let bytes = RcTrieNode::encode(&value, rc).expect("Failed to serialize");
-            db_changes.insert(key.as_ref().to_vec(), Some(bytes));
+        for (key, (value, mut rc)) in nodes.drain() {
+            if let Some(death_rc) = death_row.get(&key) {
+                rc -= death_rc;
+                death_row.remove(&key);
+            }
+            if rc > 0 {
+                let bytes = RcTrieNode::encode(&value, rc).expect("Failed to serialize");
+                db_changes.insert(key.as_ref().to_vec(), Some(bytes));
+            } else {
+                db_changes.insert(key.as_ref().to_vec(), None);
+            }
         }
-        for (hash, _) in death_row {
+        for (hash, death_rc) in death_row {
+            if let Some((bytes, rc)) = self.retrieve_raw_node(&hash) {
+                if rc - death_rc > 0 {
+                    let bytes =
+                        RcTrieNode::encode(&bytes, rc - death_rc).expect("Failed to serialize");
+                    db_changes.insert(hash.as_ref().to_vec(), Some(bytes));
+                    continue;
+                }
+            }
             db_changes.insert(hash.as_ref().to_vec(), None);
         }
         (db_changes, new_root)
@@ -847,7 +894,7 @@ mod tests {
     fn test_basic_trie() {
         let trie = create_trie();
         let empty_root = Trie::empty_root();
-        // assert_eq!(trie.get(&empty_root, &[122]), None);
+        assert_eq!(trie.get(&empty_root, &[122]), None);
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
@@ -859,7 +906,7 @@ mod tests {
         let root = test_populate_trie(&trie, &empty_root, changes.clone());
         let new_root = test_clear_trie(&trie, &root, changes);
         assert_eq!(new_root, empty_root);
-//        assert_eq!(storage.iter(Some(0)).fold(0, |acc, _| acc + 1), 0);
+        assert_eq!(trie.iter(&new_root).unwrap().fold(0, |acc, _| acc + 1), 0);
     }
 
     #[test]
@@ -949,5 +996,49 @@ mod tests {
                 ],
             ]
         );
+    }
+
+    #[test]
+    fn test_trie_remove_non_existant_key() {
+        let trie = create_trie();
+        let mut initial = vec![
+            (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
+            (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
+            (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
+        ];
+        let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
+        trie.apply_changes(db_changes).is_ok();
+
+        let mut changes = vec![
+            (vec![99, 44, 100, 58, 58, 45, 49], None),
+            (vec![99, 44, 100, 58, 58, 50, 52], None),
+        ];
+        let (db_changes, root) = trie.update(&root, changes.drain(..));
+        trie.apply_changes(db_changes).is_ok();
+        for r in trie.iter(&root).unwrap() {
+            r.unwrap();
+        }
+    }
+
+    #[test]
+    fn test_equal_leafs() {
+        let trie = create_trie();
+        let mut initial = vec![
+            (vec![1, 2, 3], Some(vec![1])),
+            (vec![2, 2, 3], Some(vec![1])),
+            (vec![3, 2, 3], Some(vec![1])),
+        ];
+        let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
+        trie.apply_changes(db_changes).is_ok();
+        for r in trie.iter(&root).unwrap() {
+            println!("{:?}", r.unwrap());
+        }
+
+        let mut changes = vec![(vec![1, 2, 3], None)];
+        let (db_changes, root) = trie.update(&root, changes.drain(..));
+        trie.apply_changes(db_changes).is_ok();
+        for r in trie.iter(&root).unwrap() {
+            r.unwrap();
+        }
     }
 }
