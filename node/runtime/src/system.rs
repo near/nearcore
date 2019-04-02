@@ -388,8 +388,7 @@ mod tests {
     fn test_refund_on_send_money_to_non_existent_account() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let money_used = 10;
-        let (new_root, apply_results) = alice.send_money(root, &eve_account(), money_used);
+        let (new_root, apply_results) = alice.send_money(root, &eve_account(), 10);
         // 3 results: signed tx, deposit receipt, refund
         assert_eq!(apply_results.len(), 3);
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
