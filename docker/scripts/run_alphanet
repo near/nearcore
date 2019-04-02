@@ -4,10 +4,21 @@ set -e
 BASE_PATH=/srv/near
 
 mkdir -p ${BASE_PATH}
+
+if [[ -z ${CHAIN_SPEC_PATH} ]]
+then
 generate-test-spec -n ${TOTAL_NODES} -c ${BASE_PATH}/chain_spec.json
-keystore keygen --test-seed near.${NODE_NUM} -p ${BASE_PATH}/storage/keystore
+CHAIN_SPEC_PATH="${BASE_PATH}/chain-spec.json"
+fi
+
+if [[ -z ${KEYGEN_SEED} ]]
+then
+KEYGEN_SEED="near.${NODE_NUM}"
+fi
+keystore keygen --test-seed ${KEYGEN_SEED} -p ${BASE_PATH}/storage/keystore
+
 alphanet --base-path ${BASE_PATH} \
-    --chain-spec-file ${BASE_PATH}/chain_spec.json \
+    --chain-spec-file ${CHAIN_SPEC_PATH} \
     --addr 0.0.0.0:3000 \
     --test-network-key-seed ${NODE_NUM} \
     --account-id near.${NODE_NUM} \
