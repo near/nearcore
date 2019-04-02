@@ -57,8 +57,9 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MockChainStateRetriever {}
+
 impl ChainStateRetriever for MockChainStateRetriever {
     fn get_chain_state(&self) -> ChainState {
         ChainState { genesis_hash: CryptoHash::default(), last_index: 0 }
