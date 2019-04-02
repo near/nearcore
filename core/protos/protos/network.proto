@@ -65,6 +65,7 @@ message Message {
     message BlockResponse {
         uint64 request_id = 1;
         repeated CoupledBlock response = 2;
+        uint64 best_index = 3;
     }
     
     message PayloadRequest {
