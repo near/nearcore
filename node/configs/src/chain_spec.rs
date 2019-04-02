@@ -35,11 +35,11 @@ pub struct ChainSpec {
 }
 
 /// Initial balance used in tests.
-const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
 /// Initial transactions stake used in tests.
-const TESTING_INIT_TX_STAKE: Balance = 1_000;
+pub const TESTING_INIT_TX_STAKE: Balance = 1_000;
 /// Stake used by authorities to validate used in tests.
-const TESTING_INIT_STAKE: Balance = 100;
+pub const TESTING_INIT_STAKE: Balance = 100;
 
 impl ChainSpec {
     /// Serializes ChainSpec to a string.

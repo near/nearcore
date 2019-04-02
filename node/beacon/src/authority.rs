@@ -4,9 +4,9 @@ use std::iter;
 use std::mem;
 use std::sync::{Arc, RwLock};
 
+use byteorder::{ByteOrder, LittleEndian};
 use log::Level::Debug;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
-use byteorder::{ByteOrder, LittleEndian};
 
 use configs::{chain_spec::AuthorityRotation, AuthorityConfig};
 use primitives::beacon::SignedBeaconBlockHeader;
@@ -411,10 +411,13 @@ mod test {
 
     #[test]
     fn test_single_authority() {
-        let chain_spec = ChainSpec::testing_spec(DefaultIdType::Named, 1, 1, AuthorityRotation::ThresholdedProofOfStake {
-            epoch_length: 10,
-            num_seats_per_slot: 5
-        }).0;
+        let chain_spec = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            1,
+            1,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 10, num_seats_per_slot: 5 },
+        )
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
@@ -436,10 +439,13 @@ mod test {
 
     #[test]
     fn test_authority_genesis() {
-        let chain_spec = ChainSpec::testing_spec(DefaultIdType::Named, 4, 4, AuthorityRotation::ThresholdedProofOfStake {
-            epoch_length: 2,
-            num_seats_per_slot: 2
-        }).0;
+        let chain_spec = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            4,
+            4,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 2 },
+        )
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
@@ -492,10 +498,13 @@ mod test {
 
     #[test]
     fn test_write_to_storage() {
-        let chain_spec = ChainSpec::testing_spec(DefaultIdType::Named, 4, 4, AuthorityRotation::ThresholdedProofOfStake {
-            epoch_length: 2,
-            num_seats_per_slot: 2
-        }).0;
+        let chain_spec = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            4,
+            4,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 2 },
+        )
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
         let block1 =

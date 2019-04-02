@@ -241,7 +241,10 @@ impl Runtime {
                 let contract_id = transaction.body.get_contract_id();
                 if let Some(ref contract_id) = contract_id {
                     if !is_valid_account_id(&contract_id) {
-                        return Err(format!("Invalid contract_id / receiver {} according to requirements", contract_id));
+                        return Err(format!(
+                            "Invalid contract_id / receiver {} according to requirements",
+                            contract_id
+                        ));
                     }
                 }
                 let mana = transaction.body.get_mana();
@@ -890,13 +893,14 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use primitives::hash::hash;
-    use primitives::signature::get_key_pair;
     use storage::test_utils::create_trie;
 
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::test_utils::*;
 
     use super::*;
+    use configs::chain_spec::{AuthorityRotation, DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use configs::ChainSpec;
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration
 
@@ -908,9 +912,9 @@ mod tests {
             result.unwrap(),
             AccountViewCallResult {
                 account: alice_account(),
-                amount: 100,
+                amount: TESTING_INIT_BALANCE,
                 nonce: 0,
-                stake: 50,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -1207,18 +1211,20 @@ mod tests {
 
     #[test]
     fn test_100_accounts() {
-        let (mut chain_spec, _) = generate_test_chain_spec();
-        let public_key = get_key_pair().0;
-        for i in 0..100 {
-            chain_spec.accounts.push((format!("account{}", i), public_key.to_readable(), 10000, 0));
-        }
+        let num_accounts = 100;
+        let (chain_spec, _) = ChainSpec::testing_spec(
+            DefaultIdType::Enumerated,
+            num_accounts,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let (_, trie, root) = get_runtime_and_trie_from_chain_spec(&chain_spec);
         let viewer = TrieViewer {};
         let mut state_update = TrieUpdate::new(trie, root);
-        for i in 0..100 {
+        for i in 0..num_accounts {
             assert_eq!(
-                viewer.view_account(&mut state_update, &format!("account{}", i)).unwrap().amount,
-                10000
+                viewer.view_account(&mut state_update, &chain_spec.accounts[i].0).unwrap().amount,
+                chain_spec.accounts[i].2
             )
         }
     }

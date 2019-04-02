@@ -501,12 +501,10 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use configs::{chain_spec::AuthorityRotation, ChainSpec};
-    use node_runtime::test_utils::generate_test_chain_spec;
+    use configs::{chain_spec::{AuthorityRotation, DefaultIdType}, ChainSpec};
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
     use primitives::serialize::Encode;
-    use primitives::signer::{BlockSigner, TransactionSigner};
     use primitives::test_utils::TestSignedBlock;
 
     use crate::test_utils::get_client_from_cfg;
@@ -542,7 +540,7 @@ mod tests {
 
     #[test]
     fn test_block_fetch() {
-        let (chain_spec, signers) = generate_test_chain_spec();
+        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
@@ -566,9 +564,7 @@ mod tests {
 
     #[test]
     fn test_block_reverse_catchup() {
-        let (mut chain_spec, signers) = generate_test_chain_spec();
-        // TODO fix authority rotation
-        chain_spec.authority_rotation = AuthorityRotation::ProofOfAuthority;
+        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
@@ -608,40 +604,13 @@ mod tests {
     /// X + 1, X + 2, ... etc which it cannot incorporate into the blockchain because it lacks
     fn test_catchup_through_production() {
         // Set-up genesis and chain spec.
-        let genesis_wasm =
-            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-        let bob_signer = Arc::new(InMemorySigner::from_seed("bob.near", "bob.near"));
-        let chain_spec = ChainSpec {
-            accounts: vec![
-                ("alice.near".to_string(), alice_signer.public_key().to_readable(), 100, 10),
-                ("bob.near".to_string(), bob_signer.public_key().to_readable(), 100, 10),
-            ],
-            initial_authorities: vec![
-                (
-                    "alice.near".to_string(),
-                    alice_signer.public_key().to_readable(),
-                    alice_signer.bls_public_key().to_readable(),
-                    50,
-                ),
-                (
-                    "bob.near".to_string(),
-                    bob_signer.public_key().to_readable(),
-                    bob_signer.bls_public_key().to_readable(),
-                    50,
-                ),
-            ],
-            genesis_wasm,
-            // TODO fix authority rotation
-            // authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
-            authority_rotation: AuthorityRotation::ProofOfAuthority,
-        };
-
+        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+        let alice_signer = signers[0].clone();
+        let bob_signer = signers[1].clone();
         // Start both clients.
         let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
         let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
         let (_, authorities) = alice_client.get_uid_to_authority_map(1);
-        let signers = vec![alice_signer, bob_signer];
 
         // First produce several blocks by Alice and Bob.
         for _ in 1..=5 {
