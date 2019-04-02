@@ -38,7 +38,7 @@ pub fn get_devnet_configs() -> (ClientConfig, DevNetConfig, RPCConfig) {
         .args(&rpc::get_args())
         .get_matches();
     (
-        client::from_matches(&matches, ChainSpec::default()),
+        client::from_matches(&matches, ChainSpec::default_devnet()),
         devnet::from_matches(&matches),
         rpc::from_matches(&matches),
     )

@@ -162,6 +162,8 @@ mod tests {
         client_cfg.log_level = log::LevelFilter::Info;
         let devnet_cfg =
             configs::DevNetConfig { block_period: Duration::from_millis(5), replay_storage: None };
+        let init_balance = client_cfg.chain_spec.accounts[0].2;
+        let money_to_send = 10;
         let rpc_cfg = configs::RPCConfig::default();
 
         let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
@@ -177,7 +179,8 @@ mod tests {
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                    .sign(signer.clone()),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
@@ -191,7 +194,7 @@ mod tests {
                 .view_account(&mut state_update, &"alice.near".to_string())
                 .unwrap()
                 .amount,
-            9999990
+            init_balance - money_to_send
         );
         assert_eq!(
             client
@@ -200,7 +203,7 @@ mod tests {
                 .view_account(&mut state_update, &"bob.near".to_string())
                 .unwrap()
                 .amount,
-            110
+            init_balance + money_to_send
         );
         assert!(client.shard_client.pool.is_empty());
     }

@@ -512,7 +512,11 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
-    use node_runtime::{test_utils::generate_test_chain_spec, Runtime};
+    use configs::{
+        chain_spec::{AuthorityRotation, DefaultIdType},
+        ChainSpec,
+    };
+    use node_runtime::Runtime;
     use primitives::hash::CryptoHash;
     use primitives::signer::InMemorySigner;
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
@@ -522,7 +526,12 @@ mod tests {
     use super::*;
 
     fn get_test_chain() -> (Arc<RwLock<ShardChainStorage>>, Arc<Trie>, Vec<Arc<InMemorySigner>>) {
-        let (chain_spec, signers) = generate_test_chain_spec();
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
+        );
         let shard_storage = create_beacon_shard_storages().1;
         let trie = Arc::new(Trie::new(shard_storage.clone()));
         let runtime = Runtime {};

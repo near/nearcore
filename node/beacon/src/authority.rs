@@ -4,9 +4,9 @@ use std::iter;
 use std::mem;
 use std::sync::{Arc, RwLock};
 
+use byteorder::{ByteOrder, LittleEndian};
 use log::Level::Debug;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
-use byteorder::{ByteOrder, LittleEndian};
 
 use configs::{chain_spec::AuthorityRotation, AuthorityConfig};
 use primitives::beacon::SignedBeaconBlockHeader;
@@ -383,41 +383,16 @@ mod test {
     use chain::test_utils::get_blockchain_storage;
     use configs::authority::get_authority_config;
     use configs::ChainSpec;
-    use primitives::aggregate_signature::BlsSecretKey;
     use primitives::beacon::SignedBeaconBlock;
     use primitives::block_traits::{SignedBlock, SignedHeader};
     use primitives::hash::CryptoHash;
-    use primitives::signature::get_key_pair;
     use primitives::types::AccountId;
     use storage::test_utils::create_beacon_shard_storages;
-    use testlib::alphanet_utils::generate_poa_test_chain_spec;
 
     use crate::beacon_chain::BeaconClient;
+    use configs::chain_spec::DefaultIdType;
 
     use super::*;
-
-    fn get_test_chainspec(
-        num_authorities: u32,
-        epoch_length: u64,
-        num_seats_per_slot: u64,
-    ) -> ChainSpec {
-        let mut initial_authorities = vec![];
-        for i in 0..num_authorities {
-            let (public_key, _) = get_key_pair();
-            let bls_public_key = BlsSecretKey::generate().get_public_key();
-            initial_authorities.push((
-                i.to_string(),
-                public_key.to_readable(),
-                bls_public_key.to_readable(),
-                100,
-            ));
-        }
-        ChainSpec {
-            initial_authorities,
-            authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length, num_seats_per_slot },
-            ..Default::default()
-        }
-    }
 
     fn test_blockchain(num_blocks: u64, chain_spec: &ChainSpec) -> BeaconClient {
         let storage = create_beacon_shard_storages().0;
@@ -435,7 +410,13 @@ mod test {
 
     #[test]
     fn test_single_authority() {
-        let chain_spec = get_test_chainspec(1, 10, 5);
+        let chain_spec = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            1,
+            1,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 10, num_seats_per_slot: 5 },
+        )
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
@@ -457,7 +438,13 @@ mod test {
 
     #[test]
     fn test_authority_genesis() {
-        let chain_spec = get_test_chainspec(4, 2, 2);
+        let chain_spec = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            4,
+            4,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 2 },
+        )
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
@@ -510,7 +497,13 @@ mod test {
 
     #[test]
     fn test_write_to_storage() {
-        let chain_spec = get_test_chainspec(4, 2, 2);
+        let chain_spec = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            4,
+            4,
+            AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 2 },
+        )
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
         let block1 =
@@ -536,12 +529,8 @@ mod test {
     #[test]
     /// Test that in case of POA authorities are not kick out even if didn't sign the block.
     fn test_poa_authority() {
-        let init_balance = 1_000_000_000;
-        let mut account_names = vec![];
-        for i in 0..4 {
-            account_names.push(format!("near.{}", i));
-        }
-        let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
+        let num_authorities = 4;
+        let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Enumerated, num_authorities, num_authorities, AuthorityRotation::ProofOfAuthority);
 
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();

@@ -246,6 +246,7 @@ mod tests {
     use crate::get;
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::test_utils::*;
+    use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
     use super::*;
 
@@ -269,7 +270,8 @@ mod tests {
     fn test_staking_over_limit() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, apply_results) = alice.stake(root, 1000);
+        let money_to_stake = TESTING_INIT_BALANCE + 1;
+        let (new_root, apply_results) = alice.stake(root, money_to_stake);
         assert_ne!(root, new_root);
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
     }
@@ -314,7 +316,8 @@ mod tests {
     fn test_send_money() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, apply_results) = alice.send_money(root, &bob_account(), 10);
+        let money_used = 10;
+        let (new_root, apply_results) = alice.send_money(root, &bob_account(), money_used);
         for apply_result in apply_results {
             assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Completed);
         }
@@ -327,8 +330,8 @@ mod tests {
             AccountViewCallResult {
                 nonce: 1,
                 account: alice_account(),
-                amount: 90,
-                stake: 50,
+                amount: TESTING_INIT_BALANCE - money_used,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -338,7 +341,7 @@ mod tests {
             AccountViewCallResult {
                 nonce: 0,
                 account: bob_account(),
-                amount: 10,
+                amount: TESTING_INIT_BALANCE + money_used,
                 stake: 0,
                 code_hash: default_code_hash(),
             }
@@ -349,7 +352,8 @@ mod tests {
     fn test_send_money_over_balance() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, mut apply_results) = alice.send_money(root, &bob_account(), 1000);
+        let money_to_send = TESTING_INIT_BALANCE + 1;
+        let (new_root, mut apply_results) = alice.send_money(root, &bob_account(), money_to_send);
         let apply_result = apply_results.pop().unwrap();
         assert_eq!(apply_result.tx_result[0].status, TransactionStatus::Failed);
         assert_eq!(apply_result.new_receipts.len(), 0);
@@ -361,8 +365,8 @@ mod tests {
             AccountViewCallResult {
                 nonce: 1,
                 account: alice_account(),
-                amount: 100,
-                stake: 50,
+                amount: TESTING_INIT_BALANCE,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -372,7 +376,7 @@ mod tests {
             AccountViewCallResult {
                 nonce: 0,
                 account: bob_account(),
-                amount: 0,
+                amount: TESTING_INIT_BALANCE,
                 stake: 0,
                 code_hash: default_code_hash(),
             }
@@ -399,8 +403,8 @@ mod tests {
             AccountViewCallResult {
                 nonce: 1,
                 account: alice_account(),
-                amount: 100,
-                stake: 50,
+                amount: TESTING_INIT_BALANCE,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -412,7 +416,8 @@ mod tests {
     fn test_create_account() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.create_account(root, &eve_account(), 10);
+        let money_used = 10;
+        let (new_root, _) = alice.create_account(root, &eve_account(), money_used);
         assert_ne!(root, new_root);
         let viewer = TrieViewer {};
         let mut state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -422,8 +427,8 @@ mod tests {
             AccountViewCallResult {
                 nonce: 1,
                 account: alice_account(),
-                amount: 90,
-                stake: 50,
+                amount: TESTING_INIT_BALANCE - money_used,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -444,7 +449,8 @@ mod tests {
     fn test_create_account_again() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.create_account(root, &eve_account(), 10);
+        let money_used = 10;
+        let (new_root, _) = alice.create_account(root, &eve_account(), money_used);
         assert_ne!(root, new_root);
         let viewer = TrieViewer {};
         let mut state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -454,12 +460,12 @@ mod tests {
             AccountViewCallResult {
                 nonce: 0,
                 account: eve_account(),
-                amount: 10,
+                amount: money_used,
                 stake: 0,
                 code_hash: hash(b""),
             }
         );
-        let (newer_root, apply_results) = alice.create_account(new_root, &eve_account(), 10);
+        let (newer_root, apply_results) = alice.create_account(new_root, &eve_account(), money_used);
         // 3 results: createAccountTx, It's Receipt (failed), Refund
         assert_eq!(apply_results.len(), 3);
         // Signed TX successfully generated
@@ -481,8 +487,8 @@ mod tests {
             AccountViewCallResult {
                 nonce: 2,
                 account: alice_account(),
-                amount: 90,
-                stake: 50,
+                amount: TESTING_INIT_BALANCE - money_used,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -512,8 +518,8 @@ mod tests {
                 AccountViewCallResult {
                     nonce: counter,
                     account: alice_account(),
-                    amount: 100,
-                    stake: 50,
+                    amount: TESTING_INIT_BALANCE,
+                    stake: TESTING_INIT_STAKE,
                     code_hash: default_code_hash(),
                 }
             );
@@ -524,7 +530,8 @@ mod tests {
     fn test_create_account_failure_already_exists() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.create_account(root, &bob_account(), 10);
+        let money_used = 10;
+        let (new_root, _) = alice.create_account(root, &bob_account(), money_used);
         assert_ne!(root, new_root);
         let viewer = TrieViewer {};
         let mut state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -534,8 +541,8 @@ mod tests {
             AccountViewCallResult {
                 nonce: 1,
                 account: alice_account(),
-                amount: 100,
-                stake: 50,
+                amount: TESTING_INIT_BALANCE,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -545,7 +552,7 @@ mod tests {
             AccountViewCallResult {
                 nonce: 0,
                 account: bob_account(),
-                amount: 0,
+                amount: TESTING_INIT_BALANCE,
                 stake: 0,
                 code_hash: default_code_hash(),
             }

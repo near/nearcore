@@ -9,14 +9,14 @@ use std::thread;
 use std::time::Duration;
 
 use client::Client;
-use configs::chain_spec::{AuthorityRotation, ChainSpec};
+use configs::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
 use configs::network::get_peer_id_from_seed;
 use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
 use primitives::network::{PeerAddr, PeerInfo};
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 use tokio_utils::ShutdownableThread;
@@ -458,36 +458,6 @@ where
     }
 }
 
-/// Generates chainspec for running multiple nodes.
-pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
-    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let mut accounts = vec![];
-    let signer = InMemorySigner::from_seed("alice.near", "alice.near");
-    accounts.push((
-        "alice.near".to_string(),
-        signer.public_key().to_readable(),
-        1_000_000 as u64,
-        10,
-    ));
-    let mut initial_authorities = vec![];
-    for name in account_names {
-        let signer = InMemorySigner::from_seed(name.as_str(), name.as_str());
-        accounts.push((name.to_string(), signer.public_key().to_readable(), balance, 10));
-        initial_authorities.push((
-            name.to_string(),
-            signer.public_key().to_readable(),
-            signer.bls_public_key().to_readable(),
-            50,
-        ));
-    }
-    ChainSpec {
-        accounts,
-        initial_authorities,
-        genesis_wasm,
-        authority_rotation: AuthorityRotation::ProofOfAuthority,
-    }
-}
-
 // Create some nodes
 pub fn create_nodes(
     num_nodes: usize,
@@ -495,12 +465,9 @@ pub fn create_nodes(
     test_port: u16,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
-    let init_balance = 1_000_000_000;
-    let mut account_names = vec![];
-    for i in 0..num_nodes {
-        account_names.push(format!("near.{}", i));
-    }
-    let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
+    let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Enumerated, num_nodes, num_nodes,
+                                                  AuthorityRotation::ProofOfAuthority);
+    let account_names: Vec<_> = chain_spec.accounts.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.
@@ -517,7 +484,7 @@ pub fn create_nodes(
         boot_nodes = vec![node.node_addr()];
         nodes.push(node);
     }
-    (init_balance, account_names, nodes)
+    (TESTING_INIT_BALANCE, account_names, nodes)
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
