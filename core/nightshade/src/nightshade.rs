@@ -1,21 +1,21 @@
 /// Nightshade v2
 use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::convert::{TryFrom, TryInto};
+use std::sync::Arc;
 
+use near_protos::nightshade as nightshade_proto;
 use primitives::aggregate_signature::{
-    AggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
-    uncompressed_bs58_signature_serializer,
+    uncompressed_bs58_signature_serializer, AggregatePublicKey, BlsAggregateSignature,
+    BlsPublicKey, BlsSignature,
 };
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
 use primitives::signature::bs58_serializer;
 use primitives::signer::BlockSigner;
-use primitives::types::{AuthorityId, BlockIndex};
 use primitives::traits::Base58Encoded;
-use primitives::utils::{proto_to_result, proto_to_type};
-use near_protos::nightshade as nightshade_proto;
+use primitives::types::{AuthorityId, BlockIndex};
+use primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
 const PROTO_ERROR: &str = "Bad Proto";
@@ -26,10 +26,6 @@ const COMMIT_THRESHOLD: i64 = 3;
 
 /// Result of updating Nightshade instance with new triplet
 pub type NSResult = Result<Option<State>, String>;
-
-fn empty_cryptohash() -> CryptoHash {
-    CryptoHash::new(&[0u8; 32])
-}
 
 /// BlockHeaders are used instead of Blocks as authorities proposal in the consensus.
 /// They are used to avoid receiving two different proposals from the same authority,
@@ -42,12 +38,11 @@ pub struct BlockProposal {
     pub hash: CryptoHash,
 }
 
-impl From<nightshade_proto::BlockProposal> for BlockProposal {
-    fn from(proto: nightshade_proto::BlockProposal) -> Self {
-        BlockProposal {
-            hash: proto.hash.into(),
-            author: proto.author as AuthorityId,
-        }
+impl TryFrom<nightshade_proto::BlockProposal> for BlockProposal {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::BlockProposal) -> Result<Self, Self::Error> {
+        Ok(BlockProposal { hash: proto.hash.try_into()?, author: proto.author as AuthorityId })
     }
 }
 
@@ -88,16 +83,12 @@ impl TryFrom<nightshade_proto::BareState> for BareState {
     type Error = String;
 
     fn try_from(proto: nightshade_proto::BareState) -> Result<Self, Self::Error> {
-        match proto_to_result(proto.endorses) {
-            Ok(endorses) => {
-                Ok(BareState {
-                    primary_confidence: proto.primary_confidence,
-                    endorses: endorses.into(),
-                    secondary_confidence: proto.secondary_confidence,
-                })
-            }
-            Err(e) => Err(e)
-        }
+        let endorses = proto_to_type(proto.endorses)?;
+        Ok(BareState {
+            primary_confidence: proto.primary_confidence,
+            endorses,
+            secondary_confidence: proto.secondary_confidence,
+        })
     }
 }
 
@@ -118,7 +109,7 @@ impl BareState {
     fn empty() -> Self {
         Self {
             primary_confidence: -1,
-            endorses: BlockProposal { author: 0, hash: empty_cryptohash() },
+            endorses: BlockProposal { author: 0, hash: CryptoHash::default() },
             secondary_confidence: -1,
         }
     }
@@ -163,13 +154,9 @@ impl TryFrom<nightshade_proto::Proof> for Proof {
         let signature = Base58Encoded::from_base58(&proto.signature);
         match (proto_to_type(proto.bare_state), signature) {
             (Ok(bare_state), Ok(signature)) => {
-                Ok(Proof {
-                    bare_state,
-                    mask: proto.mask,
-                    signature,
-                })
+                Ok(Proof { bare_state, mask: proto.mask, signature })
             }
-            _ => Err(PROTO_ERROR.to_string())
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -190,13 +177,17 @@ impl Proof {
         Self { bare_state, mask, signature }
     }
 
-    pub fn verify(&self, public_keys: &Vec<BlsPublicKey>, weights: &Vec<usize>) -> Result<(), NSVerifyErr> {
+    pub fn verify(
+        &self,
+        public_keys: &Vec<BlsPublicKey>,
+        weights: &Vec<usize>,
+    ) -> Result<(), NSVerifyErr> {
         // Verify that this proof contains enough signature in order to be accepted as valid.
-        let current_weight: usize = self.mask.iter()
+        let current_weight: usize = self
+            .mask
+            .iter()
             .zip(weights)
-            .filter_map(|(bit, weight)| {
-                if *bit { Some(weight) } else { None }
-            })
+            .filter_map(|(bit, weight)| if *bit { Some(weight) } else { None })
             .sum();
 
         let total_weight: usize = weights.iter().sum();
@@ -264,22 +255,15 @@ impl TryFrom<nightshade_proto::State> for State {
     fn try_from(proto: nightshade_proto::State) -> Result<Self, Self::Error> {
         let signature = Base58Encoded::from_base58(&proto.signature);
         let bare_state = proto_to_type(proto.bare_state);
-        let primary_proof = proto.primary_proof
-            .into_option()
-            .and_then(|proof| proof.try_into().ok());
-        let secondary_proof = proto.secondary_proof
-            .into_option()
-            .and_then(|proof| proof.try_into().ok());
+        let primary_proof =
+            proto.primary_proof.into_option().and_then(|proof| proof.try_into().ok());
+        let secondary_proof =
+            proto.secondary_proof.into_option().and_then(|proof| proof.try_into().ok());
         match (bare_state, signature) {
             (Ok(bare_state), Ok(signature)) => {
-                Ok(State {
-                    bare_state,
-                    primary_proof,
-                    secondary_proof,
-                    signature,
-                })
+                Ok(State { bare_state, primary_proof, secondary_proof, signature })
             }
-            _ => Err(PROTO_ERROR.to_string())
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -288,8 +272,12 @@ impl From<State> for nightshade_proto::State {
     fn from(state: State) -> nightshade_proto::State {
         nightshade_proto::State {
             bare_state: SingularPtrField::some(state.bare_state.into()),
-            primary_proof: SingularPtrField::from_option(state.primary_proof.map(std::convert::Into::into)),
-            secondary_proof: SingularPtrField::from_option(state.secondary_proof.map(std::convert::Into::into)),
+            primary_proof: SingularPtrField::from_option(
+                state.primary_proof.map(std::convert::Into::into),
+            ),
+            secondary_proof: SingularPtrField::from_option(
+                state.secondary_proof.map(std::convert::Into::into),
+            ),
             signature: state.signature.to_base58(),
             ..Default::default()
         }
@@ -709,18 +697,10 @@ mod tests {
 
     #[test]
     fn test_incompatible() {
-        assert_eq!(incompatible_states(
-            &state_empty(4, 1, 2),
-            &state_empty(3, 1, 3)), true);
-        assert_eq!(incompatible_states(
-            &state_empty(4, 1, 3),
-            &state_empty(3, 1, 3)), false);
-        assert_eq!(incompatible_states(
-            &state_empty(4, 2, 2),
-            &state_empty(3, 1, 3)), true);
-        assert_eq!(incompatible_states(
-            &state_empty(4, 2, 2),
-            &state_empty(3, 1, 2)), true);
+        assert_eq!(incompatible_states(&state_empty(4, 1, 2), &state_empty(3, 1, 3)), true);
+        assert_eq!(incompatible_states(&state_empty(4, 1, 3), &state_empty(3, 1, 3)), false);
+        assert_eq!(incompatible_states(&state_empty(4, 2, 2), &state_empty(3, 1, 3)), true);
+        assert_eq!(incompatible_states(&state_empty(4, 2, 2), &state_empty(3, 1, 2)), true);
     }
 
     #[test]

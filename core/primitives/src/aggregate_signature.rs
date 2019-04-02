@@ -1,12 +1,13 @@
-use crate::traits::{Base58Encoded, FromBytes, ToBytes};
+use crate::traits::{Base58Encoded, ToBytes};
 use crate::types::ReadableBlsPublicKey;
 use bs58;
 use pairing::{
     CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
     PrimeFieldRepr, Rand,
 };
-use rand::Rng;
 use rand::rngs::OsRng;
+use rand::Rng;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
@@ -129,7 +130,7 @@ impl<E: Engine> PublicKey<E> {
 
     fn verify_internal(&self, message: &[u8], signature: &Signature<E>) -> bool {
         if !signature.point.is_in_correct_subgroup_assuming_on_curve() {
-            return false
+            return false;
         }
         let h = E::G2::hash(message).into_affine();
         let lhs = E::pairing(E::G1Affine::one(), signature.point);
@@ -205,8 +206,10 @@ impl<E: Engine> ToBytes for SecretKey<E> {
     }
 }
 
-impl<E: Engine> FromBytes for SecretKey<E> {
-    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<Error>> {
+impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
+    type Error = Box<Error>;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let mut repr: <E::Fr as PrimeField>::Repr = Default::default();
         let buf = Cursor::new(v);
         repr.read_be(buf)?;
@@ -236,9 +239,11 @@ impl fmt::Display for LengthError {
     }
 }
 
-impl<E: Engine> FromBytes for PublicKey<E> {
-    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<Error>> {
-        Ok(CompressedPublicKey::from_bytes(v)?.decompress()?)
+impl<E: Engine> TryFrom<&[u8]> for PublicKey<E> {
+    type Error = Box<Error>;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
+        Ok(CompressedPublicKey::try_from(v)?.decompress()?)
     }
 }
 
@@ -248,9 +253,11 @@ impl<E: Engine> ToBytes for Signature<E> {
     }
 }
 
-impl<E: Engine> FromBytes for Signature<E> {
-    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
-        Ok(CompressedSignature::from_bytes(v)?.decode()?)
+impl<E: Engine> TryFrom<&[u8]> for Signature<E> {
+    type Error = Box<Error>;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
+        Ok(CompressedSignature::try_from(v)?.decode()?)
     }
 }
 
@@ -292,14 +299,16 @@ impl<E: Engine> ToBytes for CompressedPublicKey<E> {
     }
 }
 
-impl<E: Engine> FromBytes for CompressedPublicKey<E> {
-    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+impl<E: Engine> TryFrom<&[u8]> for CompressedPublicKey<E> {
+    type Error = Box<Error>;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
             return Err(From::from(LengthError(expected, v.len())));
         }
         let mut encoded = <E::G1Affine as CurveAffine>::Compressed::empty();
-        encoded.as_mut().copy_from_slice(v.as_ref());
+        encoded.as_mut().copy_from_slice(v);
         Ok(Self(encoded))
     }
 }
@@ -329,14 +338,16 @@ impl<E: Engine> ToBytes for CompressedSignature<E> {
     }
 }
 
-impl<E: Engine> FromBytes for CompressedSignature<E> {
-    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+impl<E: Engine> TryFrom<&[u8]> for CompressedSignature<E> {
+    type Error = Box<Error>;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
             return Err(From::from(LengthError(expected, v.len())));
         }
         let mut encoded = <E::G2Affine as CurveAffine>::Compressed::empty();
-        encoded.as_mut().copy_from_slice(v.as_ref());
+        encoded.as_mut().copy_from_slice(v);
         Ok(Self(encoded))
     }
 }
@@ -366,14 +377,16 @@ impl<E: Engine> ToBytes for UncompressedSignature<E> {
     }
 }
 
-impl<E: Engine> FromBytes for UncompressedSignature<E> {
-    fn from_bytes(v: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
+impl<E: Engine> TryFrom<&[u8]> for UncompressedSignature<E> {
+    type Error = Box<Error>;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Uncompressed as EncodedPoint>::size();
         if v.len() != expected {
             return Err(From::from(LengthError(expected, v.len())));
         }
         let mut encoded = <E::G2Affine as CurveAffine>::Uncompressed::empty();
-        encoded.as_mut().copy_from_slice(v.as_ref());
+        encoded.as_mut().copy_from_slice(v);
         Ok(Self(encoded))
     }
 }
@@ -445,15 +458,15 @@ pub mod uncompressed_bs58_signature_serializer {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(sig: &BlsSignature, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(&sig.encode_uncompressed().to_base58())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<BlsSignature, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         let uncompressed = UncompressedSignature::<Bls12>::from_base58(&s).unwrap();
@@ -465,7 +478,7 @@ pub mod uncompressed_bs58_signature_serializer {
 mod tests {
     use super::*;
 
-    use rand::{SeedableRng};
+    use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
 
     #[test]
@@ -549,13 +562,17 @@ mod tests {
         let signature = secret.sign(message.as_bytes());
 
         let compressed = signature.compress();
-        let uncompressed =signature.encode_uncompressed();
-        let compressed_bytes = compressed.to_bytes();
-        let uncompressed_bytes = uncompressed.to_bytes();
+        let uncompressed = signature.encode_uncompressed();
 
-        assert_eq!(CompressedSignature::from_bytes(&compressed_bytes).unwrap().decode().unwrap(), signature);
-        assert_eq!(UncompressedSignature::from_bytes(&uncompressed_bytes).unwrap().decode().unwrap(), signature);
-        assert!(CompressedSignature::<Bls12>::from_bytes(&uncompressed_bytes).is_err());
-        assert!(UncompressedSignature::<Bls12>::from_bytes(&compressed_bytes).is_err());
+        assert_eq!(
+            CompressedSignature::try_from(compressed.as_ref()).unwrap().decode().unwrap(),
+            signature
+        );
+        assert_eq!(
+            UncompressedSignature::try_from(uncompressed.as_ref()).unwrap().decode().unwrap(),
+            signature
+        );
+        assert!(CompressedSignature::<Bls12>::try_from(uncompressed.as_ref()).is_err());
+        assert!(UncompressedSignature::<Bls12>::try_from(compressed.as_ref()).is_err());
     }
 }

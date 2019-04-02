@@ -1,5 +1,6 @@
 extern crate exonum_sodiumoxide as sodiumoxide;
 
+use std::convert::TryFrom;
 use std::fmt;
 
 use bs58;
@@ -8,7 +9,6 @@ use crate::hash;
 use crate::logging::pretty_hash;
 pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 use crate::traits::Base58Encoded;
-use crate::traits::FromBytes;
 use crate::traits::ToBytes;
 use crate::types::ReadablePublicKey;
 
@@ -34,7 +34,6 @@ pub fn get_key_pair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-
 impl Base58Encoded for PublicKey {}
 impl Base58Encoded for SecretKey {}
 impl ToBytes for PublicKey {
@@ -43,24 +42,11 @@ impl ToBytes for PublicKey {
     }
 }
 
-impl FromBytes for PublicKey {
-    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
-        PublicKey::new(bytes).map_err(std::convert::Into::into)
-    }
-}
-
 impl ToBytes for SecretKey {
     fn to_bytes(&self) -> Vec<u8> {
         self.as_ref().to_vec()
     }
 }
-
-impl FromBytes for SecretKey {
-    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>> {
-        SecretKey::new(bytes).map_err(std::convert::Into::into)
-    }
-}
-
 
 pub fn verify_signature(
     signature: &Signature,
@@ -77,70 +63,104 @@ pub const DEFAULT_SIGNATURE: Signature =
     Signature(sodiumoxide::crypto::sign::ed25519::Signature(SIG));
 
 impl PublicKey {
-    pub fn new(bytes: &[u8]) -> Result<PublicKey, String> {
+    pub fn to_readable(&self) -> ReadablePublicKey {
+        ReadablePublicKey(self.to_string())
+    }
+}
+
+impl TryFrom<&[u8]> for PublicKey {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
-            return Err("bytes not the size of a public key".to_string());
+            return Err("bytes not the size of a public key".into());
         }
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         array.copy_from_slice(bytes);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
         Ok(PublicKey(public_key))
     }
+}
 
-    pub fn from(s: &str) -> PublicKey {
+impl TryFrom<&str> for PublicKey {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-        let bytes = bs58::decode(s).into_vec().expect("Failed to convert public key from base58");
-        assert_eq!(bytes.len(), array.len(), "decoded {} is not long enough for public key", s);
+        let bytes = bs58::decode(s)
+            .into_vec()
+            .map_err(|e| format!("Failed to convert public key from base58: {}", e))?;
+        if bytes.len() != array.len() {
+            return Err(format!("decoded {} is not long enough for public key", s));
+        }
         let bytes_arr = &bytes[..array.len()];
         array.copy_from_slice(bytes_arr);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
-        PublicKey(public_key)
-    }
-
-    pub fn to_readable(&self) -> ReadablePublicKey {
-        ReadablePublicKey(self.to_string())
+        Ok(PublicKey(public_key))
     }
 }
 
-impl SecretKey {
-    pub fn new(bytes: &[u8]) -> Result<SecretKey, String> {
+impl TryFrom<&[u8]> for SecretKey {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES {
-            return Err("bytes not the size of a secret key".to_string());
+            return Err("bytes not the size of a secret key".into());
         }
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
         array.copy_from_slice(bytes);
         let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
         Ok(SecretKey(secret_key))
     }
+}
 
-    pub fn from(s: &str) -> SecretKey {
+impl TryFrom<&str> for SecretKey {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
-        let bytes = bs58::decode(s).into_vec().expect("Failed to convert secret key from base58");
-        assert_eq!(bytes.len(), array.len(), "decoded {} is not long enough for secret key", s);
+        let bytes = bs58::decode(s)
+            .into_vec()
+            .map_err(|e| format!("Failed to convert secret key from base58: {}", e))?;
+        if bytes.len() != array.len() {
+            return Err(format!("decoded {} is not long enough for secret key", s));
+        }
         let bytes_arr = &bytes[..array.len()];
         array.copy_from_slice(bytes_arr);
         let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
-        SecretKey(secret_key)
+        Ok(SecretKey(secret_key))
     }
 }
 
-impl Signature {
-    pub fn new(bytes: &[u8]) -> Signature {
-        assert!(bytes.len() == sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES);
+impl TryFrom<&[u8]> for Signature {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES {
+            return Err("bytes not the size of a signature".into());
+        }
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
         array.copy_from_slice(bytes);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
-        Signature(signature)
+        Ok(Signature(signature))
     }
+}
 
-    pub fn from(s: &str) -> Signature {
+impl TryFrom<&str> for Signature {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-        let bytes = bs58::decode(s).into_vec().expect("Failed to convert signature from base58");
-        assert_eq!(bytes.len(), array.len(), "decoded {} is not long enough for signature", s);
+        let bytes = bs58::decode(s)
+            .into_vec()
+            .map_err(|e| format!("Failed to convert signature from base58: {}", e))?;
+        if bytes.len() != array.len() {
+            return Err(format!("decoded {} is not long enough for signature", s));
+        }
         let bytes_arr = &bytes[..array.len()];
         array.copy_from_slice(bytes_arr);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
-        Signature(signature)
+        Ok(Signature(signature))
     }
 }
 
@@ -217,9 +237,10 @@ impl fmt::Display for Signature {
 }
 
 pub mod bs58_pub_key_format {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
     use super::PublicKey;
+    use std::convert::TryInto;
 
     pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -232,15 +253,15 @@ pub mod bs58_pub_key_format {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        Ok(PublicKey::from(&s))
+        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
     }
 }
 
 pub mod bs58_secret_key_format {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
     use super::SecretKey;
+    use std::convert::TryInto;
 
     pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -253,15 +274,15 @@ pub mod bs58_secret_key_format {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        Ok(SecretKey::from(&s))
+        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
     }
 }
 
 pub mod bs58_signature_format {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
     use super::Signature;
+    use std::convert::TryInto;
 
     pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -274,8 +295,7 @@ pub mod bs58_signature_format {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        Ok(Signature::from(&s))
+        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
     }
 }
 
