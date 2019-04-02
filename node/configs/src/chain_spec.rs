@@ -6,9 +6,11 @@ use serde_json;
 
 use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
+use std::cmp::max;
 use std::io::Write;
+use std::sync::Arc;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum AuthorityRotation {
     /// Authorities stay the same, just rotate circularly to change order.
     ProofOfAuthority,
@@ -17,7 +19,7 @@ pub enum AuthorityRotation {
 }
 
 /// Specification of the blockchain in general.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ChainSpec {
     /// Genesis state accounts: (AccountId, PK, Initial Balance, Initial TX Stake)
     pub accounts: Vec<(AccountId, ReadablePublicKey, Balance, Balance)>,
@@ -31,6 +33,14 @@ pub struct ChainSpec {
     /// Define authority rotation strategy.
     pub authority_rotation: AuthorityRotation,
 }
+
+/// Initial balance used in tests.
+const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
+/// Initial transactions stake used in tests.
+const TESTING_INIT_TX_STAKE: Balance = 1_000;
+/// Stake used by authorities to validate used in tests.
+const TESTING_INIT_STAKE: Balance = 100;
+
 impl ChainSpec {
     /// Serializes ChainSpec to a string.
     pub fn to_string(&self) -> String {
@@ -63,69 +73,78 @@ impl ChainSpec {
         }
     }
 
+    /// Generates a `ChainSpec` that can be used for testing. The signers are seeded from the account
+    /// names and therefore not secure to use in production.
+    /// Args:
+    /// * `id_type`: What is the style of the generated account ids, e.g. `alice.near` or `near.0`;
+    /// * `num_accounts`: how many initial accounts should be created;
+    /// * `num_initial_authorities`: how many initial authorities should be created;
+    /// * `authority_rotation`: type of the authority rotation.
+    /// Returns:
+    /// * generated `ChainSpec`;
+    /// * signers that can be used for assertions and mocking in tests.
+    pub fn testing_spec(
+        id_type: DefaultIdType,
+        num_accounts: usize,
+        num_initial_authorities: usize,
+        authority_rotation: AuthorityRotation,
+    ) -> (Self, Vec<Arc<InMemorySigner>>) {
+        let num_signers = max(num_accounts, num_initial_authorities);
+
+        let mut signers = vec![];
+        let mut accounts = vec![];
+        let mut initial_authorities = vec![];
+        for i in 0..num_signers {
+            let account_id = match id_type {
+                DefaultIdType::Named => NAMED_IDS[i].to_string(),
+                DefaultIdType::Enumerated => format!("near.{}", i),
+            };
+            let signer =
+                Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
+            if i < num_accounts {
+                accounts.push((
+                    account_id.clone(),
+                    signer.public_key().to_readable(),
+                    TESTING_INIT_BALANCE,
+                    TESTING_INIT_TX_STAKE,
+                ));
+            }
+            if i < num_initial_authorities {
+                initial_authorities.push((
+                    account_id.clone(),
+                    signer.public_key().to_readable(),
+                    signer.bls_public_key().to_readable(),
+                    TESTING_INIT_STAKE,
+                ));
+            }
+            signers.push(signer);
+        }
+        let spec = ChainSpec {
+            accounts,
+            initial_authorities,
+            genesis_wasm: include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm")
+                .to_vec(),
+            authority_rotation,
+        };
+        (spec, signers)
+    }
+
     /// Default ChainSpec used by PoA for testing.
     pub fn default_poa() -> Self {
-        let genesis_wasm =
-            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_signer = InMemorySigner::from_seed(ALICE_ID, ALICE_ID);
-        let bob_signer = InMemorySigner::from_seed(BOB_ID, BOB_ID);
-        let carol_signer = InMemorySigner::from_seed(CAROL_ID, CAROL_ID);
-        ChainSpec {
-            accounts: vec![
-                (ALICE_ID.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
-                (BOB_ID.to_string(), bob_signer.public_key().to_readable(), 100, 10),
-                (CAROL_ID.to_string(), carol_signer.public_key().to_readable(), 10, 10),
-            ],
-            initial_authorities: vec![
-                (
-                    ALICE_ID.to_string(),
-                    alice_signer.public_key().to_readable(),
-                    alice_signer.bls_public_key().to_readable(),
-                    100,
-                ),
-                (
-                    BOB_ID.to_string(),
-                    bob_signer.public_key().to_readable(),
-                    bob_signer.bls_public_key().to_readable(),
-                    100,
-                ),
-            ],
-            genesis_wasm,
-            authority_rotation: AuthorityRotation::ProofOfAuthority,
-        }
+        Self::testing_spec(DefaultIdType::Named, 3, 2, AuthorityRotation::ProofOfAuthority).0
     }
 
     /// Default ChainSpec used by DevNet for testing.
     pub fn default_devnet() -> Self {
-        let genesis_wasm =
-            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_signer = InMemorySigner::from_seed(ALICE_ID, ALICE_ID);
-        let bob_signer = InMemorySigner::from_seed(BOB_ID, BOB_ID);
-        let carol_signer = InMemorySigner::from_seed(CAROL_ID, CAROL_ID);
-        ChainSpec {
-            accounts: vec![
-                (ALICE_ID.to_string(), alice_signer.public_key().to_readable(), 10_000_000, 1000),
-                (BOB_ID.to_string(), bob_signer.public_key().to_readable(), 100, 10),
-                (CAROL_ID.to_string(), carol_signer.public_key().to_readable(), 10, 10),
-            ],
-            initial_authorities: vec![(
-                ALICE_ID.to_string(),
-                alice_signer.public_key().to_readable(),
-                alice_signer.bls_public_key().to_readable(),
-                100,
-            )],
-            genesis_wasm,
-            authority_rotation: AuthorityRotation::ProofOfAuthority,
-        }
+        Self::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority).0
     }
 }
 
 // Some of the standard named identifiers that we use for testing.
-
-const ALICE_ID: &str = "alice.near";
-const BOB_ID: &str = "bob.near";
-const CAROL_ID: &str = "carol.near";
-const NAMED_IDS: [&str; 18] = [
+pub const ALICE_ID: &str = "alice.near";
+pub const BOB_ID: &str = "bob.near";
+pub const CAROL_ID: &str = "carol.near";
+pub const NAMED_IDS: [&str; 18] = [
     ALICE_ID,
     BOB_ID,
     CAROL_ID,
@@ -143,8 +162,15 @@ const NAMED_IDS: [&str; 18] = [
     "sybil.near",
     "trudy.near",
     "victor.near",
-    "wendy.near"
+    "wendy.near",
 ];
+
+/// Type of id to use for the default ChainSpec. "alice.near" is a named id, "near.0" is an
+/// enumerated id.
+pub enum DefaultIdType {
+    Named,
+    Enumerated,
+}
 
 #[cfg(test)]
 mod tests {

@@ -139,6 +139,8 @@ mod tests {
     fn two_nodes() {
         let (test_prefix, test_port) = ("two_nodes", 7000);
         let chain_spec = configure_chain_spec();
+        let money_to_send = 10;
+        let init_balance = chain_spec.accounts[0].2;
         let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
@@ -178,8 +180,8 @@ mod tests {
         );
 
         // Check that transaction and it's receipt were included.
-        assert_eq!(alice.view_balance(&"alice.near".to_string()).unwrap(), 9999990);
-        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
+        assert_eq!(alice.view_balance(&"alice.near".to_string()).unwrap(), init_balance - money_to_send);
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), init_balance + money_to_send);
     }
 
     /// Creates three nodes, two are authorities, first authority node is ahead on blocks.
@@ -189,6 +191,8 @@ mod tests {
     fn test_three_nodes_sync() {
         let (test_prefix, test_port) = ("three_nodes_sync", 7010);
         let chain_spec = configure_chain_spec();
+        let money_to_send = 10;
+        let init_balance = chain_spec.accounts[0].2;
         let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
@@ -227,7 +231,7 @@ mod tests {
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.add_transaction(
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+            TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(alice.signer()),
         )
         .unwrap();
 
@@ -238,7 +242,7 @@ mod tests {
         wait(|| charlie.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(charlie.view_balance(&"bob.near".to_string()).unwrap(), 110);
+        assert_eq!(charlie.view_balance(&"bob.near".to_string()).unwrap(), init_balance + money_to_send);
     }
 
     /// Creates two nodes, first authority node is ahead on blocks.
@@ -248,6 +252,8 @@ mod tests {
     fn test_late_transaction() {
         let (test_prefix, test_port) = ("late_transaction", 7020);
         let chain_spec = configure_chain_spec();
+        let money_to_send = 10;
+        let init_balance = chain_spec.accounts[0].2;
         let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
@@ -276,7 +282,7 @@ mod tests {
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.add_transaction(
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+            TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(alice.signer()),
         )
         .unwrap();
 
@@ -286,7 +292,7 @@ mod tests {
         wait(|| alice.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), init_balance + money_to_send);
     }
 
     /// Creates two authority nodes, run them for 10 blocks.
