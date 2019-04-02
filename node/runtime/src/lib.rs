@@ -229,10 +229,14 @@ impl Runtime {
                         sender.nonce,
                     ));
                 }
-                // update nonce regardless of whether the transaction succeeds
+                // Update nonce regardless of whether the transaction succeeds. This is done
+                // before verifying signatures because signatures are verified already in mempool.
+                // However, it is possible, although rare, that the key is swapped out before this
+                // transaction is applied. We do not treat this case specially now.
                 sender.nonce = transaction.body.get_nonce();
                 set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id), &sender);
                 state_update.commit();
+
                 if !verify_transaction_signature(&transaction, &sender.public_keys) {
                     return Err(format!(
                         "transaction not signed with a public key of originator {:?}",

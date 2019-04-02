@@ -269,7 +269,8 @@ mod tests {
     fn test_staking_over_limit() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (_, apply_results) = alice.stake(root, 1000);
+        let (new_root, apply_results) = alice.stake(root, 1000);
+        assert_ne!(root, new_root);
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
     }
 
@@ -490,7 +491,7 @@ mod tests {
     #[test]
     fn test_create_account_failure_invalid_name() {
         let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
+        let (mut alice, mut root) = User::new(runtime, &alice_account(), trie.clone(), root);
         let mut counter = 0;
         for invalid_account_name in vec![
             "eve",                               // too short
@@ -501,6 +502,8 @@ mod tests {
         ] {
             counter += 1;
             let (new_root, _) = alice.create_account(root, invalid_account_name, 10);
+            assert_ne!(root, new_root);
+            root = new_root;
             let viewer = TrieViewer {};
             let mut state_update = TrieUpdate::new(trie.clone(), new_root);
             let result1 = viewer.view_account(&mut state_update, &alice_account());
@@ -586,6 +589,7 @@ mod tests {
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let signer2 = InMemorySigner::default();
         let (new_root, _) = alice.add_key(root, signer2.public_key());
+        assert_ne!(root, new_root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let account = get::<Account>(
             &mut new_state_update,
@@ -632,6 +636,7 @@ mod tests {
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let signer2 = InMemorySigner::default();
         let (new_root, _) = alice.delete_key(root, signer2.public_key());
+        assert_ne!(new_root, root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let account = get::<Account>(
             &mut new_state_update,
