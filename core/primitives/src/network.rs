@@ -120,8 +120,7 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             id: id.into(),
             addr,
             account_id,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -146,8 +145,7 @@ impl From<ConnectedInfo> for network_proto::ConnectedInfo {
     fn from(connected_info: ConnectedInfo) -> network_proto::ConnectedInfo {
         network_proto::ConnectedInfo {
             chain_state: SingularPtrField::some(connected_info.chain_state.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -205,8 +203,7 @@ impl From<Handshake> for network_proto::HandShake {
             connected_info: SingularPtrField::some(hand_shake.connected_info.into()),
             account_id,
             listen_port,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -253,8 +250,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     info_gossip: RepeatedField::from_iter(
                         peers_info.into_iter().map(std::convert::Into::into),
                     ),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
@@ -264,8 +260,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
         };
         network_proto::PeerMessage {
             message_type,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }

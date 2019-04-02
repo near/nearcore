@@ -46,8 +46,7 @@ impl From<BeaconBlockHeader> for chain_proto::BeaconBlockHeader {
                 header.authority_proposal.into_iter().map(std::convert::Into::into),
             ),
             shard_block_hash: header.shard_block_hash.into(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -76,8 +75,7 @@ impl From<SignedBeaconBlockHeader> for chain_proto::SignedBeaconBlockHeader {
             body: SingularPtrField::some(header.body.into()),
             hash: header.hash.into(),
             signature: SingularPtrField::some(header.signature.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -101,8 +99,7 @@ impl From<BeaconBlock> for chain_proto::BeaconBlock {
     fn from(block: BeaconBlock) -> Self {
         chain_proto::BeaconBlock {
             header: SingularPtrField::some(block.header.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -131,8 +128,7 @@ impl From<SignedBeaconBlock> for chain_proto::SignedBeaconBlock {
             body: SingularPtrField::some(block.body.into()),
             hash: block.hash.into(),
             signature: SingularPtrField::some(block.signature.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }

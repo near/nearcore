@@ -30,3 +30,6 @@ tmp/
 
 # OS X
 .DS_Store
+
+# Logs
+*.log

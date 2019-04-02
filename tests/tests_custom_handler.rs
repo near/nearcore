@@ -8,13 +8,22 @@ use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
 use network::proxy::ProxyHandler;
 use std::sync::Arc;
-use network::proxy::benchmark::BenchmarkHandler;
+use network::proxy::predicate::FnProxyHandler;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.
-    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![
-        Arc::new(BenchmarkHandler::new())
-    ];
+
+    // Custom handler example
+    let fn_proxy_handler = Arc::new(FnProxyHandler::new(|package| {
+        // Logic here...
+
+        // Return None to dismiss this channel,
+        // or Some(package) for passing to the next handler. Note that returned package don't need to be the
+        // same as the received package.
+        Some(package)
+    }));
+
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![fn_proxy_handler];
 
     let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);
 
@@ -23,13 +32,14 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         nodes[i].start();
     }
 
+    thread::sleep(Duration::from_millis(1000));
+
     // Execute N trials. In each trial we submit a transaction to a random node i, that sends
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
     // the balance of j on node k.
     let mut expected_balances = vec![init_balance; num_nodes];
-    let trial_duration = 60000;
-    for trial in 0..num_trials {
-        println!("TRIAL #{}", trial);
+    let trial_duration = 10000;
+    for _trial in 0..num_trials {
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
         let nonce = nodes[i].get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
@@ -53,13 +63,8 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     }
 }
 
+/// Similar to `test_alphanet::test_4_10_multiple_nodes` to show custom proxy handlers usage.
 #[test]
-fn test_4_10_multiple_nodes() {
-    run_multiple_nodes(4, 10, "4_10", 3200);
+fn test_custom_handler() {
+    run_multiple_nodes(3, 1, "custom_handler", 3200);
 }
-
-// TODO(#718)
-//#[test]
-//fn test_7_10_multiple_nodes() {
-//    run_multiple_nodes(7, 10, "7_10", 3300);
-//}

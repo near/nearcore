@@ -243,7 +243,8 @@ impl Pool {
         }
         let h = snapshot.get_hash();
         info!(
-            target: "mempool", "Snapshotting payload, #tx={}, #r={}, hash={:?}",
+            target: "mempool", "Snapshotting payload, authority={:?}, #tx={}, #r={}, hash={:?}",
+            self.authority_id.read().expect(POISONED_LOCK_ERR),
             snapshot.transactions.len(),
             snapshot.receipts.len(),
             h,

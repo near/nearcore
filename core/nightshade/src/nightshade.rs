@@ -32,10 +32,10 @@ pub type NSResult = Result<Option<State>, String>;
 /// and penalize such behavior.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BlockProposal {
-    /// Hash of the payload contained in the block.
-    pub hash: CryptoHash,
     /// Authority proposing the block.
     pub author: AuthorityId,
+    /// Hash of the payload contained in the block.
+    pub hash: CryptoHash,
 }
 
 impl TryFrom<nightshade_proto::BlockProposal> for BlockProposal {
@@ -51,8 +51,7 @@ impl From<BlockProposal> for nightshade_proto::BlockProposal {
         nightshade_proto::BlockProposal {
             hash: block_proposal.hash.into(),
             author: block_proposal.author as u64,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -99,8 +98,7 @@ impl From<BareState> for nightshade_proto::BareState {
             primary_confidence: state.primary_confidence,
             endorses: SingularPtrField::some(state.endorses.into()),
             secondary_confidence: state.secondary_confidence,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -169,8 +167,7 @@ impl From<Proof> for nightshade_proto::Proof {
             bare_state: SingularPtrField::some(proof.bare_state.into()),
             mask: proof.mask,
             signature: proof.signature.to_base58(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -282,8 +279,7 @@ impl From<State> for nightshade_proto::State {
                 state.secondary_proof.map(std::convert::Into::into),
             ),
             signature: state.signature.to_base58(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -722,12 +718,12 @@ mod tests {
     #[test]
     fn test_nightshade_basics() {
         let mut ns = generate_nightshades(2);
-        let state1 = ns[1].state();
-        assert_eq!(state1.endorses().author, 1);
-        let state0 = ns[0].state().clone();
-        assert_eq!(ns[1].update_state(0, state0).is_ok(), true);
-        let state1 = ns[1].state();
-        assert_eq!(state1.endorses().author, 0);
+        let state0 = ns[0].state();
+        assert_eq!(state0.endorses().author, 0);
+        let state1 = ns[1].state().clone();
+        assert_eq!(ns[0].update_state(1, state1).is_ok(), true);
+        let state0 = ns[0].state();
+        assert_eq!(state0.endorses().author, 1);
     }
 
     #[test]

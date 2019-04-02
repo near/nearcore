@@ -9,6 +9,7 @@ use storage::TrieUpdate;
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
+use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::{account_id_to_bytes, get, Account, RuntimeExt, COL_ACCOUNT, COL_CODE};
 use primitives::signature::PublicKey;
 
@@ -74,10 +75,10 @@ impl TrieViewer {
         }
         let mut values = HashMap::default();
         let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
-        prefix.append(&mut b",".to_vec());
+        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
-                values.insert(key.to_vec(), value.to_vec());
+                values.insert(key[prefix.len()..].to_vec(), value.to_vec());
             }
         });
         Ok(ViewStateResult { values })
@@ -173,9 +174,10 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::test_utils::*;
+    use kvdb::DBValue;
     use primitives::types::AccountId;
-    use std::collections::HashMap;
 
     fn alice_account() -> AccountId {
         "alice.near".to_string()
@@ -236,11 +238,28 @@ mod tests {
         assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
     }
 
+    fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {
+        let mut bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
+        bytes.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+        bytes.append(&mut suffix.clone().to_vec());
+        bytes
+    }
+
     #[test]
     fn test_view_state() {
-        let (viewer, state_update) = get_test_trie_viewer();
-        let result = viewer.view_state(&state_update, &alice_account()).unwrap();
-        assert_eq!(result.values, HashMap::default());
-        // TODO: make this test actually do stuff.
+        let (_, trie, root) = get_runtime_and_trie();
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        state_update
+            .set(&account_suffix(&alice_account(), b"test123"), &DBValue::from_slice(b"123"));
+        let (new_root, db_changes) = state_update.finalize();
+        trie.apply_changes(db_changes).unwrap();
+
+        let state_update = TrieUpdate::new(trie, new_root);
+        let trie_viewer = TrieViewer {};
+        let result = trie_viewer.view_state(&state_update, &alice_account()).unwrap();
+        assert_eq!(
+            result.values,
+            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
+        );
     }
 }
