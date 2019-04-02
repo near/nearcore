@@ -12,7 +12,8 @@ log = "0.4"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
-tokio="0.1"
+tokio = "0.1"
+tokio-signal = "0.2"
 
 network = { path = "../network" }
 primitives = { path = "../../core/primitives" }
@@ -23,6 +24,7 @@ configs = { path = "../configs" }
 client = { path = "../client" }
 coroutines = { path = "../coroutines" }
 node-http = { path = "../http" }
+tokio-utils = { path = "../tokio-utils" }
 
 [dev-dependencies]
 testlib = { path = "../../test-utils/testlib" }

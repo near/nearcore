@@ -46,11 +46,11 @@ impl ProxyHandler for ThrottlingHandler {
                     .map(|_| ())
                     .map_err(|_| ());
 
-                tokio::spawn(task);
+                tokio_utils::spawn(task);
                 Ok(())
             }).map_err(|_| ());
 
-            tokio::spawn(wait_task);
+            tokio_utils::spawn(wait_task);
 
             Ok(())
         });

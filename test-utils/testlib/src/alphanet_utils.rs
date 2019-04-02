@@ -19,6 +19,7 @@ use primitives::network::{PeerAddr, PeerInfo};
 use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
+use tokio_utils::ShutdownableThread;
 
 use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 
@@ -41,7 +42,7 @@ pub enum ProcessNodeState {
 
 pub enum ThreadNodeState {
     Stopped,
-    Running,
+    Running(ShutdownableThread),
 }
 
 pub struct NodeConfig {
@@ -68,6 +69,8 @@ pub trait Node {
     fn node_type(&self) -> NodeType;
 
     fn start(&mut self);
+
+    fn kill(&mut self);
 
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         self.user().view_balance(account_id)
@@ -137,6 +140,17 @@ impl Node for ProcessNode {
         }
     }
 
+    fn kill(&mut self) {
+        match self.state {
+            ProcessNodeState::Running(ref mut child) => {
+                child.kill().expect("kill failed");
+                thread::sleep(Duration::from_secs(1));
+                self.state = ProcessNodeState::Stopped;
+            }
+            ProcessNodeState::Stopped => panic!("Invalid state"),
+        }
+    }
+
     fn signer(&self) -> Arc<InMemorySigner> {
         let account_id = &self.config().client_cfg.account_id;
         Arc::new(InMemorySigner::from_seed(account_id, account_id))
@@ -177,17 +191,19 @@ impl Node for ThreadNode {
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
-        thread::spawn(|| {
-            alphanet::start_from_client(
-                client,
-                Some(account_id),
-                network_cfg,
-                rpc_cfg,
-                proxy_handlers,
-            );
-        });
-        self.state = ThreadNodeState::Running;
+        let handle = alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg, proxy_handlers);
+        self.state = ThreadNodeState::Running(handle);
         thread::sleep(Duration::from_secs(1));
+    }
+
+    fn kill(&mut self) {
+        let state = std::mem::replace(&mut self.state, ThreadNodeState::Stopped);
+        match state {
+            ThreadNodeState::Stopped => panic!("Node is not running"),
+            ThreadNodeState::Running(mut handle) => {
+                handle.shutdown();
+            },
+        }
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
@@ -205,7 +221,7 @@ impl Node for ThreadNode {
     fn is_running(&self) -> bool {
         match self.state {
             ThreadNodeState::Stopped => false,
-            ThreadNodeState::Running => true,
+            ThreadNodeState::Running(_) => true,
         }
     }
 
@@ -231,17 +247,6 @@ impl ProcessNode {
         let result = ProcessNode { config, state: ProcessNodeState::Stopped };
         result.reset_storage();
         result
-    }
-
-    pub fn kill(&mut self) {
-        match self.state {
-            ProcessNodeState::Running(ref mut child) => {
-                child.kill().expect("kill failed");
-                thread::sleep(Duration::from_secs(1));
-                self.state = ProcessNodeState::Stopped;
-            }
-            ProcessNodeState::Stopped => panic!("Invalid state"),
-        }
     }
 
     /// Clear storage directory and run keygen

@@ -53,7 +53,7 @@ impl Proxy {
             Ok(())
         });
 
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
     }
 }
 
