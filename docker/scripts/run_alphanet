@@ -8,7 +8,7 @@ mkdir -p ${BASE_PATH}
 if [[ -z ${CHAIN_SPEC_PATH} ]]
 then
 generate-test-spec -n ${TOTAL_NODES} -c ${BASE_PATH}/chain_spec.json
-CHAIN_SPEC_PATH="${BASE_PATH}/chain-spec.json"
+CHAIN_SPEC_PATH="${BASE_PATH}/chain_spec.json"
 fi
 
 if [[ -z ${KEYGEN_SEED} ]]
