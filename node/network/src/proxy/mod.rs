@@ -36,7 +36,7 @@ impl Proxy {
 
     /// Spawn proxies, start task that polls messages and pass them through proxy handlers.
     pub fn spawn(&self, inc_messages: Receiver<PackedMessage>) {
-        let mut stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync> = Box::new(inc_messages.map(|pm| pm.to_stream()).flatten());
+        let mut stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync> = Box::new(inc_messages.map(PackedMessage::to_stream).flatten());
 
         for handler in self.handlers.iter() {
             stream = handler.pipe_stream(stream);
