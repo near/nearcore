@@ -6,7 +6,7 @@ use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::signer::{InMemorySigner, TransactionSigner};
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,

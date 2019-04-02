@@ -244,7 +244,7 @@ mod tests {
     use crate::get;
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::test_utils::*;
-    use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE, TESTING_INIT_TX_STAKE};
+    use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
     use super::*;
 

@@ -388,7 +388,6 @@ mod test {
     use primitives::hash::CryptoHash;
     use primitives::types::AccountId;
     use storage::test_utils::create_beacon_shard_storages;
-    use testlib::alphanet_utils::generate_poa_test_chain_spec;
 
     use crate::beacon_chain::BeaconClient;
     use configs::chain_spec::DefaultIdType;
@@ -530,12 +529,8 @@ mod test {
     #[test]
     /// Test that in case of POA authorities are not kick out even if didn't sign the block.
     fn test_poa_authority() {
-        let init_balance = 1_000_000_000;
-        let mut account_names = vec![];
-        for i in 0..4 {
-            account_names.push(format!("near.{}", i));
-        }
-        let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
+        let num_authorities = 4;
+        let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Enumerated, num_authorities, num_authorities, AuthorityRotation::ProofOfAuthority);
 
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
