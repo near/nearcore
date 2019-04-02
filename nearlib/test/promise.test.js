@@ -9,7 +9,8 @@ let keyStore;
 
 beforeAll(async () => {
     keyStore = new InMemoryKeyStore();
-    storage = createFakeStorage();   
+    storage = createFakeStorage();  
+    network = "somenetwork"; 
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
@@ -26,7 +27,7 @@ beforeAll(async () => {
         1000,
         aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
-    await keyStore.setKey(mainTestAccountName, keyWithRandomSeed);
+    await keyStore.setKey(mainTestAccountName, keyWithRandomSeed, network);
 });
 
 describe('with promises', () => { 
@@ -47,7 +48,7 @@ describe('with promises', () => {
             1,
             mainTestAccountName);
         await nearjs.waitForTransactionResult(createAccountResponse);
-        keyStore.setKey(contractName, keyWithRandomSeed);
+        keyStore.setKey(contractName, keyWithRandomSeed, network);
         const data = [...fs.readFileSync('../tests/hello.wasm')];
         await nearjs.waitForTransactionResult(
             await nearjs.deployContract(contractName, data));

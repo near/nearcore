@@ -11,20 +11,21 @@ const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 class BrowserLocalStorageKeystore {
     constructor() {}
 
-    static storageKeyForPublicKey(accountId) {
-        return accountId + LOCAL_STORAGE_PUBLIC_KEY_SUFFIX;
+    static storageKeyForPublicKey(accountId, networkId) {
+        return accountId + "_" + networkId + LOCAL_STORAGE_PUBLIC_KEY_SUFFIX;
     }
 
-    static storageKeyForSecretKey(accountId) {
-        return accountId + LOCAL_STORAGE_SECRET_KEY_SUFFIX;
+    static storageKeyForSecretKey(accountId, networkId) {
+        return accountId + "_" + networkId + LOCAL_STORAGE_SECRET_KEY_SUFFIX;
     }
 
     /**
      * Save the key in local storage. 
      * @param {string} accountId 
      * @param {KeyPair} key 
+     * @param {string} networkId
      */
-    async setKey(accountId, key) {
+    async setKey(accountId, key, networkId) {
         window.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
         window.localStorage.setItem(
@@ -34,13 +35,14 @@ class BrowserLocalStorageKeystore {
     /**
      * Get the key from local storage and return as KeyPair object.
      * @param {string} accountId 
+     * @param {string} networkId
      */
-    async getKey(accountId) {
+    async getKey(accountId, networkId) {
         return new KeyPair(
             window.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)),
+                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId, networkId)),
             window.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))
+                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId, networkId))
         );
     }
 

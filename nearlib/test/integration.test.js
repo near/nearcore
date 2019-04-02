@@ -165,6 +165,7 @@ describe('with deployed contract', () => {
     let oldLog;
     let logs;
     let contractName = 'test_contract_' + Date.now();
+    let networkId = "somenetwork";
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
@@ -175,7 +176,7 @@ describe('with deployed contract', () => {
             10,
             aliceAccountName);
         await nearjs.waitForTransactionResult(createAccountResponse);
-        keyStore.setKey(contractName, keyWithRandomSeed);
+        keyStore.setKey(contractName, keyWithRandomSeed, networkId);
         const data = [...fs.readFileSync('../tests/hello.wasm')];
         await nearjs.waitForTransactionResult(
             await nearjs.deployContract(contractName, data));

@@ -6,12 +6,12 @@ class InMemoryKeyStore {
         this.keys = {};
     }
 
-    async setKey(accountId, key) {
-        this.keys[accountId] = key;
+    async setKey(accountId, key, networkId) {
+        this.keys[accountId + "_" + networkId] = key;
     }
 
-    async getKey(accountId) {
-        return this.keys[accountId];
+    async getKey(accountId, networkId) {
+        return this.keys[accountId  + "_" + networkId];
     }
 
     async clear() {
