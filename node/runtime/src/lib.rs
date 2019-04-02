@@ -572,6 +572,7 @@ impl Runtime {
                         mana_accounting.accounting_info = async_call.accounting_info.clone();
                         callback_info = async_call.callback.clone();
                         if async_call.method_name.is_empty() {
+                            transaction_result.result = Some(vec![]);
                             system::deposit(
                                 state_update,
                                 async_call.amount,
@@ -736,7 +737,6 @@ impl Runtime {
                 }
                 state_update.commit();
                 result.status = TransactionStatus::Completed;
-                result.result = Some(vec![]);
             }
             Err(s) => {
                 state_update.rollback();
@@ -787,9 +787,7 @@ impl Runtime {
                 }
             };
         } else {
-            // wrong receipt
-            result.status = TransactionStatus::Failed;
-            result.logs.push("receipt sent to the wrong shard".to_string());
+            unreachable!("receipt sent to the wrong shard");
         };
         Self::print_log(&result.logs);
         result
@@ -1100,10 +1098,12 @@ mod tests {
         let block_index = 1;
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
-        let mut logs = vec![];
+        let mut transaction_result = TransactionResult::default();
         runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut logs)
+            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
             .unwrap();
+        // Check result of the AsyncCall transaction
+        assert_eq!(transaction_result.result, Some(encode_int(10).to_vec()));
         assert_eq!(new_receipts.len(), 2);
 
         assert_eq!(new_receipts[0].originator, bob_account());
@@ -1151,10 +1151,11 @@ mod tests {
         let block_index = 1;
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
-        let mut logs = vec![];
+        let mut transaction_result = TransactionResult::default();
         runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut logs)
+            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
             .unwrap();
+        assert_eq!(transaction_result.result, Some(vec![]));
         // Just callback - no refunds
         assert_eq!(new_receipts.len(), 1);
 
