@@ -157,7 +157,9 @@ impl<T: ChainStateRetriever> PeerManager<T> {
         Self { all_peer_states, node_info, phantom: PhantomData }
     }
 
-    /// Ban this peer.
+    /// Ban this peer due to malicious behavior.
+    /// # Panics
+    /// Panics if the peer is in `IncomingConnection` state.
     pub fn ban_peer(&self, peer_id: &PeerId, duration: Duration) {
         if let Some(state) = self.all_peer_states.write().expect(POISONED_LOCK_ERR).get_mut(peer_id)
         {
@@ -174,8 +176,11 @@ impl<T: ChainStateRetriever> PeerManager<T> {
                         evicted: false,
                     };
                 }
-                // Incoming connection will be terminated when it is processed.
-                PeerState::IncomingConnection { .. } => (),
+                // Incoming connection is either already handled or shouldn't be banned
+                // because the connection is not yet established.
+                PeerState::IncomingConnection { .. } => {
+                    unreachable!("ban_peer cannot be called on incoming connection")
+                }
             }
         }
     }
@@ -555,7 +560,7 @@ mod tests {
                 }
             },
             50,
-            10000,
+            20000,
         );
 
         let all_pms4 = all_pms.clone();
@@ -576,7 +581,7 @@ mod tests {
                 }
             },
             50,
-            10000,
+            20000,
         );
 
         // Spawn the third peer manager with the same peer id as the second peer manager
@@ -629,7 +634,7 @@ mod tests {
                 }
             },
             50,
-            10000,
+            20000,
         );
     }
 }

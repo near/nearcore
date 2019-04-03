@@ -33,6 +33,8 @@ const RESPONSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(1000);
 /// Only happens if we made a mistake in our code and allowed certain optional fields to be None
 /// during the states that they are not supposed to be None.
 const STATE_ERR: &str = "Some fields are expected to be not None at the given state";
+/// The multiplier for delay in reconnecting.
+const DELAY_AMPLIFIER: u32 = 10;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Note, the peer that establishes the connection is the one that sends the handshake.
@@ -395,7 +397,7 @@ impl<T: ChainStateRetriever> Stream for Peer<T> {
                     } else {
                         Unconnected {
                             info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay * 10),
+                            connect_timer: get_delay(self.reconnect_delay * DELAY_AMPLIFIER),
                             banned_until: None,
                             evicted: false,
                         }
