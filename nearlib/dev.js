@@ -40,7 +40,7 @@ module.exports = {
             new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(fullRuntimeOptions.nodeUrl));
         this.near = new nearlib.Near(nearClient);
         if (fullRuntimeOptions.accountId && fullRuntimeOptions.key) {
-            this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key, fullRuntimeOptions.networkId);
+            this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key);
         }
         if (!fullRuntimeOptions.accountId) {
             await this.getOrCreateDevUser();
@@ -49,7 +49,7 @@ module.exports = {
     },
     getOrCreateDevUser: async function () {
         let tempUserAccountId = this.deps.storage.getItem(storageAccountIdKey);
-        const accountKey = await this.deps.keyStore.getKey(tempUserAccountId, this.options.networkId);
+        const accountKey = await this.deps.keyStore.getKey(tempUserAccountId);
         if (tempUserAccountId && accountKey) {
             // Make sure the user actually exists with valid keys and recreate it if it doesn't
             const accountLib = new nearlib.Account(this.near.nearClient);
@@ -68,7 +68,7 @@ module.exports = {
             async (accountId, newAccountPublicKey) =>
                 this.createAccountWithContractHelper(await this.getConfig(), accountId, newAccountPublicKey);
         await createAccount.bind(this, tempUserAccountId, keypair.getPublicKey())();
-        this.deps.keyStore.setKey(tempUserAccountId, keypair, this.options.networkId);
+        this.deps.keyStore.setKey(tempUserAccountId, keypair);
         this.deps.storage.setItem(storageAccountIdKey, tempUserAccountId);
         return tempUserAccountId;
     },
