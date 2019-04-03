@@ -538,7 +538,7 @@ mod tests {
         });
         thread::spawn(move || tokio::run(task));
 
-        wait_all_peers_connected(50, 60000, &all_pms, 2);
+        wait_all_peers_connected(200, 60000, &all_pms, 2);
         let peer1_id = all_pms.read().expect(POISONED_LOCK_ERR)[0].node_info.id;
         let peer2_id = all_pms.read().expect(POISONED_LOCK_ERR)[1].node_info.id;
         all_pms.read().expect(POISONED_LOCK_ERR)[0].ban_peer(&peer2_id, PEER_BAN_PERIOD);
@@ -559,7 +559,7 @@ mod tests {
                     false
                 }
             },
-            50,
+            200,
             60000,
         );
 
@@ -580,7 +580,7 @@ mod tests {
                     false
                 }
             },
-            50,
+            200,
             60000,
         );
 
@@ -614,7 +614,7 @@ mod tests {
 
         // Wait until the peer manager is spawned.
         let all_pms6 = all_pms.clone();
-        wait(move || all_pms6.read().expect(POISONED_LOCK_ERR).len() == 3, 50, 60000);
+        wait(move || all_pms6.read().expect(POISONED_LOCK_ERR).len() == 3, 200, 60000);
 
         let all_pms7 = all_pms.clone();
         wait(
@@ -633,7 +633,7 @@ mod tests {
                     false
                 }
             },
-            50,
+            200,
             60000,
         );
     }
