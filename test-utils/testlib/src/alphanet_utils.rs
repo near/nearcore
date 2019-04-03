@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use log::error;
+
 use client::Client;
 use configs::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
 use configs::network::get_peer_id_from_seed;
@@ -191,7 +193,13 @@ impl Node for ThreadNode {
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
-        let handle = alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg, proxy_handlers);
+        let handle = alphanet::start_from_client(
+            client,
+            Some(account_id),
+            network_cfg,
+            rpc_cfg,
+            proxy_handlers,
+        );
         self.state = ThreadNodeState::Running(handle);
         thread::sleep(Duration::from_secs(1));
     }
@@ -200,9 +208,9 @@ impl Node for ThreadNode {
         let state = std::mem::replace(&mut self.state, ThreadNodeState::Stopped);
         match state {
             ThreadNodeState::Stopped => panic!("Node is not running"),
-            ThreadNodeState::Running(mut handle) => {
+            ThreadNodeState::Running(handle) => {
                 handle.shutdown();
-            },
+            }
         }
     }
 
@@ -319,7 +327,7 @@ impl Drop for ProcessNode {
     fn drop(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
-                child.kill().unwrap();
+                let _ = child.kill().map_err(|_| error!("child process died"));
             }
             ProcessNodeState::Stopped => {}
         }
@@ -465,8 +473,12 @@ pub fn create_nodes(
     test_port: u16,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
-    let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Enumerated, num_nodes, num_nodes,
-                                                  AuthorityRotation::ProofOfAuthority);
+    let (chain_spec, _) = ChainSpec::testing_spec(
+        DefaultIdType::Enumerated,
+        num_nodes,
+        num_nodes,
+        AuthorityRotation::ProofOfAuthority,
+    );
     let account_names: Vec<_> = chain_spec.accounts.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
