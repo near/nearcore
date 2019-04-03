@@ -28,7 +28,7 @@ sudo docker run -d --name alphanet-3 --add-host=alphanet-0:172.17.0.2 \
     -e "TOTAL_NODES=4" \
     ${IMAGE}
 
-sudo docker run -d --name studio -p 80:80 --add-host=alphanet-0:127.17.0.2 \
+sudo docker run -d --name studio -p 80:80 --add-host=alphanet-0:172.17.0.2 \
     -e "DEVNET_HOST=http://172.17.0.2" \
     ${STUDIO_IMAGE}
 
