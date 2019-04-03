@@ -191,9 +191,7 @@ impl InMemorySigner {
             bls_secret_key: key_file.bls_secret_key,
         }
     }
-}
 
-impl InMemorySigner {
     /// Initialize `InMemorySigner` with a random ED25519 and BLS keys, and random account id. Used
     /// for testing only.
     pub fn from_random() -> Self {
