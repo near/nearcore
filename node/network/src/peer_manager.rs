@@ -22,7 +22,9 @@ use tokio::timer::Interval;
 use primitives::network::{PeerAddr, PeerInfo, PeerMessage};
 use primitives::types::{AccountId, PeerId};
 
-use crate::peer::{get_peer_info, AllPeerStates, ChainStateRetriever, Peer, PeerState};
+use crate::peer::{
+    get_delay, get_peer_info, AllPeerStates, ChainStateRetriever, Peer, PeerState, CONNECT_TIMEOUT,
+};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -156,7 +158,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
     }
 
     /// Ban this peer.
-    pub fn ban_peer(&self, peer_id: &PeerId) {
+    pub fn ban_peer(&self, peer_id: &PeerId, duration: Duration) {
         if let Some(state) = self.all_peer_states.write().expect(POISONED_LOCK_ERR).get_mut(peer_id)
         {
             let mut guard = state.write().expect(POISONED_LOCK_ERR);
@@ -165,12 +167,15 @@ impl<T: ChainStateRetriever> PeerManager<T> {
                 | PeerState::Connecting { info, .. }
                 | PeerState::Ready { info, .. }
                 | PeerState::Unconnected { info, .. } => {
-                    *guard = PeerState::Banned { info: info.clone(), evicted: true };
+                    *guard = PeerState::Unconnected {
+                        info: info.clone(),
+                        connect_timer: get_delay(CONNECT_TIMEOUT),
+                        banned_until: Some(Instant::now() + duration),
+                        evicted: false,
+                    };
                 }
-                PeerState::Banned { .. } => (),
-                PeerState::IncomingConnection { .. } => {
-                    unreachable!("Incoming connection cannot be banned")
-                }
+                // Incoming connection will be terminated when it is processed.
+                PeerState::IncomingConnection { .. } => (),
             }
         }
     }
@@ -289,6 +294,7 @@ mod tests {
 
     use crate::peer::PeerState;
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
+    use crate::protocol::PEER_BAN_PERIOD;
     use crate::testing_utils::{wait, wait_all_peers_connected, MockChainStateRetriever};
 
     #[test]
@@ -530,7 +536,7 @@ mod tests {
         wait_all_peers_connected(50, 10000, &all_pms, 2);
         let peer1_id = all_pms.read().expect(POISONED_LOCK_ERR)[0].node_info.id;
         let peer2_id = all_pms.read().expect(POISONED_LOCK_ERR)[1].node_info.id;
-        all_pms.read().expect(POISONED_LOCK_ERR)[0].ban_peer(&peer2_id);
+        all_pms.read().expect(POISONED_LOCK_ERR)[0].ban_peer(&peer2_id, PEER_BAN_PERIOD);
         let all_pms3 = all_pms.clone();
         wait(
             move || {
@@ -541,7 +547,7 @@ mod tests {
                     .get(&peer2_id)
                 {
                     match *state.read().expect(POISONED_LOCK_ERR) {
-                        PeerState::Banned { .. } => true,
+                        PeerState::Unconnected { banned_until, .. } => banned_until.is_some(),
                         _ => false,
                     }
                 } else {
