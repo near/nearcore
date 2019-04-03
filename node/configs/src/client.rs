@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use clap::{Arg, ArgMatches};
 
-use crate::chain_spec::ChainSpec;
+use crate::chain_spec::{ChainSpec, ALICE_ID};
 use primitives::types::AccountId;
 
 const DEFAULT_BASE_PATH: &str = ".";
@@ -18,11 +18,11 @@ pub struct ClientConfig {
     pub log_level: log::LevelFilter,
 }
 
-impl Default for ClientConfig {
-    fn default() -> Self {
+impl ClientConfig {
+    pub fn default_devnet() -> Self {
         Self {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
-            account_id: String::from("alice.near"),
+            account_id: String::from(ALICE_ID),
             public_key: None,
             chain_spec: ChainSpec::default_devnet(),
             log_level: log::LevelFilter::Info,

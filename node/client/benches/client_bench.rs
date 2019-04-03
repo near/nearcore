@@ -31,7 +31,7 @@ fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySign
     if base_path.exists() {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
-    let mut cfg = ClientConfig::default();
+    let mut cfg = ClientConfig::default_devnet();
     cfg.base_path = base_path;
     let (chain_spec, signers) =
         ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);

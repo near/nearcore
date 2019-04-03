@@ -148,7 +148,7 @@ mod tests {
             std::fs::remove_dir_all(base_path.clone()).unwrap();
         }
 
-        let mut client_cfg = configs::ClientConfig::default();
+        let mut client_cfg = configs::ClientConfig::default_devnet();
         client_cfg.base_path = base_path;
         client_cfg.log_level = log::LevelFilter::Info;
         let devnet_cfg =
