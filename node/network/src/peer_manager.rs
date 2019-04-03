@@ -510,10 +510,13 @@ mod tests {
         });
         thread::spawn(move || tokio::run(task));
 
+        let all_pms1 = all_pms.clone();
+        wait(move || all_pms1.read().expect(POISONED_LOCK_ERR).len() == 1, 50, 60000);
+
         // Spawn the second manager and boot it from the first one.
         let (_, out_msg_rx2) = channel(1024);
         let (inc_msg_tx2, _) = channel(1024);
-        let all_pms2 = all_pms.clone();
+        let all_pms1 = all_pms.clone();
         let chain_state_retriever = MockChainStateRetriever {};
         let task = futures::lazy(move || {
             let pm = PeerManager::new(
@@ -533,19 +536,22 @@ mod tests {
                 out_msg_rx2,
                 chain_state_retriever,
             );
-            all_pms2.write().expect(POISONED_LOCK_ERR).push(pm);
+            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
             future::ok(())
         });
         thread::spawn(move || tokio::run(task));
 
-        wait_all_peers_connected(200, 60000, &all_pms, 2);
+        let all_pms1 = all_pms.clone();
+        wait(move || all_pms1.read().expect(POISONED_LOCK_ERR).len() == 2, 50, 60000);
+
+        wait_all_peers_connected(50, 60000, &all_pms, 2);
         let peer1_id = all_pms.read().expect(POISONED_LOCK_ERR)[0].node_info.id;
         let peer2_id = all_pms.read().expect(POISONED_LOCK_ERR)[1].node_info.id;
         all_pms.read().expect(POISONED_LOCK_ERR)[0].ban_peer(&peer2_id, PEER_BAN_PERIOD);
-        let all_pms3 = all_pms.clone();
+        let all_pms1 = all_pms.clone();
         wait(
             move || {
-                if let Some(state) = all_pms3.read().expect(POISONED_LOCK_ERR)[0]
+                if let Some(state) = all_pms1.read().expect(POISONED_LOCK_ERR)[0]
                     .all_peer_states
                     .read()
                     .expect(POISONED_LOCK_ERR)
@@ -559,14 +565,14 @@ mod tests {
                     false
                 }
             },
-            200,
+            50,
             60000,
         );
 
-        let all_pms4 = all_pms.clone();
+        let all_pms1 = all_pms.clone();
         wait(
             move || {
-                if let Some(state) = all_pms4.read().expect(POISONED_LOCK_ERR)[1]
+                if let Some(state) = all_pms1.read().expect(POISONED_LOCK_ERR)[1]
                     .all_peer_states
                     .read()
                     .expect(POISONED_LOCK_ERR)
@@ -580,13 +586,13 @@ mod tests {
                     false
                 }
             },
-            200,
+            50,
             60000,
         );
 
         // Spawn the third peer manager with the same peer id as the second peer manager
         // to check that the banned peer cannot reconnect.
-        let all_pms5 = all_pms.clone();
+        let all_pms1 = all_pms.clone();
         let (_, out_msg_rx3) = channel(1024);
         let (inc_msg_tx3, _) = channel(1024);
         let task = futures::lazy(move || {
@@ -607,19 +613,19 @@ mod tests {
                 out_msg_rx3,
                 chain_state_retriever,
             );
-            all_pms5.write().expect(POISONED_LOCK_ERR).push(pm);
+            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
             future::ok(())
         });
         thread::spawn(move || tokio::run(task));
 
         // Wait until the peer manager is spawned.
-        let all_pms6 = all_pms.clone();
-        wait(move || all_pms6.read().expect(POISONED_LOCK_ERR).len() == 3, 200, 60000);
+        let all_pms1 = all_pms.clone();
+        wait(move || all_pms1.read().expect(POISONED_LOCK_ERR).len() == 3, 50, 60000);
 
-        let all_pms7 = all_pms.clone();
+        let all_pms1 = all_pms.clone();
         wait(
             move || {
-                if let Some(state) = all_pms7.read().expect(POISONED_LOCK_ERR)[2]
+                if let Some(state) = all_pms1.read().expect(POISONED_LOCK_ERR)[2]
                     .all_peer_states
                     .read()
                     .expect(POISONED_LOCK_ERR)
@@ -633,7 +639,7 @@ mod tests {
                     false
                 }
             },
-            200,
+            50,
             60000,
         );
     }
