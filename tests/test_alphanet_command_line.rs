@@ -2,16 +2,16 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use network::proxy::benchmark::BenchmarkHandler;
+use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
-use testlib::alphanet_utils::{
-    create_nodes, Node, NodeType, sample_queryable_node, wait_for_catchup,
-};
+use std::sync::Arc;
 use testlib::alphanet_utils::sample_two_nodes;
 use testlib::alphanet_utils::wait;
-use std::sync::Arc;
-use network::proxy::ProxyHandler;
-use network::proxy::benchmark::BenchmarkHandler;
+use testlib::alphanet_utils::{
+    create_nodes, sample_queryable_node, wait_for_catchup, Node, NodeType,
+};
 use testlib::test_locks::heavy_test;
 
 fn warmup() {
@@ -38,22 +38,22 @@ fn send_transaction(
                 account_names[to].as_str(),
                 1,
             )
-                .sign(nodes[from].signer()),
+            .sign(nodes[from].signer()),
         )
         .unwrap();
 }
 
 fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     warmup();
-    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![
-        Arc::new(BenchmarkHandler::new())
-    ];
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
     // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
     let crash1 = 2;
     let crash2 = 3;
-    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);
+    let (init_balance, account_names, mut nodes) =
+        create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);
     for i in 0..num_nodes {
-        nodes[i].node_type = if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
+        nodes[i].node_type =
+            if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
     }
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
@@ -64,7 +64,7 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
 
     let mut expected_balances = vec![init_balance; num_nodes];
     let mut nonces = vec![1; num_nodes];
-    let trial_duration = 20000;
+    let trial_duration = 60000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
         if trial % 10 == 3 {
@@ -105,9 +105,11 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     warmup();
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
-    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port, vec![]);
+    let (init_balance, account_names, mut nodes) =
+        create_nodes(num_nodes, test_prefix, test_port, vec![]);
     for i in 0..num_nodes {
-        nodes[i].node_type = if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
+        nodes[i].node_type =
+            if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
     }
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();

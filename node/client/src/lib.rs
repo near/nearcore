@@ -102,7 +102,7 @@ fn configure_logging(log_level: log::LevelFilter) {
     builder.filter(None, other_log_level);
 
     if let Ok(lvl) = env::var("RUST_LOG") {
-        builder.parse(&lvl);
+        builder.parse_filters(&lvl);
     }
     if let Err(e) = builder.try_init() {
         warn!(target: "client", "Failed to reinitialize the log level {}", e);
