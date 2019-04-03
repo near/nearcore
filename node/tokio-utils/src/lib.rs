@@ -65,8 +65,11 @@ impl Drop for ShutdownableThread {
     fn drop(&mut self) {
         // Ignore the panic from child thread
         if let Some(InitializedState { thread, shutdown_tx }) = self.state.take() {
+            println!("BEFORE SHUTDOWN");
             let _ = shutdown_tx.send(()).map_err(|_| error!("Error sending shutdown signal"));
+            println!("AFTER SHUTDOWN");
             let _ = thread.join().map_err(|_| error!("Error joining child thread"));
+            println!("AFTER JOIN");
         }
     }
 }
@@ -78,7 +81,7 @@ pub fn spawn<F>(f: F)
 where
     F: Future<Item = (), Error = ()> + Send + 'static,
 {
-    panic::set_hook(Box::new(|_info| {}));
+//    panic::set_hook(Box::new(|_info| {}));
     tokio::spawn(f);
-    let _ = panic::take_hook();
+//    let _ = panic::take_hook();
 }

@@ -66,7 +66,9 @@ impl NodeConfig {
     }
 }
 
-pub trait Node {
+pub trait Node: Send + Sync {
+    fn account_id(&self) -> AccountId;
+
     fn config(&self) -> &NodeConfig;
 
     fn node_type(&self) -> NodeType;
@@ -123,6 +125,10 @@ pub struct ProcessNode {
 }
 
 impl Node for ProcessNode {
+    fn account_id(&self) -> AccountId {
+        self.config.client_cfg.account_id.clone()
+    }
+
     fn config(&self) -> &NodeConfig {
         &self.config
     }
@@ -180,6 +186,10 @@ impl Node for ProcessNode {
 }
 
 impl Node for ThreadNode {
+    fn account_id(&self) -> AccountId {
+        self.config.client_cfg.account_id.clone()
+    }
+
     fn config(&self) -> &NodeConfig {
         &self.config
     }
