@@ -13,6 +13,7 @@ use std::sync::Arc;
 use network::proxy::ProxyHandler;
 use network::proxy::benchmark::BenchmarkHandler;
 use testlib::test_locks::heavy_test;
+use std::sync::RwLock;
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -23,7 +24,7 @@ fn warmup() {
 // to ensure they are not run in parallel.
 
 fn send_transaction(
-    nodes: &Vec<Box<Node>>,
+    nodes: &Vec<Arc<RwLock<Node>>>,
     account_names: &Vec<AccountId>,
     nonces: &Vec<u64>,
     from: usize,
@@ -31,6 +32,8 @@ fn send_transaction(
 ) {
     let k = sample_queryable_node(nodes);
     nodes[k]
+        .read()
+        .unwrap()
         .add_transaction(
             TransactionBody::send_money(
                 nonces[from],
@@ -38,7 +41,7 @@ fn send_transaction(
                 account_names[to].as_str(),
                 1,
             )
-                .sign(nodes[from].signer()),
+                .sign(nodes[from].read().unwrap().signer()),
         )
         .unwrap();
 }
@@ -56,10 +59,10 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         nodes[i].node_type = if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
     }
 
-    let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
 
     for i in 0..num_nodes {
-        nodes[i].start();
+        nodes[i].write().unwrap().start();
     }
 
     let mut expected_balances = vec![init_balance; num_nodes];
@@ -69,19 +72,19 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         println!("TRIAL #{}", trial);
         if trial % 10 == 3 {
             println!("Killing node {}", crash1);
-            nodes[crash1].kill();
+            nodes[crash1].write().unwrap().kill();
             thread::sleep(Duration::from_secs(2));
         }
         if trial % 10 == 6 {
             println!("Restarting node {}", crash1);
-            nodes[crash1].start();
+            nodes[crash1].write().unwrap().start();
             wait_for_catchup(&nodes);
             println!("Killing node {}", crash2);
-            nodes[crash2].kill();
+            nodes[crash2].write().unwrap().kill();
         }
         if trial % 10 == 9 {
             println!("Restarting node {}", crash2);
-            nodes[crash2].start();
+            nodes[crash2].write().unwrap().start();
         }
 
         let (i, j) = sample_two_nodes(num_nodes);
@@ -92,7 +95,7 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         let t = sample_queryable_node(&nodes);
         wait(
             || {
-                let amt = nodes[t].view_balance(&account_names[j]).unwrap();
+                let amt = nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap();
                 expected_balances[j] == amt
             },
             1000,
@@ -110,10 +113,10 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         nodes[i].node_type = if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
     }
 
-    let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
 
     for i in 0..num_nodes {
-        nodes[i].start();
+        nodes[i].write().unwrap().start();
     }
 
     let mut expected_balances = vec![init_balance; num_nodes];
@@ -126,22 +129,22 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
             // Here we kill two nodes, make sure transactions stop going through,
             // then restart one of the nodes
             println!("Killing nodes {}, {}", crash1, crash2);
-            nodes[crash1].kill();
-            nodes[crash2].kill();
+            nodes[crash1].write().unwrap().kill();
+            nodes[crash2].write().unwrap().kill();
 
             send_transaction(&nodes, &account_names, &nonces, i, j);
             thread::sleep(Duration::from_secs(2));
             let t = sample_queryable_node(&nodes);
-            assert_eq!(nodes[t].view_balance(&account_names[j]).unwrap(), expected_balances[j]);
+            assert_eq!(nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap(), expected_balances[j]);
 
             println!("Restarting node {}", crash1);
-            nodes[crash1].start();
+            nodes[crash1].write().unwrap().start();
         } else {
             send_transaction(&nodes, &account_names, &nonces, i, j);
             if trial % 5 == 4 {
                 // Restart the second of the nodes killed earlier
                 println!("Restarting node {}", crash2);
-                nodes[crash2].start();
+                nodes[crash2].write().unwrap().start();
             }
         }
         nonces[i] += 1;
@@ -150,7 +153,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
         let t = sample_queryable_node(&nodes);
         wait(
             || {
-                let amt = nodes[t].view_balance(&account_names[j]).unwrap();
+                let amt = nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap();
                 expected_balances[j] == amt
             },
             1000,
