@@ -393,7 +393,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
-        logs: &mut Vec<LogEntry>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| {
@@ -422,11 +422,12 @@ impl Runtime {
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
             mana_accounting.mana_refund = wasm_res.mana_left;
-            logs.append(&mut wasm_res.logs);
+            transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
             let return_data = wasm_res
                 .return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
+            transaction_result.result = return_data.to_result();
             Self::return_data_to_receipts(
                 &mut runtime_ext,
                 return_data,
@@ -452,7 +453,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
-        logs: &mut Vec<String>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
@@ -500,13 +501,14 @@ impl Runtime {
                     .and_then(|mut res| {
                         mana_accounting.gas_used = res.gas_used;
                         mana_accounting.mana_refund = res.mana_left;
-                        logs.append(&mut res.logs);
+                        transaction_result.logs.append(&mut res.logs);
                         let balance = res.balance;
                         res.return_data
                             .map_err(|e| {
                                 format!("wasm callback execution failed with error: {:?}", e)
                             })
                             .and_then(|data| {
+                                transaction_result.result = data.to_result();
                                 Self::return_data_to_receipts(
                                     &mut runtime_ext,
                                     data,
@@ -553,7 +555,7 @@ impl Runtime {
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
-        logs: &mut Vec<String>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> =
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver));
@@ -570,6 +572,7 @@ impl Runtime {
                         mana_accounting.accounting_info = async_call.accounting_info.clone();
                         callback_info = async_call.callback.clone();
                         if async_call.method_name.is_empty() {
+                            transaction_result.result = Some(vec![]);
                             system::deposit(
                                 state_update,
                                 async_call.amount,
@@ -590,7 +593,7 @@ impl Runtime {
                                 &mut receiver,
                                 &mut mana_accounting,
                                 block_index,
-                                logs,
+                                transaction_result,
                             )
                         }
                     }
@@ -603,7 +606,7 @@ impl Runtime {
                         &mut receiver,
                         &mut mana_accounting,
                         block_index,
-                        logs,
+                        transaction_result,
                     ),
                     ReceiptBody::Refund(amount) => {
                         receiver.amount += amount;
@@ -761,7 +764,7 @@ impl Runtime {
                 receipt,
                 &mut tmp_new_receipts,
                 block_index,
-                &mut result.logs,
+                &mut result,
             );
             for receipt in tmp_new_receipts {
                 result.receipts.push(receipt.nonce);
@@ -784,9 +787,7 @@ impl Runtime {
                 }
             };
         } else {
-            // wrong receipt
-            result.status = TransactionStatus::Failed;
-            result.logs.push("receipt sent to the wrong shard".to_string());
+            unreachable!("receipt sent to the wrong shard");
         };
         Self::print_log(&result.logs);
         result
@@ -1097,10 +1098,12 @@ mod tests {
         let block_index = 1;
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
-        let mut logs = vec![];
+        let mut transaction_result = TransactionResult::default();
         runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut logs)
+            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
             .unwrap();
+        // Check result of the AsyncCall transaction
+        assert_eq!(transaction_result.result, Some(encode_int(10).to_vec()));
         assert_eq!(new_receipts.len(), 2);
 
         assert_eq!(new_receipts[0].originator, bob_account());
@@ -1148,10 +1151,11 @@ mod tests {
         let block_index = 1;
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
-        let mut logs = vec![];
+        let mut transaction_result = TransactionResult::default();
         runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut logs)
+            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
             .unwrap();
+        assert_eq!(transaction_result.result, Some(vec![]));
         // Just callback - no refunds
         assert_eq!(new_receipts.len(), 1);
 
