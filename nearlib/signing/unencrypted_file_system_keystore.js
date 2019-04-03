@@ -1,6 +1,6 @@
 const fs = require('fs');
 const keyDir = './neardev';
-const KeyPair = require('nearlib/signing/key_pair');
+const KeyPair = require('./key_pair');
 const {promisify} = require('util');
 
 /**
