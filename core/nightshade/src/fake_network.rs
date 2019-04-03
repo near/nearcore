@@ -31,7 +31,7 @@ fn spawn_all(num_authorities: usize) {
         let mut consensus_rx_vec = vec![];
 
         let signers: Vec<Arc<InMemorySigner>> =
-            (0..num_authorities).map(|_| Arc::new(InMemorySigner::default())).collect();
+            (0..num_authorities).map(|_| Arc::new(InMemorySigner::from_random())).collect();
         let (public_keys, bls_public_keys): (Vec<PublicKey>, Vec<BlsPublicKey>) =
             signers.iter().map(|signer| (signer.public_key(), signer.bls_public_key())).unzip();
 

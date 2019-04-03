@@ -37,7 +37,7 @@ describe('with promises', () => {
     let contractName1 = 'test_' + Math.random();
     let contractName2 = 'test_' + Math.random();
 
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000;
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000;
 
     const deploy = async (contractName) => {
         const keyWithRandomSeed = await KeyPair.fromRandomSeed();

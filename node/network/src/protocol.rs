@@ -34,6 +34,9 @@ use crate::proxy::dropout::DropoutHandler;
 use crate::proxy::{Proxy, ProxyHandler};
 use configs::network::ProxyHandlerType;
 
+// Default ban period for malicious peers.
+pub(crate) const PEER_BAN_PERIOD: Duration = Duration::from_secs(3600);
+
 /// Tuple containing one single message (pointer) and one channel to send the message through.
 /// Used for Proxy, they implement a stream of `SimplePackedMessage`.
 pub type SimplePackedMessage = (Arc<Message>, Sender<PeerMessage>);
@@ -179,12 +182,12 @@ impl Protocol {
                         let from_index = blocks[0].0.index();
                         let til_index = blocks[blocks.len() - 1].0.index();
                         if *start != from_index || *end != til_index {
-                            self.peer_manager.ban_peer(&peer_id);
+                            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
                             return;
                         }
                     }
                     _ => {
-                        self.peer_manager.ban_peer(&peer_id);
+                        self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
                         return;
                     }
                 }
@@ -226,12 +229,12 @@ impl Protocol {
                         // Only check the snapshot hash match here. Mempool will
                         // check whether the content match.
                         if *hash != missing_payload.snapshot_hash {
-                            self.peer_manager.ban_peer(&peer_id);
+                            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
                             return;
                         }
                     }
                     _ => {
-                        self.peer_manager.ban_peer(&peer_id);
+                        self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
                         return;
                     }
                 }
@@ -258,12 +261,12 @@ impl Protocol {
                 match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
                     Some(RequestType::PayloadSnapshot(hash)) => {
                         if *hash != snapshot.get_hash() {
-                            self.peer_manager.ban_peer(&peer_id);
+                            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
                             return;
                         }
                     }
                     _ => {
-                        self.peer_manager.ban_peer(&peer_id);
+                        self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
                         return;
                     }
                 }
@@ -295,7 +298,7 @@ impl Protocol {
     fn on_new_peer(&self, peer_id: PeerId, connected_info: ConnectedInfo) {
         if connected_info.chain_state.genesis_hash != self.client.beacon_client.chain.genesis_hash()
         {
-            self.peer_manager.ban_peer(&peer_id);
+            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
         }
         forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }

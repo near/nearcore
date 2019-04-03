@@ -69,7 +69,7 @@ mod tests {
         let (bc, genesis) = get_beacon_client();
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
-        let signer = Arc::new(InMemorySigner::default());
+        let signer = Arc::new(InMemorySigner::from_random());
         let sig = block1.sign(signer);
         block1.add_signature(&sig, 0);
         bc.chain.insert_block(block1.clone());
