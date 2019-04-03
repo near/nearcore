@@ -90,7 +90,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
                     .map_err(|_| warn!(target: "network", "Error sending message to the peer"))
             })
             .map(|_| ());
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
 
         // Spawn the task that gossips.
         let all_peer_states2 = all_peer_states.clone();
@@ -117,7 +117,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
                     })
                     .choose_multiple(&mut rng, gossip_sample_size);
                 for ch in sampled_peers {
-                    tokio::spawn(
+                    tokio_utils::spawn(
                         ch.send(PeerMessage::InfoGossip(peers_info.clone()))
                             .map(|_| ())
                             .map_err(|_| warn!(target: "network", "Error gossiping peers info.")),
@@ -127,7 +127,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
             })
             .map(|_| ())
             .map_err(|e| warn!(target: "network", "Error gossiping peers info {}", e));
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
 
         // Spawn the task that listens to incoming connections if address is specified.
         if node_info.addr.is_some() {
@@ -151,7 +151,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
                 .map_err(
                     |e| warn!(target: "network", "Error processing incoming connection {}", e),
                 );
-            tokio::spawn(task);
+            tokio_utils::spawn(task);
         }
 
         Self { all_peer_states, node_info, phantom: PhantomData }
@@ -446,7 +446,7 @@ mod tests {
                     .send_all(iter_ok(messages.to_vec()))
                     .map(move |_| ())
                     .map_err(|_| panic!("Error sending messages"));
-                tokio::spawn(task);
+                tokio_utils::spawn(task);
 
                 let inc_msg_rx = v_inc_msg_rx.remove(0);
                 let acc = acc.clone();
@@ -467,7 +467,7 @@ mod tests {
                     })
                     .map(|_| ())
                     .map_err(|_| ());
-                tokio::spawn(task);
+                tokio_utils::spawn(task);
             }
             Ok(())
         });

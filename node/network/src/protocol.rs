@@ -466,7 +466,7 @@ impl Protocol {
             .map(|_| ())
             .map_err(|e| warn!("Error sending message to proxy. {:?}", e));
 
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
     }
 
     fn send_joint_block_bls_announce(&self, block_index: BlockIndex, b: JointBlockBLS) {
@@ -669,5 +669,5 @@ where
         .send(el)
         .map(|_| ())
         .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
-    tokio::spawn(task);
+    tokio_utils::spawn(task);
 }

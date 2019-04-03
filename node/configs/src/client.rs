@@ -24,7 +24,7 @@ impl Default for ClientConfig {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
             account_id: String::from("alice.near"),
             public_key: None,
-            chain_spec: Default::default(),
+            chain_spec: ChainSpec::default_devnet(),
             log_level: log::LevelFilter::Info,
         }
     }

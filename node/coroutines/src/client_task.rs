@@ -267,7 +267,7 @@ impl Stream for ClientTask {
         if let Some(index) = new_block_index {
             let next_index = index + 1;
             let control = self.restart_pool_nightshade(next_index);
-            tokio::spawn(
+            tokio_utils::spawn(
                 self.control_tx
                     .clone()
                     .send(control)
@@ -380,7 +380,7 @@ impl ClientTask {
                 if *other_id == owner {
                     continue;
                 }
-                tokio::spawn(
+                tokio_utils::spawn(
                     self.out_final_signatures_tx
                         .clone()
                         .send((
@@ -482,7 +482,7 @@ impl ClientTask {
                 warn!(target: "client", "Missing indicies {:?}, account_id={:?}", missing_indices, self.client.account_id);
                 let (from_index, til_index) =
                     (missing_indices.iter().min().unwrap(), missing_indices.iter().max().unwrap());
-                tokio::spawn(
+                tokio_utils::spawn(
                     self.out_block_fetch_tx.clone().send((peer_id, *from_index, *til_index)).map(|_| ()).map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
                 );
                 None
@@ -500,7 +500,7 @@ impl ClientTask {
             self.client.account_id, self.client.beacon_client.chain.best_index(),
             chain_state.last_index, peer_id,
             );
-            tokio::spawn(
+            tokio_utils::spawn(
                 self.out_block_fetch_tx
                     .clone()
                     .send((peer_id, self.client.beacon_client.chain.best_index() + 1, chain_state.last_index))
@@ -572,7 +572,7 @@ impl ClientTask {
             peer_ids,
             self.assumed_peer_last_index
         );
-        tokio::spawn(
+        tokio_utils::spawn(
             self.out_block_tx
                 .clone()
                 .send((peer_ids, (beacon_block, shard_block)))
@@ -592,7 +592,7 @@ impl ClientTask {
             authority_id,
         );
         if !pool.contains_payload_snapshot(&hash) {
-            tokio::spawn(
+            tokio_utils::spawn(
                 self.payload_request_tx
                     .clone()
                     .send((block_index, PayloadRequest::BlockProposal(authority_id, hash)))
@@ -608,7 +608,7 @@ impl ClientTask {
                 .map_err(
                     |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
                 );
-            tokio::spawn(send_confirmation);
+            tokio_utils::spawn(send_confirmation);
         }
     }
 
@@ -627,7 +627,7 @@ impl ClientTask {
                             .map_err(
                                 |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
                             );
-                        tokio::spawn(send_confirmation);
+                        tokio_utils::spawn(send_confirmation);
                     }
                     Err(e) => warn!(target: "mempool", "Fail to add missing payload: {}", e),
                 }
@@ -636,7 +636,7 @@ impl ClientTask {
                 let hash = snapshot.get_hash();
                 if let Some(request) = pool.add_payload_snapshot(authority_id, snapshot) {
                     let block_index = self.client.shard_client.chain.best_index() + 1;
-                    tokio::spawn(
+                    tokio_utils::spawn(
                         self.payload_request_tx
                             .clone()
                             .send((block_index, PayloadRequest::General(authority_id, request)))
@@ -652,7 +652,7 @@ impl ClientTask {
                         .map_err(
                             |_| error!(target: "mempool", "Fail sending control signal to nightshade"),
                         );
-                    tokio::spawn(send_confirmation);
+                    tokio_utils::spawn(send_confirmation);
                 }
             }
         }
@@ -694,7 +694,7 @@ impl ClientTask {
         for payload_gossip in
             pool.prepare_payload_gossip(self.client.shard_client.chain.best_index() + 1)
         {
-            tokio::spawn(
+            tokio_utils::spawn(
                 self.out_payload_gossip_tx
                     .clone()
                     .send(payload_gossip)
@@ -727,7 +727,7 @@ impl ClientTask {
         if owner_uid.is_some() {
             let beacon_sig = self.client.signer.bls_sign(beacon_hash.as_ref());
             let shard_sig = self.client.signer.bls_sign(shard_hash.as_ref());
-            tokio::spawn(
+            tokio_utils::spawn(
                 self.out_final_signatures_tx
                     .clone()
                     .send((
@@ -757,7 +757,7 @@ impl ClientTask {
             for (auth_id, auth_present) in beacon_block.signature.authority_mask.iter().enumerate()
             {
                 if !*auth_present {
-                    tokio::spawn(
+                    tokio_utils::spawn(
                             self.out_final_signatures_tx
                                 .clone()
                                 .send((beacon_block.index(), JointBlockBLS::Request {

@@ -5,7 +5,7 @@ edition = "2018"
 
 [dependencies]
 futures = "0.1.25"
-tokio = "0.1.11"
+tokio = "0.1"
 log = "0.4"
 
 client = { path = "../../node/client" }
@@ -16,6 +16,7 @@ node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
 storage = { path = "../../core/storage" }
+tokio-utils = { path = "../tokio-utils" }
 
 [dev-dependencies]
 alphanet = { path = "../alphanet" }

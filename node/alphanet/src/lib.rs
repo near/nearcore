@@ -8,23 +8,25 @@ use std::sync::Arc;
 use futures::sync::mpsc::channel;
 
 use client::Client;
-use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
+use configs::{ClientConfig, get_alphanet_configs, NetworkConfig, RPCConfig};
 use coroutines::client_task::ClientTask;
 use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
 use primitives::types::AccountId;
+use tokio_utils::ShutdownableThread;
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
-    start_from_configs(client_cfg, network_cfg, rpc_cfg);
+    let handle = start_from_configs(client_cfg, network_cfg, rpc_cfg);
+    handle.wait_sigint_and_shutdown();
 }
 
 pub fn start_from_configs(
     client_cfg: ClientConfig,
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
-) {
+) -> ShutdownableThread {
     let client = Arc::new(Client::new(&client_cfg));
     // Use empty pipeline to launch nodes on production.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
@@ -37,7 +39,7 @@ pub fn start_from_client(
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
-) {
+) -> ShutdownableThread {
     let node_task = futures::lazy(move || {
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
 
@@ -115,7 +117,7 @@ pub fn start_from_client(
         Ok(())
     });
 
-    tokio::run(node_task);
+    ShutdownableThread::start(node_task)
 }
 
 fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
@@ -139,6 +141,8 @@ mod tests {
     fn two_nodes() {
         let (test_prefix, test_port) = ("two_nodes", 7000);
         let chain_spec = configure_chain_spec();
+        let money_to_send = 10;
+        let init_balance = chain_spec.accounts[0].2;
         let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
@@ -178,8 +182,8 @@ mod tests {
         );
 
         // Check that transaction and it's receipt were included.
-        assert_eq!(alice.view_balance(&"alice.near".to_string()).unwrap(), 9999990);
-        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
+        assert_eq!(alice.view_balance(&"alice.near".to_string()).unwrap(), init_balance - money_to_send);
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), init_balance + money_to_send);
     }
 
     /// Creates three nodes, two are authorities, first authority node is ahead on blocks.
@@ -189,6 +193,8 @@ mod tests {
     fn test_three_nodes_sync() {
         let (test_prefix, test_port) = ("three_nodes_sync", 7010);
         let chain_spec = configure_chain_spec();
+        let money_to_send = 10;
+        let init_balance = chain_spec.accounts[0].2;
         let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
@@ -227,7 +233,7 @@ mod tests {
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.add_transaction(
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+            TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(alice.signer()),
         )
         .unwrap();
 
@@ -238,7 +244,7 @@ mod tests {
         wait(|| charlie.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(charlie.view_balance(&"bob.near".to_string()).unwrap(), 110);
+        assert_eq!(charlie.view_balance(&"bob.near".to_string()).unwrap(), init_balance + money_to_send);
     }
 
     /// Creates two nodes, first authority node is ahead on blocks.
@@ -248,6 +254,8 @@ mod tests {
     fn test_late_transaction() {
         let (test_prefix, test_port) = ("late_transaction", 7020);
         let chain_spec = configure_chain_spec();
+        let money_to_send = 10;
+        let init_balance = chain_spec.accounts[0].2;
         let mut alice = ThreadNode::new(NodeConfig::for_test(
             test_prefix,
             test_port,
@@ -276,7 +284,7 @@ mod tests {
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.add_transaction(
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+            TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(alice.signer()),
         )
         .unwrap();
 
@@ -286,7 +294,7 @@ mod tests {
         wait(|| alice.client.shard_client.chain.best_index() >= 4, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), init_balance + money_to_send);
     }
 
     /// Creates two authority nodes, run them for 10 blocks.
