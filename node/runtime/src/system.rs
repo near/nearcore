@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn test_swap_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
-        let signer2 = InMemorySigner::default();
+        let signer2 = InMemorySigner::from_random();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
         let (new_root, apply_results) = alice.create_account_with_key(
             root,
@@ -594,7 +594,7 @@ mod tests {
     fn test_add_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let signer2 = InMemorySigner::default();
+        let signer2 = InMemorySigner::from_random();
         let (new_root, _) = alice.add_key(root, signer2.public_key());
         assert_ne!(root, new_root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -625,7 +625,7 @@ mod tests {
     fn test_delete_key() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let signer2 = InMemorySigner::default();
+        let signer2 = InMemorySigner::from_random();
         let (new_root, _) = alice.add_key(root, signer2.public_key());
         let (new_root, _) = alice.delete_key(new_root, alice.signer.public_key());
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -641,7 +641,7 @@ mod tests {
     fn test_delete_key_not_owned() {
         let (runtime, trie, root) = get_runtime_and_trie();
         let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let signer2 = InMemorySigner::default();
+        let signer2 = InMemorySigner::from_random();
         let (new_root, _) = alice.delete_key(root, signer2.public_key());
         assert_ne!(new_root, root);
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);

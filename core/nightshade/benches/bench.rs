@@ -17,7 +17,7 @@ fn bs_encode(bench: &mut Bencher) {
 }
 
 fn sign(bench: &mut Bencher) {
-    let signer = InMemorySigner::default();
+    let signer = InMemorySigner::from_random();
     let bs = bare_state();
 
     bench.iter(|| signer.bls_sign(&bs.bs_encode()))
