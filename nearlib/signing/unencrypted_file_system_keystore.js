@@ -1,45 +1,45 @@
 const fs = require('fs');
 const keyDir = './neardev';
-const KeyPair = require('nearlib/signing/key_pair')
+const KeyPair = require('nearlib/signing/key_pair');
 const {promisify} = require('util');
 
 /**
  * Unencrypted file system key store.
  */
 class UnencryptedFileSystemKeyStore {
-    constructor(keyDir) {
+    constructor(keyDir, networkId) {
         this.keyDir = keyDir;
+        this.networkId = networkId;
     }
 
     /**
      * Set a key for an account with a given id on a given network.
      * @param {string} accountId 
      * @param {string} keypair 
-     * @param {string} networkId 
      */
-    async setKey(accountId, keypair, networkId) {
+    async setKey(accountId, keypair) {
         if (!await promisify(fs.exists)(keyDir)){
             await promisify(fs.mkdir)(keyDir);
         }
         const keyFileContent = {
             public_key: keypair.getPublicKey(),
             secret_key: keypair.getSecretKey(),
-            account_id: accountId
+            account_id: accountId,
+            netowrk_id: this.networkId
         };
-        await promisify(fs.writeFile)(this.getKeyFilePath(networkId, accountId), JSON.stringify(keyFileContent));
+        await promisify(fs.writeFile)(this.getKeyFilePath(accountId), JSON.stringify(keyFileContent));
     }
 
     /**
      * Get a single key for an account on a given network.
      * @param {string} accountId 
-     * @param {string} networkId 
      */
-    async getKey(accountId, networkId) {
+    async getKey(accountId) {
         // Find keys/account id
-        if (!await promisify(fs.exists)(this.getKeyFilePath(networkId, accountId))) {
+        if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
             throw 'Key lookup failed. Please make sure you set up an account.';
         }
-        const rawKey = await this.getRawKey(networkId, accountId);
+        const rawKey = await this.getRawKey(accountId);
         if (!rawKey.public_key || !rawKey.secret_key || !rawKey.account_id) {
             throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
         }
@@ -53,15 +53,15 @@ class UnencryptedFileSystemKeyStore {
     /**
      * Returns all account ids for a particular network.
      */
-    async getAccountIds(networkId) {
+    async getAccountIds() {
         if (!await promisify(fs.exists)(keyDir)) {
             return [];
         }
         const result = [];
         const dir = await promisify(fs.readdir)(keyDir);
         for (let i = 0; i < dir.length; i++) {
-            if (dir[i].startsWith(networkId + "_")) {
-                result.push(dir[i].substring(networkId.length + 1));
+            if (dir[i].startsWith(this.networkId + '_')) {
+                result.push(dir[i].substring(this.networkId.length + 1));
             }
         }
         return result;
@@ -73,14 +73,13 @@ class UnencryptedFileSystemKeyStore {
 
     /**
      * Returns the key file path. The convention is to store the keys in file {networkId}.json
-     * @param {string} networkId 
      */
-    getKeyFilePath(networkId, accountId) {
-        return keyDir + "/" + networkId + "_" + accountId;
+    getKeyFilePath(accountId) {
+        return keyDir + '/' + this.networkId + '_' + accountId;
     }
 
-    async getRawKey(networkId, accountId) {
-        return JSON.parse(await promisify(fs.readFile)(this.getKeyFilePath(networkId, accountId)));
+    async getRawKey(accountId) {
+        return JSON.parse(await promisify(fs.readFile)(this.getKeyFilePath(accountId)));
     }
 }
 
