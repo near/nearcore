@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -13,7 +14,7 @@ use std::time::Duration;
 use tokio::timer::Interval;
 
 use client::Client;
-use configs::NetworkConfig;
+use configs::{ClientConfig, NetworkConfig};
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
@@ -42,20 +43,21 @@ pub type SimplePackedMessage = (Arc<Message>, Sender<PeerMessage>);
 
 /// Package containing messages and channels to send results after going through proxy handlers.
 pub enum PackedMessage {
-    SingleMessage(Message, Sender<PeerMessage>),
-    BroadcastMessage(Message, Vec<Sender<PeerMessage>>),
+    SingleMessage(Box<Message>, Sender<PeerMessage>),
+    BroadcastMessage(Box<Message>, Vec<Sender<PeerMessage>>),
     MultipleMessages(Vec<Message>, Sender<PeerMessage>),
 }
 
 impl PackedMessage {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_stream(self) -> Box<Stream<Item = SimplePackedMessage, Error = ()> + Send + Sync> {
         match self {
             PackedMessage::SingleMessage(message, channel) => {
-                Box::new(stream::once(Ok((Arc::new(message), channel))))
+                Box::new(stream::once(Ok((Arc::new(*message), channel))))
             }
 
             PackedMessage::BroadcastMessage(message, channels) => {
-                let pnt_message = Arc::new(message);
+                let pnt_message = Arc::new(*message);
                 Box::new(stream::iter_ok(
                     channels.into_iter().map(move |c| (pnt_message.clone(), c)),
                 ))
@@ -109,7 +111,7 @@ struct Protocol {
     peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
-    inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>)>,
+    inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>, BlockIndex)>,
     payload_response_tx: Sender<PayloadResponse>,
     inc_final_signatures_tx: Sender<JointBlockBLS>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
@@ -160,7 +162,8 @@ impl Protocol {
                 forward_msg(self.inc_payload_gossip_tx.clone(), *gossip)
             }
             Message::BlockAnnounce(block) => {
-                forward_msg(self.inc_block_tx.clone(), (peer_id, vec![*block]));
+                let index = block.0.index();
+                forward_msg(self.inc_block_tx.clone(), (peer_id, vec![*block], index));
             }
             Message::BlockFetchRequest(request_id, from_index, til_index) => {
                 match self.client.fetch_blocks_range(from_index, til_index) {
@@ -171,7 +174,7 @@ impl Protocol {
                     }
                 }
             }
-            Message::BlockResponse(request_id, blocks) => {
+            Message::BlockResponse(request_id, blocks, best_index) => {
                 match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
                     Some(RequestType::Block(start, end)) => {
                         let from_index = blocks[0].0.index();
@@ -187,7 +190,7 @@ impl Protocol {
                     }
                 }
                 self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
-                forward_msg(self.inc_block_tx.clone(), (peer_id, blocks));
+                forward_msg(self.inc_block_tx.clone(), (peer_id, blocks, best_index));
             }
             Message::PayloadRequest(request_id, missing_payload_request) => {
                 if let Some(response) = self.client.fetch_payload(missing_payload_request) {
@@ -366,10 +369,12 @@ impl Protocol {
         peer_id: &PeerId,
         from_index: BlockIndex,
         til_index: BlockIndex,
+        max_request_num: u64,
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let request_id = self.update_requests(RequestType::Block(from_index, til_index));
-            let message = Message::BlockFetchRequest(request_id, from_index, til_index);
+            let end_index = min(from_index + max_request_num - 1, til_index);
+            let request_id = self.update_requests(RequestType::Block(from_index, end_index));
+            let message = Message::BlockFetchRequest(request_id, from_index, end_index);
             self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND BLK FTCH] Channel for peer_id={} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
@@ -383,7 +388,8 @@ impl Protocol {
         blocks: Vec<CoupledBlock>,
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let message = Message::BlockResponse(request_id, blocks);
+            let best_index = self.client.beacon_client.chain.best_index();
+            let message = Message::BlockResponse(request_id, blocks, best_index);
             self.send_single(message, ch);
         } else {
             debug!(target: "network", "[SND BLOCK RQ] Channel for {} not found, where account_id={:?}.", peer_id, self.peer_manager.node_info.account_id);
@@ -447,12 +453,12 @@ impl Protocol {
     }
 
     fn send_broadcast(&self, message: Message, channels: Vec<Sender<PeerMessage>>) {
-        let packed_message = PackedMessage::BroadcastMessage(message, channels);
+        let packed_message = PackedMessage::BroadcastMessage(Box::new(message), channels);
         self.send_message(packed_message);
     }
 
     fn send_single(&self, message: Message, channel: Sender<PeerMessage>) {
-        let packed_message = PackedMessage::SingleMessage(message, channel);
+        let packed_message = PackedMessage::SingleMessage(Box::new(message), channel);
         self.send_message(packed_message);
     }
 
@@ -535,9 +541,10 @@ pub fn spawn_network(
     client: Arc<Client>,
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
+    client_cfg: ClientConfig,
     inc_gossip_tx: Sender<Gossip>,
     out_gossip_rx: Receiver<Gossip>,
-    inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>)>,
+    inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>, BlockIndex)>,
     out_block_rx: Receiver<(Vec<PeerId>, CoupledBlock)>,
     payload_request_rx: Receiver<(BlockIndex, PayloadRequest)>,
     payload_response_tx: Sender<PayloadResponse>,
@@ -635,7 +642,12 @@ pub fn spawn_network(
     let task = {
         let protocol = protocol.clone();
         out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
-            protocol.send_block_fetch_request(&peer_id, from_index, til_index);
+            protocol.send_block_fetch_request(
+                &peer_id,
+                from_index,
+                til_index,
+                client_cfg.block_fetch_limit,
+            );
             future::ok(())
         })
     };

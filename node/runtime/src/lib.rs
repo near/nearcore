@@ -906,7 +906,9 @@ mod tests {
     use crate::test_utils::*;
 
     use super::*;
-    use configs::chain_spec::{AuthorityRotation, DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use configs::chain_spec::{
+        AuthorityRotation, DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+    };
     use configs::ChainSpec;
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration

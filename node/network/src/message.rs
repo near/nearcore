@@ -17,7 +17,7 @@ use primitives::hash::CryptoHash;
 use primitives::network::ConnectedInfo;
 use primitives::traits::Base58Encoded;
 use primitives::transaction::SignedTransaction;
-use primitives::types::AuthorityId;
+use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
 
 pub type RequestId = u64;
@@ -44,8 +44,8 @@ pub enum Message {
     BlockAnnounce(Box<CoupledBlock>),
     /// Fetch range of blocks by index.
     BlockFetchRequest(RequestId, u64, u64),
-    /// Response with list of blocks.
-    BlockResponse(RequestId, Vec<CoupledBlock>),
+    /// Response with list of blocks as well as the best chain index.
+    BlockResponse(RequestId, Vec<CoupledBlock>, BlockIndex),
 
     /// Nightshade gossip.
     Gossip(Box<Gossip>),
@@ -104,7 +104,9 @@ impl TryFrom<network_proto::Message> for Message {
                     })
                     .collect();
                 match blocks {
-                    Ok(blocks) => Ok(Message::BlockResponse(response.request_id, blocks)),
+                    Ok(blocks) => {
+                        Ok(Message::BlockResponse(response.request_id, blocks, response.best_index))
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -193,12 +195,11 @@ impl From<Message> for network_proto::Message {
                 };
                 network_proto::Message_oneof_message_type::block_fetch_request(request)
             }
-            Message::BlockResponse(request_id, blocks) => {
+            Message::BlockResponse(request_id, blocks, best_index) => {
                 let response = network_proto::Message_BlockResponse {
                     request_id,
-                    response: RepeatedField::from_iter(
-                        blocks.into_iter().map(to_coupled_block)
-                    ),
+                    response: RepeatedField::from_iter(blocks.into_iter().map(to_coupled_block)),
+                    best_index,
                     ..Default::default()
                 };
                 network_proto::Message_oneof_message_type::block_response(response)
@@ -289,10 +290,7 @@ impl From<Message> for network_proto::Message {
                 }
             },
         };
-        network_proto::Message {
-            message_type: Some(message_type),
-            ..Default::default()
-        }
+        network_proto::Message { message_type: Some(message_type), ..Default::default() }
     }
 }
 

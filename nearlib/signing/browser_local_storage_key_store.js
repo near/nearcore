@@ -9,14 +9,16 @@ const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
 class BrowserLocalStorageKeystore {
-    constructor() {}
+    constructor(networkId = 'unknown') {
+        this.networkId = networkId;
+    }
 
     static storageKeyForPublicKey(accountId) {
-        return accountId + LOCAL_STORAGE_PUBLIC_KEY_SUFFIX;
+        return accountId + '_' + this.networkId + LOCAL_STORAGE_PUBLIC_KEY_SUFFIX;
     }
 
     static storageKeyForSecretKey(accountId) {
-        return accountId + LOCAL_STORAGE_SECRET_KEY_SUFFIX;
+        return accountId + '_' + this.networkId + LOCAL_STORAGE_SECRET_KEY_SUFFIX;
     }
 
     /**

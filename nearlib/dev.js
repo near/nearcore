@@ -21,6 +21,7 @@ module.exports = {
      * @param {Object} options.nodeUrl specifies node url. accountId specifies account id. key_pair is the key pair for account
      * @param {boolean} options.useDevAccount specify to use development account to create accounts / deploy contracts. Should be used only on TestNet.
      * @param {string} options.accountId account ID to use.
+     * @param {string} options.networkId id associated with this network, for key management purposes.
      */
     connect: async function(options = {}) {
         // construct full options objects based on params, and fill in with defaults.
@@ -29,10 +30,12 @@ module.exports = {
             fullRuntimeOptions.accountId = devAccountName;
             fullRuntimeOptions.key = devKey;
         }
+        fullRuntimeOptions.networkId = fullRuntimeOptions.networkId || 'localhost';
         fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
-        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new nearlib.BrowserLocalStorageKeystore(),
+        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new nearlib.BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
         fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
         this.deps = fullRuntimeOptions.deps;
+        this.options = fullRuntimeOptions;
         const nearClient = new nearlib.NearClient(
             new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(fullRuntimeOptions.nodeUrl));
         this.near = new nearlib.Near(nearClient);

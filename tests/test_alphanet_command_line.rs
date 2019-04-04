@@ -7,10 +7,9 @@ use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
 use std::sync::Arc;
-use testlib::alphanet_utils::sample_two_nodes;
-use testlib::alphanet_utils::wait;
 use testlib::alphanet_utils::{
-    create_nodes, sample_queryable_node, wait_for_catchup, Node, NodeType,
+    create_nodes, sample_queryable_node, sample_two_nodes, wait, wait_for_catchup, Node, NodeType,
+    TEST_BLOCK_FETCH_LIMIT,
 };
 use testlib::test_locks::heavy_test;
 
@@ -50,7 +49,7 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     let crash1 = 2;
     let crash2 = 3;
     let (init_balance, account_names, mut nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);
+        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
     for i in 0..num_nodes {
         nodes[i].node_type =
             if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
@@ -106,7 +105,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
     let (init_balance, account_names, mut nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, vec![]);
+        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, vec![]);
     for i in 0..num_nodes {
         nodes[i].node_type =
             if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
@@ -163,7 +162,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
 
 #[test]
 fn test_4_20_kill1() {
-    heavy_test(|| test_kill_1(4, 10, "4_10_kill1", 3300));
+    heavy_test(|| test_kill_1(4, 10, "4_10_kill1", 3200));
 }
 
 #[test]

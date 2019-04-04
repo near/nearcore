@@ -30,7 +30,7 @@ use shard::ShardBlockExtraInfo;
 pub struct ClientTask {
     client: Arc<Client>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
-    incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>)>,
+    incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>, BlockIndex)>,
     /// Outgoing blocks produced by this peer that can be imported by other peers.
     out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
     /// Consensus created by the current instance of Nightshade or pass-through consensus.
@@ -79,6 +79,7 @@ impl Stream for ClientTask {
     type Item = ();
     type Error = ();
 
+    #[allow(clippy::cyclomatic_complexity)]
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let mut new_block_index = None;
         let mut block_production_ended = false;
@@ -133,9 +134,19 @@ impl Stream for ClientTask {
             }
 
             match self.incoming_block_rx.poll() {
-                Ok(Async::Ready(Some((peer_id, blocks)))) => {
-                    if let ind @ Some(_) = self.try_import_blocks(peer_id, blocks) {
-                        new_block_index = ind;
+                Ok(Async::Ready(Some((peer_id, blocks, best_index)))) => {
+                    if let Some(index) = self.try_import_blocks(peer_id, blocks) {
+                        if index < best_index {
+                            tokio_utils::spawn(
+                                self.out_block_fetch_tx
+                                    .clone()
+                                    .send((peer_id, self.client.beacon_client.chain.best_index() + 1, best_index))
+                                    .map(|_| ())
+                                    .map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
+                            );
+                            continue;
+                        }
+                        new_block_index = Some(index);
                     }
                     continue;
                 }
@@ -295,7 +306,11 @@ impl Stream for ClientTask {
 impl ClientTask {
     pub fn new(
         client: Arc<Client>,
-        incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>)>,
+        incoming_block_rx: Receiver<(
+            PeerId,
+            Vec<(SignedBeaconBlock, SignedShardBlock)>,
+            BlockIndex,
+        )>,
         out_block_tx: Sender<(Vec<PeerId>, (SignedBeaconBlock, SignedShardBlock))>,
         consensus_rx: Receiver<ConsensusBlockProposal>,
         control_tx: Sender<Control>,
