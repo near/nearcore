@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::future::Future;
 use futures::sink::Sink;
@@ -66,7 +66,7 @@ pub struct ClientTask {
     /// Channel into which we gossip payloads.
     out_payload_gossip_tx: Sender<PayloadGossip>,
     /// Interval at which we gossip payloads.
-    payload_gossip_interval: Interval,
+    payload_gossip_interval: tokio::timer::Interval,
 
     /// Last block index per peer. Might not be the real block index the peer is it, in the cases:
     /// The value is underestimated if when the remote node managed to progress several blocks
@@ -196,6 +196,8 @@ impl Stream for ClientTask {
 
             match self.payload_gossip_interval.poll() {
                 Ok(Async::Ready(Some(_))) => {
+                    warn!(target: "client", "INTERVAL TRIGGERED");
+
                     self.gossip_payload();
                     continue;
                 }

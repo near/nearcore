@@ -20,6 +20,8 @@ use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 pub mod payload_gossip;
 use payload_gossip::PayloadGossip;
+use std::time::Instant;
+use std::thread;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -335,6 +337,7 @@ impl Pool {
         if self.authority_id.read().expect(POISONED_LOCK_ERR).is_none() {
             return vec![];
         }
+        let start = Instant::now();
         let mut result = vec![];
         let authority_id = self.authority_id.read().expect(POISONED_LOCK_ERR).unwrap();
         for their_authority_id in
@@ -344,14 +347,17 @@ impl Pool {
                 continue;
             }
             let mut tx_to_send = vec![];
-            for tx in self
+            let copy: Vec<_> = self
                 .transactions
                 .read()
                 .expect(POISONED_LOCK_ERR)
                 .values()
                 .flat_map(BTreeMap::values)
+                .map(|x| x.clone())
+                .collect();
+            let mut locked_known_to = self.known_to.write().expect(POISONED_LOCK_ERR);
+            for tx in copy
             {
-                let mut locked_known_to = self.known_to.write().expect(POISONED_LOCK_ERR);
                 match locked_known_to.get_mut(&tx.get_hash()) {
                     Some(known_to) => {
                         if !known_to.contains(&their_authority_id) {
@@ -396,6 +402,14 @@ impl Pool {
                 payload,
                 self.signer.clone(),
             ));
+        }
+        let time = (Instant::now() - start).as_millis();
+        if time > 10 {
+            info!(target: "mempool", "PREPARE PAYLOAD GOSSIP returned {} elements in {}ms in {:?}: {:?}",
+                  result.len(),
+                  time,
+                  thread::current().id(),
+                  thread::current().name());
         }
         result
     }
