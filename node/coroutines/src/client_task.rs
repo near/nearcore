@@ -79,6 +79,7 @@ impl Stream for ClientTask {
     type Item = ();
     type Error = ();
 
+    #[allow(clippy::cyclomatic_complexity)]
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let mut new_block_index = None;
         let mut block_production_ended = false;

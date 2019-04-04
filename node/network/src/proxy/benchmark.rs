@@ -64,6 +64,8 @@ fn message_enum_id(index: usize) -> String {
 }
 
 impl BenchmarkHandler {
+    #[allow(clippy::new_without_default)]
+    // Note: this is not default
     pub fn new() -> Self {
         Self {
             started: Arc::new(RwLock::new(false)),

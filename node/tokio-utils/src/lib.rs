@@ -1,4 +1,5 @@
 use futures::future::IntoFuture;
+use futures::stream::Stream;
 use log::error;
 use std::thread::JoinHandle;
 use std::{panic, thread};
@@ -6,7 +7,6 @@ use tokio::prelude::Future;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio_signal::unix::Signal;
-use futures::stream::Stream;
 
 struct InitializedState {
     thread: JoinHandle<()>,
@@ -29,7 +29,7 @@ impl ShutdownableThread {
             let _ignored = runtime.block_on(shutdown_rx.map_err(drop).into_future());
             // TODO HACK: after shutdown all tokio::spawn calls will panic.
             // for now assume all code with tokio::spawn is exception safe
-//            panic::set_hook(Box::new(|_info| {}));
+            //            panic::set_hook(Box::new(|_info| {}));
             let _ignored = runtime.shutdown_now().wait();
         });
         let state = Some(InitializedState { thread, shutdown_tx });
@@ -38,14 +38,14 @@ impl ShutdownableThread {
 
     pub fn shutdown(mut self) {
         if let Some(InitializedState { thread, shutdown_tx }) = self.state.take() {
-            let _ = shutdown_tx.send(()).map_err(|_| error!("Error sending shutdown signal"));
-            let _ = thread.join().expect("Error joining child thread");
+            shutdown_tx.send(()).map_err(|_| error!("Error sending shutdown signal")).unwrap();
+            thread.join().expect("Error joining child thread");
         }
     }
 
     pub fn join(mut self) {
-        if let Some(InitializedState { thread, shutdown_tx: _ }) = self.state.take() {
-            let _ = thread.join().expect("Error joining child thread");
+        if let Some(InitializedState { thread, .. }) = self.state.take() {
+            thread.join().expect("Error joining child thread");
         }
     }
 

@@ -43,20 +43,21 @@ pub type SimplePackedMessage = (Arc<Message>, Sender<PeerMessage>);
 
 /// Package containing messages and channels to send results after going through proxy handlers.
 pub enum PackedMessage {
-    SingleMessage(Message, Sender<PeerMessage>),
-    BroadcastMessage(Message, Vec<Sender<PeerMessage>>),
+    SingleMessage(Box<Message>, Sender<PeerMessage>),
+    BroadcastMessage(Box<Message>, Vec<Sender<PeerMessage>>),
     MultipleMessages(Vec<Message>, Sender<PeerMessage>),
 }
 
 impl PackedMessage {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_stream(self) -> Box<Stream<Item = SimplePackedMessage, Error = ()> + Send + Sync> {
         match self {
             PackedMessage::SingleMessage(message, channel) => {
-                Box::new(stream::once(Ok((Arc::new(message), channel))))
+                Box::new(stream::once(Ok((Arc::new(*message), channel))))
             }
 
             PackedMessage::BroadcastMessage(message, channels) => {
-                let pnt_message = Arc::new(message);
+                let pnt_message = Arc::new(*message);
                 Box::new(stream::iter_ok(
                     channels.into_iter().map(move |c| (pnt_message.clone(), c)),
                 ))
@@ -455,12 +456,12 @@ impl Protocol {
     }
 
     fn send_broadcast(&self, message: Message, channels: Vec<Sender<PeerMessage>>) {
-        let packed_message = PackedMessage::BroadcastMessage(message, channels);
+        let packed_message = PackedMessage::BroadcastMessage(Box::new(message), channels);
         self.send_message(packed_message);
     }
 
     fn send_single(&self, message: Message, channel: Sender<PeerMessage>) {
-        let packed_message = PackedMessage::SingleMessage(message, channel);
+        let packed_message = PackedMessage::SingleMessage(Box::new(message), channel);
         self.send_message(packed_message);
     }
 
