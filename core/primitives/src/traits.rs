@@ -1,17 +1,16 @@
-/// FromBytes is like TryFrom<Vec<u8>>
-pub trait FromBytes: Sized {
-    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Box<std::error::Error>>;
-}
+use std::convert::TryFrom;
 
 /// ToBytes is like Into<Vec<u8>>, but doesn't consume self
 pub trait ToBytes: Sized {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
-pub trait Base58Encoded: FromBytes + ToBytes {
+pub trait Base58Encoded:
+    for<'a> TryFrom<&'a [u8], Error = Box<std::error::Error>> + ToBytes
+{
     fn from_base58(s: &String) -> Result<Self, Box<std::error::Error>> {
         let bytes = bs58::decode(s).into_vec()?;
-        Self::from_bytes(&bytes)
+        Self::try_from(&bytes)
     }
 
     fn to_base58(&self) -> String {

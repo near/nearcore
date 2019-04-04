@@ -23,16 +23,14 @@ impl TryFrom<nightshade_proto::PayloadGossip> for PayloadGossip {
     type Error = String;
 
     fn try_from(proto: nightshade_proto::PayloadGossip) -> Result<Self, Self::Error> {
-        match proto_to_type(proto.payload) {
-            Ok(payload) => Ok(PayloadGossip {
-                sender_id: proto.sender_id as AuthorityId,
-                receiver_id: proto.receiver_id as AuthorityId,
-                payload,
-                block_index: proto.block_index,
-                signature: Signature::from(&proto.signature),
-            }),
-            Err(e) => Err(e),
-        }
+        let payload = proto_to_type(proto.payload)?;
+        Ok(PayloadGossip {
+            sender_id: proto.sender_id as AuthorityId,
+            receiver_id: proto.receiver_id as AuthorityId,
+            payload,
+            block_index: proto.block_index,
+            signature: Signature::try_from(proto.signature.as_str())?,
+        })
     }
 }
 

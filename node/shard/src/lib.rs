@@ -266,6 +266,7 @@ impl ShardClient {
                         hash: *r,
                         lines: receipt_result.logs.clone(),
                         receipts: receipt_result.receipts.clone(),
+                        result: receipt_result.result.clone(),
                     });
                     match self.collect_transaction_final_result(&receipt_result, logs) {
                         FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
@@ -286,6 +287,7 @@ impl ShardClient {
                 hash: *hash,
                 lines: transaction_result.logs.clone(),
                 receipts: transaction_result.receipts.clone(),
+                result: transaction_result.result.clone(),
             }],
         };
         result.status =
@@ -322,7 +324,7 @@ mod tests {
     use rand::prelude::SliceRandom;
     use rand::thread_rng;
 
-    use node_runtime::test_utils::generate_test_chain_spec;
+    use configs::chain_spec::{AuthorityRotation, DefaultIdType};
     use primitives::signer::{InMemorySigner, TransactionSigner};
     use primitives::transaction::{
         FinalTransactionStatus, SignedTransaction, TransactionAddress,
@@ -334,7 +336,7 @@ mod tests {
     use super::*;
 
     fn get_test_client() -> (ShardClient, Vec<Arc<InMemorySigner>>) {
-        let (chain_spec, signers) = generate_test_chain_spec();
+        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 2, 1, AuthorityRotation::ProofOfAuthority);
         let shard_storage = create_beacon_shard_storages().1;
         let shard_client = ShardClient::new(Some(signers[0].clone()), &chain_spec, shard_storage);
         (shard_client, signers)
@@ -504,17 +506,17 @@ mod tests {
         client.add_blocks("alice.near", "bob.near", signers[0].clone(), 5);
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
         let tx = create_transaction("alice.near", "bob.near", &*signers[0], 2);
-        client.pool.add_transaction(tx).unwrap();
-        assert!(client.pool.is_empty());
+        client.pool.clone().unwrap().add_transaction(tx).unwrap();
+        assert!(client.pool.clone().unwrap().is_empty());
         let tx = create_transaction("alice.near", "bob.near", &*signers[0], 6);
-        client.pool.add_transaction(tx).unwrap();
-        assert_eq!(client.pool.len(), 1);
+        client.pool.clone().unwrap().add_transaction(tx).unwrap();
+        assert_eq!(client.pool.clone().unwrap().len(), 1);
         let tx = create_transaction("bob.near", "alice.near", &*signers[1], 1);
-        client.pool.add_transaction(tx).unwrap();
-        assert_eq!(client.pool.len(), 1);
+        client.pool.clone().unwrap().add_transaction(tx).unwrap();
+        assert_eq!(client.pool.clone().unwrap().len(), 1);
         let tx = create_transaction("bob.near", "alice.near", &*signers[1], 2);
-        client.pool.add_transaction(tx).unwrap();
-        assert_eq!(client.pool.len(), 2);
+        client.pool.clone().unwrap().add_transaction(tx).unwrap();
+        assert_eq!(client.pool.clone().unwrap().len(), 2);
     }
 
     #[test]
@@ -527,10 +529,10 @@ mod tests {
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
-            client.pool.add_transaction(tx).unwrap();
+            client.pool.clone().unwrap().add_transaction(tx).unwrap();
         }
-        let snapshot_hash = client.pool.snapshot_payload();
-        let payload = client.pool.pop_payload_snapshot(&snapshot_hash).unwrap();
+        let snapshot_hash = client.pool.clone().unwrap().snapshot_payload();
+        let payload = client.pool.clone().unwrap().pop_payload_snapshot(&snapshot_hash).unwrap();
         let nonces: Vec<u64> = payload.transactions.iter().map(|tx| tx.body.get_nonce()).collect();
         assert_eq!(nonces, (1..11).collect::<Vec<u64>>())
     }

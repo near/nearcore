@@ -28,13 +28,13 @@ impl BeaconClient {
 mod tests {
     use chain::BlockChain;
     use chain::test_utils::get_blockchain_storage;
-    use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
     use primitives::signer::{BlockSigner, InMemorySigner};
     use primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
+    use configs::chain_spec::{AuthorityRotation, DefaultIdType};
 
     use super::*;
 
@@ -42,7 +42,7 @@ mod tests {
         let storage = create_beacon_shard_storages().0;
         let genesis =
             SignedBeaconBlock::new(0, CryptoHash::default(), vec![], CryptoHash::default());
-        let (chain_spec, _) = generate_test_chain_spec();
+        let chain_spec = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1}).0;
         let beacon_client = BeaconClient::new(genesis.clone(), &chain_spec, storage);
         (beacon_client, genesis)
     }
@@ -69,7 +69,7 @@ mod tests {
         let (bc, genesis) = get_beacon_client();
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
-        let signer = Arc::new(InMemorySigner::default());
+        let signer = Arc::new(InMemorySigner::from_random());
         let sig = signer.bls_sign(&block1);
         block1.add_signature(&sig, 0);
         bc.chain.insert_block(block1.clone());

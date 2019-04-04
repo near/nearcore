@@ -3,7 +3,8 @@
 
 use clap::{App, Arg};
 use std::path::PathBuf;
-use testlib::alphanet_utils::generate_poa_test_chain_spec;
+use configs::ChainSpec;
+use configs::chain_spec::{AuthorityRotation, DefaultIdType};
 
 fn main() {
     let chain_spec_path_arg = &Arg::with_name("chain_spec_file")
@@ -29,12 +30,8 @@ fn main() {
 
 
     let chain_spec_file = matches.value_of("chain_spec_file").map(PathBuf::from).unwrap();
-    let num_accounts = matches.value_of("number_of_accounts").map(|x| x.parse::<u64>().unwrap()).unwrap();
-
-    let mut acc_names = vec![];
-    for i in 0..num_accounts {
-        acc_names.push(format!("near.{}", i));
-    }
-    let chain_spec = generate_poa_test_chain_spec(&acc_names, 1_000_000_000);
+    let num_accounts = matches.value_of("number_of_accounts").map(|x| x.parse::<usize>().unwrap()).unwrap();
+    let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Enumerated, num_accounts, num_accounts,
+                                                  AuthorityRotation::ProofOfAuthority);
     chain_spec.write_to_file(&chain_spec_file);
 }

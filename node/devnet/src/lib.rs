@@ -15,6 +15,7 @@ use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
 use primitives::signer::InMemorySigner;
 use primitives::types::BlockId;
+use tokio_utils::ShutdownableThread;
 
 /// Re-applies blocks from the start into new client.
 fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path: &str) {
@@ -40,10 +41,15 @@ fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path
 
 pub fn start() {
     let (client_cfg, devnet_cfg, rpc_cfg) = get_devnet_configs();
-    start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
+    let handle = start_from_configs(client_cfg, devnet_cfg, rpc_cfg);
+    handle.wait_sigint_and_shutdown();
 }
 
-pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
+pub fn start_from_configs(
+    client_cfg: ClientConfig,
+    devnet_cfg: DevNetConfig,
+    rpc_cfg: RPCConfig,
+) -> ShutdownableThread {
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
     let client = Arc::new(Client::new(&client_cfg, Some(signer)));
     if devnet_cfg.replay_storage.is_some() {
@@ -53,10 +59,14 @@ pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rp
             &devnet_cfg.replay_storage.clone().expect("Just checked"),
         );
     }
-    start_from_client(client, devnet_cfg, rpc_cfg);
+    start_from_client(client, devnet_cfg, rpc_cfg)
 }
 
-pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
+pub fn start_from_client(
+    client: Arc<Client>,
+    devnet_cfg: DevNetConfig,
+    rpc_cfg: RPCConfig,
+) -> ShutdownableThread {
     let node_task = future::lazy(move || {
         spawn_rpc_server_task(client.clone(), &rpc_cfg);
 
@@ -105,7 +115,7 @@ pub fn start_from_client(client: Arc<Client>, devnet_cfg: DevNetConfig, rpc_cfg:
         Ok(())
     });
 
-    tokio::run(node_task);
+    ShutdownableThread::start(node_task)
 }
 
 fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
@@ -137,25 +147,31 @@ mod tests {
             std::fs::remove_dir_all(base_path.clone()).unwrap();
         }
 
-        let mut client_cfg = configs::ClientConfig::default();
+        let mut client_cfg = configs::ClientConfig::default_devnet();
         client_cfg.base_path = base_path;
         client_cfg.log_level = log::LevelFilter::Info;
         let devnet_cfg =
             configs::DevNetConfig { block_period: Duration::from_millis(5), replay_storage: None };
+
+        let init_balance = client_cfg.chain_spec.accounts[0].2;
+        let money_to_send = 10;
+
         let rpc_cfg = configs::RPCConfig::default();
 
         let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
         let client = Arc::new(Client::new(&client_cfg, Some(signer.clone())));
         let client1 = client.clone();
         thread::spawn(|| {
-            start_from_client(client1, devnet_cfg, rpc_cfg);
+            start_from_client(client1, devnet_cfg, rpc_cfg).join();
         });
 
         client
             .shard_client
             .pool
+            .clone()
+            .unwrap()
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&*signer),
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(&*signer),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
@@ -169,7 +185,7 @@ mod tests {
                 .view_account(&mut state_update, &"alice.near".to_string())
                 .unwrap()
                 .amount,
-            9999990
+            init_balance - money_to_send
         );
         assert_eq!(
             client
@@ -178,8 +194,8 @@ mod tests {
                 .view_account(&mut state_update, &"bob.near".to_string())
                 .unwrap()
                 .amount,
-            110
+            init_balance + money_to_send
         );
-        assert!(client.shard_client.pool.is_empty());
+        assert!(client.shard_client.pool.clone().unwrap().is_empty());
     }
 }

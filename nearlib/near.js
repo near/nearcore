@@ -8,8 +8,8 @@ const {
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction
 } = require('./protos');
 
-const MAX_STATUS_POLL_ATTEMPTS = 5;
-const STATUS_POLL_PERIOD_MS = 1000;
+const MAX_STATUS_POLL_ATTEMPTS = 10;
+const STATUS_POLL_PERIOD_MS = 2000;
 
 /**
  * Javascript library for interacting with near.
@@ -201,6 +201,18 @@ class Near {
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
+                for (j = result.logs.length - 1; j >= 0; --j) {
+                    let r = result.logs[j];
+                    if (r.result && r.result.length > 0) {
+                        result.lastResultUnparsed = r.result;
+                        try {
+                            result.lastResult = JSON.parse(Buffer.from(r.result).toString());
+                        } catch (e) {
+                            // can't parse
+                        }
+                        break;
+                    }
+                }
                 return result;
             }
             if (result.status == 'Failed') {

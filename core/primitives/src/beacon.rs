@@ -8,12 +8,10 @@ use protobuf::{RepeatedField, SingularPtrField};
 use near_protos::chain as chain_proto;
 
 use super::block_traits::{SignedBlock, SignedHeader};
-use super::hash::{hash_struct, CryptoHash};
+use super::hash::{CryptoHash, hash_struct};
 use super::signer::Signable;
 use super::types::{AuthorityStake, GroupSignature, PartialSignature};
 use super::utils::{proto_to_result, proto_to_type};
-
-const PROTO_ERROR: &str = "Bad Proto";
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -31,17 +29,15 @@ impl TryFrom<chain_proto::BeaconBlockHeader> for BeaconBlockHeader {
     type Error = String;
 
     fn try_from(proto: chain_proto::BeaconBlockHeader) -> Result<Self, Self::Error> {
-        let parent_hash = proto.parent_hash.into();
+        let parent_hash = proto.parent_hash.try_into()?;
         let index = proto.index;
-        let shard_block_hash = proto.shard_block_hash.into();
-        let authority_proposal: Result<Vec<_>, _> =
-            proto.authority_proposal.into_iter().map(TryInto::try_into).collect();
-        authority_proposal.map(|proposal| BeaconBlockHeader {
-            parent_hash,
-            index,
-            authority_proposal: proposal,
-            shard_block_hash,
-        })
+        let shard_block_hash = proto.shard_block_hash.try_into()?;
+        let authority_proposal = proto
+            .authority_proposal
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(BeaconBlockHeader { parent_hash, index, authority_proposal, shard_block_hash })
     }
 }
 
@@ -70,11 +66,10 @@ impl TryFrom<chain_proto::SignedBeaconBlockHeader> for SignedBeaconBlockHeader {
     type Error = String;
 
     fn try_from(proto: chain_proto::SignedBeaconBlockHeader) -> Result<Self, Self::Error> {
-        let hash = proto.hash.into();
-        match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
-            (Ok(body), Ok(signature)) => Ok(SignedBeaconBlockHeader { body, hash, signature }),
-            _ => Err(PROTO_ERROR.to_string()),
-        }
+        let hash = proto.hash.try_into()?;
+        let body = proto_to_type(proto.body)?;
+        let signature = proto_to_type(proto.signature)?;
+        Ok(SignedBeaconBlockHeader { body, hash, signature })
     }
 }
 
@@ -124,12 +119,10 @@ impl TryFrom<chain_proto::SignedBeaconBlock> for SignedBeaconBlock {
     type Error = String;
 
     fn try_from(proto: chain_proto::SignedBeaconBlock) -> Result<Self, Self::Error> {
-        match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
-            (Ok(body), Ok(signature)) => {
-                Ok(SignedBeaconBlock { body, hash: proto.hash.into(), signature })
-            }
-            _ => Err(PROTO_ERROR.to_string()),
-        }
+        let body = proto_to_type(proto.body)?;
+        let signature = proto_to_type(proto.signature)?;
+        let hash = proto.hash.try_into()?;
+        Ok(SignedBeaconBlock { body, hash, signature })
     }
 }
 

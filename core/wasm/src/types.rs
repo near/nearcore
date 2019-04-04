@@ -193,6 +193,15 @@ pub enum ReturnData {
     None,
 }
 
+impl ReturnData {
+    pub fn to_result(&self) -> Option<Vec<u8>> {
+        match self {
+            ReturnData::Value(v) => Some(v.clone()),
+            _ => Some(vec![]),
+        }
+    }
+}
+
 impl fmt::Debug for ReturnData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

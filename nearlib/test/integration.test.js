@@ -213,7 +213,8 @@ describe('with deployed contract', () => {
             'setValue', // this is the function defined in hello.wasm file that we are calling
             { value: setCallValue });
         expect(scheduleResult.hash).not.toBeFalsy();
-        await nearjs.waitForTransactionResult(scheduleResult);
+        const result = await nearjs.waitForTransactionResult(scheduleResult);
+        expect(result.lastResult).toEqual(setCallValue);
         const getValueResult = await nearjs.callViewFunction(
             contractName,
             'getValue', // this is the function defined in hello.wasm file that we are calling

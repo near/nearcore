@@ -4,6 +4,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 pub use kvdb::DBValue;
 use primitives::hash::{hash, CryptoHash};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -75,7 +76,7 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
         if bitmap & pos != 0 {
             let mut arr = vec![0; 32];
             cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::new(&arr));
+            *child = Some(CryptoHash::try_from(arr).unwrap());
         }
         pos <<= 1;
     }
@@ -155,7 +156,7 @@ impl RawTrieNode {
                 cursor.read_exact(&mut key)?;
                 let mut child = vec![0; 32];
                 cursor.read_exact(&mut child)?;
-                Ok(RawTrieNode::Extension(key, CryptoHash::new(&child)))
+                Ok(RawTrieNode::Extension(key, CryptoHash::try_from(child).unwrap()))
             }
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
         }

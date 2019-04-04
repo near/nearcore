@@ -9,6 +9,7 @@ use testlib::alphanet_utils::wait;
 use network::proxy::ProxyHandler;
 use std::sync::Arc;
 use network::proxy::benchmark::BenchmarkHandler;
+use testlib::test_locks::heavy_test;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.
@@ -55,11 +56,12 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
 
 #[test]
 fn test_4_10_multiple_nodes() {
-    run_multiple_nodes(4, 10, "4_10", 3200);
+    heavy_test(|| run_multiple_nodes(4, 10, "4_10", 3200));
 }
 
-// TODO(#718)
-//#[test]
-//fn test_7_10_multiple_nodes() {
-//    run_multiple_nodes(7, 10, "7_10", 3300);
-//}
+// TODO: #817
+#[test]
+#[ignore]
+fn test_7_10_multiple_nodes() {
+    heavy_test(|| run_multiple_nodes(7, 10, "7_10", 3300));
+}

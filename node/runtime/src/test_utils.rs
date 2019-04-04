@@ -6,7 +6,7 @@ use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{hash, CryptoHash};
 use primitives::signature::PublicKey;
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::signer::{InMemorySigner, TransactionSigner};
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
@@ -19,6 +19,7 @@ use storage::{Trie, TrieUpdate};
 use crate::state_viewer::TrieViewer;
 
 use super::{callback_id_to_bytes, set, ApplyResult, ApplyState, Runtime};
+use configs::chain_spec::DefaultIdType;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -33,23 +34,6 @@ pub fn eve_account() -> AccountId {
 pub fn default_code_hash() -> CryptoHash {
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
     hash(genesis_wasm)
-}
-
-pub fn generate_test_chain_spec() -> (ChainSpec, Vec<Arc<InMemorySigner>>) {
-    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let alice_signer = InMemorySigner::from_seed("alice.near", "alice.near");
-    let bob_signer = InMemorySigner::from_seed("bob.near", "bob.near");
-    let system_signer = InMemorySigner::from_seed("system", "system");
-    (ChainSpec {
-        accounts: vec![
-            ("alice.near".to_string(), alice_signer.public_key().to_readable(), 100, 10),
-            ("bob.near".to_string(), bob_signer.public_key().to_readable(), 0, 10),
-            ("system".to_string(), system_signer.public_key().to_readable(), 0, 0),
-        ],
-        initial_authorities: vec![("alice.near".to_string(), alice_signer.public_key().to_readable(), alice_signer.bls_public_key().to_readable(), 50)],
-        genesis_wasm,
-        authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
-    }, vec![Arc::new(alice_signer), Arc::new(bob_signer)])
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(
@@ -69,7 +53,7 @@ pub fn get_runtime_and_trie_from_chain_spec(
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let (chain_spec, _) = generate_test_chain_spec();
+    let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
     get_runtime_and_trie_from_chain_spec(&chain_spec)
 }
 

@@ -1,32 +1,40 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
+use futures::{stream, stream::Stream};
 use futures::future;
+use futures::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
-use futures::Future;
-use futures::{stream, stream::Stream};
 use log::{debug, error, info, warn};
+use tokio::timer::Interval;
 
 use client::Client;
+use configs::network::ProxyHandlerType;
 use configs::NetworkConfig;
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade_task::Gossip;
+use primitives::block_traits::SignedBlock;
 use primitives::chain::{
     ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
 use primitives::consensus::JointBlockBLS;
+use primitives::hash::CryptoHash;
 use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
 use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
-use crate::message::{decode_message, encode_message, CoupledBlock, Message, RequestId};
+use crate::message::{CoupledBlock, decode_message, encode_message, Message, RequestId};
 use crate::peer::ChainStateRetriever;
 use crate::peer_manager::PeerManager;
+use crate::proxy::{Proxy, ProxyHandler};
 use crate::proxy::debug::DebugHandler;
 use crate::proxy::dropout::DropoutHandler;
-use crate::proxy::{Proxy, ProxyHandler};
-use configs::network::ProxyHandlerType;
+
+// Default ban period for malicious peers.
+pub(crate) const PEER_BAN_PERIOD: Duration = Duration::from_secs(3600);
 
 /// Tuple containing one single message (pointer) and one channel to send the message through.
 /// Used for Proxy, they implement a stream of `SimplePackedMessage`.
@@ -60,6 +68,11 @@ impl PackedMessage {
     }
 }
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+/// Time interval between printing connected peers.
+const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
+
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
     client: Arc<Client>,
@@ -81,6 +94,15 @@ impl ChainStateRetriever for ClientChainStateRetriever {
     }
 }
 
+enum RequestType {
+    /// Start and end index
+    Block(u64, u64),
+    /// Hash of the snapshot from which we request payload.
+    Payload(CryptoHash),
+    /// Hash of snapshot we request
+    PayloadSnapshot(CryptoHash),
+}
+
 /// Protocol responsible for actual message processing from network and sending messages.
 struct Protocol {
     client: Arc<Client>,
@@ -91,10 +113,22 @@ struct Protocol {
     payload_response_tx: Sender<PayloadResponse>,
     inc_final_signatures_tx: Sender<JointBlockBLS>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
+    requests: RwLock<HashMap<RequestId, RequestType>>,
+    next_request_id: RwLock<u64>,
     proxy_messages_tx: Sender<PackedMessage>,
 }
 
 impl Protocol {
+    fn update_requests(&self, request: RequestType) -> RequestId {
+        let mut request_id_guard = self.next_request_id.write().expect(POISONED_LOCK_ERR);
+        let mut guard = self.requests.write().expect(POISONED_LOCK_ERR);
+        let next_request_id = *request_id_guard + 1;
+        *request_id_guard += 1;
+        guard.insert(next_request_id, request);
+        next_request_id
+    }
+
+    #[allow(clippy::cyclomatic_complexity)]
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
         let message = match decode_message(&data) {
             Ok(m) => m,
@@ -106,8 +140,8 @@ impl Protocol {
         match message {
             Message::Connected(connected_info) => {
                 info!(
-                    "Peer {} connected to {} with {:?}",
-                    peer_id, self.peer_manager.node_info.id, connected_info
+                    "[{:?}] Peer {} connected to {} with {:?}",
+                    self.client.account_id(), peer_id, self.peer_manager.node_info.id, connected_info
                 );
                 self.on_new_peer(peer_id, connected_info);
             }
@@ -151,9 +185,6 @@ impl Protocol {
                     }
                 }
             }
-            Message::BlockResponse(_request_id, blocks) => {
-                forward_msg(self.inc_block_tx.clone(), (peer_id, blocks));
-            }
             Message::PayloadRequest(request_id, missing_payload_request) => {
                 match self.client.fetch_payload(missing_payload_request) {
                     Ok(response) => self.send_payload_response(&peer_id, request_id, response),
@@ -163,20 +194,34 @@ impl Protocol {
                     }
                 }
             }
+            Message::BlockResponse(request_id, blocks) => {
+                match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
+                    Some(RequestType::Block(start, end)) => {
+                        let from_index = blocks[0].0.index();
+                        let til_index = blocks[blocks.len() - 1].0.index();
+                        if *start != from_index || *end != til_index {
+                            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
+                            return;
+                        }
+                    }
+                    _ => {
+                        self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
+                        return;
+                    }
+                }
+                self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
+                forward_msg(self.inc_block_tx.clone(), (peer_id, blocks));
+            }
             Message::PayloadSnapshotRequest(request_id, hash) => {
-                let block_index = self.client.beacon_client.chain.best_index();
+                let block_index = self.client.shard_client.chain.best_index() + 1;
                 if let Some(authority_id) =
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
                 {
-                    info!("Payload snapshot request from {} for {}", authority_id, hash);
-                    match self
-                        .client
-                        .shard_client
-                        .pool
-                        .clone()
-                        .expect("Must have pool")
-                        .on_snapshot_request(authority_id, hash)
-                    {
+                    info!(
+                        "[{:?}], Payload snapshot request from {} for {} (block index = {})",
+                        self.client.account_id(), authority_id, hash, block_index
+                    );
+                    match self.client.shard_client.pool.clone().expect("Must have a pool").on_snapshot_request(authority_id, hash) {
                         Ok(snapshot) => {
                             self.send_snapshot_response(&peer_id, request_id, snapshot);
                         }
@@ -191,13 +236,30 @@ impl Protocol {
                     warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                 }
             }
-            Message::PayloadResponse(_request_id, missing_payload) => {
-                // TODO: check request id and pull block_index from there.
-                let block_index = self.client.beacon_client.chain.best_index();
+            Message::PayloadResponse(request_id, missing_payload) => {
+                match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
+                    Some(RequestType::Payload(hash)) => {
+                        // Only check the snapshot hash match here. Mempool will
+                        // check whether the content match.
+                        if *hash != missing_payload.snapshot_hash {
+                            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
+                            return;
+                        }
+                    }
+                    _ => {
+                        self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
+                        return;
+                    }
+                }
+                self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
+                let block_index = self.client.beacon_client.chain.best_index() + 1;
                 if let Some(authority_id) =
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
                 {
-                    info!("Payload response from {} / {}", peer_id, authority_id);
+                    info!(
+                        "[{:?}] Payload response from {} / {}",
+                        self.client.account_id(), peer_id, authority_id
+                    );
                     forward_msg(
                         self.payload_response_tx.clone(),
                         PayloadResponse::General(authority_id, missing_payload),
@@ -208,12 +270,28 @@ impl Protocol {
                     warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                 }
             }
-            Message::PayloadSnapshotResponse(_response_id, snapshot) => {
-                let block_index = self.client.beacon_client.chain.best_index();
+            Message::PayloadSnapshotResponse(request_id, snapshot) => {
+                match self.requests.read().expect(POISONED_LOCK_ERR).get(&request_id) {
+                    Some(RequestType::PayloadSnapshot(hash)) => {
+                        if *hash != snapshot.get_hash() {
+                            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
+                            return;
+                        }
+                    }
+                    _ => {
+                        self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
+                        return;
+                    }
+                }
+                self.requests.write().expect(POISONED_LOCK_ERR).remove(&request_id);
+                let block_index = self.client.beacon_client.chain.best_index() + 1;
                 if let Some(authority_id) =
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
                 {
-                    info!("Snapshot response from {} / {}", peer_id, authority_id);
+                    info!(
+                        "[{:?}] Snapshot response from {} / {}",
+                        self.client.account_id(), peer_id, authority_id
+                    );
                     forward_msg(
                         self.payload_response_tx.clone(),
                         PayloadResponse::BlockProposal(authority_id, snapshot),
@@ -233,7 +311,7 @@ impl Protocol {
     fn on_new_peer(&self, peer_id: PeerId, connected_info: ConnectedInfo) {
         if connected_info.chain_state.genesis_hash != self.client.beacon_client.chain.genesis_hash()
         {
-            self.peer_manager.ban_peer(&peer_id);
+            self.peer_manager.ban_peer(&peer_id, PEER_BAN_PERIOD);
         }
         forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }
@@ -308,8 +386,7 @@ impl Protocol {
         til_index: BlockIndex,
     ) {
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            // TODO: make proper request ids.
-            let request_id = 1;
+            let request_id = self.update_requests(RequestType::Block(from_index, til_index));
             let message = Message::BlockFetchRequest(request_id, from_index, til_index);
             self.send_single(message, ch);
         } else {
@@ -334,8 +411,8 @@ impl Protocol {
     fn send_payload_request(&self, block_index: BlockIndex, request: PayloadRequest) {
         match request {
             PayloadRequest::General(authority_id, payload_request) => {
-                // TODO: make proper request ids.
-                let request_id = 1;
+                let request_id =
+                    self.update_requests(RequestType::Payload(payload_request.snapshot_hash));
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
                     let data = encode_message(Message::PayloadRequest(request_id, payload_request))
                         .unwrap();
@@ -345,8 +422,7 @@ impl Protocol {
                 }
             }
             PayloadRequest::BlockProposal(authority_id, hash) => {
-                // TODO: make proper request ids.
-                let request_id = 1;
+                let request_id = self.update_requests(RequestType::PayloadSnapshot(hash));
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
                     let message = Message::PayloadSnapshotRequest(request_id, hash);
                     self.send_single(message, ch);
@@ -358,7 +434,7 @@ impl Protocol {
     }
 
     fn send_snapshot_response(&self, peer_id: &PeerId, request_id: RequestId, snapshot: Snapshot) {
-        info!("Send snapshot to {}", peer_id);
+        info!("[{:?}] Send snapshot to {}", self.client.account_id(), peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data =
                 encode_message(Message::PayloadSnapshotResponse(request_id, snapshot)).unwrap();
@@ -379,7 +455,7 @@ impl Protocol {
         request_id: RequestId,
         payload: MissingPayloadResponse,
     ) {
-        info!("Send payload to {}", peer_id);
+        info!("[{:?}] Send payload to {}", self.client.account_id(), peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let message = Message::PayloadResponse(request_id, payload);
             self.send_single(message, ch);
@@ -408,7 +484,7 @@ impl Protocol {
             .map(|_| ())
             .map_err(|e| warn!("Error sending message to proxy. {:?}", e));
 
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
     }
 
     fn send_joint_block_bls_announce(&self, block_index: BlockIndex, b: JointBlockBLS) {
@@ -431,7 +507,7 @@ impl Protocol {
 fn get_proxy_handler(proxy_handler_type: &ProxyHandlerType) -> Arc<ProxyHandler> {
     match proxy_handler_type {
         ProxyHandlerType::Dropout(dropout_rate) => Arc::new(DropoutHandler::new(*dropout_rate)),
-        ProxyHandlerType::Debug => Arc::new(DebugHandler::new()),
+        ProxyHandlerType::Debug => Arc::new(DebugHandler::default()),
     }
 }
 
@@ -510,70 +586,96 @@ pub fn spawn_network(
     let proxy_messages_tx = spawn_proxy(network_cfg, proxy_handlers);
 
     let protocol = Arc::new(Protocol {
-        client,
-        peer_manager,
+        client: client.clone(),
+        peer_manager: peer_manager.clone(),
         inc_gossip_tx,
         inc_block_tx,
         payload_response_tx,
         inc_final_signatures_tx,
         inc_payload_gossip_tx,
         inc_chain_state_tx,
+        requests: Default::default(),
+        next_request_id: Default::default(),
         proxy_messages_tx,
     });
 
     // Spawn a task that decodes incoming messages and places them in the corresponding channels.
-    let protocol1 = protocol.clone();
-    let task = inc_msg_rx.for_each(move |(peer_id, data)| {
-        protocol1.receive_message(peer_id, data);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        inc_msg_rx.for_each(move |(peer_id, data)| {
+            protocol.receive_message(peer_id, data);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing gossips.
-    let protocol2 = protocol.clone();
-    let task = out_gossip_rx.for_each(move |g| {
-        protocol2.send_gossip(g);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_gossip_rx.for_each(move |g| {
+            protocol.send_gossip(g);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing gossips.
-    let protocol_payload = protocol.clone();
-    let task = out_payload_gossip_rx.for_each(move |g| {
-        protocol_payload.send_payload_gossip(g);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_payload_gossip_rx.for_each(move |g| {
+            protocol.send_payload_gossip(g);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that encodes and sends outgoing block announcements.
-    let protocol3 = protocol.clone();
-    let task = out_block_rx.for_each(move |(peer_ids, b)| {
-        protocol3.send_block_announce(peer_ids, b);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_block_rx.for_each(move |(peer_ids, b)| {
+            protocol.send_block_announce(peer_ids, b);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that send payload requests.
-    let protocol4 = protocol.clone();
-    let task = payload_request_rx.for_each(move |(block_index, r)| {
-        protocol4.send_payload_request(block_index, r);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        payload_request_rx.for_each(move |(block_index, r)| {
+            protocol.send_payload_request(block_index, r);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
     // Spawn a task that send block fetch requests.
-    let protocol5 = protocol.clone();
-    let task = out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
-        protocol5.send_block_fetch_request(&peer_id, from_index, til_index);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_block_fetch_rx.for_each(move |(peer_id, from_index, til_index)| {
+            protocol.send_block_fetch_request(&peer_id, from_index, til_index);
+            future::ok(())
+        })
+    };
     tokio::spawn(task);
 
-    let protocol6 = protocol.clone();
-    let task = out_final_signatures_rx.for_each(move |(block_index, b)| {
-        protocol6.send_joint_block_bls_announce(block_index, b);
-        future::ok(())
-    });
+    let task = {
+        let protocol = protocol.clone();
+        out_final_signatures_rx.for_each(move |(block_index, b)| {
+            protocol.send_joint_block_bls_announce(block_index, b);
+            future::ok(())
+        })
+    };
+    tokio::spawn(task);
+
+    let task = Interval::new_interval(CONNECTED_PEERS_INT)
+        .for_each(move |_| {
+            let (active_peers, known_peers) = peer_manager.get_peer_stats();
+            info!(target: "network", "[{:?}] Peers: active = {}, known = {}", client.account_id(), active_peers, known_peers);
+            future::ok(())
+        })
+        .map_err(|e| error!("Timer error: {}", e));
+
     tokio::spawn(task);
 }
 
@@ -585,5 +687,5 @@ where
         .send(el)
         .map(|_| ())
         .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
-    tokio::spawn(task);
+    tokio_utils::spawn(task);
 }

@@ -1,6 +1,6 @@
-use std::cmp::{min, max};
+use std::cmp::{max, min};
 
-use primitives::types::{BlockIndex, Balance, Gas, Mana, AccountId};
+use primitives::types::{AccountId, Balance, BlockIndex, Gas, Mana};
 
 use super::{account_id_to_bytes, COL_TX_STAKE, COL_TX_STAKE_SEPARATOR};
 
@@ -58,7 +58,7 @@ pub struct TxTotalStake {
     /// Total amount of gas used. Without denumerator
     gas_used: Gas,
     /// Last update block index is used for mana and gas regeneration.
-    /// Whenever we touch TxTotalStake we should use difference between the 
+    /// Whenever we touch TxTotalStake we should use difference between the
     /// current and the last update block indices to recalculate and update
     /// mana_used and gas_used counters based on the current total_stake and
     /// the number of blocks from the last update.
@@ -88,7 +88,7 @@ impl TxTotalStake {
     }
 
     /// Updates usage values and regenerates used mana and gas.
-    /// Should always be called before modifying the stakes. 
+    /// Should always be called before modifying the stakes.
     pub fn update(&mut self, block_index: BlockIndex, config: &TxStakeConfig) {
         assert!(self.last_update_block_index <= block_index);
         if self.last_update_block_index == block_index {
@@ -110,12 +110,13 @@ impl TxTotalStake {
         if blocks_difference > 0 && self.mana_used_num > 0 {
             // Regenerating mana
             let mana_regen_rate_num = config.mana_regen_per_block_per_coin_num * self.total_stake;
-            let blocks_needed = (self.mana_used_num + mana_regen_rate_num - 1) / mana_regen_rate_num;
+            let blocks_needed =
+                (self.mana_used_num + mana_regen_rate_num - 1) / mana_regen_rate_num;
             let blocks_regenerated = min(blocks_difference, blocks_needed);
             self.mana_used_num -= min(self.mana_used_num, blocks_regenerated * mana_regen_rate_num);
         }
     }
-    
+
     /// Returns the available mana using the data from the last update.
     /// Make sure to update using the latest block index before calling it.
     pub fn available_mana(&self, config: &TxStakeConfig) -> Mana {
@@ -126,10 +127,15 @@ impl TxTotalStake {
     }
 
     pub fn charge_mana(&mut self, mana: Mana, config: &TxStakeConfig) {
-        self.mana_used_num += u64::from(mana) * config.mana_common_denum; 
+        self.mana_used_num += u64::from(mana) * config.mana_common_denum;
     }
 
-    pub fn refund_mana_and_charge_gas(&mut self, mana_refund: Mana, gas_used: Gas, config: &TxStakeConfig) {
+    pub fn refund_mana_and_charge_gas(
+        &mut self,
+        mana_refund: Mana,
+        gas_used: Gas,
+        config: &TxStakeConfig,
+    ) {
         let mana_refund_num = u64::from(mana_refund) * config.mana_common_denum;
         if mana_refund_num >= self.mana_used_num {
             self.mana_used_num = 0
@@ -143,5 +149,4 @@ impl TxTotalStake {
         self.total_active_stake += stake;
         self.total_stake += stake;
     }
-
 }

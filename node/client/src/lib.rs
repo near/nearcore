@@ -101,7 +101,7 @@ fn configure_logging(log_level: log::LevelFilter) {
     builder.filter(None, other_log_level);
 
     if let Ok(lvl) = env::var("RUST_LOG") {
-        builder.parse(&lvl);
+        builder.parse_filters(&lvl);
     }
     if let Err(e) = builder.try_init() {
         warn!(target: "client", "Failed to reinitialize the log level {}", e);
@@ -312,13 +312,13 @@ impl Client {
             // Check if this block was either already added, or it is already pending, or it has
             // invalid signature. Exits function even if single block is invalid.
             let hash = beacon_block.block_hash();
+            if self.beacon_client.chain.is_known_block(&hash) {
+                continue;
+            }
             info!(target: "client", "[{:?}] Importing block index: {:?}, beacon = {:?}, shard = {:?}",
                   self.account_id(),
                   beacon_block.body.header.index,
                   beacon_block.hash, shard_block.hash);
-            if self.beacon_client.chain.is_known_block(&hash) {
-                continue;
-            }
             has_not_known = true;
             if !Client::verify_block_hash(&beacon_block, &shard_block) {
                 return BlockImportingResult::InvalidBlock;
@@ -485,7 +485,10 @@ impl Client {
         missing_payload_request: MissingPayloadRequest,
     ) -> Result<MissingPayloadResponse, String> {
         match &self.shard_client.pool {
-            Some(pool) => Ok(pool.fetch_payload(missing_payload_request)),
+            Some(pool) => match pool.fetch_payload(missing_payload_request) {
+                Some(response) => Ok(response),
+                None => Err("No payload available".to_string()),
+            },
             None => Err("Not a validator node".to_string())
         }
     }
@@ -493,12 +496,11 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use configs::{chain_spec::AuthorityRotation, ChainSpec};
-    use node_runtime::test_utils::generate_test_chain_spec;
+    use configs::{chain_spec::{AuthorityRotation, DefaultIdType}, ChainSpec};
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
     use primitives::serialize::Encode;
-    use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+    use primitives::signer::BlockSigner;
     use primitives::test_utils::TestSignedBlock;
 
     use crate::test_utils::get_client_from_cfg;
@@ -534,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_block_fetch() {
-        let (chain_spec, mut signers) = generate_test_chain_spec();
+        let (chain_spec, mut signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
         let signers = signers.drain(..).map(|s| s as Arc<BlockSigner>).collect();
 
@@ -559,9 +561,7 @@ mod tests {
 
     #[test]
     fn test_block_reverse_catchup() {
-        let (mut chain_spec, mut signers) = generate_test_chain_spec();
-        // TODO fix authority rotation
-        chain_spec.authority_rotation = AuthorityRotation::ProofOfAuthority;
+        let (chain_spec, mut signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
         let signers = signers.drain(..).map(|s| s as Arc<BlockSigner>).collect();
 
@@ -602,35 +602,9 @@ mod tests {
     /// X + 1, X + 2, ... etc which it cannot incorporate into the blockchain because it lacks
     fn test_catchup_through_production() {
         // Set-up genesis and chain spec.
-        let genesis_wasm =
-            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-        let bob_signer = Arc::new(InMemorySigner::from_seed("bob.near", "bob.near"));
-        let chain_spec = ChainSpec {
-            accounts: vec![
-                ("alice.near".to_string(), alice_signer.public_key().to_readable(), 100, 10),
-                ("bob.near".to_string(), bob_signer.public_key().to_readable(), 100, 10),
-            ],
-            initial_authorities: vec![
-                (
-                    "alice.near".to_string(),
-                    alice_signer.public_key().to_readable(),
-                    alice_signer.bls_public_key().to_readable(),
-                    50,
-                ),
-                (
-                    "bob.near".to_string(),
-                    bob_signer.public_key().to_readable(),
-                    bob_signer.bls_public_key().to_readable(),
-                    50,
-                ),
-            ],
-            genesis_wasm,
-            // TODO fix authority rotation
-            // authority_rotation: AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
-            authority_rotation: AuthorityRotation::ProofOfAuthority,
-        };
-
+        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+        let alice_signer = signers[0].clone();
+        let bob_signer = signers[1].clone();
         // Start both clients.
         let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
         let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
