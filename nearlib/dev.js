@@ -34,6 +34,7 @@ module.exports = {
         fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
         fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new nearlib.BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
         fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
+        fullRuntimeOptions.baseUrl = fullRuntimeOptions.baseUrl || (await this.getConfig()).baseUrl;
         this.deps = fullRuntimeOptions.deps;
         this.options = fullRuntimeOptions;
         const nearClient = new nearlib.NearClient(
@@ -88,7 +89,7 @@ module.exports = {
      * Function to create an account on near-hosted devnet using contract helper. This will not work on non-dev environments.
      */
     createAccountWithContractHelper: async function (nearConfig, newAccountId, publicKey) {
-        return await sendJson('POST', `${nearConfig.baseUrl}/account`, {
+        return await sendJson('POST', `${this.config.baseUrl}/account`, {
             newAccountId: newAccountId,
             newAccountPublicKey: publicKey
         });
