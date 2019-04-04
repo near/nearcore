@@ -5,14 +5,14 @@ use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
 
 use near_protos::nightshade as nightshade_proto;
-use primitives::aggregate_signature::{
+use primitives::crypto::aggregate_signature::{
     uncompressed_bs58_signature_serializer, AggregatePublicKey, BlsAggregateSignature,
     BlsPublicKey, BlsSignature,
 };
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
-use primitives::signature::bs58_serializer;
-use primitives::signer::BlockSigner;
+use primitives::crypto::signature::bs58_serializer;
+use primitives::crypto::signer::BlockSigner;
 use primitives::traits::Base58Encoded;
 use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
@@ -585,7 +585,7 @@ impl Nightshade {
 
 #[cfg(test)]
 mod tests {
-    use primitives::aggregate_signature::AggregateSignature;
+    use primitives::crypto::aggregate_signature::AggregateSignature;
 
     use crate::testing_utils::*;
 

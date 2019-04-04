@@ -18,7 +18,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use primitives::chain::ReceiptBlock;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::{Decode, Encode};
-use primitives::signature::PublicKey;
+use primitives::crypto::signature::PublicKey;
 use primitives::transaction::{
     verify_transaction_signature, AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody, ReceiptTransaction, SignedTransaction,

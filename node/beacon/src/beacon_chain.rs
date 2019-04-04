@@ -31,7 +31,7 @@ mod tests {
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
-    use primitives::signer::InMemorySigner;
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
     use configs::chain_spec::{AuthorityRotation, DefaultIdType};

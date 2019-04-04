@@ -1,4 +1,4 @@
-use primitives::aggregate_signature::BlsPublicKey;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::types::AuthorityId;
 
 use crate::nightshade::{BareState, NSVerifyErr, State};

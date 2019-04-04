@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::{BlockSigner, InMemorySigner, TransactionSigner};
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::cmp::max;
 use std::io::Write;

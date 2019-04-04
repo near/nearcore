@@ -17,13 +17,13 @@ use client::Client;
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade::ConsensusBlockProposal;
 use nightshade::nightshade_task::Control;
-use primitives::aggregate_signature::BlsSignature;
+use primitives::crypto::aggregate_signature::BlsSignature;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainState, PayloadRequest, PayloadResponse, SignedShardBlock};
 use primitives::consensus::JointBlockBLS;
 use primitives::hash::CryptoHash;
-use primitives::signer::BlockSigner;
+use primitives::crypto::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockId, BlockIndex, PeerId};
 use shard::ShardBlockExtraInfo;
 

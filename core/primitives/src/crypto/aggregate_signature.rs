@@ -453,7 +453,7 @@ pub type BlsAggregatePublicKey = AggregatePublicKey<Bls12>;
 pub type BlsAggregateSignature = AggregateSignature<Bls12>;
 
 pub mod uncompressed_bs58_signature_serializer {
-    use crate::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
+    use crate::crypto::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
     use crate::traits::Base58Encoded;
     use serde::{Deserialize, Deserializer, Serializer};
 

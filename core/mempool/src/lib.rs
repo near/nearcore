@@ -13,7 +13,7 @@ use primitives::chain::{
 };
 use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
-use primitives::signer::BlockSigner;
+use primitives::crypto::signer::BlockSigner;
 use primitives::transaction::{verify_transaction_signature, SignedTransaction};
 use primitives::types::{AccountId, AuthorityId, BlockIndex};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
@@ -518,7 +518,7 @@ mod tests {
     };
     use node_runtime::Runtime;
     use primitives::hash::CryptoHash;
-    use primitives::signer::InMemorySigner;
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;

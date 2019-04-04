@@ -13,7 +13,7 @@ use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use primitives::signer::InMemorySigner;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::types::BlockId;
 use tokio_utils::ShutdownableThread;
 
@@ -131,7 +131,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use primitives::signer::InMemorySigner;
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::TransactionBody;
     use testlib::alphanet_utils::wait;
 
