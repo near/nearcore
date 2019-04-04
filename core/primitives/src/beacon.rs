@@ -1,13 +1,17 @@
-use super::block_traits::{SignedBlock, SignedHeader};
-use super::hash::{hash_struct, CryptoHash};
-use super::types::{AuthorityStake, GroupSignature, PartialSignature};
-use super::utils::{proto_to_result, proto_to_type};
 use std::borrow::Borrow;
+use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
-use std::convert::{TryFrom, TryInto};
+
 use protobuf::{RepeatedField, SingularPtrField};
+
 use near_protos::chain as chain_proto;
+
+use super::block_traits::{SignedBlock, SignedHeader};
+use super::hash::{hash_struct, CryptoHash};
+use super::signer::Signable;
+use super::types::{AuthorityStake, GroupSignature, PartialSignature};
+use super::utils::{proto_to_result, proto_to_type};
 
 const PROTO_ERROR: &str = "Bad Proto";
 
@@ -30,17 +34,13 @@ impl TryFrom<chain_proto::BeaconBlockHeader> for BeaconBlockHeader {
         let parent_hash = proto.parent_hash.into();
         let index = proto.index;
         let shard_block_hash = proto.shard_block_hash.into();
-        let authority_proposal: Result<Vec<_>, _> = proto.authority_proposal
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect();
-        authority_proposal.map(|proposal| {
-            BeaconBlockHeader {
-                parent_hash,
-                index,
-                authority_proposal: proposal,
-                shard_block_hash,
-            }
+        let authority_proposal: Result<Vec<_>, _> =
+            proto.authority_proposal.into_iter().map(TryInto::try_into).collect();
+        authority_proposal.map(|proposal| BeaconBlockHeader {
+            parent_hash,
+            index,
+            authority_proposal: proposal,
+            shard_block_hash,
         })
     }
 }
@@ -51,7 +51,7 @@ impl From<BeaconBlockHeader> for chain_proto::BeaconBlockHeader {
             parent_hash: header.parent_hash.into(),
             index: header.index,
             authority_proposal: RepeatedField::from_iter(
-                header.authority_proposal.into_iter().map(std::convert::Into::into)
+                header.authority_proposal.into_iter().map(std::convert::Into::into),
             ),
             shard_block_hash: header.shard_block_hash.into(),
             ..Default::default()
@@ -72,12 +72,8 @@ impl TryFrom<chain_proto::SignedBeaconBlockHeader> for SignedBeaconBlockHeader {
     fn try_from(proto: chain_proto::SignedBeaconBlockHeader) -> Result<Self, Self::Error> {
         let hash = proto.hash.into();
         match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
-            (Ok(body), Ok(signature)) => {
-                Ok(SignedBeaconBlockHeader {
-                    body, hash, signature
-                })
-            }
-            _ => Err(PROTO_ERROR.to_string())
+            (Ok(body), Ok(signature)) => Ok(SignedBeaconBlockHeader { body, hash, signature }),
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -104,11 +100,7 @@ impl TryFrom<chain_proto::BeaconBlock> for BeaconBlock {
     fn try_from(proto: chain_proto::BeaconBlock) -> Result<Self, Self::Error> {
         proto_to_result(proto.header)
             .and_then(TryInto::try_into)
-            .map(|header| {
-                BeaconBlock {
-                    header,
-                }
-            })
+            .map(|header| BeaconBlock { header })
     }
 }
 
@@ -134,13 +126,9 @@ impl TryFrom<chain_proto::SignedBeaconBlock> for SignedBeaconBlock {
     fn try_from(proto: chain_proto::SignedBeaconBlock) -> Result<Self, Self::Error> {
         match (proto_to_type(proto.body), proto_to_type(proto.signature)) {
             (Ok(body), Ok(signature)) => {
-                Ok(SignedBeaconBlock {
-                    body,
-                    hash: proto.hash.into(),
-                    signature,
-                })
+                Ok(SignedBeaconBlock { body, hash: proto.hash.into(), signature })
             }
-            _ => Err(PROTO_ERROR.to_string())
+            _ => Err(PROTO_ERROR.to_string()),
         }
     }
 }
@@ -188,6 +176,13 @@ impl SignedHeader for SignedBeaconBlockHeader {
     #[inline]
     fn parent_hash(&self) -> CryptoHash {
         self.body.parent_hash
+    }
+}
+
+impl Signable for SignedBeaconBlockHeader {
+    #[inline]
+    fn bytes(&self) -> &[u8] {
+        self.hash.as_ref()
     }
 }
 
@@ -240,5 +235,11 @@ impl SignedBlock for SignedBeaconBlock {
     fn weight(&self) -> u128 {
         // TODO(#279): sum stakes instead of counting them
         self.signature.authority_count() as u128
+    }
+}
+
+impl Signable for SignedBeaconBlock {
+    fn bytes(&self) -> &[u8] {
+        self.hash.as_ref()
     }
 }

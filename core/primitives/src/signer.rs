@@ -6,17 +6,25 @@ use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::signature::{self, PublicKey, SecretKey, Signature};
 use crate::types;
 
+pub trait Signable {
+    fn bytes(&self) -> &[u8];
+}
+
+impl Signable for Vec<u8> {
+    fn bytes(&self) -> &[u8] { self }
+}
+
 /// Trait to abstract the way transaction signing happens.
 pub trait TransactionSigner: Sync + Send {
     fn public_key(&self) -> PublicKey;
-    fn sign(&self, hash: &[u8]) -> Signature;
+    fn sign(&self, obj: &Signable) -> Signature;
 }
 
 /// Trait to abstract the way signing happens for block production.
 /// Can be used to not keep private key in the given binary via cross-process communication.
-pub trait BlockSigner: Sync + Send + TransactionSigner {
+pub trait BlockSigner: TransactionSigner + Sync + Send {
     fn bls_public_key(&self) -> BlsPublicKey;
-    fn bls_sign(&self, hash: &[u8]) -> types::PartialSignature;
+    fn bls_sign(&self, obj: &Signable) -> types::PartialSignature;
     fn account_id(&self) -> types::AccountId;
 }
 
@@ -211,8 +219,8 @@ impl TransactionSigner for InMemorySigner {
         self.public_key
     }
 
-    fn sign(&self, data: &[u8]) -> signature::Signature {
-        signature::sign(data, &self.secret_key)
+    fn sign(&self, data: &Signable) -> signature::Signature {
+        signature::sign(data.bytes(), &self.secret_key)
     }
 }
 
@@ -222,8 +230,8 @@ impl BlockSigner for InMemorySigner {
         self.bls_public_key.clone()
     }
 
-    fn bls_sign(&self, data: &[u8]) -> types::PartialSignature {
-        self.bls_secret_key.sign(data)
+    fn bls_sign(&self, data: &Signable) -> types::PartialSignature {
+        self.bls_secret_key.sign(data.bytes())
     }
 
     #[inline]

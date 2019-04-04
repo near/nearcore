@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use client::Client;
 use configs::chain_spec::{AuthorityRotation, ChainSpec};
-use configs::ClientConfig;
 use configs::network::get_peer_id_from_seed;
+use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
@@ -81,7 +81,7 @@ pub trait Node {
         self.user().get_account_nonce(account_id)
     }
 
-    fn signer(&self) -> Arc<InMemorySigner>;
+    fn signer(&self) -> Arc<BlockSigner>;
 
     fn as_process_mut(&mut self) -> &mut ProcessNode;
 
@@ -137,8 +137,8 @@ impl Node for ProcessNode {
         }
     }
 
-    fn signer(&self) -> Arc<InMemorySigner> {
-        let account_id = &self.config().client_cfg.account_id;
+    fn signer(&self) -> Arc<BlockSigner> {
+        let account_id = &self.config().client_cfg.account_id.clone().expect("Must have signer");
         Arc::new(InMemorySigner::from_seed(account_id, account_id))
     }
 
@@ -173,19 +173,18 @@ impl Node for ThreadNode {
 
     fn start(&mut self) {
         let client = self.client.clone();
-        let account_id = self.config().client_cfg.account_id.clone();
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
         thread::spawn(|| {
-            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg, proxy_handlers);
+            alphanet::start_from_client(client, network_cfg, rpc_cfg, proxy_handlers);
         });
         self.state = ThreadNodeState::Running;
         thread::sleep(Duration::from_secs(1));
     }
 
-    fn signer(&self) -> Arc<InMemorySigner> {
-        self.client.signer.clone()
+    fn signer(&self) -> Arc<BlockSigner> {
+        self.client.signer.clone().expect("Must have signer")
     }
 
     fn as_process_mut(&mut self) -> &mut ProcessNode {
@@ -211,9 +210,14 @@ impl Node for ThreadNode {
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NodeConfig) -> ThreadNode {
-        let account_id = &config.client_cfg.account_id;
-        let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-        let client = Arc::new(Client::new_with_signer(&config.client_cfg, signer));
+        let signer = match &config.client_cfg.account_id {
+            Some(account_id) => {
+                Some(Arc::new(InMemorySigner::from_seed(&account_id, &account_id))
+                    as Arc<BlockSigner>)
+            }
+            None => None,
+        };
+        let client = Arc::new(Client::new(&config.client_cfg, signer));
         let state = ThreadNodeState::Stopped;
         ThreadNode { config, client, state }
     }
@@ -255,7 +259,7 @@ impl ProcessNode {
                 "--",
                 "keygen",
                 "--test-seed",
-                self.config().client_cfg.account_id.as_str(),
+                self.config().client_cfg.account_id.clone().expect("Must have account").as_str(),
                 "-p",
                 keygen_path.to_str().unwrap(),
             ])
@@ -267,7 +271,7 @@ impl ProcessNode {
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        let account_name = self.config().client_cfg.account_id.clone();
+        let account_name = self.config().client_cfg.account_id.clone().expect("Must have account");
         let pubkey = InMemorySigner::from_seed(&account_name, &account_name).public_key;
         let chain_spec = &self.config().client_cfg.chain_spec;
         let chain_spec_path = self.config().client_cfg.base_path.join("chain_spec.json");
@@ -328,7 +332,7 @@ impl NodeConfig {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
-            account_id,
+            Some(account_id),
             u32::from(peer_id),
             Some(&addr),
             test_port + 1000 + peer_id,
@@ -342,14 +346,14 @@ impl NodeConfig {
     pub fn for_test_passive(
         test_prefix: &str,
         test_port: u16,
-        account_id: &str,
+        account_id: Option<&str>,
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
-            &format!("{}_{}", test_prefix, account_id),
+            &format!("{}_{}", test_prefix, peer_id),
             account_id,
             u32::from(peer_id),
             None,
@@ -362,7 +366,7 @@ impl NodeConfig {
 
     pub fn new(
         name: &str,
-        account_id: &str,
+        account_id: Option<&str>,
         peer_id_seed: u32,
         addr: Option<&str>,
         rpc_port: u16,
@@ -371,7 +375,7 @@ impl NodeConfig {
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
-            account_id: Some(String::from(account_id)),
+            account_id: account_id.map(String::from),
             id: get_peer_id_from_seed(Some(peer_id_seed)),
             addr: if addr.is_some() {
                 Some(SocketAddr::from_str(addr.unwrap()).unwrap())
@@ -389,7 +393,7 @@ impl NodeConfig {
 
         let client_cfg = ClientConfig {
             base_path,
-            account_id: String::from(account_id),
+            account_id: account_id.map(String::from),
             public_key: None,
             chain_spec,
             log_level: log::LevelFilter::Info,
@@ -409,7 +413,15 @@ impl NodeConfig {
 
         let node_type = NodeType::ThreadNode;
 
-        NodeConfig { node_info, client_cfg, network_cfg, rpc_cfg, peer_id_seed, node_type, proxy_handlers }
+        NodeConfig {
+            node_info,
+            client_cfg,
+            network_cfg,
+            rpc_cfg,
+            peer_id_seed,
+            node_type,
+            proxy_handlers,
+        }
     }
 }
 
@@ -425,8 +437,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: Fn() -> bool,
+where
+    F: Fn() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {
@@ -444,7 +456,12 @@ pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -
     let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
     let mut accounts = vec![];
     let signer = InMemorySigner::from_seed("alice.near", "alice.near");
-    accounts.push(("alice.near".to_string(), signer.public_key().to_readable(), 1_000_000 as u64, 10));
+    accounts.push((
+        "alice.near".to_string(),
+        signer.public_key().to_readable(),
+        1_000_000 as u64,
+        10,
+    ));
     let mut initial_authorities = vec![];
     for name in account_names {
         let signer = InMemorySigner::from_seed(name.as_str(), name.as_str());

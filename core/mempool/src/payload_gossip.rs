@@ -63,7 +63,7 @@ impl PayloadGossip {
             sender_id,
             receiver_id,
             payload,
-            signature: signer.sign(hash.as_ref()),
+            signature: signer.sign(&hash),
         }
     }
 }

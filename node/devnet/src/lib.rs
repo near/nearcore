@@ -20,7 +20,7 @@ use primitives::types::BlockId;
 fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path: &str) {
     let mut other_client_cfg = client_cfg.clone();
     other_client_cfg.base_path = PathBuf::from(other_base_path);
-    let other_client = Client::new(&other_client_cfg);
+    let other_client = Client::new(&other_client_cfg, None);
     info!(
         "Replay storage from {}, last block index = {}",
         other_base_path,
@@ -44,9 +44,8 @@ pub fn start() {
 }
 
 pub fn start_from_configs(client_cfg: ClientConfig, devnet_cfg: DevNetConfig, rpc_cfg: RPCConfig) {
-    let mut client = Client::new(&client_cfg);
-    client.signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-    let client = Arc::new(client);
+    let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let client = Arc::new(Client::new(&client_cfg, Some(signer)));
     if devnet_cfg.replay_storage.is_some() {
         replay_storage(
             client.clone(),
@@ -141,16 +140,12 @@ mod tests {
         let mut client_cfg = configs::ClientConfig::default();
         client_cfg.base_path = base_path;
         client_cfg.log_level = log::LevelFilter::Info;
-        let devnet_cfg = configs::DevNetConfig {
-            block_period: Duration::from_millis(5),
-            replay_storage: None,
-        };
+        let devnet_cfg =
+            configs::DevNetConfig { block_period: Duration::from_millis(5), replay_storage: None };
         let rpc_cfg = configs::RPCConfig::default();
 
         let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-        let mut client = Client::new(&client_cfg);
-        client.signer = signer.clone();
-        let client = Arc::new(client);
+        let client = Arc::new(Client::new(&client_cfg, Some(signer.clone())));
         let client1 = client.clone();
         thread::spawn(|| {
             start_from_client(client1, devnet_cfg, rpc_cfg);
@@ -160,7 +155,7 @@ mod tests {
             .shard_client
             .pool
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signer.clone()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&*signer),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);

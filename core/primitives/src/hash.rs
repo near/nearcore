@@ -8,6 +8,7 @@ use heapsize;
 
 use crate::logging::pretty_hash;
 use crate::serialize::Encode;
+use crate::signer::Signable;
 
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
@@ -91,9 +92,15 @@ impl PartialEq for CryptoHash {
 
 impl Eq for CryptoHash {}
 
+impl Signable for CryptoHash {
+    fn bytes(&self) -> &[u8] {
+        self.as_ref()
+    }
+}
+
 pub mod bs58_format {
-    use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
+    use serde::de;
 
     use super::{bs58, CryptoHash};
 

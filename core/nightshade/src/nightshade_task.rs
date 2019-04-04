@@ -177,7 +177,7 @@ impl Gossip {
     ) -> Self {
         let hash = hash_struct(&(sender_id, receiver_id, &body, block_index));
 
-        Self { sender_id, receiver_id, body, signature: signer.sign(hash.as_ref()), block_index }
+        Self { sender_id, receiver_id, body, signature: signer.sign(&hash), block_index }
     }
 
     fn get_hash(&self) -> CryptoHash {
@@ -222,7 +222,7 @@ impl From<SignedBlockProposal> for nightshade_proto::SignedBlockProposal {
 impl SignedBlockProposal {
     fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
         let block_proposal = BlockProposal { author, hash };
-        let signature = signer.sign(block_proposal.hash.as_ref());
+        let signature = signer.sign(&block_proposal.hash);
 
         Self { block_proposal, signature }
     }
@@ -234,7 +234,7 @@ impl SignedBlockProposal {
 
 pub struct NightshadeTask {
     /// Signer.
-    signer: Arc<BlockSigner>,
+    signer: Option<Arc<BlockSigner>>,
     /// Blocks from other authorities containing payloads. At the beginning of the consensus
     /// authorities only have their own block. It is required for an authority to endorse a block
     /// from other authority to have its block.
@@ -268,7 +268,7 @@ pub struct NightshadeTask {
 
 impl NightshadeTask {
     pub fn new(
-        signer: Arc<BlockSigner>,
+        signer: Option<Arc<BlockSigner>>,
         inc_gossips: mpsc::Receiver<Gossip>,
         out_gossips: mpsc::Sender<Gossip>,
         control_receiver: mpsc::Receiver<Control>,
@@ -317,7 +317,7 @@ impl NightshadeTask {
 
         self.proposals = vec![None; num_authorities];
         self.proposals[owner_uid] =
-            Some(SignedBlockProposal::new(owner_uid, hash, self.signer.clone()));
+            Some(SignedBlockProposal::new(owner_uid, hash, self.signer.clone().expect("Must have a signer")));
         self.confirmed_proposals = vec![false; num_authorities];
         self.confirmed_proposals[owner_uid] = true;
         self.block_index = Some(block_index);
@@ -327,7 +327,7 @@ impl NightshadeTask {
             num_authorities,
             self.proposals[owner_uid].clone().unwrap().block_proposal,
             bls_public_keys,
-            self.signer.clone(),
+            self.signer.clone().expect("Must have a signer"),
         ));
         self.consensus_reported = false;
 
@@ -345,7 +345,7 @@ impl NightshadeTask {
             self.nightshade.as_ref().unwrap().owner_id,
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
-            self.signer.clone(),
+            self.signer.clone().expect("Must have a signer"),
             self.block_index.unwrap(),
         ));
     }
@@ -390,7 +390,7 @@ impl NightshadeTask {
                 self.owner_id(),
                 message.sender_id,
                 GossipBody::PayloadRequest(vec![author]),
-                self.signer.clone(),
+                self.signer.clone().expect("Must have a signer"),
                 self.block_index.unwrap(),
             );
             self.send_gossip(gossip);
@@ -427,7 +427,7 @@ impl NightshadeTask {
             self.nightshade.as_ref().unwrap().owner_id,
             receiver_id,
             GossipBody::PayloadReply(payloads),
-            self.signer.clone(),
+            self.signer.clone().expect("Must have a signer"),
             self.block_index.unwrap(),
         );
         self.send_gossip(gossip);
@@ -636,7 +636,7 @@ impl Stream for NightshadeTask {
 }
 
 pub fn spawn_nightshade_task(
-    signer: Arc<BlockSigner>,
+    signer: Option<Arc<BlockSigner>>,
     inc_gossip_rx: mpsc::Receiver<Gossip>,
     out_gossip_tx: mpsc::Sender<Gossip>,
     consensus_tx: mpsc::Sender<ConsensusBlockProposal>,

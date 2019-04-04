@@ -90,7 +90,7 @@ impl NodeUser for ThreadNodeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.client.shard_client.pool.add_transaction(transaction)
+        self.client.shard_client.pool.clone().expect("Must have pool").add_transaction(transaction)
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {

@@ -28,13 +28,13 @@ impl BeaconClient {
 mod tests {
     use chain::BlockChain;
     use chain::test_utils::get_blockchain_storage;
+    use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::hash::CryptoHash;
-    use primitives::signer::InMemorySigner;
+    use primitives::signer::{BlockSigner, InMemorySigner};
     use primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
-    use node_runtime::test_utils::generate_test_chain_spec;
 
     use super::*;
 
@@ -70,7 +70,7 @@ mod tests {
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
         let signer = Arc::new(InMemorySigner::default());
-        let sig = block1.sign(signer);
+        let sig = signer.bls_sign(&block1);
         block1.add_signature(&sig, 0);
         bc.chain.insert_block(block1.clone());
         let best_block_header = bc.chain.best_header();

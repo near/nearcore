@@ -1,36 +1,32 @@
 use std::sync::Arc;
 
-use futures::{stream, stream::Stream};
 use futures::future;
-use futures::Future;
 use futures::sink::Sink;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::mpsc::Sender;
+use futures::Future;
+use futures::{stream, stream::Stream};
 use log::{debug, error, info, warn};
 
 use client::Client;
 use configs::NetworkConfig;
 use mempool::payload_gossip::PayloadGossip;
-use primitives::chain::{
-    PayloadRequest, PayloadResponse, ChainState, Snapshot,
-    MissingPayloadResponse
-};
-use primitives::network::{PeerInfo, PeerMessage, ConnectedInfo};
-use primitives::types::{AccountId, AuthorityId, PeerId, BlockIndex};
 use nightshade::nightshade_task::Gossip;
-use primitives::consensus::JointBlockBLS;
-
-use crate::message::{
-    CoupledBlock, Message, RequestId,
-    encode_message, decode_message
+use primitives::chain::{
+    ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
+use primitives::consensus::JointBlockBLS;
+use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
+use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
+
+use crate::message::{decode_message, encode_message, CoupledBlock, Message, RequestId};
 use crate::peer::ChainStateRetriever;
 use crate::peer_manager::PeerManager;
+use crate::proxy::debug::DebugHandler;
+use crate::proxy::dropout::DropoutHandler;
 use crate::proxy::{Proxy, ProxyHandler};
 use configs::network::ProxyHandlerType;
-use crate::proxy::dropout::DropoutHandler;
-use crate::proxy::debug::DebugHandler;
 
 /// Tuple containing one single message (pointer) and one channel to send the message through.
 /// Used for Proxy, they implement a stream of `SimplePackedMessage`.
@@ -44,20 +40,22 @@ pub enum PackedMessage {
 }
 
 impl PackedMessage {
-    pub fn to_stream(self) -> Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync> {
+    pub fn to_stream(self) -> Box<Stream<Item = SimplePackedMessage, Error = ()> + Send + Sync> {
         match self {
-            PackedMessage::SingleMessage(message, channel) =>
-                Box::new(stream::once(Ok((Arc::new(message), channel)))),
+            PackedMessage::SingleMessage(message, channel) => {
+                Box::new(stream::once(Ok((Arc::new(message), channel))))
+            }
 
             PackedMessage::BroadcastMessage(message, channels) => {
                 let pnt_message = Arc::new(message);
-                Box::new(stream::iter_ok(channels.into_iter().map(move |c| (pnt_message.clone(), c))))
+                Box::new(stream::iter_ok(
+                    channels.into_iter().map(move |c| (pnt_message.clone(), c)),
+                ))
             }
 
-            PackedMessage::MultipleMessages(messages, channel) =>
-                Box::new(stream::iter_ok(messages.into_iter().map(move |m|
-                    (Arc::new(m), channel.clone())
-                )))
+            PackedMessage::MultipleMessages(messages, channel) => Box::new(stream::iter_ok(
+                messages.into_iter().map(move |m| (Arc::new(m), channel.clone())),
+            )),
         }
     }
 }
@@ -109,24 +107,38 @@ impl Protocol {
             Message::Connected(connected_info) => {
                 info!(
                     "Peer {} connected to {} with {:?}",
-                    peer_id,
-                    self.peer_manager.node_info.id,
-                    connected_info
+                    peer_id, self.peer_manager.node_info.id, connected_info
                 );
                 self.on_new_peer(peer_id, connected_info);
             }
             Message::Transaction(tx) => {
-                if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
+                if let Err(e) = self
+                    .client
+                    .shard_client
+                    .pool
+                    .clone()
+                    .expect("Must have pool")
+                    .add_transaction(*tx)
+                {
                     error!(target: "network", "{}", e);
                 }
             }
             Message::Receipt(receipt) => {
-                if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
+                if let Err(e) = self
+                    .client
+                    .shard_client
+                    .pool
+                    .clone()
+                    .expect("Must have pool")
+                    .add_receipt(*receipt)
+                {
                     error!(target: "network", "{}", e);
                 }
             }
             Message::Gossip(gossip) => forward_msg(self.inc_gossip_tx.clone(), *gossip),
-            Message::PayloadGossip(gossip) => forward_msg(self.inc_payload_gossip_tx.clone(), *gossip),
+            Message::PayloadGossip(gossip) => {
+                forward_msg(self.inc_payload_gossip_tx.clone(), *gossip)
+            }
             Message::BlockAnnounce(block) => {
                 forward_msg(self.inc_block_tx.clone(), (peer_id, vec![*block]));
             }
@@ -140,20 +152,31 @@ impl Protocol {
                 }
             }
             Message::BlockResponse(_request_id, blocks) => {
-                forward_msg(
-                    self.inc_block_tx.clone(),
-                    (peer_id, blocks),
-                );
+                forward_msg(self.inc_block_tx.clone(), (peer_id, blocks));
             }
             Message::PayloadRequest(request_id, missing_payload_request) => {
-                let response = self.client.fetch_payload(missing_payload_request);
-                self.send_payload_response(&peer_id, request_id, response)
+                match self.client.fetch_payload(missing_payload_request) {
+                    Ok(response) => self.send_payload_response(&peer_id, request_id, response),
+                    Err(err) => {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Failed to retrieve payload for {}: {}", peer_id, err);
+                    }
+                }
             }
             Message::PayloadSnapshotRequest(request_id, hash) => {
                 let block_index = self.client.beacon_client.chain.best_index();
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                if let Some(authority_id) =
+                    self.get_authority_id_from_peer_id(block_index, &peer_id)
+                {
                     info!("Payload snapshot request from {} for {}", authority_id, hash);
-                    match self.client.shard_client.pool.on_snapshot_request(authority_id, hash) {
+                    match self
+                        .client
+                        .shard_client
+                        .pool
+                        .clone()
+                        .expect("Must have pool")
+                        .on_snapshot_request(authority_id, hash)
+                    {
                         Ok(snapshot) => {
                             self.send_snapshot_response(&peer_id, request_id, snapshot);
                         }
@@ -171,7 +194,9 @@ impl Protocol {
             Message::PayloadResponse(_request_id, missing_payload) => {
                 // TODO: check request id and pull block_index from there.
                 let block_index = self.client.beacon_client.chain.best_index();
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                if let Some(authority_id) =
+                    self.get_authority_id_from_peer_id(block_index, &peer_id)
+                {
                     info!("Payload response from {} / {}", peer_id, authority_id);
                     forward_msg(
                         self.payload_response_tx.clone(),
@@ -185,7 +210,9 @@ impl Protocol {
             }
             Message::PayloadSnapshotResponse(_response_id, snapshot) => {
                 let block_index = self.client.beacon_client.chain.best_index();
-                if let Some(authority_id) = self.get_authority_id_from_peer_id(block_index, &peer_id) {
+                if let Some(authority_id) =
+                    self.get_authority_id_from_peer_id(block_index, &peer_id)
+                {
                     info!("Snapshot response from {} / {}", peer_id, authority_id);
                     forward_msg(
                         self.payload_response_tx.clone(),
@@ -211,7 +238,11 @@ impl Protocol {
         forward_msg(self.inc_chain_state_tx.clone(), (peer_id, connected_info.chain_state));
     }
 
-    fn get_authority_id_from_peer_id(&self, block_index: BlockIndex, peer_id: &PeerId) -> Option<AuthorityId> {
+    fn get_authority_id_from_peer_id(
+        &self,
+        block_index: BlockIndex,
+        peer_id: &PeerId,
+    ) -> Option<AuthorityId> {
         self.peer_manager.get_peer_info(peer_id).and_then(|peer_info| {
             peer_info.account_id.and_then(|account_id| {
                 let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
@@ -226,7 +257,11 @@ impl Protocol {
         })
     }
 
-    fn get_authority_channel(&self, block_index: BlockIndex, authority_id: AuthorityId) -> Option<Sender<PeerMessage>> {
+    fn get_authority_channel(
+        &self,
+        block_index: BlockIndex,
+        authority_id: AuthorityId,
+    ) -> Option<Sender<PeerMessage>> {
         let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
         auth_map
             .get(&authority_id)
@@ -302,12 +337,13 @@ impl Protocol {
                 // TODO: make proper request ids.
                 let request_id = 1;
                 if let Some(ch) = self.get_authority_channel(block_index, authority_id) {
-                    let data = encode_message(Message::PayloadRequest(request_id, payload_request)).unwrap();
+                    let data = encode_message(Message::PayloadRequest(request_id, payload_request))
+                        .unwrap();
                     forward_msg(ch, PeerMessage::Message(data));
                 } else {
                     debug!(target: "network", "[SND PAYLOAD RQ] Channel for {} not found, account_id={:?}", authority_id, self.peer_manager.node_info.account_id);
                 }
-            },
+            }
             PayloadRequest::BlockProposal(authority_id, hash) => {
                 // TODO: make proper request ids.
                 let request_id = 1;
@@ -321,15 +357,11 @@ impl Protocol {
         }
     }
 
-    fn send_snapshot_response(
-        &self,
-        peer_id: &PeerId,
-        request_id: RequestId,
-        snapshot: Snapshot
-    ) {
+    fn send_snapshot_response(&self, peer_id: &PeerId, request_id: RequestId, snapshot: Snapshot) {
         info!("Send snapshot to {}", peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
-            let data = encode_message(Message::PayloadSnapshotResponse(request_id, snapshot)).unwrap();
+            let data =
+                encode_message(Message::PayloadSnapshotResponse(request_id, snapshot)).unwrap();
             forward_msg(ch, PeerMessage::Message(data));
         } else {
             debug!(
@@ -369,7 +401,8 @@ impl Protocol {
     /// Pass message through active proxies handlers and result messages are sent over channel `ch`.
     /// Take owner of `message`.
     fn send_message(&self, packed_message: PackedMessage) {
-        let task = self.proxy_messages_tx
+        let task = self
+            .proxy_messages_tx
             .clone()
             .send(packed_message)
             .map(|_| ())
@@ -408,7 +441,10 @@ fn get_proxy_handler(proxy_handler_type: &ProxyHandlerType) -> Arc<ProxyHandler>
 /// At least one between `network_cfg.proxy_handlers` and `proxy_handlers` should be empty.
 /// * `network_cfg.proxy_handlers` is not empty when running nodes with given proxy handlers from config.
 /// * `proxy_handlers` is not empty when running particular tests.
-fn spawn_proxy(network_cfg: NetworkConfig, mut handlers: Vec<Arc<ProxyHandler>>) -> Sender<PackedMessage> {
+fn spawn_proxy(
+    network_cfg: NetworkConfig,
+    mut handlers: Vec<Arc<ProxyHandler>>,
+) -> Sender<PackedMessage> {
     // Combine passed proxies with the proxies from the config.
     for proxy_type in &network_cfg.proxy_handlers {
         handlers.push(get_proxy_handler(proxy_type));
@@ -542,8 +578,8 @@ pub fn spawn_network(
 }
 
 pub fn forward_msg<T>(ch: Sender<T>, el: T)
-    where
-        T: Send + 'static,
+where
+    T: Send + 'static,
 {
     let task = ch
         .send(el)
@@ -551,4 +587,3 @@ pub fn forward_msg<T>(ch: Sender<T>, el: T)
         .map_err(|e| warn!(target: "network", "Error forwarding message: {}", e));
     tokio::spawn(task);
 }
-

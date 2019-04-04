@@ -10,10 +10,12 @@ use futures::sync::mpsc::channel;
 use client::Client;
 use configs::{get_alphanet_configs, ClientConfig, NetworkConfig, RPCConfig};
 use coroutines::client_task::ClientTask;
+use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
-use primitives::types::AccountId;
-use network::proxy::ProxyHandler;
+use primitives::signer::{BlockSigner, InMemorySigner};
+
+const KEY_STORE_PATH: &str = "storage/keystore";
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
@@ -25,15 +27,26 @@ pub fn start_from_configs(
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
 ) {
-    let client = Arc::new(Client::new(&client_cfg));
+    let signer = match client_cfg.account_id.clone() {
+        Some(account_id) => {
+            let mut key_file_path = client_cfg.base_path.to_path_buf();
+            key_file_path.push(KEY_STORE_PATH);
+            Some(Arc::new(InMemorySigner::from_key_file(
+                account_id,
+                key_file_path.as_path(),
+                client_cfg.public_key.clone(),
+            )) as Arc<BlockSigner>)
+        }
+        None => None,
+    };
+    let client = Arc::new(Client::new(&client_cfg, signer));
     // Use empty pipeline to launch nodes on production.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
-    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg, proxy_handlers)
+    start_from_client(client.clone(), network_cfg, rpc_cfg, proxy_handlers)
 }
 
 pub fn start_from_client(
     client: Arc<Client>,
-    account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
@@ -82,7 +95,7 @@ pub fn start_from_client(
         )
         .spawn();
 
-        // Launch Nightshade task.
+        // Launch Nightshade task, if this client has block signer available.
         spawn_nightshade_task(
             client.signer.clone(),
             inc_gossip_rx,
@@ -95,7 +108,7 @@ pub fn start_from_client(
         // Launch Network task.
         spawn_network(
             client.clone(),
-            account_id,
+            client.account_id(),
             network_cfg,
             inc_gossip_tx,
             out_gossip_rx,
@@ -128,10 +141,9 @@ fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
 mod tests {
     use primitives::block_traits::SignedBlock;
     use primitives::chain::ChainPayload;
-    use primitives::transaction::TransactionBody;
     use primitives::test_utils::TestSignedBlock;
-
-    use testlib::alphanet_utils::{configure_chain_spec, wait, NodeConfig, ThreadNode, Node};
+    use primitives::transaction::{SignedTransaction, TransactionBody};
+    use testlib::alphanet_utils::{configure_chain_spec, wait, Node, NodeConfig, ThreadNode};
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -158,11 +170,9 @@ mod tests {
             chain_spec,
             vec![],
         ));
-        alice
-            .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
-            )
-            .unwrap();
+        let tx_body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
+        let tx = SignedTransaction::new(alice.signer().sign(&tx_body.get_hash()), tx_body);
+        alice.add_transaction(tx).unwrap();
 
         alice.start();
         bob.start();
@@ -178,14 +188,8 @@ mod tests {
         );
 
         // Check that transaction and it's receipt were included.
-        assert_eq!(
-            alice.view_balance(&"alice.near".to_string()).unwrap(),
-            9999990
-        );
-        assert_eq!(
-            alice.view_balance(&"bob.near".to_string()).unwrap(),
-            110
-        );
+        assert_eq!(alice.view_balance(&"alice.near".to_string()).unwrap(), 9999990);
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
     }
 
     /// Creates three nodes, two are authorities, first authority node is ahead on blocks.
@@ -216,7 +220,7 @@ mod tests {
         let mut charlie = ThreadNode::new(NodeConfig::for_test_passive(
             test_prefix,
             test_port,
-            "charlie.near",
+            None,
             3,
             vec![bob.config().node_addr()],
             chain_spec.clone(),
@@ -232,10 +236,9 @@ mod tests {
         shard_block.sign_all(&authorities, &signers);
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
-        bob
-            .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
-            ).unwrap();
+        let tx_body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
+        let transaction = SignedTransaction::new(alice.signer().sign(&tx_body.get_hash()), tx_body);
+        bob.add_transaction(transaction).unwrap();
 
         alice.start();
         bob.start();
@@ -244,10 +247,7 @@ mod tests {
         wait(|| charlie.client.shard_client.chain.best_index() >= 3, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(
-            charlie.view_balance(&"bob.near".to_string()).unwrap(),
-            110
-        );
+        assert_eq!(charlie.view_balance(&"bob.near".to_string()).unwrap(), 110);
     }
 
     /// Creates two nodes, first authority node is ahead on blocks.
@@ -275,7 +275,8 @@ mod tests {
             chain_spec.clone(),
             vec![],
         ));
-        let (mut beacon_block, mut shard_block, shard_extra) = alice.client.prepare_block(ChainPayload::default());
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            alice.client.prepare_block(ChainPayload::default());
         // Sign by alice & bob to make this blocks valid.
         let (_, authorities) = alice.client.get_uid_to_authority_map(beacon_block.index());
         let signers = vec![alice.signer(), bob.signer()];
@@ -283,25 +284,17 @@ mod tests {
         shard_block.sign_all(&authorities, &signers);
         alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
 
-        bob
-            .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                    .sign(alice.signer()),
-            )
-            .unwrap();
+        let tx_body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
+        let transaction = SignedTransaction::new(alice.signer().sign(&tx_body.get_hash()), tx_body);
+        bob.add_transaction(transaction).unwrap();
 
         alice.start();
         bob.start();
 
-        wait(|| {
-            alice.client.shard_client.chain.best_index() >= 3
-        }, 500, 60000);
+        wait(|| alice.client.shard_client.chain.best_index() >= 3, 500, 60000);
 
         // Check that non-authority synced into the same state.
-        assert_eq!(
-            alice.view_balance(&"bob.near".to_string()).unwrap(),
-            110
-        );
+        assert_eq!(alice.view_balance(&"bob.near".to_string()).unwrap(), 110);
     }
 
     /// Creates two authority nodes, run them for 10 blocks.
@@ -356,6 +349,5 @@ mod tests {
         dan.start();
         wait(|| charlie.client.shard_client.chain.best_index() >= 2, 500, 60000);
         wait(|| dan.client.shard_client.chain.best_index() >= 2, 500, 60000);
-
     }
 }

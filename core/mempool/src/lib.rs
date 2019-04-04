@@ -488,7 +488,7 @@ impl Pool {
 mod tests {
     use node_runtime::{test_utils::generate_test_chain_spec, Runtime};
     use primitives::hash::CryptoHash;
-    use primitives::signer::InMemorySigner;
+    use primitives::signer::{InMemorySigner, TransactionSigner};
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;
@@ -517,13 +517,13 @@ mod tests {
     fn test_import_block() {
         let (storage, trie, signers) = get_test_chain();
         let pool = Pool::new(signers[0].clone(), storage, trie);
-        let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
+        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        })
-        .sign(signers[0].clone());
+        });
+        let transaction = SignedTransaction::new(signers[0].sign(&tx_body.get_hash()), tx_body);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.transaction_info.read().expect(POISONED_LOCK_ERR).len(), 1);
@@ -548,13 +548,13 @@ mod tests {
     fn test_known_to() {
         let (storage, trie, signers) = get_test_chain();
         let pool = Pool::new(signers[0].clone(), storage, trie);
-        let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
+        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        })
-        .sign(signers[0].clone());
+        });
+        let transaction = SignedTransaction::new(signers[0].sign(&tx_body.get_hash()), tx_body);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);
@@ -571,13 +571,13 @@ mod tests {
         let (storage, trie, signers) = get_test_chain();
         let transactions: Vec<_> = (1..5)
             .map(|i| {
-                TransactionBody::SendMoney(SendMoneyTransaction {
+                let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
                     nonce: i,
                     originator: "alice.near".to_string(),
                     receiver: "bob.near".to_string(),
                     amount: i,
-                })
-                .sign(signers[0].clone())
+                });
+                SignedTransaction::new(signers[0].sign(&tx_body.get_hash()), tx_body)
             })
             .collect();
         let pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());

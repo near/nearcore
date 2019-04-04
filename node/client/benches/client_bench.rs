@@ -66,7 +66,7 @@ fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySign
     let (chain_spec, alice_signer, bob_signer) = get_chain_spec();
     cfg.chain_spec = chain_spec;
     cfg.log_level = log::LevelFilter::Off;
-    (Client::new(&cfg), alice_signer, bob_signer)
+    (Client::new(&cfg, Some(alice_signer.clone())), alice_signer, bob_signer)
 }
 
 /// Produces blocks by consuming batches of transactions. Runs until all receipts are processed.
@@ -113,7 +113,7 @@ fn deploy_test_contract(
         amount: 10,
         public_key: contract_signer.public_key().0[..].to_vec(),
     };
-    let t_create = TransactionBody::CreateAccount(t_create).sign(deployer_signer);
+    let t_create = TransactionBody::CreateAccount(t_create).sign(&*deployer_signer);
     next_nonce += 1;
 
     // Create contract deployment transaction.
@@ -123,7 +123,7 @@ fn deploy_test_contract(
         contract_id: CONTRACT_ID.to_string(),
         wasm_byte_array: wasm_binary.to_vec(),
     };
-    let t_deploy = TransactionBody::DeployContract(t_deploy).sign(contract_signer);
+    let t_deploy = TransactionBody::DeployContract(t_deploy).sign(&*contract_signer);
     next_nonce += 1;
 
     (t_create, t_deploy, next_nonce)
@@ -144,7 +144,7 @@ fn call_contract(
         args: args.as_bytes().to_vec(),
         amount: 0,
     };
-    let t = TransactionBody::FunctionCall(t).sign(deployer_signer);
+    let t = TransactionBody::FunctionCall(t).sign(&*deployer_signer);
     next_nonce += 1;
     (t, next_nonce)
 }
@@ -194,7 +194,7 @@ fn money_transaction_blocks(bench: &mut Bencher) {
                 signer = bob_signer.clone();
                 bob_nonce += 1;
             }
-            let t = TransactionBody::SendMoney(t).sign(signer);
+            let t = TransactionBody::SendMoney(t).sign(&*signer);
             hashes.push(t.body.get_hash());
             batch.push(t);
         }

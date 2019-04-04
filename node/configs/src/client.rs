@@ -12,7 +12,7 @@ const DEFAULT_LOG_LEVEL: &str = "Info";
 #[derive(Clone)]
 pub struct ClientConfig {
     pub base_path: PathBuf,
-    pub account_id: AccountId,
+    pub account_id: Option<AccountId>,
     pub public_key: Option<String>,
     pub chain_spec: ChainSpec,
     pub log_level: log::LevelFilter,
@@ -22,7 +22,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
-            account_id: String::from("alice.near"),
+            account_id: Some(String::from("alice.near")),
             public_key: None,
             chain_spec: Default::default(),
             log_level: log::LevelFilter::Info,
@@ -72,7 +72,7 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
 
 pub fn from_matches(matches: &ArgMatches) -> ClientConfig {
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
-    let account_id = matches.value_of("account_id").map(String::from).unwrap();
+    let account_id = matches.value_of("account_id").map(String::from);
     let public_key = matches.value_of("public_key").map(String::from);
     let log_level = matches.value_of("log_level").map(log::LevelFilter::from_str).unwrap().unwrap();
 

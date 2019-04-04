@@ -172,7 +172,7 @@ impl User {
         root: CryptoHash,
         tx_body: TransactionBody,
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let transaction = tx_body.sign(self.signer.clone());
+        let transaction = SignedTransaction::new(self.signer.sign(&tx_body.get_hash()), tx_body);
         let apply_state = ApplyState {
             root,
             shard_id: 0,

@@ -24,9 +24,9 @@ use primitives::transaction::{
     TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus
 };
 use primitives::types::{
-    AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId, AccountId
+    AccountId, AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId
 };
-use storage::{Trie, TrieUpdate, ShardChainStorage};
+use storage::{ShardChainStorage, Trie, TrieUpdate};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -59,11 +59,11 @@ pub struct ShardClient {
     storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
     pub trie_viewer: TrieViewer,
-    pub pool: Arc<Pool>,
+    pub pool: Option<Arc<Pool>>,
 }
 
 impl ShardClient {
-    pub fn new(signer: Arc<BlockSigner>, chain_spec: &ChainSpec, storage: Arc<RwLock<ShardChainStorage>>) -> Self {
+    pub fn new(signer: Option<Arc<BlockSigner>>, chain_spec: &ChainSpec, storage: Arc<RwLock<ShardChainStorage>>) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -78,8 +78,11 @@ impl ShardClient {
 
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
-        let pool = Arc::new(Pool::new(signer, storage.clone(), trie.clone()));
-        Self { 
+        let pool = match signer {
+            Some(signer) => Some(Arc::new(Pool::new(signer, storage.clone(), trie.clone()))),
+            None => None
+        };
+        Self {
             chain,
             trie,
             storage,
@@ -109,7 +112,9 @@ impl ShardClient {
     ) {
         self.trie.apply_changes(db_transaction).ok();
         self.chain.insert_block(block.clone());
-        self.pool.import_block(&block);
+        if let Some(pool) = &self.pool {
+            pool.import_block(&block);
+        }
         let index = block.index();
         
         let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
@@ -314,23 +319,24 @@ impl ShardClient {
 
 #[cfg(test)]
 mod tests {
+    use rand::prelude::SliceRandom;
+    use rand::thread_rng;
+
     use node_runtime::test_utils::generate_test_chain_spec;
-    use primitives::signer::InMemorySigner;
+    use primitives::signer::{InMemorySigner, TransactionSigner};
     use primitives::transaction::{
         FinalTransactionStatus, SignedTransaction, TransactionAddress,
         TransactionBody, TransactionStatus
     };
-    use storage::test_utils::create_beacon_shard_storages;
     use storage::GenericStorage;
-    use rand::thread_rng;
-    use rand::prelude::SliceRandom;
+    use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
 
     fn get_test_client() -> (ShardClient, Vec<Arc<InMemorySigner>>) {
         let (chain_spec, signers) = generate_test_chain_spec();
         let shard_storage = create_beacon_shard_storages().1;
-        let shard_client = ShardClient::new(signers[0].clone(), &chain_spec, shard_storage);
+        let shard_client = ShardClient::new(Some(signers[0].clone()), &chain_spec, shard_storage);
         (shard_client, signers)
     }
 
@@ -353,8 +359,8 @@ mod tests {
                 .unwrap();
             let mut nonce = self.get_account_nonce(sender.to_string()).unwrap_or_else(|| 0) + 1;
             for _ in 0..num_blocks {
-                let tx = TransactionBody::send_money(nonce, sender, receiver, 1)
-                    .sign(sender_signer.clone());
+                let tx_body = TransactionBody::send_money(nonce, sender, receiver, 1);
+                let tx = SignedTransaction::new(sender_signer.sign(&tx_body.get_hash()), tx_body);
                 let (block, block_extra) =
                     self.prepare_new_block(prev_hash, vec![], vec![tx.clone()]);
                 prev_hash = block.hash;
@@ -381,7 +387,7 @@ mod tests {
     #[test]
     fn test_transaction_failed() {
         let (client, signers) = get_test_client();
-        let tx = TransactionBody::send_money(1, "xyz.near", "bob.near", 100).sign(signers[0].clone());
+        let tx = TransactionBody::send_money(1, "xyz.near", "bob.near", 100).sign(&*signers[0]);
         let (block, block_extra) =
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(
@@ -399,7 +405,7 @@ mod tests {
     #[test]
     fn test_get_transaction_status_complete() {
         let (client, signers) = get_test_client();
-        let tx = TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(signers[0].clone());
+        let tx = TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&*signers[0]);
         let (block, block_extra) =
             client.prepare_new_block(client.genesis_hash(), vec![], vec![tx.clone()]);
         client.insert_block(
@@ -497,16 +503,16 @@ mod tests {
         };
         client.add_blocks("alice.near", "bob.near", signers[0].clone(), 5);
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
-        let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 2);
+        let tx = create_transaction("alice.near", "bob.near", &*signers[0], 2);
         client.pool.add_transaction(tx).unwrap();
         assert!(client.pool.is_empty());
-        let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 6);
+        let tx = create_transaction("alice.near", "bob.near", &*signers[0], 6);
         client.pool.add_transaction(tx).unwrap();
         assert_eq!(client.pool.len(), 1);
-        let tx = create_transaction("bob.near", "alice.near", signers[1].clone(), 1);
+        let tx = create_transaction("bob.near", "alice.near", &*signers[1], 1);
         client.pool.add_transaction(tx).unwrap();
         assert_eq!(client.pool.len(), 1);
-        let tx = create_transaction("bob.near", "alice.near", signers[1].clone(), 2);
+        let tx = create_transaction("bob.near", "alice.near", &*signers[1], 2);
         client.pool.add_transaction(tx).unwrap();
         assert_eq!(client.pool.len(), 2);
     }
@@ -516,7 +522,7 @@ mod tests {
         let (client, signers) = get_test_client();
         let mut transactions: Vec<_> = (0..10).map(|i| {
             TransactionBody::send_money(i + 1, "alice.near", "bob.near", 1)
-            .sign(signers[0].clone())
+            .sign(&*signers[0])
         }).collect();
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
