@@ -208,6 +208,16 @@ impl InMemorySigner {
     }
 }
 
+use cached::{cached, SizedCache};
+
+/// We store signing in the LRU cache.
+cached!{
+  TRANSACTION_CACHE: SizedCache<(Vec<u8>, SecretKey), Signature> = SizedCache::with_size(1_000_000);
+  fn sign_transaction(data: &Vec<u8>, sk: &SecretKey) -> Signature  = {
+    sign(data, sk)
+  }
+}
+
 impl TransactionSigner for InMemorySigner {
     #[inline]
     fn public_key(&self) -> PublicKey {
@@ -215,8 +225,15 @@ impl TransactionSigner for InMemorySigner {
     }
 
     fn sign(&self, data: &[u8]) -> Signature {
-        sign(data, &self.secret_key)
+        sign_transaction(&data.to_vec(), &self.secret_key)
     }
+}
+
+cached!{
+  BLOCK_CACHE: SizedCache<(Vec<u8>, BlsSecretKey), PartialSignature> = SizedCache::with_size(100_000);
+  fn sign_block(data: &Vec<u8>, sk: &BlsSecretKey) -> PartialSignature  = {
+    sk.sign(data)
+  }
 }
 
 impl BlockSigner for InMemorySigner {

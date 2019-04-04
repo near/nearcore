@@ -218,6 +218,22 @@ impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
     }
 }
 
+// `Eq`, `PartialEq`, and `Hash` traits allow us to use `SecretKey<E>` in standard std containers
+// and macros.
+impl<E: Engine> Eq for SecretKey<E> {}
+
+impl<E: Engine> PartialEq for SecretKey<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.scalar == other.scalar
+    }
+}
+
+impl<E: Engine> std::hash::Hash for SecretKey<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.to_bytes());
+    }
+}
+
 impl<E: Engine> ToBytes for PublicKey<E> {
     fn to_bytes(&self) -> Vec<u8> {
         self.compress().as_ref().to_vec()
