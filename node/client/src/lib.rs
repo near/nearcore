@@ -104,6 +104,7 @@ fn configure_logging(log_level: log::LevelFilter) {
     if let Ok(lvl) = env::var("RUST_LOG") {
         builder.parse_filters(&lvl);
     }
+    builder.default_format_timestamp_nanos(true);
     if let Err(e) = builder.try_init() {
         warn!(target: "client", "Failed to reinitialize the log level {}", e);
     }
