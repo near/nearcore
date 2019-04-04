@@ -89,9 +89,9 @@ impl ChainSpec {
         let mut signers = vec![];
         let mut accounts = vec![];
         let mut initial_authorities = vec![];
-        for (i, id) in NAMED_IDS.iter().enumerate().take(num_signers) {
+        for i in 0..num_signers {
             let account_id = match id_type {
-                DefaultIdType::Named => id.to_string(),
+                DefaultIdType::Named => NAMED_IDS[i].to_string(),
                 DefaultIdType::Enumerated => format!("near.{}", i),
             };
             let signer =
