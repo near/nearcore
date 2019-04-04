@@ -162,7 +162,7 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
 
 #[test]
 fn test_4_20_kill1() {
-    heavy_test(|| test_kill_1(4, 10, "4_10_kill1", 3300));
+    heavy_test(|| test_kill_1(4, 10, "4_10_kill1", 3200));
 }
 
 #[test]

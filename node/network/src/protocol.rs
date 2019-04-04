@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::timer::Interval;
 
 use client::Client;
-use configs::NetworkConfig;
+use configs::{ClientConfig, NetworkConfig};
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade_task::Gossip;
 use primitives::block_traits::SignedBlock;
@@ -74,9 +74,6 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Time interval between printing connected peers.
 const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
-
-/// Maximal number of blocks sent in one response.
-const MAX_NUM_BLOCKS_RESPONSE: u64 = 100;
 
 #[derive(Clone)]
 pub struct ClientChainStateRetriever {
@@ -544,6 +541,7 @@ pub fn spawn_network(
     client: Arc<Client>,
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
+    client_cfg: ClientConfig,
     inc_gossip_tx: Sender<Gossip>,
     out_gossip_rx: Receiver<Gossip>,
     inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>, BlockIndex)>,
@@ -648,7 +646,7 @@ pub fn spawn_network(
                 &peer_id,
                 from_index,
                 til_index,
-                MAX_NUM_BLOCKS_RESPONSE,
+                client_cfg.block_fetch_limit,
             );
             future::ok(())
         })

@@ -30,7 +30,14 @@ pub fn start_from_configs(
     let client = Arc::new(Client::new(&client_cfg));
     // Use empty pipeline to launch nodes on production.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
-    start_from_client(client, Some(client_cfg.account_id), network_cfg, rpc_cfg, proxy_handlers)
+    start_from_client(
+        client,
+        Some(client_cfg.account_id.clone()),
+        network_cfg,
+        rpc_cfg,
+        client_cfg,
+        proxy_handlers,
+    )
 }
 
 pub fn start_from_client(
@@ -38,6 +45,7 @@ pub fn start_from_client(
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
+    client_cfg: ClientConfig,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> ShutdownableThread {
     let node_task = futures::lazy(move || {
@@ -99,6 +107,7 @@ pub fn start_from_client(
             client.clone(),
             account_id,
             network_cfg,
+            client_cfg,
             inc_gossip_tx,
             out_gossip_rx,
             inc_block_tx,

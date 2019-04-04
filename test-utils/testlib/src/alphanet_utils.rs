@@ -193,12 +193,14 @@ impl Node for ThreadNode {
         let account_id = self.config().client_cfg.account_id.clone();
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
+        let client_cfg = self.config().client_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
         let handle = alphanet::start_from_client(
             client,
             Some(account_id),
             network_cfg,
             rpc_cfg,
+            client_cfg,
             proxy_handlers,
         );
         self.state = ThreadNodeState::Running(handle);
