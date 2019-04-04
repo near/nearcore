@@ -50,9 +50,7 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .long("account-id")
             .value_name("ACCOUNT_ID")
             .help("Set the account id of the node")
-            .takes_value(true)
-            // TODO(#282): Remove default account id from here.
-            .default_value("alice.near"),
+            .takes_value(true),
         Arg::with_name("public_key")
             .short("k")
             .long("public-key")
