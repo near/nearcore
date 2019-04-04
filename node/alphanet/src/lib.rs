@@ -133,7 +133,9 @@ mod tests {
     use primitives::test_utils::TestSignedBlock;
     use primitives::transaction::TransactionBody;
 
-    use testlib::alphanet_utils::{configure_chain_spec, wait, Node, NodeConfig, ThreadNode};
+    use testlib::alphanet_utils::{
+        configure_chain_spec, wait, Node, NodeConfig, ThreadNode, TEST_BLOCK_FETCH_LIMIT,
+    };
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -150,6 +152,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
 
@@ -160,6 +163,7 @@ mod tests {
             2,
             vec![alice.config().node_addr()],
             chain_spec,
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         alice
@@ -208,6 +212,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut bob = ThreadNode::new(NodeConfig::for_test(
@@ -217,6 +222,7 @@ mod tests {
             2,
             vec![alice.config().node_addr()],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut charlie = ThreadNode::new(NodeConfig::for_test_passive(
@@ -226,6 +232,7 @@ mod tests {
             3,
             vec![bob.config().node_addr()],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
 
@@ -273,6 +280,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut bob = ThreadNode::new(NodeConfig::for_test(
@@ -282,6 +290,7 @@ mod tests {
             2,
             vec![alice.config().node_addr()],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let (mut beacon_block, mut shard_block, shard_extra) =
@@ -324,6 +333,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut bob = ThreadNode::new(NodeConfig::for_test(
@@ -333,6 +343,7 @@ mod tests {
             2,
             vec![alice.config().node_addr()],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut charlie = ThreadNode::new(NodeConfig::for_test(
@@ -342,6 +353,7 @@ mod tests {
             3,
             vec![bob.config().node_addr()],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut dan = ThreadNode::new(NodeConfig::for_test(
@@ -351,6 +363,7 @@ mod tests {
             4,
             vec![charlie.config().node_addr()],
             chain_spec,
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
 
@@ -378,6 +391,7 @@ mod tests {
             1,
             vec![],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
         let mut bob = ThreadNode::new(NodeConfig::for_test(
@@ -387,9 +401,10 @@ mod tests {
             2,
             vec![alice.config().node_addr()],
             chain_spec.clone(),
+            TEST_BLOCK_FETCH_LIMIT,
             vec![],
         ));
-        for i in 0..500 {
+        for i in 0..100 {
             let transaction = TransactionBody::send_money(i + 1, "alice.near", "bob.near", 1)
                 .sign(alice.signer());
             let payload = ChainPayload::new(vec![transaction], vec![]);
@@ -402,11 +417,11 @@ mod tests {
             shard_block.sign_all(&authorities, &signers);
             alice.client.try_import_produced(beacon_block, shard_block, shard_extra);
         }
-        assert_eq!(alice.client.shard_client.chain.best_index(), 500);
+        assert_eq!(alice.client.shard_client.chain.best_index(), 100);
 
         alice.start();
         bob.start();
 
-        wait(|| bob.client.shard_client.chain.best_index() >= 501, 1000, 600000);
+        wait(|| bob.client.shard_client.chain.best_index() >= 101, 1000, 600000);
     }
 }
