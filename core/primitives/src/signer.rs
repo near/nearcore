@@ -197,7 +197,7 @@ impl InMemorySigner {
     pub fn from_random() -> Self {
         let mut rng = OsRng::new().expect("Unable to generate random numbers");
         let account_id: String =
-            rng.sample_iter(&Alphanumeric).filter(|c| c.is_ascii_alphabetic()).take(10).collect();
+            rng.sample_iter(&Alphanumeric).filter(char::is_ascii_alphabetic).take(10).collect();
         let (public_key, secret_key) = signature::get_key_pair();
         let bls_secret_key = BlsSecretKey::generate();
         let bls_public_key = bls_secret_key.get_public_key();
