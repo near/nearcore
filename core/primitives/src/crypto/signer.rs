@@ -211,20 +211,6 @@ impl InMemorySigner {
     }
 }
 
-// Use hash for the Key so that we do not store raw crypto keys in the memory. Also more memory
-// efficient.
-cached_key!{
-  TRANSACTION_CACHE: SizedCache<CryptoHash, Signature> = SizedCache::with_size(1_000_000);
-  Key = {
-        let mut res = sk.to_bytes();
-        res.extend_from_slice(data);
-        hash(&res)
-        };
-  fn sign_transaction(data: &[u8], sk: &SecretKey) -> Signature  = {
-    sign(data, sk)
-  }
-}
-
 impl TransactionSigner for InMemorySigner {
     #[inline]
     fn public_key(&self) -> PublicKey {
@@ -232,7 +218,7 @@ impl TransactionSigner for InMemorySigner {
     }
 
     fn sign(&self, data: &[u8]) -> Signature {
-        sign_transaction(data, &self.secret_key)
+        sign(data, &self.secret_key)
     }
 }
 
