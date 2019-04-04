@@ -8,6 +8,8 @@ use crate::types::{AuthorityMask, PartialSignature};
 use core::fmt;
 use std::convert::TryFrom;
 use near_protos::types as types_proto;
+use cached::{cached_key, SizedCache};
+use crate::hash::{hash, CryptoHash};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
@@ -47,6 +49,44 @@ impl fmt::Debug for GroupSignature {
     }
 }
 
+
+
+// Use hash for the Key so that we do not store raw crypto keys in the memory. Also more memory
+// efficient.
+cached_key!{
+  VERIFICATION_CACHE: SizedCache<CryptoHash, bool> = SizedCache::with_size(100_000);
+  Key = {
+        let mut res = vec![];
+        res.extend(authority_mask.iter().map(|e| *e as u8).collect::<Vec<_>>());
+        res.extend(signature.to_bytes());
+        for key in keys {
+            res.extend(key.to_bytes());
+        }
+        res.extend_from_slice(data);
+        hash(&res)
+  };
+  fn verify(authority_mask: &AuthorityMask, signature: &BlsSignature, keys: &Vec<BlsPublicKey>, data: &[u8]) -> bool  = {
+          if keys.len() < authority_mask.len() {
+            return false;
+        }
+        // Empty signature + empty public key would pass verification
+        if authority_count(authority_mask) == 0 {
+            return false;
+        }
+        let mut group_key = BlsAggregatePublicKey::new();
+        for (index, key) in keys.iter().enumerate() {
+            if let Some(true) = authority_mask.get(index) {
+                group_key.aggregate(&key);
+            }
+        }
+        group_key.get_key().verify(data, &signature)
+  }
+}
+
+fn authority_count(authority_mask: &AuthorityMask) -> usize {
+    authority_mask.iter().filter(|&x| *x).count()
+}
+
 impl GroupSignature {
     // TODO (optimization): It's better to keep the signature in projective coordinates while
     // building it, then switch to affine coordinates at the end.  For the time being we just keep
@@ -68,24 +108,11 @@ impl GroupSignature {
     }
 
     pub fn authority_count(&self) -> usize {
-        self.authority_mask.iter().filter(|&x| *x).count()
+        authority_count(&self.authority_mask)
     }
 
     pub fn verify(&self, keys: &Vec<BlsPublicKey>, message: &[u8]) -> bool {
-        if keys.len() < self.authority_mask.len() {
-            return false;
-        }
-        // Empty signature + empty public key would pass verification
-        if self.authority_count() == 0 {
-            return false;
-        }
-        let mut group_key = BlsAggregatePublicKey::new();
-        for (index, key) in keys.iter().enumerate() {
-            if let Some(true) = self.authority_mask.get(index) {
-                group_key.aggregate(&key);
-            }
-        }
-        group_key.get_key().verify(message, &self.signature)
+        verify(&self.authority_mask, &self.signature, keys, message)
     }
 }
 

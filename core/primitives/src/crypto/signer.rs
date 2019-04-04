@@ -7,10 +7,13 @@ use crate::crypto::signature::{
     bs58_pub_key_format, bs58_secret_key_format, get_key_pair, sign, PublicKey, SecretKey,
     Signature, bs58_serializer
 };
+use crate::hash::{CryptoHash, hash};
 use crate::types::{AccountId, PartialSignature};
+use crate::traits::ToBytes;
 use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
+use cached::{cached_key, SizedCache};
 
 /// Trait to abstract the way transaction signing happens.
 pub trait TransactionSigner: Sync + Send {
@@ -208,12 +211,16 @@ impl InMemorySigner {
     }
 }
 
-use cached::{cached, SizedCache};
-
-/// We store signing in the LRU cache.
-cached!{
-  TRANSACTION_CACHE: SizedCache<(Vec<u8>, SecretKey), Signature> = SizedCache::with_size(1_000_000);
-  fn sign_transaction(data: &Vec<u8>, sk: &SecretKey) -> Signature  = {
+// Use hash for the Key so that we do not store raw crypto keys in the memory. Also more memory
+// efficient.
+cached_key!{
+  TRANSACTION_CACHE: SizedCache<CryptoHash, Signature> = SizedCache::with_size(1_000_000);
+  Key = {
+        let mut res = sk.to_bytes();
+        res.extend_from_slice(data);
+        hash(&res)
+        };
+  fn sign_transaction(data: &[u8], sk: &SecretKey) -> Signature  = {
     sign(data, sk)
   }
 }
@@ -225,13 +232,18 @@ impl TransactionSigner for InMemorySigner {
     }
 
     fn sign(&self, data: &[u8]) -> Signature {
-        sign_transaction(&data.to_vec(), &self.secret_key)
+        sign_transaction(data, &self.secret_key)
     }
 }
 
-cached!{
-  BLOCK_CACHE: SizedCache<(Vec<u8>, BlsSecretKey), PartialSignature> = SizedCache::with_size(100_000);
-  fn sign_block(data: &Vec<u8>, sk: &BlsSecretKey) -> PartialSignature  = {
+cached_key!{
+  BLOCK_CACHE: SizedCache<CryptoHash, PartialSignature> = SizedCache::with_size(100_000);
+  Key = {
+        let mut res = sk.to_bytes();
+        res.extend_from_slice(data);
+        hash(&res)
+        };
+  fn sign_block(data: &[u8], sk: &BlsSecretKey) -> PartialSignature  = {
     sk.sign(data)
   }
 }

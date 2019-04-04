@@ -160,6 +160,12 @@ impl<E: Engine> PartialEq for PublicKey<E> {
 
 impl<E: Engine> Eq for PublicKey<E> {}
 
+impl<E: Engine> std::hash::Hash for PublicKey<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.to_bytes());
+    }
+}
+
 impl<E: Engine> Signature<E> {
     pub fn compress(&self) -> CompressedSignature<E> {
         CompressedSignature(self.point.into_compressed())
