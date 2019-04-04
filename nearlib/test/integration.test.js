@@ -5,16 +5,19 @@ const fs = require('fs');
 let nearjs;
 let account;
 let keyStore;
+let networkId;
 
 beforeAll(async () => {
     // To avoid nonce collisions with promise test on alice
     await sleep(1000);
 
-    keyStore = new InMemoryKeyStore();
+    networkId = 'somenetwork';
+    keyStore = new InMemoryKeyStore(networkId);
     const storage = createFakeStorage();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
+        networkId: networkId,
         deps: { keyStore, storage },
     });
     account = new Account(nearjs.nearClient);
@@ -29,7 +32,7 @@ describe('dev connect', () => {
     let deps;
     let options;
     beforeEach(async () => {
-        const keyStore = new InMemoryKeyStore();
+        const keyStore = new InMemoryKeyStore(networkId);
         const storage = createFakeStorage();   
         deps = {
             keyStore,
@@ -46,9 +49,9 @@ describe('dev connect', () => {
         // Mocking some
         let tmpCreate = dev.createAccountWithContractHelper;
         let devConfig = dev.getConfig;
-        dev.getConfig = async () => "THE_CONFIG";
+        dev.getConfig = async () => 'THE_CONFIG';
         dev.createAccountWithContractHelper = async (nearConfig, newAccountId, publicKey) => {
-            expect(nearConfig).toEqual("THE_CONFIG");
+            expect(nearConfig).toEqual('THE_CONFIG');
             return await dev.createAccountWithLocalNodeConnection(newAccountId, publicKey);
         };
         // Calling
@@ -165,6 +168,7 @@ describe('with deployed contract', () => {
     let oldLog;
     let logs;
     let contractName = 'test_contract_' + Date.now();
+    let networkId = 'somenetwork';
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
@@ -175,13 +179,13 @@ describe('with deployed contract', () => {
             10,
             aliceAccountName);
         await nearjs.waitForTransactionResult(createAccountResponse);
-        keyStore.setKey(contractName, keyWithRandomSeed);
+        keyStore.setKey(contractName, keyWithRandomSeed, networkId);
         const data = [...fs.readFileSync('../tests/hello.wasm')];
         await nearjs.waitForTransactionResult(
             await nearjs.deployContract(contractName, data));
         contract = await nearjs.loadContract(contractName, {
             sender: aliceAccountName,
-            viewMethods: ['getAllKeys', "returnHiWithLogs"],
+            viewMethods: ['getAllKeys', 'returnHiWithLogs'],
             changeMethods: ['generateLogs', 'triggerAssert', 'testSetRemove']
         });
     });
