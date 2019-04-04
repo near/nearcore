@@ -4,16 +4,15 @@ use std::process;
 
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{
-    bs58_pub_key_format, bs58_secret_key_format, get_key_pair, sign, PublicKey, SecretKey,
-    Signature, bs58_serializer
+    bs58_pub_key_format, bs58_secret_key_format, bs58_serializer, get_key_pair, sign, PublicKey,
+    SecretKey, Signature,
 };
-use crate::hash::{CryptoHash, hash};
 use crate::types::{AccountId, PartialSignature};
-use crate::traits::ToBytes;
+use cached::{Cached, SizedCache};
 use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
-use cached::{cached_key, SizedCache};
+use std::sync::Mutex;
 
 /// Trait to abstract the way transaction signing happens.
 pub trait TransactionSigner: Sync + Send {
@@ -180,7 +179,11 @@ pub struct InMemorySigner {
     pub secret_key: SecretKey,
     pub bls_public_key: BlsPublicKey,
     pub bls_secret_key: BlsSecretKey,
+    /// Cache for BLS signatures to make sure we do not recompute them.
+    pub bls_cache: Mutex<SizedCache<Vec<u8>, PartialSignature>>,
 }
+
+const BLS_CACHE_SIZE: usize = 100_000;
 
 impl InMemorySigner {
     pub fn from_key_file(
@@ -195,6 +198,7 @@ impl InMemorySigner {
             secret_key: key_file.secret_key,
             bls_public_key: key_file.bls_public_key,
             bls_secret_key: key_file.bls_secret_key,
+            bls_cache: Mutex::new(SizedCache::with_size(BLS_CACHE_SIZE)),
         }
     }
 
@@ -207,7 +211,14 @@ impl InMemorySigner {
         let (public_key, secret_key) = get_key_pair();
         let bls_secret_key = BlsSecretKey::generate();
         let bls_public_key = bls_secret_key.get_public_key();
-        Self { account_id, public_key, secret_key, bls_public_key, bls_secret_key }
+        Self {
+            account_id,
+            public_key,
+            secret_key,
+            bls_public_key,
+            bls_secret_key,
+            bls_cache: Mutex::new(SizedCache::with_size(BLS_CACHE_SIZE)),
+        }
     }
 }
 
@@ -222,18 +233,6 @@ impl TransactionSigner for InMemorySigner {
     }
 }
 
-cached_key!{
-  BLOCK_CACHE: SizedCache<CryptoHash, PartialSignature> = SizedCache::with_size(100_000);
-  Key = {
-        let mut res = sk.to_bytes();
-        res.extend_from_slice(data);
-        hash(&res)
-        };
-  fn sign_block(data: &[u8], sk: &BlsSecretKey) -> PartialSignature  = {
-    sk.sign(data)
-  }
-}
-
 impl BlockSigner for InMemorySigner {
     #[inline]
     fn bls_public_key(&self) -> BlsPublicKey {
@@ -241,7 +240,15 @@ impl BlockSigner for InMemorySigner {
     }
 
     fn bls_sign(&self, data: &[u8]) -> PartialSignature {
-        self.bls_secret_key.sign(data)
+        let mut guard = self.bls_cache.lock().expect("Cache lock was poisoned");
+        let key = data.to_vec();
+        if let Some(res) = guard.cache_get(&key) {
+            return res.clone();
+        }
+
+        let res = self.bls_secret_key.sign(data);
+        guard.cache_set(key, res.clone());
+        res
     }
 
     #[inline]
