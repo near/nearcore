@@ -27,6 +27,8 @@ use primitives::crypto::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockId, BlockIndex, PeerId};
 use shard::ShardBlockExtraInfo;
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
 pub struct ClientTask {
     client: Arc<Client>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
@@ -366,6 +368,8 @@ impl ClientTask {
             .client
             .shard_client
             .pool
+            .write()
+            .expect(POISONED_LOCK_ERR)
             .pop_payload_snapshot(&consensus_block_header.proposal.hash)
         {
             Some(p) => p,
@@ -613,11 +617,11 @@ impl ClientTask {
         debug!(
             target: "client",
             "Checking payload confirmation, authority_id={} for hash={} from other authority_id={}",
-            pool.authority_id.read().expect("Lock is poisoned").unwrap(),
+            pool.read().expect(POISONED_LOCK_ERR).authority_id.unwrap(),
             hash,
             authority_id,
         );
-        if !pool.contains_payload_snapshot(&hash) {
+        if !pool.read().expect(POISONED_LOCK_ERR).contains_payload_snapshot(&hash) {
             tokio_utils::spawn(
                 self.payload_request_tx
                     .clone()
@@ -643,7 +647,11 @@ impl ClientTask {
         let pool = &self.client.shard_client.pool;
         match payload_response {
             PayloadResponse::General(authority_id, response) => {
-                match pool.add_missing_payload(authority_id, response) {
+                match pool
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .add_missing_payload(authority_id, response)
+                {
                     Ok(snapshot_hash) => {
                         let send_confirmation = self
                             .control_tx
@@ -660,7 +668,11 @@ impl ClientTask {
             }
             PayloadResponse::BlockProposal(authority_id, snapshot) => {
                 let hash = snapshot.get_hash();
-                if let Some(request) = pool.add_payload_snapshot(authority_id, snapshot) {
+                if let Some(request) = pool
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .add_payload_snapshot(authority_id, snapshot)
+                {
                     let block_index = self.client.shard_client.chain.best_index() + 1;
                     tokio_utils::spawn(
                         self.payload_request_tx
@@ -690,7 +702,7 @@ impl ClientTask {
         let (owner_uid, uid_to_authority_map) = self.client.get_uid_to_authority_map(index);
 
         if owner_uid.is_none() {
-            self.client.shard_client.pool.reset(None, None);
+            self.client.shard_client.pool.write().expect(POISONED_LOCK_ERR).reset(None, None);
             return Control::Stop;
         }
         let owner_uid = owner_uid.unwrap();
@@ -710,15 +722,17 @@ impl ClientTask {
             bls_public_keys.push(uid_to_authority_map[&i].bls_public_key.clone());
         }
 
-        self.client.shard_client.pool.reset(Some(owner_uid), Some(num_authorities));
-        let hash = self.client.shard_client.pool.snapshot_payload();
+        let mut pool_guard = self.client.shard_client.pool.write().expect(POISONED_LOCK_ERR);
+        pool_guard.reset(Some(owner_uid), Some(num_authorities));
+        let hash = pool_guard.snapshot_payload();
         Control::Reset { owner_uid, block_index, hash, public_keys, bls_public_keys }
     }
 
     fn gossip_payload(&self) {
         let pool = &self.client.shard_client.pool;
+        let block_index = self.client.shard_client.chain.best_index() + 1;
         for payload_gossip in
-            pool.prepare_payload_gossip(self.client.shard_client.chain.best_index() + 1)
+            pool.write().expect(POISONED_LOCK_ERR).prepare_payload_gossip(block_index)
         {
             tokio_utils::spawn(
                 self.out_payload_gossip_tx
@@ -831,8 +845,10 @@ impl ClientTask {
 
     fn process_payload_gossip(&self, payload_gossip: PayloadGossip) {
         let pool = &self.client.shard_client.pool;
-        if let Err(err) =
-            pool.add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id)
+        if let Err(err) = pool
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id)
         {
             warn!(target: "client", "Failed to process payload gossip: {}", err);
         }

@@ -148,12 +148,26 @@ impl Protocol {
                 self.on_new_peer(peer_id, connected_info);
             }
             Message::Transaction(tx) => {
-                if let Err(e) = self.client.shard_client.pool.add_transaction(*tx) {
+                if let Err(e) = self
+                    .client
+                    .shard_client
+                    .pool
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .add_transaction(*tx)
+                {
                     error!(target: "network", "{}", e);
                 }
             }
             Message::Receipt(receipt) => {
-                if let Err(e) = self.client.shard_client.pool.add_receipt(*receipt) {
+                if let Err(e) = self
+                    .client
+                    .shard_client
+                    .pool
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .add_receipt(*receipt)
+                {
                     error!(target: "network", "{}", e);
                 }
             }
@@ -206,7 +220,14 @@ impl Protocol {
                         "[{}], Payload snapshot request from {} for {} (block index = {})",
                         self.client.account_id, authority_id, hash, block_index
                     );
-                    match self.client.shard_client.pool.on_snapshot_request(authority_id, hash) {
+                    match self
+                        .client
+                        .shard_client
+                        .pool
+                        .write()
+                        .expect(POISONED_LOCK_ERR)
+                        .on_snapshot_request(hash)
+                    {
                         Ok(snapshot) => {
                             self.send_snapshot_response(&peer_id, request_id, snapshot);
                         }

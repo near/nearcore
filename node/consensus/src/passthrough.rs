@@ -7,9 +7,11 @@ use tokio::{self, timer::Interval};
 
 use client::Client;
 use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
-use primitives::hash::CryptoHash;
-use primitives::block_traits::SignedHeader;
 use nightshade::nightshade_task::Control;
+use primitives::block_traits::SignedHeader;
+use primitives::hash::CryptoHash;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub fn spawn_consensus(
     client: Arc<Client>,
@@ -24,9 +26,17 @@ pub fn spawn_consensus(
             move |(control_rx, mut beacon_block_index), _| {
                 // First check previous block was produced.
                 if client.beacon_client.chain.best_index() >= beacon_block_index {
-                    let hash = client.shard_client.pool.snapshot_payload();
+                    let hash = client
+                        .shard_client
+                        .pool
+                        .write()
+                        .expect(POISONED_LOCK_ERR)
+                        .snapshot_payload();
                     let last_shard_block_header = client.shard_client.chain.best_header();
-                    let receipt_block = client.shard_client.get_receipt_block(last_shard_block_header.index(), last_shard_block_header.shard_id());
+                    let receipt_block = client.shard_client.get_receipt_block(
+                        last_shard_block_header.index(),
+                        last_shard_block_header.shard_id(),
+                    );
                     if hash != CryptoHash::default() || receipt_block.is_some() {
                         beacon_block_index += 1;
                         let c = ConsensusBlockProposal {

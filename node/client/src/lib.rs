@@ -496,13 +496,20 @@ impl Client {
         &self,
         missing_payload_request: MissingPayloadRequest,
     ) -> Option<MissingPayloadResponse> {
-        self.shard_client.pool.fetch_payload(missing_payload_request)
+        self.shard_client
+            .pool
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .fetch_payload(missing_payload_request)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use configs::{chain_spec::{AuthorityRotation, DefaultIdType}, ChainSpec};
+    use configs::{
+        chain_spec::{AuthorityRotation, DefaultIdType},
+        ChainSpec,
+    };
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
     use primitives::serialize::Encode;
@@ -541,7 +548,12 @@ mod tests {
 
     #[test]
     fn test_block_fetch() {
-        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
@@ -565,7 +577,12 @@ mod tests {
 
     #[test]
     fn test_block_reverse_catchup() {
-        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
@@ -605,7 +622,12 @@ mod tests {
     /// X + 1, X + 2, ... etc which it cannot incorporate into the blockchain because it lacks
     fn test_catchup_through_production() {
         // Set-up genesis and chain spec.
-        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            2,
+            2,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let alice_signer = signers[0].clone();
         let bob_signer = signers[1].clone();
         // Start both clients.
