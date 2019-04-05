@@ -18,7 +18,7 @@ use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
 use primitives::network::{PeerAddr, PeerInfo};
-use primitives::signer::InMemorySigner;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 use tokio_utils::ShutdownableThread;

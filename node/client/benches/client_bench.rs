@@ -13,7 +13,7 @@ use configs::{
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
-use primitives::signer::{InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,

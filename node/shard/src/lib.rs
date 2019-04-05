@@ -18,7 +18,7 @@ use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::hash::CryptoHash;
 use primitives::merkle::{MerklePath, merklize};
-use primitives::signer::BlockSigner;
+use primitives::crypto::signer::BlockSigner;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus
@@ -316,7 +316,7 @@ impl ShardClient {
 
 #[cfg(test)]
 mod tests {
-    use primitives::signer::InMemorySigner;
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::{
         FinalTransactionStatus, SignedTransaction, TransactionAddress,
         TransactionBody, TransactionStatus

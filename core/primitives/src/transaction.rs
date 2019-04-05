@@ -11,14 +11,14 @@ use near_protos::Message as ProtoMessage;
 
 use crate::logging;
 
-use super::hash::{hash, CryptoHash};
-use super::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
-use super::signer::TransactionSigner;
-use super::types::{
+use crate::hash::{hash, CryptoHash};
+use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
+use crate::crypto::signer::TransactionSigner;
+use crate::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
     StructSignature,
 };
-use super::utils::{account_to_shard_id, proto_to_result};
+use crate::utils::{account_to_shard_id, proto_to_result};
 
 pub type LogEntry = String;
 
@@ -985,7 +985,7 @@ pub fn verify_transaction_signature(
 
 #[cfg(test)]
 mod tests {
-    use crate::signature::{get_key_pair, sign};
+    use crate::crypto::signature::{get_key_pair, sign};
 
     use super::*;
 

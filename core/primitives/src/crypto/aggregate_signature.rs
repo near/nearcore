@@ -160,6 +160,12 @@ impl<E: Engine> PartialEq for PublicKey<E> {
 
 impl<E: Engine> Eq for PublicKey<E> {}
 
+impl<E: Engine> std::hash::Hash for PublicKey<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.to_bytes());
+    }
+}
+
 impl<E: Engine> Signature<E> {
     pub fn compress(&self) -> CompressedSignature<E> {
         CompressedSignature(self.point.into_compressed())
@@ -215,6 +221,22 @@ impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
         repr.read_be(buf)?;
         let scalar = <E::Fr as PrimeField>::from_repr(repr)?;
         Ok(Self { scalar })
+    }
+}
+
+// `Eq`, `PartialEq`, and `Hash` traits allow us to use `SecretKey<E>` in standard std containers
+// and macros.
+impl<E: Engine> Eq for SecretKey<E> {}
+
+impl<E: Engine> PartialEq for SecretKey<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.scalar == other.scalar
+    }
+}
+
+impl<E: Engine> std::hash::Hash for SecretKey<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.to_bytes());
     }
 }
 
@@ -453,7 +475,7 @@ pub type BlsAggregatePublicKey = AggregatePublicKey<Bls12>;
 pub type BlsAggregateSignature = AggregateSignature<Bls12>;
 
 pub mod uncompressed_bs58_signature_serializer {
-    use crate::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
+    use crate::crypto::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
     use crate::traits::Base58Encoded;
     use serde::{Deserialize, Deserializer, Serializer};
 

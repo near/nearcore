@@ -19,14 +19,14 @@ use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
-use primitives::aggregate_signature::BlsPublicKey;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
 };
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signer::InMemorySigner;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::ShardBlockExtraInfo;
 use shard::{get_all_receipts, ShardClient};

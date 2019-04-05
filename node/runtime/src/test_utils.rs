@@ -5,14 +5,15 @@ use byteorder::{ByteOrder, LittleEndian};
 use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{hash, CryptoHash};
-use primitives::signature::PublicKey;
-use primitives::signer::{InMemorySigner, TransactionSigner};
+use primitives::crypto::signature::PublicKey;
+use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
     ReceiptTransaction, SignedTransaction, StakeTransaction, TransactionBody,
 };
-use primitives::types::{AccountId, AccountingInfo, GroupSignature, MerkleHash, Nonce};
+use primitives::types::{AccountId, AccountingInfo, MerkleHash, Nonce};
+use primitives::crypto::group_signature::GroupSignature;
 use storage::test_utils::create_trie;
 use storage::{Trie, TrieUpdate};
 
