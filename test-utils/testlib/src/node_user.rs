@@ -8,6 +8,8 @@ use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 use std::sync::Arc;
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
 pub trait NodeUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
 
@@ -90,7 +92,7 @@ impl NodeUser for ThreadNodeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.client.shard_client.pool.add_transaction(transaction)
+        self.client.shard_client.pool.write().expect(POISONED_LOCK_ERR).add_transaction(transaction)
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {

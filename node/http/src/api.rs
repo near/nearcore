@@ -17,6 +17,8 @@ use crate::types::{
 use primitives::transaction::verify_transaction_signature;
 use primitives::transaction::SignedTransaction;
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
 pub struct HttpApi {
     client: Arc<Client>,
 }
@@ -97,7 +99,13 @@ impl HttpApi {
             return Err(RPCError::BadRequest(msg));
         }
         let hash = transaction.get_hash();
-        self.client.shard_client.pool.add_transaction(transaction).map_err(RPCError::BadRequest)?;
+        self.client
+            .shard_client
+            .pool
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .add_transaction(transaction)
+            .map_err(RPCError::BadRequest)?;
         Ok(SubmitTransactionResponse { hash })
     }
 
