@@ -31,7 +31,7 @@ fn message_enum_index(message: &Message) -> usize {
         Message::Receipt(_) => 3,
         Message::BlockAnnounce(_) => 4,
         Message::BlockFetchRequest(_, _, _) => 5,
-        Message::BlockResponse(_, _) => 6,
+        Message::BlockResponse(_, _, _) => 6,
         Message::PayloadGossip(_) => 7,
         Message::PayloadRequest(_, _) => 8,
         Message::PayloadSnapshotRequest(_, _) => 9,
@@ -59,17 +59,20 @@ fn message_enum_id(index: usize) -> String {
         11 => "PayloadSnapshotResponse",
         12 => "JointBlockBLS",
         _ => panic!("Invalid message enum index."),
-    }.to_string()
+    }
+    .to_string()
 }
 
 impl BenchmarkHandler {
+    #[allow(clippy::new_without_default)]
+    // Note: this is not default
     pub fn new() -> Self {
         Self {
             started: Arc::new(RwLock::new(false)),
             message_type_counter: Arc::new(RwLock::new(vec![0; 13])),
         }
     }
-    
+
     /// This function can't be called on new method, because there must exist a tokio
     fn start(&self) {
         let counter = self.message_type_counter.clone();
@@ -78,7 +81,9 @@ impl BenchmarkHandler {
             .for_each(move |_| {
                 BenchmarkHandler::dump(counter.clone());
                 Ok(())
-            }).map(|_| ()).map_err(|e| warn!("Error dumping data. {:?}", e));
+            })
+            .map(|_| ())
+            .map_err(|e| warn!("Error dumping data. {:?}", e));
 
         tokio::spawn(dump_task);
     }
@@ -109,9 +114,10 @@ impl BenchmarkHandler {
 
 /// Messages will be dropped with probability `dropout_rate `
 impl ProxyHandler for BenchmarkHandler {
-    fn pipe_stream(&self, stream: Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>) ->
-    Box<Stream<Item=SimplePackedMessage, Error=()> + Send + Sync>
-    {
+    fn pipe_stream(
+        &self,
+        stream: Box<Stream<Item = SimplePackedMessage, Error = ()> + Send + Sync>,
+    ) -> Box<Stream<Item = SimplePackedMessage, Error = ()> + Send + Sync> {
         // Call start only once.
         if !self.is_started() {
             // Can't start without an active tokio runtime.

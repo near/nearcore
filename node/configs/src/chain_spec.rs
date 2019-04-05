@@ -92,7 +92,13 @@ impl ChainSpec {
         for i in 0..num_signers {
             let account_id = match id_type {
                 DefaultIdType::Named => NAMED_IDS[i].to_string(),
-                DefaultIdType::Enumerated => format!("near.{}", i),
+                DefaultIdType::Enumerated => {
+                    if i == 0 {
+                        String::from("alice.near")
+                    } else {
+                        format!("near.{}", i)
+                    }
+                }
             };
             let signer =
                 Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));

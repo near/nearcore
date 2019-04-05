@@ -5,10 +5,7 @@ use std::time::Duration;
 use network::proxy::predicate::FnProxyHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::{SignedTransaction, TransactionBody};
-use testlib::alphanet_utils::create_nodes;
-use testlib::alphanet_utils::Node;
-use testlib::alphanet_utils::sample_two_nodes;
-use testlib::alphanet_utils::wait;
+use testlib::alphanet_utils::{create_nodes, sample_two_nodes, wait, Node, TEST_BLOCK_FETCH_LIMIT};
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.
@@ -26,7 +23,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![fn_proxy_handler];
 
     let (init_balance, account_names, mut nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, proxy_handlers);
+        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
     for i in 0..num_nodes {
@@ -50,7 +47,8 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
             account_names[j].as_str(),
             1,
         );
-        let transaction = SignedTransaction::new(nodes[i].signer().sign(&tx_body.get_hash()), tx_body);
+        let transaction =
+            SignedTransaction::new(nodes[i].signer().sign(&tx_body.get_hash()), tx_body);
         nodes[k].add_transaction(transaction).unwrap();
         expected_balances[i] -= 1;
         expected_balances[j] += 1;

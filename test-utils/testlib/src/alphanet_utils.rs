@@ -26,6 +26,7 @@ use tokio_utils::ShutdownableThread;
 use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 
 const TMP_DIR: &str = "../../tmp/testnet";
+pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 
 pub fn configure_chain_spec() -> ChainSpec {
     ChainSpec::default_poa()
@@ -191,11 +192,13 @@ impl Node for ThreadNode {
         let client = self.client.clone();
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
+        let client_cfg = self.config().client_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
         let handle = alphanet::start_from_client(
             client,
             network_cfg,
             rpc_cfg,
+            client_cfg,
             proxy_handlers,
         );
         self.state = ThreadNodeState::Running(handle);
@@ -345,6 +348,7 @@ impl NodeConfig {
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        block_fetch_limit: u64,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
@@ -356,6 +360,7 @@ impl NodeConfig {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
+            block_fetch_limit,
             proxy_handlers,
         )
     }
@@ -368,6 +373,7 @@ impl NodeConfig {
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        block_fetch_limit: u64,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
@@ -378,6 +384,7 @@ impl NodeConfig {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
+            block_fetch_limit,
             proxy_handlers,
         )
     }
@@ -390,6 +397,7 @@ impl NodeConfig {
         rpc_port: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        block_fetch_limit: u64,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
@@ -413,6 +421,7 @@ impl NodeConfig {
             base_path,
             account_id: account_id.map(String::from),
             public_key: None,
+            block_fetch_limit,
             chain_spec,
             log_level: log::LevelFilter::Info,
         };
@@ -474,6 +483,7 @@ pub fn create_nodes(
     num_nodes: usize,
     test_prefix: &str,
     test_port: u16,
+    block_fetch_limit: u64,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
     let (chain_spec, _) = ChainSpec::testing_spec(
@@ -482,7 +492,7 @@ pub fn create_nodes(
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
     );
-    let account_names: Vec<_> = chain_spec.accounts.iter().map(|acc| acc.0.clone()).collect();
+    let account_names: Vec<_> = chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.
@@ -494,6 +504,7 @@ pub fn create_nodes(
             i as u16 + 1,
             boot_nodes,
             chain_spec.clone(),
+            block_fetch_limit,
             proxy_handlers.clone(),
         );
         boot_nodes = vec![node.node_addr()];

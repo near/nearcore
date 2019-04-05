@@ -6,19 +6,21 @@ let nearjs;
 let account;
 let mainTestAccountName;
 let keyStore;
+let storage;
 
 beforeAll(async () => {
-    keyStore = new InMemoryKeyStore();
-    storage = createFakeStorage();   
+    keyStore = new InMemoryKeyStore("somenetwork");
+    storage = createFakeStorage();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',
         useDevAccount: true,
         deps: { keyStore, storage },
+        network: 'somenetwork'
     });
 
     account = new Account(nearjs.nearClient);
 
-    mainTestAccountName = "dev_acc_" + Math.random();
+    mainTestAccountName = 'dev_acc_' + Math.random();
     const keyWithRandomSeed = await KeyPair.fromRandomSeed();
     const createAccountResponse = await account.createAccount(
         mainTestAccountName,
@@ -52,11 +54,11 @@ describe('with promises', () => {
         await nearjs.waitForTransactionResult(
             await nearjs.deployContract(contractName, data));
         return await nearjs.loadContract(contractName, {
-                sender: mainTestAccountName,
-                viewMethods: ['getLastResult'],
-                changeMethods: ['callPromise']
-            });
-        };
+            sender: mainTestAccountName,
+            viewMethods: ['getLastResult'],
+            changeMethods: ['callPromise']
+        });
+    };
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
@@ -83,7 +85,7 @@ describe('with promises', () => {
     test('single promise, no callback (A->B)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callbackWithName",
+            methodName: 'callbackWithName',
             args: null,
             additionalMana: 0,
             callback: null,
@@ -101,10 +103,10 @@ describe('with promises', () => {
     test('single promise with callback (A->B=>A)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callbackWithName",
+            methodName: 'callbackWithName',
             args: null,
             additionalMana: 0,
-            callback: "callbackWithName",
+            callback: 'callbackWithName',
             callbackArgs: null,
             callbackAdditionalMana: 0,
         }});
@@ -127,10 +129,10 @@ describe('with promises', () => {
     test('two promises, no callbacks (A->B->C)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callPromise",
+            methodName: 'callPromise',
             args: {
                 receiver: contractName2,
-                methodName: "callbackWithName",
+                methodName: 'callbackWithName',
                 args: null,
                 additionalMana: 0,
                 callback: null,
@@ -153,18 +155,18 @@ describe('with promises', () => {
     test('two promises, with two callbacks (A->B->C=>B=>A)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callPromise",
+            methodName: 'callPromise',
             args: {
                 receiver: contractName2,
-                methodName: "callbackWithName",
+                methodName: 'callbackWithName',
                 args: null,
                 additionalMana: 0,
-                callback: "callbackWithName",
+                callback: 'callbackWithName',
                 callbackArgs: null,
                 callbackAdditionalMana: 0,
             },
             additionalMana: 2,
-            callback: "callbackWithName",
+            callback: 'callbackWithName',
             callbackArgs: null,
             callbackAdditionalMana: 0,
         }});
@@ -195,18 +197,18 @@ describe('with promises', () => {
     test('cross contract call with callbacks (A->B->A=>B=>A)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callPromise",
+            methodName: 'callPromise',
             args: {
                 receiver: contractName,
-                methodName: "callbackWithName",
+                methodName: 'callbackWithName',
                 args: null,
                 additionalMana: 0,
-                callback: "callbackWithName",
+                callback: 'callbackWithName',
                 callbackArgs: null,
                 callbackAdditionalMana: 0,
             },
             additionalMana: 2,
-            callback: "callbackWithName",
+            callback: 'callbackWithName',
             callbackArgs: null,
             callbackAdditionalMana: 0,
         }});
@@ -235,10 +237,10 @@ describe('with promises', () => {
     test('2 promises with 1 skipped callbacks (A->B->C=>A)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callPromise",
+            methodName: 'callPromise',
             args: {
                 receiver: contractName2,
-                methodName: "callbackWithName",
+                methodName: 'callbackWithName',
                 args: null,
                 additionalMana: 0,
                 callback: null,
@@ -246,7 +248,7 @@ describe('with promises', () => {
                 callbackAdditionalMana: 0,
             },
             additionalMana: 1,
-            callback: "callbackWithName",
+            callback: 'callbackWithName',
             callbackArgs: null,
             callbackAdditionalMana: 0,
         }});
@@ -269,10 +271,10 @@ describe('with promises', () => {
     test('single promise with callback using deposit (empty method name) (A->B=>A)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "",  // Deposit (no execution)
+            methodName: '',  // Deposit (no execution)
             args: null,
             additionalMana: 0,
-            callback: "callbackWithName",
+            callback: 'callbackWithName',
             callbackArgs: null,
             callbackAdditionalMana: 0,
         }});
@@ -290,10 +292,10 @@ describe('with promises', () => {
     test('2 promises with 1 skipped callbacks using deposit (empty method name) (A->B->C=>A)', async () => {
         const result = await contract.callPromise({args: {
             receiver: contractName1,
-            methodName: "callPromise",
+            methodName: 'callPromise',
             args: {
                 receiver: contractName2,
-                methodName: "",  // Deposit (no execution)
+                methodName: '',  // Deposit (no execution)
                 args: null,
                 additionalMana: 0,
                 callback: null,
@@ -301,7 +303,7 @@ describe('with promises', () => {
                 callbackAdditionalMana: 0,
             },
             additionalMana: 1,
-            callback: "callbackWithName",
+            callback: 'callbackWithName',
             callbackArgs: null,
             callbackAdditionalMana: 0,
         }});

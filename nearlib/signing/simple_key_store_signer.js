@@ -15,6 +15,7 @@ class SimpleKeyStoreSigner {
      * this operation will fail.
      * @param {object} body
      * @param {string} senderAccountId
+     * @param {string} networkId
      */
     async signTransactionBody(body, senderAccountId) {
         return this.signHash(new Uint8Array(sha256.array(body)), senderAccountId);
