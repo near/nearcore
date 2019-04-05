@@ -11,9 +11,9 @@ use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, ReceiptBlock, SignedShardBlock,
     Snapshot,
 };
+use primitives::crypto::signer::BlockSigner;
 use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
-use primitives::crypto::signer::BlockSigner;
 use primitives::transaction::{verify_transaction_signature, SignedTransaction};
 use primitives::types::{AccountId, AuthorityId, BlockIndex};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
@@ -82,7 +82,7 @@ impl Pool {
     }
 
     pub fn len(&self) -> usize {
-        self.transactions.len() + self.receipts.len()
+        self.transactions.values().map(BTreeMap::len).sum::<usize>() + self.receipts.len()
     }
 
     pub fn get_state_update(&self) -> TrieUpdate {
@@ -180,6 +180,8 @@ impl Pool {
         }
     }
 
+    /// When we receive a payload gossip from some peer, we add transactions and
+    /// receipts to the pool and update `known_to` to include the peer.
     pub fn add_payload_with_author(
         &mut self,
         payload: ChainPayload,
@@ -274,11 +276,7 @@ impl Pool {
     }
 
     /// respond to snapshot request
-    pub fn on_snapshot_request(
-        &self,
-        _authority_id: AuthorityId,
-        hash: CryptoHash,
-    ) -> Result<Snapshot, String> {
+    pub fn on_snapshot_request(&self, hash: CryptoHash) -> Result<Snapshot, String> {
         if let Some(snapshot) = self.snapshots.get(&hash) {
             Ok(snapshot.clone())
         } else {
@@ -449,10 +447,12 @@ mod tests {
         ChainSpec,
     };
     use node_runtime::Runtime;
-    use primitives::hash::CryptoHash;
     use primitives::crypto::signer::InMemorySigner;
+    use primitives::hash::CryptoHash;
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
+    use rand::prelude::SliceRandom;
+    use rand::thread_rng;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;
@@ -481,9 +481,10 @@ mod tests {
     }
 
     #[test]
+    /// Importing blocks to mempool should clear the relevant containers.
     fn test_import_block() {
         let (storage, trie, signers) = get_test_chain();
-        let pool = Pool::new(signers[0].clone(), storage, trie);
+        let mut pool = Pool::new(signers[0].clone(), storage, trie);
         let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: "alice.near".to_string(),
@@ -492,9 +493,9 @@ mod tests {
         })
         .sign(signers[0].clone());
         pool.add_transaction(transaction.clone()).unwrap();
-        assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
-        assert_eq!(pool.transaction_info.read().expect(POISONED_LOCK_ERR).len(), 1);
-        assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);
+        assert_eq!(pool.transactions.len(), 1);
+        assert_eq!(pool.transaction_info.len(), 1);
+        assert_eq!(pool.known_to.len(), 1);
         let block = SignedShardBlock::new(
             0,
             0,
@@ -505,16 +506,16 @@ mod tests {
             CryptoHash::default(),
         );
         pool.import_block(&block);
-        assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 0);
-        assert_eq!(pool.transaction_info.read().expect(POISONED_LOCK_ERR).len(), 0);
-        assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 0);
+        assert_eq!(pool.transactions.len(), 0);
+        assert_eq!(pool.transaction_info.len(), 0);
+        assert_eq!(pool.known_to.len(), 0);
     }
 
     #[test]
     // adding the same transaction twice should not change known_to
     fn test_known_to() {
         let (storage, trie, signers) = get_test_chain();
-        let pool = Pool::new(signers[0].clone(), storage, trie);
+        let mut pool = Pool::new(signers[0].clone(), storage, trie);
         let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: "alice.near".to_string(),
@@ -523,11 +524,11 @@ mod tests {
         })
         .sign(signers[0].clone());
         pool.add_transaction(transaction.clone()).unwrap();
-        assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
-        assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);
+        assert_eq!(pool.transactions.len(), 1);
+        assert_eq!(pool.known_to.len(), 1);
         pool.add_transaction(transaction.clone()).unwrap();
-        assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
-        assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);
+        assert_eq!(pool.transactions.len(), 1);
+        assert_eq!(pool.known_to.len(), 1);
     }
 
     #[test]
@@ -547,17 +548,16 @@ mod tests {
                 .sign(signers[0].clone())
             })
             .collect();
-        let pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
+        let mut pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
         for i in 0..3 {
             pool1.add_transaction(transactions[i].clone()).unwrap();
         }
-        let pool2 = Pool::new(signers[0].clone(), storage, trie);
+        let mut pool2 = Pool::new(signers[0].clone(), storage, trie);
         for i in 1..4 {
             pool2.add_transaction(transactions[i].clone()).unwrap();
         }
         let snapshot_hash = pool1.snapshot_payload();
-        let snapshot =
-            pool1.snapshots.read().expect(POISONED_LOCK_ERR).get(&snapshot_hash).cloned().unwrap();
+        let snapshot = pool1.snapshots.get(&snapshot_hash).cloned().unwrap();
         let missing_payload_request = pool2.add_payload_snapshot(0, snapshot).unwrap();
         assert_eq!(
             missing_payload_request,
@@ -580,11 +580,13 @@ mod tests {
 
         let hash = pool2.add_missing_payload(0, missing_payload_response).unwrap();
         assert_eq!(hash, snapshot_hash);
-        assert!(pool2.snapshots.read().expect(POISONED_LOCK_ERR).contains(&snapshot_hash));
-        assert!(pool2.pending_snapshots.read().expect(POISONED_LOCK_ERR).is_empty())
+        assert!(pool2.snapshots.contains(&snapshot_hash));
+        assert!(pool2.pending_snapshots.is_empty())
     }
 
     #[test]
+    /// When one pool requests payload from another and the other pool
+    /// happens to import a block, there is no response.
     fn test_missing_payload() {
         let (storage, trie, signers) = get_test_chain();
         let transactions: Vec<_> = (1..5)
@@ -598,17 +600,16 @@ mod tests {
                 .sign(signers[0].clone())
             })
             .collect();
-        let pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
+        let mut pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
         for i in 0..3 {
             pool1.add_transaction(transactions[i].clone()).unwrap();
         }
-        let pool2 = Pool::new(signers[0].clone(), storage, trie);
+        let mut pool2 = Pool::new(signers[0].clone(), storage, trie);
         for i in 1..4 {
             pool2.add_transaction(transactions[i].clone()).unwrap();
         }
         let snapshot_hash = pool1.snapshot_payload();
-        let snapshot =
-            pool1.snapshots.read().expect(POISONED_LOCK_ERR).get(&snapshot_hash).cloned().unwrap();
+        let snapshot = pool1.snapshots.get(&snapshot_hash).cloned().unwrap();
         let missing_payload_request = pool2.add_payload_snapshot(0, snapshot).unwrap();
         assert_eq!(
             missing_payload_request,
@@ -633,5 +634,78 @@ mod tests {
 
         let missing_payload_response = pool1.fetch_payload(missing_payload_request);
         assert!(missing_payload_response.is_none());
+    }
+
+    #[test]
+    /// Add transactions of nonce from 1..10 in random order. Check that mempool
+    /// orders them correctly.
+    fn test_order_nonce() {
+        let (storage, trie, signers) = get_test_chain();
+        let mut transactions: Vec<_> = (1..10)
+            .map(|i| {
+                TransactionBody::SendMoney(SendMoneyTransaction {
+                    nonce: i,
+                    originator: "alice.near".to_string(),
+                    receiver: "bob.near".to_string(),
+                    amount: i,
+                })
+                .sign(signers[0].clone())
+            })
+            .collect();
+        let mut pool = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
+        let mut rng = thread_rng();
+        transactions.shuffle(&mut rng);
+        for tx in transactions {
+            pool.add_transaction(tx).unwrap();
+        }
+        let snapshot_hash = pool.snapshot_payload();
+        let payload = pool.pop_payload_snapshot(&snapshot_hash).unwrap();
+        let nonces: Vec<u64> = payload.transactions.iter().map(|tx| tx.body.get_nonce()).collect();
+        assert_eq!(nonces, (1..10).collect::<Vec<u64>>())
+    }
+
+    #[test]
+    /// Gossip payload from one mempool to another. Check that the payload is received and
+    /// `known_to` is updated correctly in both mempools.
+    fn test_payload_gossip() {
+        let (storage, trie, signers) = get_test_chain();
+        let transactions: Vec<_> = (1..5)
+            .map(|i| {
+                TransactionBody::SendMoney(SendMoneyTransaction {
+                    nonce: i,
+                    originator: "alice.near".to_string(),
+                    receiver: "bob.near".to_string(),
+                    amount: i,
+                })
+                .sign(signers[0].clone())
+            })
+            .collect();
+        let mut pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
+        pool1.num_authorities = Some(2);
+        pool1.authority_id = Some(0);
+        for tx in transactions.iter() {
+            pool1.add_transaction(tx.clone()).unwrap();
+        }
+        let mut pool2 = Pool::new(signers[1].clone(), storage, trie);
+        pool2.num_authorities = Some(2);
+        pool2.authority_id = Some(1);
+        let mut payload_gossip = pool1.prepare_payload_gossip(1);
+
+        assert_eq!(payload_gossip.len(), 1);
+        for tx in transactions.iter() {
+            let known_to = pool1.known_to.get(&tx.get_hash()).unwrap();
+            assert_eq!(known_to.len(), 1);
+            assert!(known_to.contains(&1));
+        }
+
+        let payload_gossip = payload_gossip.pop().unwrap();
+        pool2.add_payload_with_author(payload_gossip.payload, 0).unwrap();
+        assert_eq!(pool2.len(), 4);
+
+        for tx in transactions.iter() {
+            let known_to = pool2.known_to.get(&tx.get_hash()).unwrap();
+            assert_eq!(known_to.len(), 1);
+            assert!(known_to.contains(&0));
+        }
     }
 }

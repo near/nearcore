@@ -138,6 +138,7 @@ mod tests {
     use super::*;
 
     const TMP_DIR: &str = "../../tmp/devnet";
+    const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
     #[test]
     fn test_devnet_produce_blocks() {
@@ -169,6 +170,8 @@ mod tests {
         client
             .shard_client
             .pool
+            .write()
+            .expect(POISONED_LOCK_ERR)
             .add_transaction(
                 TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
                     .sign(signer.clone()),
@@ -196,6 +199,6 @@ mod tests {
                 .amount,
             init_balance + money_to_send
         );
-        assert!(client.shard_client.pool.is_empty());
+        assert!(client.shard_client.pool.read().expect(POISONED_LOCK_ERR).is_empty());
     }
 }

@@ -226,7 +226,7 @@ impl Protocol {
                         .pool
                         .write()
                         .expect(POISONED_LOCK_ERR)
-                        .on_snapshot_request(authority_id, hash)
+                        .on_snapshot_request(hash)
                     {
                         Ok(snapshot) => {
                             self.send_snapshot_response(&peer_id, request_id, snapshot);

@@ -16,9 +16,9 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
-use primitives::hash::CryptoHash;
-use primitives::merkle::{MerklePath, merklize};
 use primitives::crypto::signer::BlockSigner;
+use primitives::hash::CryptoHash;
+use primitives::merkle::{merklize, MerklePath};
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus,
@@ -307,8 +307,6 @@ mod tests {
         FinalTransactionStatus, SignedTransaction, TransactionAddress, TransactionBody,
         TransactionStatus,
     };
-    use rand::prelude::SliceRandom;
-    use rand::thread_rng;
     use storage::test_utils::create_beacon_shard_storages;
     use storage::GenericStorage;
 
@@ -483,6 +481,9 @@ mod tests {
     }
 
     #[test]
+    /// Create chain with two accounts, each having different nonce. Check that
+    /// transactions with old nonce cannot make it into the mempool and transactions
+    /// with valid nonce can.
     fn test_mempool_add_tx() {
         let (mut client, signers) = get_test_client();
         let create_transaction = |sender, receiver, signer, nonce| {
@@ -490,37 +491,18 @@ mod tests {
         };
         client.add_blocks("alice.near", "bob.near", signers[0].clone(), 5);
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
+        let mut pool = client.pool.write().expect(POISONED_LOCK_ERR);
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 2);
-        client.pool.add_transaction(tx).unwrap();
-        assert!(client.pool.is_empty());
+        pool.add_transaction(tx).unwrap();
+        assert!(pool.is_empty());
         let tx = create_transaction("alice.near", "bob.near", signers[0].clone(), 6);
-        client.pool.add_transaction(tx).unwrap();
-        assert_eq!(client.pool.len(), 1);
+        pool.add_transaction(tx).unwrap();
+        assert_eq!(pool.len(), 1);
         let tx = create_transaction("bob.near", "alice.near", signers[1].clone(), 1);
-        client.pool.add_transaction(tx).unwrap();
-        assert_eq!(client.pool.len(), 1);
+        pool.add_transaction(tx).unwrap();
+        assert_eq!(pool.len(), 1);
         let tx = create_transaction("bob.near", "alice.near", signers[1].clone(), 2);
-        client.pool.add_transaction(tx).unwrap();
-        assert_eq!(client.pool.len(), 2);
-    }
-
-    #[test]
-    fn test_mempool_order_tx() {
-        let (client, signers) = get_test_client();
-        let mut transactions: Vec<_> = (0..10)
-            .map(|i| {
-                TransactionBody::send_money(i + 1, "alice.near", "bob.near", 1)
-                    .sign(signers[0].clone())
-            })
-            .collect();
-        let mut rng = thread_rng();
-        transactions.shuffle(&mut rng);
-        for tx in transactions {
-            client.pool.add_transaction(tx).unwrap();
-        }
-        let snapshot_hash = client.pool.snapshot_payload();
-        let payload = client.pool.pop_payload_snapshot(&snapshot_hash).unwrap();
-        let nonces: Vec<u64> = payload.transactions.iter().map(|tx| tx.body.get_nonce()).collect();
-        assert_eq!(nonces, (1..11).collect::<Vec<u64>>())
+        pool.add_transaction(tx).unwrap();
+        assert_eq!(pool.len(), 2);
     }
 }
