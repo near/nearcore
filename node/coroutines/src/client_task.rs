@@ -17,11 +17,11 @@ use client::Client;
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade::ConsensusBlockProposal;
 use nightshade::nightshade_task::Control;
-use primitives::aggregate_signature::BlsSignature;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainState, PayloadRequest, PayloadResponse, SignedShardBlock};
 use primitives::consensus::JointBlockBLS;
+use primitives::crypto::aggregate_signature::BlsSignature;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityId, BlockId, BlockIndex, PeerId};
 use shard::ShardBlockExtraInfo;
@@ -547,12 +547,18 @@ impl ClientTask {
     ) -> Option<u64> {
         let beacon_block = match self.unfinalized_beacon_blocks.get_mut(&beacon_hash) {
             Some(b) => b,
-            _ => { debug!(target: "client", "Worthless hash: {}", beacon_hash); return None },
+            _ => {
+                debug!(target: "client", "Worthless hash: {}", beacon_hash);
+                return None;
+            }
         };
 
         let (shard_block, _) = match self.unfinalized_shard_blocks.get_mut(&shard_hash) {
             Some(b) => b,
-            _ => { debug!(target: "client", "Worthless hash: {}", shard_hash); return None },
+            _ => {
+                debug!(target: "client", "Worthless hash: {}", shard_hash);
+                return None;
+            }
         };
         let block_index = beacon_block.index();
         // Make sure this authority is actually supposed to sign this block.
@@ -746,7 +752,12 @@ impl ClientTask {
             signature.clone()
         } else {
             let start = Instant::now();
-            let signature = self.client.signer.clone().expect("Must have signer for signing blocks").bls_sign(hash);
+            let signature = self
+                .client
+                .signer
+                .clone()
+                .expect("Must have signer for signing blocks")
+                .bls_sign(hash);
             let elapsed = Instant::now() - start;
             debug!(target:"client", "BLS signature took {}ms", elapsed.as_millis());
             self.unfinalized_block_signature.insert(hash.clone(), signature.clone());
@@ -803,7 +814,8 @@ impl ClientTask {
 
     fn request_bls_signatures(&self) {
         for (beacon_hash, beacon_block) in self.unfinalized_beacon_blocks.iter() {
-            let (owner_uid, authority_map) = self.client.get_uid_to_authority_map(beacon_block.index());
+            let (owner_uid, authority_map) =
+                self.client.get_uid_to_authority_map(beacon_block.index());
             let owner_uid = match owner_uid {
                 Some(id) => id,
                 None => return,
@@ -818,8 +830,7 @@ impl ClientTask {
                        .filter(|&auth_id| *signers.get(auth_id).unwrap_or(&false))
                        .collect::<Vec<_>>());
 
-            for auth_id in 0..num_authorities
-            {
+            for auth_id in 0..num_authorities {
                 if *signers.get(auth_id).unwrap_or(&false) {
                     tokio_utils::spawn(
                             self.out_final_signatures_tx

@@ -7,9 +7,9 @@ use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
 
+use crate::crypto::signer::Signable;
 use crate::logging::pretty_hash;
 use crate::serialize::Encode;
-use crate::signer::Signable;
 
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
@@ -107,11 +107,12 @@ impl Signable for CryptoHash {
 }
 
 pub mod bs58_format {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use std::convert::TryFrom;
+
     use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
 
     use super::{bs58, CryptoHash};
-    use std::convert::TryFrom;
 
     pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
     where

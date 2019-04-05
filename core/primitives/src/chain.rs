@@ -10,14 +10,16 @@ use near_protos::chain as chain_proto;
 use near_protos::network as network_proto;
 use near_protos::types as types_proto;
 
+use crate::crypto::group_signature::GroupSignature;
+use crate::crypto::signer::Signable;
+
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::consensus::Payload;
-use super::hash::{CryptoHash, hash_struct};
+use super::hash::{hash_struct, CryptoHash};
 use super::merkle::{Direction, MerklePath};
-use super::signer::Signable;
 use super::transaction::{ReceiptTransaction, SignedTransaction};
 use super::types::{
-    AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId,
+    AuthorityId, BlockIndex, MerkleHash, PartialSignature, ShardId,
 };
 use super::utils::proto_to_type;
 

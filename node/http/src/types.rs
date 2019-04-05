@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
 use near_protos::serde::b64_format as protos_b64_format;
-use primitives::aggregate_signature::BlsPublicKey;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{BeaconBlockHeader, SignedBeaconBlockHeader};
 use primitives::chain::{ReceiptBlock, ShardBlock, ShardBlockHeader, SignedShardBlock};
 use primitives::hash::{bs58_format, CryptoHash};
-use primitives::signature::{bs58_serializer, PublicKey};
+use primitives::crypto::signature::{bs58_serializer, PublicKey};
 use primitives::transaction::{
     FinalTransactionResult, LogEntry, SignedTransaction, TransactionResult,
 };
 use primitives::types::{
-    AccountId, AuthorityStake, Balance, GroupSignature, MerkleHash, Nonce, ShardId,
+    AccountId, AuthorityStake, Balance, MerkleHash, Nonce, ShardId,
 };
+use primitives::crypto::group_signature::GroupSignature;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {

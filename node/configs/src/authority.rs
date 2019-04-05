@@ -1,5 +1,5 @@
-use primitives::aggregate_signature::BlsPublicKey;
-use primitives::signature::PublicKey;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
+use primitives::crypto::signature::PublicKey;
 use primitives::traits::Base58Encoded;
 use primitives::types::AuthorityStake;
 use std::convert::TryFrom;

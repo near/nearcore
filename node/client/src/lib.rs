@@ -7,29 +7,29 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
+use std::{cmp, env, fs};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
-use primitives::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
 };
-use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signer::BlockSigner;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
+use primitives::crypto::signer::BlockSigner;
+use primitives::hash::{CryptoHash, hash_struct};
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
-use shard::ShardBlockExtraInfo;
 use shard::{get_all_receipts, ShardClient};
+use shard::ShardBlockExtraInfo;
 use storage::create_storage;
 
 pub mod test_utils;
@@ -501,7 +501,6 @@ mod tests {
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
     use primitives::serialize::Encode;
-    use primitives::signer::BlockSigner;
     use primitives::test_utils::TestSignedBlock;
 
     use crate::test_utils::get_client_from_cfg;

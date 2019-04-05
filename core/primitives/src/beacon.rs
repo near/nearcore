@@ -7,10 +7,12 @@ use protobuf::{RepeatedField, SingularPtrField};
 
 use near_protos::chain as chain_proto;
 
+use crate::crypto::group_signature::GroupSignature;
+use crate::crypto::signer::Signable;
+
 use super::block_traits::{SignedBlock, SignedHeader};
 use super::hash::{CryptoHash, hash_struct};
-use super::signer::Signable;
-use super::types::{AuthorityStake, GroupSignature, PartialSignature};
+use super::types::{AuthorityStake, PartialSignature};
 use super::utils::{proto_to_result, proto_to_type};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

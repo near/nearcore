@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use primitives::aggregate_signature::BlsAggregateSignature;
+use primitives::crypto::aggregate_signature::BlsAggregateSignature;
 use primitives::hash::hash_struct;
-use primitives::signer::BlockSigner;
-use primitives::signer::InMemorySigner;
+use primitives::crypto::signer::BlockSigner;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AuthorityId;
 
 use crate::nightshade::{BareState, BlockProposal, Nightshade, Proof, State};

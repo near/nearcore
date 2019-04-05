@@ -17,8 +17,8 @@ use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
+use primitives::crypto::signer::{BlockSigner, InMemorySigner};
 use primitives::network::{PeerAddr, PeerInfo};
-use primitives::signer::{InMemorySigner, BlockSigner};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 use tokio_utils::ShutdownableThread;
@@ -194,13 +194,8 @@ impl Node for ThreadNode {
         let rpc_cfg = self.config().rpc_cfg.clone();
         let client_cfg = self.config().client_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
-        let handle = alphanet::start_from_client(
-            client,
-            network_cfg,
-            rpc_cfg,
-            client_cfg,
-            proxy_handlers,
-        );
+        let handle =
+            alphanet::start_from_client(client, network_cfg, rpc_cfg, client_cfg, proxy_handlers);
         self.state = ThreadNodeState::Running(handle);
         thread::sleep(Duration::from_secs(1));
     }
@@ -492,7 +487,8 @@ pub fn create_nodes(
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
     );
-    let account_names: Vec<_> = chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
+    let account_names: Vec<_> =
+        chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.

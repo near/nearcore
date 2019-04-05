@@ -2,19 +2,25 @@ use std::fs;
 use std::path::Path;
 use std::process;
 
-use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use crate::signature::{self, PublicKey, SecretKey, Signature};
-use crate::types;
 use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
+
+use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::crypto::signature::{
+    bs58_pub_key_format, bs58_secret_key_format, bs58_serializer, get_key_pair, sign, PublicKey,
+    SecretKey, Signature,
+};
+use crate::types::{AccountId, PartialSignature};
 
 pub trait Signable {
     fn bytes(&self) -> &[u8];
 }
 
 impl Signable for Vec<u8> {
-    fn bytes(&self) -> &[u8] { self }
+    fn bytes(&self) -> &[u8] {
+        self
+    }
 }
 
 /// Trait to abstract the way transaction signing happens.
@@ -27,16 +33,16 @@ pub trait TransactionSigner: Sync + Send {
 /// Can be used to not keep private key in the given binary via cross-process communication.
 pub trait BlockSigner: TransactionSigner + Sync + Send {
     fn bls_public_key(&self) -> BlsPublicKey;
-    fn bls_sign(&self, obj: &Signable) -> types::PartialSignature;
-    fn account_id(&self) -> types::AccountId;
+    fn bls_sign(&self, hash: &Signable) -> PartialSignature;
+    fn account_id(&self) -> AccountId;
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
-    #[serde(with = "signature::bs58_pub_key_format")]
-    pub public_key: signature::PublicKey,
-    #[serde(with = "signature::bs58_secret_key_format")]
-    pub secret_key: signature::SecretKey,
+    #[serde(with = "bs58_pub_key_format")]
+    pub public_key: PublicKey,
+    #[serde(with = "bs58_secret_key_format")]
+    pub secret_key: SecretKey,
 }
 
 pub fn write_key_file(
@@ -83,13 +89,13 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 
 #[derive(Serialize, Deserialize)]
 pub struct BlockProducerKeyFile {
-    #[serde(with = "signature::bs58_serializer")]
+    #[serde(with = "bs58_serializer")]
     pub public_key: PublicKey,
-    #[serde(with = "signature::bs58_serializer")]
+    #[serde(with = "bs58_serializer")]
     pub secret_key: SecretKey,
-    #[serde(with = "signature::bs58_serializer")]
+    #[serde(with = "bs58_serializer")]
     pub bls_public_key: BlsPublicKey,
-    #[serde(with = "signature::bs58_serializer")]
+    #[serde(with = "bs58_serializer")]
     pub bls_secret_key: BlsSecretKey,
 }
 
@@ -160,7 +166,7 @@ pub fn get_or_create_key_file(
     public_key: Option<String>,
 ) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
-        let (public_key, secret_key) = signature::get_key_pair();
+        let (public_key, secret_key) = get_key_pair();
         let bls_secret_key = BlsSecretKey::generate();
         let bls_public_key = bls_secret_key.get_public_key();
         let new_public_key = write_block_producer_key_file(
@@ -177,7 +183,7 @@ pub fn get_or_create_key_file(
 }
 
 pub struct InMemorySigner {
-    pub account_id: types::AccountId,
+    pub account_id: AccountId,
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
     pub bls_public_key: BlsPublicKey,
@@ -186,7 +192,7 @@ pub struct InMemorySigner {
 
 impl InMemorySigner {
     pub fn from_key_file(
-        account_id: types::AccountId,
+        account_id: AccountId,
         key_store_path: &Path,
         public_key: Option<String>,
     ) -> Self {
@@ -206,7 +212,7 @@ impl InMemorySigner {
         let mut rng = OsRng::new().expect("Unable to generate random numbers");
         let account_id: String =
             rng.sample_iter(&Alphanumeric).filter(char::is_ascii_alphabetic).take(10).collect();
-        let (public_key, secret_key) = signature::get_key_pair();
+        let (public_key, secret_key) = get_key_pair();
         let bls_secret_key = BlsSecretKey::generate();
         let bls_public_key = bls_secret_key.get_public_key();
         Self { account_id, public_key, secret_key, bls_public_key, bls_secret_key }
@@ -219,8 +225,8 @@ impl TransactionSigner for InMemorySigner {
         self.public_key
     }
 
-    fn sign(&self, data: &Signable) -> signature::Signature {
-        signature::sign(data.bytes(), &self.secret_key)
+    fn sign(&self, data: &Signable) -> Signature {
+        sign(data.bytes(), &self.secret_key)
     }
 }
 
@@ -230,12 +236,12 @@ impl BlockSigner for InMemorySigner {
         self.bls_public_key.clone()
     }
 
-    fn bls_sign(&self, data: &Signable) -> types::PartialSignature {
+    fn bls_sign(&self, data: &Signable) -> PartialSignature {
         self.bls_secret_key.sign(data.bytes())
     }
 
     #[inline]
-    fn account_id(&self) -> types::AccountId {
+    fn account_id(&self) -> AccountId {
         self.account_id.clone()
     }
 }

@@ -1,22 +1,23 @@
-use protobuf::well_known_types::BytesValue;
-use protobuf::SingularPtrField;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use protobuf::well_known_types::BytesValue;
+use protobuf::SingularPtrField;
 
 use near_protos::receipt as receipt_proto;
 use near_protos::signed_transaction as transaction_proto;
 use near_protos::Message as ProtoMessage;
 
+use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::logging;
-
-use super::hash::{hash, CryptoHash};
-use super::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
-use super::types::{
+use crate::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
     StructSignature,
 };
-use super::utils::{account_to_shard_id, proto_to_result};
+use crate::utils::{account_to_shard_id, proto_to_result};
+
+use super::hash::{hash, CryptoHash};
 
 pub type LogEntry = String;
 
@@ -978,7 +979,7 @@ pub fn verify_transaction_signature(
 
 #[cfg(test)]
 mod tests {
-    use crate::signature::{get_key_pair, sign};
+    use crate::crypto::signature::{get_key_pair, sign};
 
     use super::*;
 

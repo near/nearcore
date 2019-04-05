@@ -1,7 +1,7 @@
-use primitives::aggregate_signature::BlsPublicKey;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
-use primitives::signature::PublicKey;
+use primitives::crypto::signature::PublicKey;
 use primitives::traits::Base58Encoded;
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, CallbackInfo, CallbackResult, CreateAccountTransaction,
@@ -240,7 +240,7 @@ pub fn system_create_account(
 mod tests {
     use primitives::hash::hash;
     use primitives::serialize::Encode;
-    use primitives::signer::{InMemorySigner, TransactionSigner};
+    use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
     use primitives::transaction::{TransactionBody, TransactionStatus};
 
     use crate::get;

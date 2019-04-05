@@ -13,7 +13,7 @@ use coroutines::client_task::ClientTask;
 use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
-use primitives::signer::{BlockSigner, InMemorySigner};
+use primitives::crypto::signer::{BlockSigner, InMemorySigner};
 use tokio_utils::ShutdownableThread;
 
 const KEY_STORE_PATH: &str = "storage/keystore";

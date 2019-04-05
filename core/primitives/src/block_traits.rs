@@ -2,14 +2,25 @@ use std::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::crypto::signer::Signable;
+
 use super::hash::CryptoHash;
 use super::serialize::{Decode, Encode};
-use super::signer::Signable;
 use super::types::PartialSignature;
 
 /// Trait that abstracts ``Header"
 pub trait SignedHeader:
-    Signable + Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
+    Signable
+    + Debug
+    + Clone
+    + Encode
+    + Decode
+    + Send
+    + Sync
+    + Eq
+    + Serialize
+    + DeserializeOwned
+    + 'static
 {
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -24,7 +35,17 @@ pub trait SignedHeader:
 /// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
 /// and shard-chain blocks.
 pub trait SignedBlock:
-    Signable + Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
+    Signable
+    + Debug
+    + Clone
+    + Encode
+    + Decode
+    + Send
+    + Sync
+    + Eq
+    + Serialize
+    + DeserializeOwned
+    + 'static
 {
     type SignedHeader: SignedHeader;
 

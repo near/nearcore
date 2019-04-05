@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 pub use super::serialize::{Decode, Encode};
 use crate::hash::CryptoHash;
-use crate::signature::bs58_serializer;
+use crate::crypto::signature::bs58_serializer;
 use crate::types::{AuthorityId, PartialSignature};
 
 pub type GenericResult = Result<(), &'static str>;
