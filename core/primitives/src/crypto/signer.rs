@@ -25,6 +25,7 @@ pub trait TransactionSigner: Sync + Send {
 pub trait BlockSigner: Sync + Send + TransactionSigner {
     fn bls_public_key(&self) -> BlsPublicKey;
     fn bls_sign(&self, hash: &[u8]) -> PartialSignature;
+    fn bls_sign_cached(&self, hash: &[u8]) -> PartialSignature;
     fn account_id(&self) -> AccountId;
 }
 
@@ -239,14 +240,18 @@ impl BlockSigner for InMemorySigner {
         self.bls_public_key.clone()
     }
 
-    fn bls_sign(&self, data: &[u8]) -> PartialSignature {
+    fn bls_sign(&self, hash: &[u8]) -> PartialSignature {
+        self.bls_secret_key.sign(hash)
+    }
+
+    fn bls_sign_cached(&self, data: &[u8]) -> PartialSignature {
         let mut guard = self.bls_cache.lock().expect("Cache lock was poisoned");
         let key = data.to_vec();
         if let Some(res) = guard.cache_get(&key) {
             return res.clone();
         }
 
-        let res = self.bls_secret_key.sign(data);
+        let res = self.bls_sign(data);
         guard.cache_set(key, res.clone());
         res
     }
