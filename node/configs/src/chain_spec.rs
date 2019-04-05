@@ -88,14 +88,17 @@ impl ChainSpec {
 
         let mut signers = vec![];
         let mut accounts = vec![];
-        let alice_signer = InMemorySigner::from_seed("alice.near", "alice.near");
-        let signer = InMemorySigner::from_seed("alice.near", "alice.near");
-        accounts.push(("alice.near".to_string(), signer.public_key().to_readable(), 1_000_000 as u64, 10));
         let mut initial_authorities = vec![];
         for i in 0..num_signers {
             let account_id = match id_type {
                 DefaultIdType::Named => NAMED_IDS[i].to_string(),
-                DefaultIdType::Enumerated => format!("near.{}", i),
+                DefaultIdType::Enumerated => {
+                    if i == 0 {
+                        String::from("alice.near")
+                    } else {
+                        format!("near.{}", i)
+                    }
+                }
             };
             let signer =
                 Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
