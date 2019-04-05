@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::hash::CryptoHash;
-use super::serialize::{Decode, Encode};
-use super::signer::BlockSigner;
-use super::types::PartialSignature;
+use crate::serialize::Encode;
+use crate::serialize::Decode;
+use crate::hash::CryptoHash;
+use crate::crypto::signer::BlockSigner;
+use crate::types::PartialSignature;
 
 /// Trait that abstracts ``Header"
 pub trait SignedHeader:

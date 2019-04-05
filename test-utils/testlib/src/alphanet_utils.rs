@@ -18,7 +18,7 @@ use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
 use primitives::network::{PeerAddr, PeerInfo};
-use primitives::signer::InMemorySigner;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 use tokio_utils::ShutdownableThread;
@@ -489,7 +489,7 @@ pub fn create_nodes(
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
     );
-    let account_names: Vec<_> = chain_spec.accounts.iter().map(|acc| acc.0.clone()).collect();
+    let account_names: Vec<_> = chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.

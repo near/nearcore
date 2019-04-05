@@ -7,13 +7,13 @@ use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
-use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::beacon::SignedBeaconBlock;
 use crate::block_traits::{SignedBlock, SignedHeader};
 use crate::chain::{SignedShardBlock, SignedShardBlockHeader};
 use crate::hash::CryptoHash;
-use crate::signature::{PublicKey, SecretKey};
-use crate::signer::{BlockSigner, InMemorySigner};
+use crate::crypto::signature::{PublicKey, SecretKey};
+use crate::crypto::signer::{BlockSigner, InMemorySigner};
 use crate::types::{AccountId, AuthorityId, AuthorityStake};
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {

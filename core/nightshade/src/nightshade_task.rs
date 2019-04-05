@@ -16,10 +16,10 @@ use log::*;
 use tokio::timer::Delay;
 
 use near_protos::nightshade as nightshade_proto;
-use primitives::aggregate_signature::BlsPublicKey;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::{verify, PublicKey, Signature};
-use primitives::signer::BlockSigner;
+use primitives::crypto::signature::{verify, PublicKey, Signature};
+use primitives::crypto::signer::BlockSigner;
 use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::{proto_to_result, proto_to_type};
 use protobuf::{RepeatedField, SingularPtrField};

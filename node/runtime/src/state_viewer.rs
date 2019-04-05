@@ -11,7 +11,7 @@ use wasm::types::{ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::{account_id_to_bytes, get, Account, RuntimeExt, COL_ACCOUNT, COL_CODE};
-use primitives::signature::PublicKey;
+use primitives::crypto::signature::PublicKey;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {

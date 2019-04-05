@@ -5,7 +5,7 @@ use std::sync::RwLock;
 use beacon::beacon_chain::BeaconClient;
 use configs::ChainSpec;
 use primitives::beacon::SignedBeaconBlock;
-use primitives::signer::InMemorySigner;
+use primitives::crypto::signer::InMemorySigner;
 use shard::ShardClient;
 use storage::test_utils::create_beacon_shard_storages;
 
