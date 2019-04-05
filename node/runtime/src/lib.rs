@@ -11,6 +11,7 @@ extern crate storage;
 extern crate wasm;
 
 use std::collections::{hash_map::Entry, HashMap};
+use std::convert::TryFrom;
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -216,32 +217,40 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let sender_account_id = transaction.body.get_originator();
-        if !is_valid_account_id(&sender_account_id) {
-            return Err("Invalid originator account_id".to_string());
-        }
         let sender: Option<Account> =
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id));
         match sender {
             Some(mut sender) => {
                 if transaction.body.get_nonce() <= sender.nonce {
+                    // in this case, no need to update sender's nonce
                     return Err(format!(
                         "Transaction nonce {} must be larger than sender nonce {}",
                         transaction.body.get_nonce(),
                         sender.nonce,
                     ));
                 }
+                // Update nonce regardless of whether the transaction succeeds. This is done
+                // before verifying signatures because signatures are verified already in mempool.
+                // However, it is possible, although rare, that the key is swapped out before this
+                // transaction is applied. We do not treat this case specially now.
+                sender.nonce = transaction.body.get_nonce();
+                set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id), &sender);
+                state_update.commit();
+
                 if !verify_transaction_signature(&transaction, &sender.public_keys) {
                     return Err(format!(
                         "transaction not signed with a public key of originator {:?}",
                         transaction.body.get_originator()
                     ));
                 }
-                sender.nonce = transaction.body.get_nonce();
-                set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id), &sender);
+
                 let contract_id = transaction.body.get_contract_id();
                 if let Some(ref contract_id) = contract_id {
                     if !is_valid_account_id(&contract_id) {
-                        return Err("Invalid contract_id".to_string());
+                        return Err(format!(
+                            "Invalid contract_id / receiver {} according to requirements",
+                            contract_id
+                        ));
                     }
                 }
                 let mana = transaction.body.get_mana();
@@ -384,7 +393,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
-        logs: &mut Vec<LogEntry>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
             .ok_or_else(|| {
@@ -413,11 +422,12 @@ impl Runtime {
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             mana_accounting.gas_used = wasm_res.gas_used;
             mana_accounting.mana_refund = wasm_res.mana_left;
-            logs.append(&mut wasm_res.logs);
+            transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
             let return_data = wasm_res
                 .return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
+            transaction_result.result = return_data.to_result();
             Self::return_data_to_receipts(
                 &mut runtime_ext,
                 return_data,
@@ -443,7 +453,7 @@ impl Runtime {
         receiver: &mut Account,
         mana_accounting: &mut ManaAccounting,
         block_index: BlockIndex,
-        logs: &mut Vec<String>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
@@ -491,13 +501,14 @@ impl Runtime {
                     .and_then(|mut res| {
                         mana_accounting.gas_used = res.gas_used;
                         mana_accounting.mana_refund = res.mana_left;
-                        logs.append(&mut res.logs);
+                        transaction_result.logs.append(&mut res.logs);
                         let balance = res.balance;
                         res.return_data
                             .map_err(|e| {
                                 format!("wasm callback execution failed with error: {:?}", e)
                             })
                             .and_then(|data| {
+                                transaction_result.result = data.to_result();
                                 Self::return_data_to_receipts(
                                     &mut runtime_ext,
                                     data,
@@ -544,7 +555,7 @@ impl Runtime {
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
-        logs: &mut Vec<String>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> =
             get(state_update, &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver));
@@ -561,6 +572,7 @@ impl Runtime {
                         mana_accounting.accounting_info = async_call.accounting_info.clone();
                         callback_info = async_call.callback.clone();
                         if async_call.method_name.is_empty() {
+                            transaction_result.result = Some(vec![]);
                             system::deposit(
                                 state_update,
                                 async_call.amount,
@@ -581,7 +593,7 @@ impl Runtime {
                                 &mut receiver,
                                 &mut mana_accounting,
                                 block_index,
-                                logs,
+                                transaction_result,
                             )
                         }
                     }
@@ -594,7 +606,7 @@ impl Runtime {
                         &mut receiver,
                         &mut mana_accounting,
                         block_index,
-                        logs,
+                        transaction_result,
                     ),
                     ReceiptBody::Refund(amount) => {
                         receiver.amount += amount;
@@ -752,7 +764,7 @@ impl Runtime {
                 receipt,
                 &mut tmp_new_receipts,
                 block_index,
-                &mut result.logs,
+                &mut result,
             );
             for receipt in tmp_new_receipts {
                 result.receipts.push(receipt.nonce);
@@ -775,9 +787,7 @@ impl Runtime {
                 }
             };
         } else {
-            // wrong receipt
-            result.status = TransactionStatus::Failed;
-            result.logs.push("receipt sent to the wrong shard".to_string());
+            unreachable!("receipt sent to the wrong shard");
         };
         Self::print_log(&result.logs);
         result
@@ -856,7 +866,7 @@ impl Runtime {
                 &mut state_update,
                 &account_id_to_bytes(COL_ACCOUNT, &account_id),
                 &Account {
-                    public_keys: vec![PublicKey::from(&public_key.0)],
+                    public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
@@ -890,13 +900,16 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use primitives::hash::hash;
-    use primitives::signature::get_key_pair;
     use storage::test_utils::create_trie;
 
     use crate::state_viewer::{AccountViewCallResult, TrieViewer};
     use crate::test_utils::*;
 
     use super::*;
+    use configs::chain_spec::{
+        AuthorityRotation, DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+    };
+    use configs::ChainSpec;
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration
 
@@ -908,9 +921,9 @@ mod tests {
             result.unwrap(),
             AccountViewCallResult {
                 account: alice_account(),
-                amount: 100,
+                amount: TESTING_INIT_BALANCE,
                 nonce: 0,
-                stake: 50,
+                stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
         );
@@ -973,7 +986,6 @@ mod tests {
         assert_eq!(apply_results.len(), 1);
         // Signed TX successfully generated
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
-        assert_eq!(root, apply_results[0].root);
     }
 
     #[test]
@@ -985,7 +997,6 @@ mod tests {
         assert_eq!(apply_results.len(), 1);
         // Signed TX successfully generated
         assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
-        assert_eq!(root, apply_results[0].root);
     }
 
     #[test]
@@ -1089,10 +1100,12 @@ mod tests {
         let block_index = 1;
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
-        let mut logs = vec![];
+        let mut transaction_result = TransactionResult::default();
         runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut logs)
+            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
             .unwrap();
+        // Check result of the AsyncCall transaction
+        assert_eq!(transaction_result.result, Some(encode_int(10).to_vec()));
         assert_eq!(new_receipts.len(), 2);
 
         assert_eq!(new_receipts[0].originator, bob_account());
@@ -1140,10 +1153,11 @@ mod tests {
         let block_index = 1;
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let mut new_receipts = vec![];
-        let mut logs = vec![];
+        let mut transaction_result = TransactionResult::default();
         runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut logs)
+            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
             .unwrap();
+        assert_eq!(transaction_result.result, Some(vec![]));
         // Just callback - no refunds
         assert_eq!(new_receipts.len(), 1);
 
@@ -1206,19 +1220,33 @@ mod tests {
     }
 
     #[test]
+    fn test_nonce_updated_when_tx_failed() {
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
+        let (new_root, _) = alice.send_money(root, &bob_account(), 10000);
+        assert_ne!(new_root, root);
+        let mut state_update = TrieUpdate::new(trie, new_root);
+        let account: Account =
+            get(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &alice_account())).unwrap();
+        assert_eq!(account.nonce, 1);
+    }
+
+    #[test]
     fn test_100_accounts() {
-        let (mut chain_spec, _) = generate_test_chain_spec();
-        let public_key = get_key_pair().0;
-        for i in 0..100 {
-            chain_spec.accounts.push((format!("account{}", i), public_key.to_readable(), 10000, 0));
-        }
+        let num_accounts = 100;
+        let (chain_spec, _) = ChainSpec::testing_spec(
+            DefaultIdType::Enumerated,
+            num_accounts,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let (_, trie, root) = get_runtime_and_trie_from_chain_spec(&chain_spec);
         let viewer = TrieViewer {};
         let mut state_update = TrieUpdate::new(trie, root);
-        for i in 0..100 {
+        for i in 0..num_accounts {
             assert_eq!(
-                viewer.view_account(&mut state_update, &format!("account{}", i)).unwrap().amount,
-                10000
+                viewer.view_account(&mut state_update, &chain_spec.accounts[i].0).unwrap().amount,
+                chain_spec.accounts[i].2
             )
         }
     }

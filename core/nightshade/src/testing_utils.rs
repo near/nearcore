@@ -39,6 +39,20 @@ pub fn generate_nightshades(num_authorities: usize) -> Vec<Nightshade> {
     (0..num_authorities).map(|i| nightshade(i, num_authorities)).collect()
 }
 
+pub fn generate_nightshades_from_weights(weights: Vec<usize>) -> Vec<Nightshade> {
+    let mut nightshades = generate_nightshades(weights.len());
+
+    let total_weight = weights.iter().sum();
+
+    for i in 0..weights.len() {
+        nightshades[i].weights = weights.clone();
+        nightshades[i].total_weight = total_weight;
+        nightshades[i].best_state_weight = weights[i];
+    }
+
+    nightshades
+}
+
 /// BareState builder from (primary/secondary confidences and outcome)
 pub fn bare_state(primary_confidence: i64, endorses: AuthorityId, secondary_confidence: i64) -> BareState {
     BareState { primary_confidence, endorses: proposal(endorses), secondary_confidence }
@@ -100,13 +114,13 @@ fn create_hardcoded_nightshade(owner_id: AuthorityId, bare_states: Vec<BareState
     let mut ns = nightshade(owner_id, num_authorities);
 
     ns.states = vec![];
-    ns.best_state_counter = 0;
+    ns.best_state_weight = 0;
 
     for bare_state in bare_states.iter() {
         let state = state(owner_id, bare_state.clone(), num_authorities);
         ns.states.push(state);
         if bare_state == &bare_states[owner_id] {
-            ns.best_state_counter += 1;
+            ns.best_state_weight += 1;
         }
     }
 
@@ -193,9 +207,9 @@ mod tests {
             (0, 2, 0),
             (0, 2, 0)
         ]);
-        assert_eq!(ns.best_state_counter, 2);
-        update_state!(ns, 0, (0, 2, 0)).unwrap();
-        assert_eq!(ns.best_state_counter, 1);
+        assert_eq!(ns.best_state_weight, 2);
+        assert_eq!(update_state!(ns, 0, (0, 2, 0)).is_ok(), true);
+        assert_eq!(ns.best_state_weight, 1);
         assert_eq!(ns_eq!(ns, [
             (0, 2, 0),
             (0, 2, 0),

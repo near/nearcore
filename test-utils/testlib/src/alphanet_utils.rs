@@ -8,26 +8,28 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
+use log::error;
+
 use client::Client;
-use configs::chain_spec::{
-    read_or_default_chain_spec, save_chain_spec, AuthorityRotation, ChainSpec,
-};
+use configs::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
 use configs::network::get_peer_id_from_seed;
 use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
+use network::proxy::ProxyHandler;
 use primitives::network::{PeerAddr, PeerInfo};
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
+use tokio_utils::ShutdownableThread;
+
+use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
 
 const TMP_DIR: &str = "../../tmp/testnet";
+pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 
 pub fn configure_chain_spec() -> ChainSpec {
-    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    d.push("../../node/configs/res/poa_testnet_chain.json");
-    read_or_default_chain_spec(&Some(d))
+    ChainSpec::default_poa()
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -43,7 +45,7 @@ pub enum ProcessNodeState {
 
 pub enum ThreadNodeState {
     Stopped,
-    Running,
+    Running(ShutdownableThread),
 }
 
 pub struct NodeConfig {
@@ -53,6 +55,7 @@ pub struct NodeConfig {
     pub rpc_cfg: RPCConfig,
     pub peer_id_seed: u32,
     pub node_type: NodeType,
+    pub proxy_handlers: Vec<Arc<ProxyHandler>>,
 }
 
 impl NodeConfig {
@@ -69,6 +72,8 @@ pub trait Node {
     fn node_type(&self) -> NodeType;
 
     fn start(&mut self);
+
+    fn kill(&mut self);
 
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         self.user().view_balance(account_id)
@@ -138,6 +143,17 @@ impl Node for ProcessNode {
         }
     }
 
+    fn kill(&mut self) {
+        match self.state {
+            ProcessNodeState::Running(ref mut child) => {
+                child.kill().expect("kill failed");
+                thread::sleep(Duration::from_secs(1));
+                self.state = ProcessNodeState::Stopped;
+            }
+            ProcessNodeState::Stopped => panic!("Invalid state"),
+        }
+    }
+
     fn signer(&self) -> Arc<InMemorySigner> {
         let account_id = &self.config().client_cfg.account_id;
         Arc::new(InMemorySigner::from_seed(account_id, account_id))
@@ -177,11 +193,28 @@ impl Node for ThreadNode {
         let account_id = self.config().client_cfg.account_id.clone();
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
-        thread::spawn(|| {
-            alphanet::start_from_client(client, Some(account_id), network_cfg, rpc_cfg);
-        });
-        self.state = ThreadNodeState::Running;
+        let client_cfg = self.config().client_cfg.clone();
+        let proxy_handlers = self.config().proxy_handlers.clone();
+        let handle = alphanet::start_from_client(
+            client,
+            Some(account_id),
+            network_cfg,
+            rpc_cfg,
+            client_cfg,
+            proxy_handlers,
+        );
+        self.state = ThreadNodeState::Running(handle);
         thread::sleep(Duration::from_secs(1));
+    }
+
+    fn kill(&mut self) {
+        let state = std::mem::replace(&mut self.state, ThreadNodeState::Stopped);
+        match state {
+            ThreadNodeState::Stopped => panic!("Node is not running"),
+            ThreadNodeState::Running(handle) => {
+                handle.shutdown();
+            }
+        }
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
@@ -199,7 +232,7 @@ impl Node for ThreadNode {
     fn is_running(&self) -> bool {
         match self.state {
             ThreadNodeState::Stopped => false,
-            ThreadNodeState::Running => true,
+            ThreadNodeState::Running(_) => true,
         }
     }
 
@@ -225,17 +258,6 @@ impl ProcessNode {
         let result = ProcessNode { config, state: ProcessNodeState::Stopped };
         result.reset_storage();
         result
-    }
-
-    pub fn kill(&mut self) {
-        match self.state {
-            ProcessNodeState::Running(ref mut child) => {
-                child.kill().expect("kill failed");
-                thread::sleep(Duration::from_secs(1));
-                self.state = ProcessNodeState::Stopped;
-            }
-            ProcessNodeState::Stopped => panic!("Invalid state"),
-        }
     }
 
     /// Clear storage directory and run keygen
@@ -274,7 +296,7 @@ impl ProcessNode {
         if !self.config().client_cfg.base_path.exists() {
             fs::create_dir_all(&self.config().client_cfg.base_path).unwrap();
         }
-        save_chain_spec(&chain_spec_path, chain_spec.clone());
+        chain_spec.write_to_file(&chain_spec_path);
 
         let mut start_node_command = Command::new("cargo");
         start_node_command.args(&[
@@ -308,7 +330,7 @@ impl Drop for ProcessNode {
     fn drop(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
-                child.kill().unwrap();
+                let _ = child.kill().map_err(|_| error!("child process died"));
             }
             ProcessNodeState::Stopped => {}
         }
@@ -323,6 +345,8 @@ impl NodeConfig {
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        block_fetch_limit: u64,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
@@ -333,6 +357,8 @@ impl NodeConfig {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
+            block_fetch_limit,
+            proxy_handlers,
         )
     }
 
@@ -344,6 +370,8 @@ impl NodeConfig {
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        block_fetch_limit: u64,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
@@ -353,6 +381,8 @@ impl NodeConfig {
             test_port + 1000 + peer_id,
             boot_nodes,
             chain_spec,
+            block_fetch_limit,
+            proxy_handlers,
         )
     }
 
@@ -364,6 +394,8 @@ impl NodeConfig {
         rpc_port: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
+        block_fetch_limit: u64,
+        proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
             account_id: Some(String::from(account_id)),
@@ -386,6 +418,7 @@ impl NodeConfig {
             base_path,
             account_id: String::from(account_id),
             public_key: None,
+            block_fetch_limit,
             chain_spec,
             log_level: log::LevelFilter::Info,
         };
@@ -397,13 +430,22 @@ impl NodeConfig {
             reconnect_delay: Duration::from_millis(50),
             gossip_interval: Duration::from_millis(50),
             gossip_sample_size: 10,
+            proxy_handlers: vec![],
         };
 
         let rpc_cfg = RPCConfig { rpc_port };
 
         let node_type = NodeType::ThreadNode;
 
-        NodeConfig { node_info, client_cfg, network_cfg, rpc_cfg, peer_id_seed, node_type }
+        NodeConfig {
+            node_info,
+            client_cfg,
+            network_cfg,
+            rpc_cfg,
+            peer_id_seed,
+            node_type,
+            proxy_handlers,
+        }
     }
 }
 
@@ -433,43 +475,21 @@ where
     }
 }
 
-/// Generates chainspec for running multiple nodes.
-pub fn generate_poa_test_chain_spec(account_names: &Vec<String>, balance: u64) -> ChainSpec {
-    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let mut accounts = vec![];
-    let signer = InMemorySigner::from_seed("alice.near", "alice.near");
-    accounts.push(("alice.near".to_string(), signer.public_key().to_readable(), 1_000_000 as u64, 10));
-    let mut initial_authorities = vec![];
-    for name in account_names {
-        let signer = InMemorySigner::from_seed(name.as_str(), name.as_str());
-        accounts.push((name.to_string(), signer.public_key().to_readable(), balance, 10));
-        initial_authorities.push((
-            name.to_string(),
-            signer.public_key().to_readable(),
-            signer.bls_public_key().to_readable(),
-            50,
-        ));
-    }
-    ChainSpec {
-        accounts,
-        initial_authorities,
-        genesis_wasm,
-        authority_rotation: AuthorityRotation::ProofOfAuthority,
-    }
-}
-
 // Create some nodes
 pub fn create_nodes(
     num_nodes: usize,
     test_prefix: &str,
     test_port: u16,
+    block_fetch_limit: u64,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
-    let init_balance = 1_000_000_000;
-    let mut account_names = vec![];
-    for i in 0..num_nodes {
-        account_names.push(format!("near.{}", i));
-    }
-    let chain_spec = generate_poa_test_chain_spec(&account_names, init_balance);
+    let (chain_spec, _) = ChainSpec::testing_spec(
+        DefaultIdType::Enumerated,
+        num_nodes,
+        num_nodes,
+        AuthorityRotation::ProofOfAuthority,
+    );
+    let account_names: Vec<_> = chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.
@@ -481,11 +501,13 @@ pub fn create_nodes(
             i as u16 + 1,
             boot_nodes,
             chain_spec.clone(),
+            block_fetch_limit,
+            proxy_handlers.clone(),
         );
         boot_nodes = vec![node.node_addr()];
         nodes.push(node);
     }
-    (init_balance, account_names, nodes)
+    (TESTING_INIT_BALANCE, account_names, nodes)
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {

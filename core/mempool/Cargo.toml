@@ -18,3 +18,6 @@ storage = { path = "../../core/storage"}
 node-runtime = { path = "../../node/runtime" }
 nightshade = { path = "../nightshade" }
 near-protos = { path = "../protos" }
+
+[dev-dependencies]
+configs = { path = "../../node/configs" }

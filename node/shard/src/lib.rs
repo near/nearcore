@@ -261,6 +261,7 @@ impl ShardClient {
                         hash: *r,
                         lines: receipt_result.logs.clone(),
                         receipts: receipt_result.receipts.clone(),
+                        result: receipt_result.result.clone(),
                     });
                     match self.collect_transaction_final_result(&receipt_result, logs) {
                         FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
@@ -281,6 +282,7 @@ impl ShardClient {
                 hash: *hash,
                 lines: transaction_result.logs.clone(),
                 receipts: transaction_result.receipts.clone(),
+                result: transaction_result.result.clone(),
             }],
         };
         result.status =
@@ -314,7 +316,6 @@ impl ShardClient {
 
 #[cfg(test)]
 mod tests {
-    use node_runtime::test_utils::generate_test_chain_spec;
     use primitives::signer::InMemorySigner;
     use primitives::transaction::{
         FinalTransactionStatus, SignedTransaction, TransactionAddress,
@@ -326,9 +327,10 @@ mod tests {
     use rand::prelude::SliceRandom;
 
     use super::*;
+    use configs::chain_spec::{DefaultIdType, AuthorityRotation};
 
     fn get_test_client() -> (ShardClient, Vec<Arc<InMemorySigner>>) {
-        let (chain_spec, signers) = generate_test_chain_spec();
+        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 2, 1, AuthorityRotation::ProofOfAuthority);
         let shard_storage = create_beacon_shard_storages().1;
         let shard_client = ShardClient::new(signers[0].clone(), &chain_spec, shard_storage);
         (shard_client, signers)

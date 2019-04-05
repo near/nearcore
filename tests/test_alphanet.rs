@@ -1,14 +1,19 @@
 use std::thread;
 use std::time::Duration;
 
+use network::proxy::benchmark::BenchmarkHandler;
+use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
-use testlib::alphanet_utils::create_nodes;
-use testlib::alphanet_utils::sample_two_nodes;
-use testlib::alphanet_utils::wait;
-use testlib::alphanet_utils::Node;
+use std::sync::Arc;
+use testlib::alphanet_utils::{create_nodes, sample_two_nodes, wait, Node, TEST_BLOCK_FETCH_LIMIT};
+use testlib::test_locks::heavy_test;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
-    let (init_balance, account_names, mut nodes) = create_nodes(num_nodes, test_prefix, test_port);
+    // Add proxy handlers to the pipeline.
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
+
+    let (init_balance, account_names, mut nodes) =
+        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
 
     let mut nodes: Vec<Box<Node>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
     for i in 0..num_nodes {
@@ -19,7 +24,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
     // the balance of j on node k.
     let mut expected_balances = vec![init_balance; num_nodes];
-    let trial_duration = 10000;
+    let trial_duration = 60000;
     for trial in 0..num_trials {
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
@@ -47,11 +52,10 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
 
 #[test]
 fn test_4_10_multiple_nodes() {
-    run_multiple_nodes(4, 10, "4_10", 3200);
+    heavy_test(|| run_multiple_nodes(4, 10, "4_10", 3200));
 }
 
-// TODO(#718)
-//#[test]
-//fn test_7_10_multiple_nodes() {
-//    run_multiple_nodes(7, 10, "7_10", 3300);
-//}
+#[test]
+fn test_7_10_multiple_nodes() {
+    heavy_test(|| run_multiple_nodes(7, 10, "7_10", 3300));
+}

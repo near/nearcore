@@ -1,0 +1,11 @@
+[package]
+name = "tokio-utils"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+futures = "0.1"
+log = "0.4"
+tokio = "0.1"
+tokio-signal = "0.2"

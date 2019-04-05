@@ -10,7 +10,7 @@ use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct PayloadGossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
@@ -23,16 +23,14 @@ impl TryFrom<nightshade_proto::PayloadGossip> for PayloadGossip {
     type Error = String;
 
     fn try_from(proto: nightshade_proto::PayloadGossip) -> Result<Self, Self::Error> {
-        match proto_to_type(proto.payload) {
-            Ok(payload) => Ok(PayloadGossip {
-                sender_id: proto.sender_id as AuthorityId,
-                receiver_id: proto.receiver_id as AuthorityId,
-                payload,
-                block_index: proto.block_index,
-                signature: Signature::from(&proto.signature),
-            }),
-            Err(e) => Err(e),
-        }
+        let payload = proto_to_type(proto.payload)?;
+        Ok(PayloadGossip {
+            sender_id: proto.sender_id as AuthorityId,
+            receiver_id: proto.receiver_id as AuthorityId,
+            payload,
+            block_index: proto.block_index,
+            signature: Signature::try_from(proto.signature.as_str())?,
+        })
     }
 }
 
@@ -44,8 +42,7 @@ impl From<PayloadGossip> for nightshade_proto::PayloadGossip {
             payload: SingularPtrField::some(gossip.payload.into()),
             block_index: gossip.block_index,
             signature: gossip.signature.to_string(),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
