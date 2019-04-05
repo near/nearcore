@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::future::Future;
 use futures::sink::Sink;
@@ -10,7 +10,7 @@ use futures::sync::mpsc::Sender;
 use futures::Async;
 use futures::Poll;
 use futures::Stream;
-use tokio::timer::Interval;
+use tokio::timer::Delay;
 
 use client::BlockImportingResult;
 use client::Client;
@@ -55,18 +55,23 @@ pub struct ClientTask {
     out_final_signatures_tx: Sender<(BlockIndex, JointBlockBLS)>,
     /// Receives partial signatures of beacon and shard blocks from this channel.
     inc_final_signatures_rx: Receiver<JointBlockBLS>,
-    final_signatures_int: Interval,
+    /// Delay until the next request of final signatures
+    final_signatures_int: Delay,
 
     // Internal containers.
     /// Blocks for which the consensus was achieved for the set of transactions, but the computed
     /// state was not yet double-signed with BLS.
     unfinalized_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
     unfinalized_shard_blocks: HashMap<CryptoHash, (SignedShardBlock, ShardBlockExtraInfo)>,
+    /// Own BLS signature for unfinalized blocks
+    unfinalized_block_signature: HashMap<CryptoHash, BlsSignature>,
 
     /// Channel into which we gossip payloads.
     out_payload_gossip_tx: Sender<PayloadGossip>,
-    /// Interval at which we gossip payloads.
-    payload_gossip_interval: Interval,
+    /// Delay until the next time we gossip payloads.
+    payload_gossip_interval: Delay,
+
+    gossip_interval: Duration,
 
     /// Last block index per peer. Might not be the real block index the peer is it, in the cases:
     /// The value is underestimated if when the remote node managed to progress several blocks
@@ -97,6 +102,8 @@ impl Stream for ClientTask {
                         let (beacon_block, shard_block, shard_extra) = self.prepare_block(c);
                         let beacon_hash = beacon_block.hash;
                         let shard_hash = shard_block.hash;
+                        debug!(target: "client", "[{}] Block #{} produced: {}, {}",
+                              self.client.account_id, beacon_block.body.header.index, beacon_hash, shard_hash);
                         self.unfinalized_beacon_blocks.insert(beacon_block.hash, beacon_block);
                         self.unfinalized_shard_blocks
                             .insert(shard_block.hash, (shard_block, shard_extra));
@@ -206,12 +213,10 @@ impl Stream for ClientTask {
             }
 
             match self.payload_gossip_interval.poll() {
-                Ok(Async::Ready(Some(_))) => {
+                Ok(Async::Ready(())) => {
                     self.gossip_payload();
+                    self.payload_gossip_interval.reset(Instant::now() + self.gossip_interval);
                     continue;
-                }
-                Ok(Async::Ready(None)) => {
-                    panic!("Interval stream is not expected to ever end");
                 }
                 Ok(Async::NotReady) => (),
                 Err(err) => {
@@ -221,11 +226,9 @@ impl Stream for ClientTask {
             }
 
             match self.final_signatures_int.poll() {
-                Ok(Async::Ready(Some(_))) => {
+                Ok(Async::Ready(())) => {
                     self.request_bls_signatures();
-                }
-                Ok(Async::Ready(None)) => {
-                    panic!("Interval stream is not expected to ever end");
+                    self.final_signatures_int.reset(Instant::now() + self.gossip_interval * 10);
                 }
                 Ok(Async::NotReady) => (),
                 Err(e) => {
@@ -336,14 +339,16 @@ impl ClientTask {
             payload_response_rx,
             unfinalized_beacon_blocks: Default::default(),
             unfinalized_shard_blocks: Default::default(),
+            unfinalized_block_signature: HashMap::default(),
             out_final_signatures_tx,
             inc_final_signatures_rx,
-            final_signatures_int: Interval::new_interval(gossip_interval),
+            final_signatures_int: Delay::new(Instant::now() + gossip_interval),
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
             out_block_fetch_tx,
-            payload_gossip_interval: Interval::new_interval(gossip_interval),
+            payload_gossip_interval: Delay::new(Instant::now() + gossip_interval),
+            gossip_interval,
             assumed_peer_last_index: Default::default(),
         };
         res.spawn_kickoff();
@@ -447,6 +452,8 @@ impl ClientTask {
         let beacon_block = self.unfinalized_beacon_blocks.remove(&beacon_hash).unwrap();
         let (shard_block, shard_block_info) =
             self.unfinalized_shard_blocks.remove(&shard_hash).unwrap();
+        self.unfinalized_block_signature.remove(&beacon_hash);
+        self.unfinalized_block_signature.remove(&shard_hash);
         assert!(shard_block.signature.authority_count() == present);
         self.client.try_import_produced(
             beacon_block.clone(),
@@ -467,6 +474,7 @@ impl ClientTask {
         if blocks.is_empty() {
             return None;
         }
+
         let latest_index = blocks.iter().map(|(b, _)| b.index()).max().unwrap();
         self.assumed_peer_last_index.insert(peer_id, latest_index);
         // TODO: clonning here sucks, is there a better way?
@@ -486,9 +494,11 @@ impl ClientTask {
                 }
                 for h in beacons_to_remove {
                     self.unfinalized_beacon_blocks.remove(&h);
+                    self.unfinalized_block_signature.remove(&h);
                 }
                 for h in shards_to_remove {
                     self.unfinalized_shard_blocks.remove(&h);
+                    self.unfinalized_block_signature.remove(&h);
                 }
                 self.announce_block(last_beacon_block, last_shard_block);
                 Some(new_index)
@@ -537,12 +547,12 @@ impl ClientTask {
     ) -> Option<u64> {
         let beacon_block = match self.unfinalized_beacon_blocks.get_mut(&beacon_hash) {
             Some(b) => b,
-            _ => return None,
+            _ => { debug!(target: "client", "Worthless hash: {}", beacon_hash); return None },
         };
 
         let (shard_block, _) = match self.unfinalized_shard_blocks.get_mut(&shard_hash) {
             Some(b) => b,
-            _ => return None,
+            _ => { debug!(target: "client", "Worthless hash: {}", shard_hash); return None },
         };
         let block_index = beacon_block.index();
         // Make sure this authority is actually supposed to sign this block.
@@ -555,6 +565,7 @@ impl ClientTask {
         if !stake.bls_public_key.verify(beacon_hash.as_ref(), &beacon_sig)
             || !stake.bls_public_key.verify(shard_hash.as_ref(), &shard_sig)
         {
+            error!(target: "client", "SCAM: someone is forging signatures for {}", authority_id);
             return None;
         }
         beacon_block.signature.add_signature(&beacon_sig, authority_id);
@@ -719,8 +730,21 @@ impl ClientTask {
         }
     }
 
+    fn bls_sign_with_cache(&mut self, hash: &CryptoHash) -> BlsSignature {
+        if let Some(signature) = self.unfinalized_block_signature.get(&hash) {
+            signature.clone()
+        } else {
+            let start = Instant::now();
+            let signature = self.client.signer.bls_sign(hash.as_ref());
+            let elapsed = Instant::now() - start;
+            debug!(target:"client", "BLS signature took {}ms", elapsed.as_millis());
+            self.unfinalized_block_signature.insert(hash.clone(), signature.clone());
+            signature
+        }
+    }
+
     fn reply_with_bls(
-        &self,
+        &mut self,
         beacon_hash: CryptoHash,
         shard_hash: CryptoHash,
         sender_id: AuthorityId,
@@ -739,9 +763,13 @@ impl ClientTask {
             },
         };
         let (owner_uid, _) = self.client.get_uid_to_authority_map(block_index);
-        if owner_uid.is_some() {
-            let beacon_sig = self.client.signer.bls_sign(beacon_hash.as_ref());
-            let shard_sig = self.client.signer.bls_sign(shard_hash.as_ref());
+        if let Some(owner_uid) = owner_uid {
+            if owner_uid != receiver_id {
+                error!(target: "client", "Someone meant to request BLS from authority {}, but sent to us - {}", receiver_id, owner_uid);
+                return;
+            }
+            let beacon_sig = self.bls_sign_with_cache(&beacon_hash);
+            let shard_sig = self.bls_sign_with_cache(&shard_hash);
             tokio_utils::spawn(
                 self.out_final_signatures_tx
                     .clone()
@@ -764,14 +792,24 @@ impl ClientTask {
 
     fn request_bls_signatures(&self) {
         for (beacon_hash, beacon_block) in self.unfinalized_beacon_blocks.iter() {
-            let (owner_uid, _) = self.client.get_uid_to_authority_map(beacon_block.index());
+            let (owner_uid, authority_map) = self.client.get_uid_to_authority_map(beacon_block.index());
             let owner_uid = match owner_uid {
                 Some(id) => id,
                 None => return,
             };
-            for (auth_id, auth_present) in beacon_block.signature.authority_mask.iter().enumerate()
+            let num_authorities = authority_map.len();
+            let signers = &beacon_block.signature.authority_mask;
+            debug!(target: "client",
+                   "[{}] is requesting BLS signatures for block {} from {:?}!",
+                   owner_uid,
+                   beacon_block.index(),
+                   (0..num_authorities)
+                       .filter(|&auth_id| *signers.get(auth_id).unwrap_or(&false))
+                       .collect::<Vec<_>>());
+
+            for auth_id in 0..num_authorities
             {
-                if !*auth_present {
+                if *signers.get(auth_id).unwrap_or(&false) {
                     tokio_utils::spawn(
                             self.out_final_signatures_tx
                                 .clone()
