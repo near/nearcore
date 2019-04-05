@@ -213,8 +213,23 @@ impl<'a> Runtime<'a> {
         let storage_id = self
             .ext
             .storage_iter(&prefix)
-            .map_err(|_| Error::StorageUpdateError)?;
+            .map_err(|_| Error::StorageReadError)?;
         debug!(target: "wasm", "storage_iter('{}') -> {}", pretty_utf8(&prefix), storage_id);
+        Ok(storage_id)
+    }
+
+    /// Gets iterator for the range of keys between given start and end keys
+    fn storage_range(&mut self, start_len: u32, start_ptr: u32, end_len: u32, end_ptr: u32) -> Result<u32> {
+        let start_key = self.memory_get(start_ptr as usize, start_len as usize)?;
+        let end_key = self.memory_get(end_ptr as usize, end_len as usize)?;
+        let storage_id = self
+            .ext
+            .storage_range(&start_key, &end_key)
+            .map_err(|_| Error::StorageReadError)?;
+        debug!(target: "wasm", "storage_range('{}', '{}') -> {}",
+            pretty_utf8(&start_key),
+            pretty_utf8(&end_key),
+            storage_id);
         Ok(storage_id)
     }
 
@@ -591,6 +606,7 @@ pub mod imports {
         // Storage write. Writes given value for the given key.
         "storage_write" => storage_write<[key_len: u32, key_ptr: u32, value_len: u32, value_ptr: u32] -> []>,
         "storage_iter" => storage_iter<[prefix_len: u32, prefix_ptr: u32] -> [u32]>,
+        "storage_range" => storage_range<[start_len: u32, start_ptr: u32, end_len: u32, end_ptr: u32] -> [u32]>,
         "storage_iter_next" => storage_iter_next<[storage_id: u32] -> [u32]>,
         "storage_remove" => storage_remove<[key_len: u32, key_ptr: u32] -> []>,
         "storage_has_key" => storage_has_key<[key_len: u32, key_ptr: u32] -> [u32]>,
