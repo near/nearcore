@@ -57,7 +57,6 @@ fn test_4_10_multiple_nodes() {
 
 // TODO: #817
 #[test]
-#[ignore]
 fn test_7_10_multiple_nodes() {
     heavy_test(|| run_multiple_nodes(7, 10, "7_10", 3300));
 }

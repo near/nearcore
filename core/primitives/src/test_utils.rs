@@ -15,8 +15,6 @@ use crate::hash::CryptoHash;
 use crate::crypto::signature::{PublicKey, SecretKey};
 use crate::crypto::signer::{BlockSigner, InMemorySigner};
 use crate::types::{AccountId, AuthorityId, AuthorityStake};
-use std::sync::Mutex;
-use cached::SizedCache;
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
@@ -49,7 +47,6 @@ impl InMemorySigner {
             secret_key,
             bls_public_key,
             bls_secret_key,
-            bls_cache: Mutex::new(SizedCache::with_size(100_000)),
         }
     }
 }

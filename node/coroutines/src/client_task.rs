@@ -740,8 +740,8 @@ impl ClientTask {
         };
         let (owner_uid, _) = self.client.get_uid_to_authority_map(block_index);
         if owner_uid.is_some() {
-            let beacon_sig = self.client.signer.bls_sign_cached(beacon_hash.as_ref());
-            let shard_sig = self.client.signer.bls_sign_cached(shard_hash.as_ref());
+            let beacon_sig = self.client.signer.bls_sign(beacon_hash.as_ref());
+            let shard_sig = self.client.signer.bls_sign(shard_hash.as_ref());
             tokio_utils::spawn(
                 self.out_final_signatures_tx
                     .clone()

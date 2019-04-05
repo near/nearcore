@@ -8,11 +8,9 @@ use crate::crypto::signature::{
     SecretKey, Signature,
 };
 use crate::types::{AccountId, PartialSignature};
-use cached::{Cached, SizedCache};
 use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
-use std::sync::Mutex;
 
 /// Trait to abstract the way transaction signing happens.
 pub trait TransactionSigner: Sync + Send {
@@ -25,7 +23,6 @@ pub trait TransactionSigner: Sync + Send {
 pub trait BlockSigner: Sync + Send + TransactionSigner {
     fn bls_public_key(&self) -> BlsPublicKey;
     fn bls_sign(&self, hash: &[u8]) -> PartialSignature;
-    fn bls_sign_cached(&self, hash: &[u8]) -> PartialSignature;
     fn account_id(&self) -> AccountId;
 }
 
@@ -180,11 +177,7 @@ pub struct InMemorySigner {
     pub secret_key: SecretKey,
     pub bls_public_key: BlsPublicKey,
     pub bls_secret_key: BlsSecretKey,
-    /// Cache for BLS signatures to make sure we do not recompute them.
-    pub bls_cache: Mutex<SizedCache<Vec<u8>, PartialSignature>>,
 }
-
-const BLS_CACHE_SIZE: usize = 100_000;
 
 impl InMemorySigner {
     pub fn from_key_file(
@@ -199,7 +192,6 @@ impl InMemorySigner {
             secret_key: key_file.secret_key,
             bls_public_key: key_file.bls_public_key,
             bls_secret_key: key_file.bls_secret_key,
-            bls_cache: Mutex::new(SizedCache::with_size(BLS_CACHE_SIZE)),
         }
     }
 
@@ -218,7 +210,6 @@ impl InMemorySigner {
             secret_key,
             bls_public_key,
             bls_secret_key,
-            bls_cache: Mutex::new(SizedCache::with_size(BLS_CACHE_SIZE)),
         }
     }
 }
@@ -242,18 +233,6 @@ impl BlockSigner for InMemorySigner {
 
     fn bls_sign(&self, hash: &[u8]) -> PartialSignature {
         self.bls_secret_key.sign(hash)
-    }
-
-    fn bls_sign_cached(&self, data: &[u8]) -> PartialSignature {
-        let mut guard = self.bls_cache.lock().expect("Cache lock was poisoned");
-        let key = data.to_vec();
-        if let Some(res) = guard.cache_get(&key) {
-            return res.clone();
-        }
-
-        let res = self.bls_sign(data);
-        guard.cache_set(key, res.clone());
-        res
     }
 
     #[inline]
