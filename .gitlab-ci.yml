@@ -7,6 +7,7 @@ variables:
     BUILD_TARGET: ubuntu
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
+    APT_CACHE_DIR: apt-cache
 
 .setup_rust: &setup_rust
     rustup default nightly
@@ -28,9 +29,18 @@ variables:
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -atime +2 -delete
 
+.code_coverage: &code_coverage
+    mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
+    apt-get -qq -o dir::cache::archives="$APT_CACHE_DIR" install -y binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev cmake gcc &&
+    ./scripts/coverage.sh
+
 stages:
     - rust
     - libs
+
+cache:
+    paths:
+        - apt-cache
 
 test_cargo:
     stage: rust
@@ -45,7 +55,7 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
-    - cargo build --benches --all
+    - cargo check --all --all-features --tests --benches
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
@@ -60,15 +70,26 @@ release_build:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet
     after_script:
-        - *cleanup_obsolete_cache
+    - *cleanup_obsolete_cache
     artifacts:
         paths:
             - target/release/devnet
 
+coverage:
+    stage: libs
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - ./scripts/build_wasm.sh
+    - cargo test --all --no-run
+    - *code_coverage
+
 test_nearlib:
     stage: libs
     dependencies:
-        - release_build
+    - release_build
     script:
     - ./scripts/test_nearlib.sh
 
