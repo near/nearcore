@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use network::proxy::benchmark::BenchmarkHandler;
 use network::proxy::ProxyHandler;
-use primitives::transaction::{SignedTransaction, TransactionBody};
+use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
 use testlib::alphanet_utils::{
-    create_nodes, sample_queryable_node, sample_two_nodes, wait, wait_for_catchup, Node, NodeType,
-    TEST_BLOCK_FETCH_LIMIT,
+    create_nodes, Node, NodeType, sample_queryable_node, sample_two_nodes, TEST_BLOCK_FETCH_LIMIT, wait,
+    wait_for_catchup,
 };
 use testlib::test_locks::heavy_test;
 
@@ -29,17 +29,16 @@ fn send_transaction(
     to: usize,
 ) {
     let k = sample_queryable_node(nodes);
-    let tx_body = TransactionBody::send_money(
-        nonces[from],
-        account_names[from].as_str(),
-        account_names[to].as_str(),
-        1,
-    );
     nodes[k]
-        .add_transaction(SignedTransaction::new(
-            nodes[from].signer().sign(&tx_body.get_hash()),
-            tx_body,
-        ))
+        .add_transaction(
+            TransactionBody::send_money(
+                nonces[from],
+                account_names[from].as_str(),
+                account_names[to].as_str(),
+                1,
+            )
+            .sign(&*nodes[from].signer()),
+        )
         .unwrap();
 }
 

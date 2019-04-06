@@ -13,28 +13,23 @@ use crate::crypto::signature::{
 };
 use crate::types::{AccountId, PartialSignature};
 
-pub trait Signable {
-    fn bytes(&self) -> &[u8];
-}
-
-impl Signable for Vec<u8> {
-    fn bytes(&self) -> &[u8] {
-        self
-    }
-}
-
-/// Trait to abstract the way transaction signing happens.
-pub trait TransactionSigner: Sync + Send {
-    fn public_key(&self) -> PublicKey;
-    fn sign(&self, obj: &Signable) -> Signature;
-}
-
-/// Trait to abstract the way signing happens for block production.
-/// Can be used to not keep private key in the given binary via cross-process communication.
-pub trait BlockSigner: TransactionSigner + Sync + Send {
-    fn bls_public_key(&self) -> BlsPublicKey;
-    fn bls_sign(&self, hash: &Signable) -> PartialSignature;
+/// Trait to abstract the signer account.
+pub trait AccountSigner: Sync + Send {
     fn account_id(&self) -> AccountId;
+}
+
+/// Trait to abstract the way transaction signing with ed25519.
+/// Can be used to not keep private key in the given binary via cross-process communication.
+pub trait EDSigner: Sync + Send {
+    fn public_key(&self) -> PublicKey;
+    fn sign(&self, data: &[u8]) -> Signature;
+}
+
+/// Trait to abstract the way signing with bls.
+/// Can be used to not keep private key in the given binary via cross-process communication.
+pub trait BLSSigner: Sync + Send {
+    fn bls_public_key(&self) -> BlsPublicKey;
+    fn bls_sign(&self, data: &[u8]) -> PartialSignature;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -182,6 +177,7 @@ pub fn get_or_create_key_file(
     }
 }
 
+#[derive(Clone)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -219,29 +215,31 @@ impl InMemorySigner {
     }
 }
 
-impl TransactionSigner for InMemorySigner {
+impl AccountSigner for InMemorySigner {
+    #[inline]
+    fn account_id(&self) -> AccountId {
+        self.account_id.clone()
+    }
+}
+
+impl EDSigner for InMemorySigner {
     #[inline]
     fn public_key(&self) -> PublicKey {
         self.public_key
     }
 
-    fn sign(&self, data: &Signable) -> Signature {
-        sign(data.bytes(), &self.secret_key)
+    fn sign(&self, data: &[u8]) -> Signature {
+        sign(data, &self.secret_key)
     }
 }
 
-impl BlockSigner for InMemorySigner {
+impl BLSSigner for InMemorySigner {
     #[inline]
     fn bls_public_key(&self) -> BlsPublicKey {
         self.bls_public_key.clone()
     }
 
-    fn bls_sign(&self, data: &Signable) -> PartialSignature {
-        self.bls_secret_key.sign(data.bytes())
-    }
-
-    #[inline]
-    fn account_id(&self) -> AccountId {
-        self.account_id.clone()
+    fn bls_sign(&self, data: &[u8]) -> PartialSignature {
+        self.bls_secret_key.sign(data)
     }
 }

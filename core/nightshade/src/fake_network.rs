@@ -10,7 +10,7 @@ use tokio::timer::Delay;
 use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::hash::CryptoHash;
 use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::{BLSSigner, InMemorySigner, EDSigner};
 
 use crate::nightshade::ConsensusBlockProposal;
 
@@ -47,7 +47,7 @@ fn spawn_all(num_authorities: usize) {
             out_gossips_rx_vec.push(out_gossips_rx);
             consensus_rx_vec.push(consensus_rx);
 
-            let task: NightshadeTask = NightshadeTask::new(
+            let task = NightshadeTask::new(
                 Some(signers[owner_uid].clone()),
                 inc_gossips_rx,
                 out_gossips_tx,

@@ -11,8 +11,8 @@ use nightshade::nightshade_task::Control;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 
-pub fn spawn_consensus(
-    client: Arc<Client>,
+pub fn spawn_consensus<T: Send + Sync + 'static>(
+    client: Arc<Client<T>>,
     consensus_tx: Sender<ConsensusBlockProposal>,
     control_rx: Receiver<Control>,
     block_period: Duration,

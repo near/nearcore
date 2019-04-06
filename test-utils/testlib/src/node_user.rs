@@ -1,12 +1,14 @@
+use std::sync::Arc;
+
 use client::Client;
 use node_http::types::{
     SignedBeaconBlockResponse, SubmitTransactionRequest, SubmitTransactionResponse,
     ViewAccountRequest, ViewAccountResponse,
 };
 use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
-use std::sync::Arc;
 
 pub trait NodeUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
@@ -27,7 +29,7 @@ pub struct RpcNodeUser {
 }
 
 pub struct ThreadNodeUser {
-    pub client: Arc<Client>,
+    pub client: Arc<Client<InMemorySigner>>,
 }
 
 impl RpcNodeUser {
@@ -37,7 +39,7 @@ impl RpcNodeUser {
 }
 
 impl ThreadNodeUser {
-    pub fn new(client: Arc<Client>) -> ThreadNodeUser {
+    pub fn new(client: Arc<Client<InMemorySigner>>) -> ThreadNodeUser {
         ThreadNodeUser { client }
     }
 }

@@ -1,19 +1,14 @@
+use crate::block_traits::{SignedBlock, SignedHeader};
+use crate::crypto::group_signature::GroupSignature;
+use crate::hash::{hash_struct, CryptoHash};
+use crate::types::{AuthorityStake, PartialSignature};
+use crate::utils::{proto_to_result, proto_to_type};
+use near_protos::chain as chain_proto;
+use protobuf::{RepeatedField, SingularPtrField};
 use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
-
-use protobuf::{RepeatedField, SingularPtrField};
-
-use near_protos::chain as chain_proto;
-
-use crate::crypto::group_signature::GroupSignature;
-use crate::crypto::signer::Signable;
-
-use super::block_traits::{SignedBlock, SignedHeader};
-use super::hash::{CryptoHash, hash_struct};
-use super::types::{AuthorityStake, PartialSignature};
-use super::utils::{proto_to_result, proto_to_type};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct BeaconBlockHeader {
@@ -174,13 +169,6 @@ impl SignedHeader for SignedBeaconBlockHeader {
     }
 }
 
-impl Signable for SignedBeaconBlockHeader {
-    #[inline]
-    fn bytes(&self) -> &[u8] {
-        self.hash.as_ref()
-    }
-}
-
 impl SignedBeaconBlock {
     pub fn new(
         index: u64,
@@ -230,11 +218,5 @@ impl SignedBlock for SignedBeaconBlock {
     fn weight(&self) -> u128 {
         // TODO(#279): sum stakes instead of counting them
         self.signature.authority_count() as u128
-    }
-}
-
-impl Signable for SignedBeaconBlock {
-    fn bytes(&self) -> &[u8] {
-        self.hash.as_ref()
     }
 }

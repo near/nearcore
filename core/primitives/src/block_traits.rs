@@ -2,25 +2,15 @@ use std::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::crypto::signer::Signable;
-
-use super::hash::CryptoHash;
-use super::serialize::{Decode, Encode};
-use super::types::PartialSignature;
+use crate::crypto::signer::BLSSigner;
+use crate::hash::CryptoHash;
+use crate::serialize::Decode;
+use crate::serialize::Encode;
+use crate::types::PartialSignature;
 
 /// Trait that abstracts ``Header"
 pub trait SignedHeader:
-    Signable
-    + Debug
-    + Clone
-    + Encode
-    + Decode
-    + Send
-    + Sync
-    + Eq
-    + Serialize
-    + DeserializeOwned
-    + 'static
+    Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
 {
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
@@ -35,17 +25,7 @@ pub trait SignedHeader:
 /// Trait that abstracts a ``Block", Is used for both beacon-chain blocks
 /// and shard-chain blocks.
 pub trait SignedBlock:
-    Signable
-    + Debug
-    + Clone
-    + Encode
-    + Decode
-    + Send
-    + Sync
-    + Eq
-    + Serialize
-    + DeserializeOwned
-    + 'static
+    Debug + Clone + Encode + Decode + Send + Sync + Eq + Serialize + DeserializeOwned + 'static
 {
     type SignedHeader: SignedHeader;
 
@@ -57,6 +37,11 @@ pub trait SignedBlock:
 
     /// Returns hash of the block body.
     fn block_hash(&self) -> CryptoHash;
+
+    /// Signs this block with given signer and returns part of multi signature.
+    fn sign(&self, signer: &BLSSigner) -> PartialSignature {
+        signer.bls_sign(self.block_hash().as_ref())
+    }
 
     /// Add signature to multi sign.
     fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize);

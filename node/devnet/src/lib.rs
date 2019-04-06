@@ -13,15 +13,15 @@ use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use primitives::crypto::signer::InMemorySigner;
+use primitives::crypto::signer::{InMemorySigner, AccountSigner, BLSSigner, EDSigner};
 use primitives::types::BlockId;
 use tokio_utils::ShutdownableThread;
 
 /// Re-applies blocks from the start into new client.
-fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path: &str) {
+fn replay_storage<T: AccountSigner + BLSSigner + EDSigner + 'static>(client: Arc<Client<T>>, client_cfg: ClientConfig, other_base_path: &str) {
     let mut other_client_cfg = client_cfg.clone();
     other_client_cfg.base_path = PathBuf::from(other_base_path);
-    let other_client = Client::new(&other_client_cfg, None);
+    let other_client = Client::<InMemorySigner>::new(&other_client_cfg, None);
     info!(
         "Replay storage from {}, last block index = {}",
         other_base_path,
@@ -62,8 +62,8 @@ pub fn start_from_configs(
     start_from_client(client, devnet_cfg, rpc_cfg)
 }
 
-pub fn start_from_client(
-    client: Arc<Client>,
+pub fn start_from_client<T: AccountSigner + EDSigner + BLSSigner + 'static>(
+    client: Arc<Client<T>>,
     devnet_cfg: DevNetConfig,
     rpc_cfg: RPCConfig,
 ) -> ShutdownableThread {
@@ -118,7 +118,7 @@ pub fn start_from_client(
     ShutdownableThread::start(node_task)
 }
 
-fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
+fn spawn_rpc_server_task<T: Send + Sync + 'static>(client: Arc<Client<T>>, rpc_config: &RPCConfig) {
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
     let http_api = node_http::api::HttpApi::new(client);
     node_http::server::spawn_server(http_api, http_addr);

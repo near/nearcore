@@ -22,12 +22,13 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainState, PayloadRequest, PayloadResponse, SignedShardBlock};
 use primitives::consensus::JointBlockBLS;
 use primitives::crypto::aggregate_signature::BlsSignature;
+use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityId, BlockId, BlockIndex, PeerId};
 use shard::ShardBlockExtraInfo;
 
-pub struct ClientTask {
-    client: Arc<Client>,
+pub struct ClientTask<T> {
+    client: Arc<Client<T>>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
     incoming_block_rx: Receiver<(PeerId, Vec<(SignedBeaconBlock, SignedShardBlock)>, BlockIndex)>,
     /// Outgoing blocks produced by this peer that can be imported by other peers.
@@ -79,7 +80,7 @@ pub struct ClientTask {
     assumed_peer_last_index: HashMap<PeerId, BlockIndex>,
 }
 
-impl Stream for ClientTask {
+impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Stream for ClientTask<T> {
     type Item = ();
     type Error = ();
 
@@ -305,9 +306,9 @@ impl Stream for ClientTask {
     }
 }
 
-impl ClientTask {
+impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
     pub fn new(
-        client: Arc<Client>,
+        client: Arc<Client<T>>,
         incoming_block_rx: Receiver<(
             PeerId,
             Vec<(SignedBeaconBlock, SignedShardBlock)>,
@@ -391,9 +392,9 @@ impl ClientTask {
                 mapping.get(&owner).as_ref().unwrap().bls_public_key,
                 signer.bls_public_key()
             );
-            let beacon_sig = signer.bls_sign(&beacon_block);
+            let beacon_sig = beacon_block.sign(&*signer);
             beacon_block.add_signature(&beacon_sig, owner);
-            let shard_sig = signer.bls_sign(&shard_block);
+            let shard_sig = shard_block.sign(&*signer);
             shard_block.add_signature(&shard_sig, owner);
             for other_id in mapping.keys() {
                 if *other_id == owner {
@@ -757,7 +758,7 @@ impl ClientTask {
                 .signer
                 .clone()
                 .expect("Must have signer for signing blocks")
-                .bls_sign(hash);
+                .bls_sign(hash.as_ref());
             let elapsed = Instant::now() - start;
             debug!(target:"client", "BLS signature took {}ms", elapsed.as_millis());
             self.unfinalized_block_signature.insert(hash.clone(), signature.clone());

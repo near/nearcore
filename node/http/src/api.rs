@@ -17,12 +17,12 @@ use crate::types::{
 use primitives::transaction::verify_transaction_signature;
 use primitives::transaction::SignedTransaction;
 
-pub struct HttpApi {
-    client: Arc<Client>,
+pub struct HttpApi<T> {
+    client: Arc<Client<T>>,
 }
 
-impl HttpApi {
-    pub fn new(client: Arc<Client>) -> HttpApi {
+impl<T> HttpApi<T> {
+    pub fn new(client: Arc<Client<T>>) -> Self {
         HttpApi { client }
     }
 }
@@ -33,7 +33,7 @@ pub enum RPCError {
     ServiceUnavailable(String),
 }
 
-impl HttpApi {
+impl<T> HttpApi<T> {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {}", r.account_id);
         let mut state_update = self.client.shard_client.get_state_update();

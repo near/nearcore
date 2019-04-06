@@ -12,7 +12,7 @@ use crate::block_traits::{SignedBlock, SignedHeader};
 use crate::chain::{SignedShardBlock, SignedShardBlockHeader};
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{PublicKey, SecretKey};
-use crate::crypto::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use crate::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
 use crate::hash::CryptoHash;
 use crate::transaction::{SignedTransaction, TransactionBody};
 use crate::types::{AccountId, AuthorityId, AuthorityStake};
@@ -53,15 +53,15 @@ impl InMemorySigner {
 }
 
 pub trait TestSignedBlock: SignedBlock {
-    fn sign_all(
+    fn sign_all<T: BLSSigner + AccountSigner>(
         &mut self,
         authorities: &HashMap<AuthorityId, AuthorityStake>,
-        signers: &Vec<Arc<BlockSigner>>,
+        signers: &Vec<Arc<T>>,
     ) {
-        let signer_map: HashMap<AccountId, Arc<BlockSigner>> =
+        let signer_map: HashMap<AccountId, Arc<T>> =
             signers.iter().map(|s| (s.account_id(), s.clone())).collect();
         for (i, authority_stake) in authorities.iter() {
-            self.add_signature(&signer_map[&authority_stake.account_id].bls_sign(self), *i);
+            self.add_signature(&self.sign(&*signer_map[&authority_stake.account_id]), *i);
         }
     }
 }
@@ -84,8 +84,8 @@ impl TestSignedBlock for SignedShardBlock {}
 impl TestSignedBlock for SignedBeaconBlock {}
 
 impl TransactionBody {
-    pub fn sign(self, signer: &InMemorySigner) -> SignedTransaction {
-        let signature = signer.sign(&self.get_hash());
+    pub fn sign(self, signer: &EDSigner) -> SignedTransaction {
+        let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self)
     }
 }

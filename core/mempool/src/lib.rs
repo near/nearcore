@@ -13,7 +13,7 @@ use primitives::chain::{
 };
 use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
-use primitives::crypto::signer::BlockSigner;
+use primitives::crypto::signer::EDSigner;
 use primitives::transaction::{verify_transaction_signature, SignedTransaction};
 use primitives::types::{AccountId, AuthorityId, BlockIndex};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
@@ -25,7 +25,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Mempool that stores transactions and receipts for a chain
 pub struct Pool {
-    signer: Arc<BlockSigner>,
+    signer: Arc<EDSigner>,
     // transactions need to be grouped by account, and within each account,
     // ordered by nonce so that runtime will not ignore some of the transactions
     transactions: RwLock<HashMap<AccountId, BTreeMap<u64, SignedTransaction>>>,
@@ -50,7 +50,7 @@ pub struct Pool {
 
 impl Pool {
     pub fn new(
-        signer: Arc<BlockSigner>,
+        signer: Arc<EDSigner>,
         storage: Arc<RwLock<ShardChainStorage>>,
         trie: Arc<Trie>,
     ) -> Self {
@@ -518,7 +518,7 @@ mod tests {
     };
     use node_runtime::Runtime;
     use primitives::hash::CryptoHash;
-    use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::{SendMoneyTransaction, TransactionBody};
     use primitives::types::MerkleHash;
     use storage::test_utils::create_beacon_shard_storages;
@@ -552,13 +552,13 @@ mod tests {
     fn test_import_block() {
         let (storage, trie, signers) = get_test_chain();
         let pool = Pool::new(signers[0].clone(), storage, trie);
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+        let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        });
-        let transaction = SignedTransaction::new(signers[0].sign(&tx_body.get_hash()), tx_body);
+        })
+        .sign(&*signers[0]);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.transaction_info.read().expect(POISONED_LOCK_ERR).len(), 1);
@@ -583,13 +583,13 @@ mod tests {
     fn test_known_to() {
         let (storage, trie, signers) = get_test_chain();
         let pool = Pool::new(signers[0].clone(), storage, trie);
-        let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+        let transaction = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 1,
             originator: "alice.near".to_string(),
             receiver: "bob.near".to_string(),
             amount: 1,
-        });
-        let transaction = SignedTransaction::new(signers[0].sign(&tx_body.get_hash()), tx_body);
+        })
+        .sign(&*signers[0]);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.read().expect(POISONED_LOCK_ERR).len(), 1);
         assert_eq!(pool.known_to.read().expect(POISONED_LOCK_ERR).len(), 1);
@@ -606,13 +606,13 @@ mod tests {
         let (storage, trie, signers) = get_test_chain();
         let transactions: Vec<_> = (1..5)
             .map(|i| {
-                let tx_body = TransactionBody::SendMoney(SendMoneyTransaction {
+                TransactionBody::SendMoney(SendMoneyTransaction {
                     nonce: i,
                     originator: "alice.near".to_string(),
                     receiver: "bob.near".to_string(),
                     amount: i,
-                });
-                SignedTransaction::new(signers[0].sign(&tx_body.get_hash()), tx_body)
+                })
+                .sign(&*signers[0])
             })
             .collect();
         let pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());

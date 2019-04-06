@@ -35,7 +35,7 @@ mod tests {
     use configs::chain_spec::{AuthorityRotation, DefaultIdType};
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
-    use primitives::crypto::signer::{BlockSigner, InMemorySigner};
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::CryptoHash;
     use primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
@@ -80,7 +80,7 @@ mod tests {
         let mut block1 =
             SignedBeaconBlock::new(1, genesis.block_hash(), vec![], CryptoHash::default());
         let signer = Arc::new(InMemorySigner::from_random());
-        let sig = signer.bls_sign(&block1);
+        let sig = block1.sign(&*signer);
         block1.add_signature(&sig, 0);
         bc.chain.insert_block(block1.clone());
         let best_block_header = bc.chain.best_header();

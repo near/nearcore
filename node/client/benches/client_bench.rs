@@ -13,7 +13,7 @@ use configs::{
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
-use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::{InMemorySigner, EDSigner};
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
@@ -25,7 +25,7 @@ const ALICE_ACC_ID: &str = "alice.near";
 const BOB_ACC_ID: &str = "bob.near";
 const CONTRACT_ID: &str = "contract.near";
 
-fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySigner>) {
+fn get_client(test_name: &str) -> (Client<InMemorySigner>, Arc<InMemorySigner>, Arc<InMemorySigner>) {
     let mut base_path = Path::new(TMP_DIR).to_owned();
     base_path.push(test_name);
     if base_path.exists() {
@@ -43,7 +43,7 @@ fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySign
 }
 
 /// Produces blocks by consuming batches of transactions. Runs until all receipts are processed.
-fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
+fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client<InMemorySigner>) {
     let mut prev_receipt_blocks = vec![];
     let mut transactions;
     loop {
@@ -122,7 +122,7 @@ fn call_contract(
 }
 
 /// Verifies that the status of all submitted transactions is `Complete`.
-fn verify_transaction_statuses(hashes: &Vec<CryptoHash>, client: &mut Client) {
+fn verify_transaction_statuses<T>(hashes: &Vec<CryptoHash>, client: &mut Client<T>) {
     for h in hashes {
         assert_eq!(
             client.shard_client.get_transaction_final_result(h).status,

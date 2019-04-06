@@ -17,7 +17,7 @@ use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
-use primitives::crypto::signer::{BlockSigner, InMemorySigner};
+use primitives::crypto::signer::InMemorySigner;
 use primitives::network::{PeerAddr, PeerInfo};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
@@ -87,7 +87,7 @@ pub trait Node {
         self.user().get_account_nonce(account_id)
     }
 
-    fn signer(&self) -> Arc<BlockSigner>;
+    fn signer(&self) -> Arc<InMemorySigner>;
 
     fn as_process_mut(&mut self) -> &mut ProcessNode;
 
@@ -113,7 +113,7 @@ impl Node {
 
 pub struct ThreadNode {
     pub config: NodeConfig,
-    pub client: Arc<Client>,
+    pub client: Arc<Client<InMemorySigner>>,
     pub state: ThreadNodeState,
 }
 
@@ -143,9 +143,9 @@ impl Node for ProcessNode {
         }
     }
 
-    fn signer(&self) -> Arc<BlockSigner> {
+    fn signer(&self) -> Arc<InMemorySigner> {
         let account_id = &self.config().client_cfg.account_id.clone().expect("Must have signer");
-        Arc::new(InMemorySigner::from_seed(account_id, account_id)) as Arc<BlockSigner>
+        Arc::new(InMemorySigner::from_seed(account_id, account_id))
     }
 
     fn kill(&mut self) {
@@ -210,7 +210,7 @@ impl Node for ThreadNode {
         }
     }
 
-    fn signer(&self) -> Arc<BlockSigner> {
+    fn signer(&self) -> Arc<InMemorySigner> {
         self.client.signer.clone().expect("Must have a signer")
     }
 
@@ -239,8 +239,7 @@ impl ThreadNode {
     pub fn new(config: NodeConfig) -> ThreadNode {
         let signer = match &config.client_cfg.account_id {
             Some(account_id) => {
-                Some(Arc::new(InMemorySigner::from_seed(&account_id, &account_id))
-                    as Arc<BlockSigner>)
+                Some(Arc::new(InMemorySigner::from_seed(&account_id, &account_id)))
             }
             None => None,
         };

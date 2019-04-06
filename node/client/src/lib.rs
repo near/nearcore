@@ -7,12 +7,12 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
-use std::{cmp, env, fs};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use log::Level::Debug;
@@ -25,11 +25,11 @@ use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
 };
 use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::signer::BlockSigner;
-use primitives::hash::{CryptoHash, hash_struct};
+use primitives::crypto::signer::{BLSSigner, EDSigner, AccountSigner};
+use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
-use shard::{get_all_receipts, ShardClient};
 use shard::ShardBlockExtraInfo;
+use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 
 pub mod test_utils;
@@ -64,8 +64,8 @@ pub enum BlockImportingResult {
     KnownBlocks,
 }
 
-pub struct Client {
-    pub signer: Option<Arc<BlockSigner>>,
+pub struct Client<T> {
+    pub signer: Option<Arc<T>>,
 
     pub shard_client: ShardClient,
     pub beacon_client: BeaconClient,
@@ -124,8 +124,8 @@ fn get_storage_path(base_path: &Path) -> String {
     storage_path.to_str().unwrap().to_owned()
 }
 
-impl Client {
-    pub fn new(config: &ClientConfig, signer: Option<Arc<BlockSigner>>) -> Self {
+impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
+    pub fn new(config: &ClientConfig, signer: Option<Arc<T>>) -> Self {
         configure_logging(config.log_level);
 
         let storage_path = get_storage_path(&config.base_path);
@@ -321,7 +321,7 @@ impl Client {
                   beacon_block.body.header.index,
                   beacon_block.hash, shard_block.hash);
             has_not_known = true;
-            if !Client::verify_block_hash(&beacon_block, &shard_block) {
+            if !Client::<T>::verify_block_hash(&beacon_block, &shard_block) {
                 return BlockImportingResult::InvalidBlock;
             }
             let mut bls_keys = self.get_authority_keys(beacon_block.index());
@@ -490,18 +490,22 @@ impl Client {
                 Some(response) => Ok(response),
                 None => Err("No payload available".to_string()),
             },
-            None => Err("Not a validator node".to_string())
+            None => Err("Not a validator node".to_string()),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use configs::{chain_spec::{AuthorityRotation, DefaultIdType}, ChainSpec};
+    use configs::{
+        chain_spec::{AuthorityRotation, DefaultIdType},
+        ChainSpec,
+    };
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
     use primitives::serialize::Encode;
     use primitives::test_utils::TestSignedBlock;
+    use primitives::crypto::signer::InMemorySigner;
 
     use crate::test_utils::get_client_from_cfg;
 
@@ -512,7 +516,7 @@ mod tests {
         prev_shard_block: &SignedShardBlockHeader,
         count: u32,
         authorities: &HashMap<AuthorityId, AuthorityStake>,
-        signers: &Vec<Arc<BlockSigner>>,
+        signers: &Vec<Arc<InMemorySigner>>,
     ) -> Vec<(SignedBeaconBlock, SignedShardBlock)> {
         let (mut beacon_block, mut shard_block) =
             (prev_beacon_block.clone(), prev_shard_block.clone());
@@ -536,9 +540,13 @@ mod tests {
 
     #[test]
     fn test_block_fetch() {
-        let (chain_spec, mut signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
-        let signers = signers.drain(..).map(|s| s as Arc<BlockSigner>).collect();
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
@@ -561,9 +569,13 @@ mod tests {
 
     #[test]
     fn test_block_reverse_catchup() {
-        let (chain_spec, mut signers) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
-        let signers = signers.drain(..).map(|s| s as Arc<BlockSigner>).collect();
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
@@ -602,14 +614,19 @@ mod tests {
     /// X + 1, X + 2, ... etc which it cannot incorporate into the blockchain because it lacks
     fn test_catchup_through_production() {
         // Set-up genesis and chain spec.
-        let (chain_spec, signers) = ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            2,
+            2,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let alice_signer = signers[0].clone();
         let bob_signer = signers[1].clone();
         // Start both clients.
         let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
         let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
         let (_, authorities) = alice_client.get_uid_to_authority_map(1);
-        let signers = vec![alice_signer as Arc<BlockSigner>, bob_signer as Arc<BlockSigner>];
+        let signers = vec![alice_signer, bob_signer];
 
         // First produce several blocks by Alice and Bob.
         for _ in 1..=5 {

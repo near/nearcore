@@ -3,25 +3,21 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 
-use protobuf::{RepeatedField, SingularPtrField};
 use serde_derive::{Deserialize, Serialize};
 
+use crate::block_traits::{SignedBlock, SignedHeader};
+use crate::consensus::Payload;
+use crate::hash::{hash_struct, CryptoHash};
+use crate::merkle::{Direction, MerklePath};
+use crate::transaction::{ReceiptTransaction, SignedTransaction};
+use crate::types::{AuthorityId, BlockIndex, MerkleHash, ShardId};
+use crate::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_protos::network as network_proto;
 use near_protos::types as types_proto;
-
+use protobuf::{RepeatedField, SingularPtrField};
 use crate::crypto::group_signature::GroupSignature;
-use crate::crypto::signer::Signable;
-
-use super::block_traits::{SignedBlock, SignedHeader};
-use super::consensus::Payload;
-use super::hash::{hash_struct, CryptoHash};
-use super::merkle::{Direction, MerklePath};
-use super::transaction::{ReceiptTransaction, SignedTransaction};
-use super::types::{
-    AuthorityId, BlockIndex, MerkleHash, PartialSignature, ShardId,
-};
-use super::utils::proto_to_type;
+use crate::types::PartialSignature;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -282,13 +278,6 @@ impl SignedHeader for SignedShardBlockHeader {
     }
 }
 
-impl Signable for SignedShardBlockHeader {
-    #[inline]
-    fn bytes(&self) -> &[u8] {
-        self.hash.as_ref()
-    }
-}
-
 impl SignedShardBlock {
     pub fn new(
         shard_id: ShardId,
@@ -364,13 +353,6 @@ impl SignedBlock for SignedShardBlock {
 
     fn weight(&self) -> u128 {
         1
-    }
-}
-
-impl Signable for SignedShardBlock {
-    #[inline]
-    fn bytes(&self) -> &[u8] {
-        self.hash.as_ref()
     }
 }
 

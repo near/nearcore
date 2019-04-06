@@ -16,7 +16,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
-use primitives::crypto::signer::BlockSigner;
+use primitives::crypto::signer::EDSigner;
 use primitives::hash::CryptoHash;
 use primitives::merkle::{merklize, MerklePath};
 use primitives::transaction::{
@@ -61,8 +61,8 @@ pub struct ShardClient {
 }
 
 impl ShardClient {
-    pub fn new(
-        signer: Option<Arc<BlockSigner>>,
+    pub fn new<T: EDSigner + 'static>(
+        signer: Option<Arc<T>>,
         chain_spec: &ChainSpec,
         storage: Arc<RwLock<ShardChainStorage>>,
     ) -> Self {
@@ -311,7 +311,7 @@ mod tests {
     use rand::thread_rng;
 
     use configs::chain_spec::{AuthorityRotation, DefaultIdType};
-    use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::{
         FinalTransactionStatus, SignedTransaction, TransactionAddress, TransactionBody,
         TransactionStatus,
@@ -353,8 +353,7 @@ mod tests {
                 .unwrap();
             let mut nonce = self.get_account_nonce(sender.to_string()).unwrap_or_else(|| 0) + 1;
             for _ in 0..num_blocks {
-                let tx_body = TransactionBody::send_money(nonce, sender, receiver, 1);
-                let tx = SignedTransaction::new(sender_signer.sign(&tx_body.get_hash()), tx_body);
+                let tx = TransactionBody::send_money(nonce, sender, receiver, 1).sign(&*sender_signer);
                 let (block, block_extra) =
                     self.prepare_new_block(prev_hash, vec![], vec![tx.clone()]);
                 prev_hash = block.hash;

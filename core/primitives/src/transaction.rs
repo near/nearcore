@@ -10,14 +10,13 @@ use near_protos::signed_transaction as transaction_proto;
 use near_protos::Message as ProtoMessage;
 
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
+use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
     StructSignature,
 };
 use crate::utils::{account_to_shard_id, proto_to_result};
-
-use super::hash::{hash, CryptoHash};
 
 pub type LogEntry = String;
 

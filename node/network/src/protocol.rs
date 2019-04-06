@@ -23,6 +23,7 @@ use primitives::chain::{
     ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
 use primitives::consensus::JointBlockBLS;
+use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
 use primitives::hash::CryptoHash;
 use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
 use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
@@ -76,17 +77,19 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
-pub struct ClientChainStateRetriever {
-    client: Arc<Client>,
+pub struct ClientChainStateRetriever<T> {
+    client: Arc<Client<T>>,
 }
 
-impl ClientChainStateRetriever {
-    pub fn new(client: Arc<Client>) -> Self {
+impl<T> ClientChainStateRetriever<T> {
+    pub fn new(client: Arc<Client<T>>) -> Self {
         ClientChainStateRetriever { client }
     }
 }
 
-impl ChainStateRetriever for ClientChainStateRetriever {
+impl<T: Sized + Sync + Send + Clone + 'static> ChainStateRetriever
+    for ClientChainStateRetriever<T>
+{
     #[inline]
     fn get_chain_state(&self) -> ChainState {
         ChainState {
@@ -106,9 +109,9 @@ enum RequestType {
 }
 
 /// Protocol responsible for actual message processing from network and sending messages.
-struct Protocol {
-    client: Arc<Client>,
-    peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
+struct Protocol<T> {
+    client: Arc<Client<T>>,
+    peer_manager: Arc<PeerManager<ClientChainStateRetriever<T>>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>, BlockIndex)>,
@@ -120,7 +123,7 @@ struct Protocol {
     proxy_messages_tx: Sender<PackedMessage>,
 }
 
-impl Protocol {
+impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol<T> {
     fn update_requests(&self, request: RequestType) -> RequestId {
         let mut request_id_guard = self.next_request_id.write().expect(POISONED_LOCK_ERR);
         let mut guard = self.requests.write().expect(POISONED_LOCK_ERR);
@@ -572,8 +575,8 @@ fn spawn_proxy(
 /// * `proxy_handlers`: Message are sent through proxy handlers before being sent to the network,
 ///   Handlers can see/drop/modify/replicate each message.
 ///   Note: Use empty vector when no proxy handler will be used.
-pub fn spawn_network(
-    client: Arc<Client>,
+pub fn spawn_network<T: AccountSigner + BLSSigner + EDSigner + Send + Sync + Clone + 'static>(
+    client: Arc<Client<T>>,
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     client_cfg: ClientConfig,

@@ -12,7 +12,7 @@ use storage::test_utils::create_beacon_shard_storages;
 use crate::Client;
 
 /// Creates a test client, that uses in memory storage.
-pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: Arc<InMemorySigner>) -> Client {
+pub fn get_client_from_cfg(chain_spec: &ChainSpec, signer: Arc<InMemorySigner>) -> Client<InMemorySigner> {
     let (beacon_storage, shard_storage) = create_beacon_shard_storages();
     let shard_client = ShardClient::new(Some(signer.clone()), chain_spec, shard_storage);
     let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
