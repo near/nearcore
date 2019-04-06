@@ -19,14 +19,14 @@ use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
-use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
 };
+use primitives::crypto::aggregate_signature::BlsPublicKey;
+use primitives::crypto::signer::{BLSSigner, EDSigner, AccountSigner};
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::crypto::signer::InMemorySigner;
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::ShardBlockExtraInfo;
 use shard::{get_all_receipts, ShardClient};
@@ -64,9 +64,8 @@ pub enum BlockImportingResult {
     KnownBlocks,
 }
 
-pub struct Client {
-    pub account_id: AccountId,
-    pub signer: Arc<InMemorySigner>,
+pub struct Client<T> {
+    pub signer: Option<Arc<T>>,
 
     pub shard_client: ShardClient,
     pub beacon_client: BeaconClient,
@@ -114,7 +113,6 @@ pub const DEFAULT_BASE_PATH: &str = ".";
 pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 
 const STORAGE_PATH: &str = "storage/db";
-const KEY_STORE_PATH: &str = "storage/keystore";
 
 fn get_storage_path(base_path: &Path) -> String {
     let mut storage_path = base_path.to_owned();
@@ -126,8 +124,8 @@ fn get_storage_path(base_path: &Path) -> String {
     storage_path.to_str().unwrap().to_owned()
 }
 
-impl Client {
-    pub fn new_with_signer(config: &ClientConfig, signer: Arc<InMemorySigner>) -> Self {
+impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
+    pub fn new(config: &ClientConfig, signer: Option<Arc<T>>) -> Self {
         configure_logging(config.log_level);
 
         let storage_path = get_storage_path(&config.base_path);
@@ -139,12 +137,11 @@ impl Client {
 
         let chain_spec = &config.chain_spec;
         let shard_client = ShardClient::new(signer.clone(), chain_spec, shard_storage);
-        info!(target: "client", "Genesis root: {:?}", shard_client.genesis_hash());
+        info!(target: "client", "[{:?}] Genesis root: {:?}", config.account_id, shard_client.genesis_hash());
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_client = BeaconClient::new(genesis, &chain_spec, beacon_storage);
 
         Self {
-            account_id: config.account_id.clone(),
             signer,
             shard_client,
             beacon_client,
@@ -153,17 +150,9 @@ impl Client {
         }
     }
 
-    pub fn new(config: &ClientConfig) -> Self {
-        // TODO fail if public_key is given but not in keystore
-        // TODO fail if account_id is in chain_spec with a different public_key
-        let mut key_file_path = config.base_path.to_path_buf();
-        key_file_path.push(KEY_STORE_PATH);
-        let signer = Arc::new(InMemorySigner::from_key_file(
-            config.account_id.clone(),
-            key_file_path.as_path(),
-            config.public_key.clone(),
-        ));
-        Self::new_with_signer(config, signer)
+    #[inline]
+    pub fn account_id(&self) -> Option<AccountId> {
+        self.signer.clone().map(|s| s.account_id())
     }
 
     /// Get indices of the blocks that we are missing.
@@ -230,9 +219,9 @@ impl Client {
              This should never happen, because block production is atomic."
         );
 
-        info!(target: "client", "Producing block index: {:?}, account_id={:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
+        info!(target: "client", "[{:?}] Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
+              self.account_id(),
             beacon_block.index(),
-            self.account_id,
             beacon_block.hash,
             shard_block.hash,
             shard_block.body.transactions.len(),
@@ -328,11 +317,11 @@ impl Client {
                 continue;
             }
             info!(target: "client", "[{:?}] Importing block index: {:?}, beacon = {:?}, shard = {:?}",
-                  self.account_id,
+                  self.account_id(),
                   beacon_block.body.header.index,
                   beacon_block.hash, shard_block.hash);
             has_not_known = true;
-            if !Client::verify_block_hash(&beacon_block, &shard_block) {
+            if !Client::<T>::verify_block_hash(&beacon_block, &shard_block) {
                 return BlockImportingResult::InvalidBlock;
             }
             let mut bls_keys = self.get_authority_keys(beacon_block.index());
@@ -351,8 +340,8 @@ impl Client {
             if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref())
                 || !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref())
             {
-                error!(target: "client", "Importing a block by {:?} with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
-                           self.account_id,
+                error!(target: "client", "[{:?}] Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
+                           self.account_id(),
                            beacon_block.block_hash(), shard_block.block_hash(),
                            beacon_block.signature.authority_mask,
                            shard_block.signature.authority_mask);
@@ -438,7 +427,7 @@ impl Client {
         let mut id_to_authority_map = HashMap::new();
         let mut owner_id = None;
         for (index, authority) in next_authorities.into_iter().enumerate() {
-            if authority.account_id == self.account_id {
+            if Some(authority.account_id.clone()) == self.account_id() {
                 owner_id = Some(index);
             }
             id_to_authority_map.insert(index, authority);
@@ -495,12 +484,14 @@ impl Client {
     pub fn fetch_payload(
         &self,
         missing_payload_request: MissingPayloadRequest,
-    ) -> Option<MissingPayloadResponse> {
-        self.shard_client
-            .pool
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .fetch_payload(missing_payload_request)
+    ) -> Result<MissingPayloadResponse, String> {
+        match &self.shard_client.pool {
+            Some(pool) => match pool.write().expect(POISONED_LOCK_ERR).fetch_payload(missing_payload_request) {
+                Some(response) => Ok(response),
+                None => Err("No payload available".to_string()),
+            },
+            None => Err("Not a validator node".to_string()),
+        }
     }
 }
 
@@ -514,6 +505,7 @@ mod tests {
     use primitives::chain::SignedShardBlockHeader;
     use primitives::serialize::Encode;
     use primitives::test_utils::TestSignedBlock;
+    use primitives::crypto::signer::InMemorySigner;
 
     use crate::test_utils::get_client_from_cfg;
 
@@ -634,6 +626,7 @@ mod tests {
         let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
         let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
         let (_, authorities) = alice_client.get_uid_to_authority_map(1);
+        let signers = vec![alice_signer, bob_signer];
 
         // First produce several blocks by Alice and Bob.
         for _ in 1..=5 {

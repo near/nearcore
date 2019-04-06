@@ -13,15 +13,15 @@ use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use primitives::crypto::signer::InMemorySigner;
+use primitives::crypto::signer::{InMemorySigner, AccountSigner, BLSSigner, EDSigner};
 use primitives::types::BlockId;
 use tokio_utils::ShutdownableThread;
 
 /// Re-applies blocks from the start into new client.
-fn replay_storage(client: Arc<Client>, client_cfg: ClientConfig, other_base_path: &str) {
+fn replay_storage<T: AccountSigner + BLSSigner + EDSigner + 'static>(client: Arc<Client<T>>, client_cfg: ClientConfig, other_base_path: &str) {
     let mut other_client_cfg = client_cfg.clone();
     other_client_cfg.base_path = PathBuf::from(other_base_path);
-    let other_client = Client::new(&other_client_cfg);
+    let other_client = Client::<InMemorySigner>::new(&other_client_cfg, None);
     info!(
         "Replay storage from {}, last block index = {}",
         other_base_path,
@@ -50,9 +50,8 @@ pub fn start_from_configs(
     devnet_cfg: DevNetConfig,
     rpc_cfg: RPCConfig,
 ) -> ShutdownableThread {
-    let mut client = Client::new(&client_cfg);
-    client.signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-    let client = Arc::new(client);
+    let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let client = Arc::new(Client::new(&client_cfg, Some(signer)));
     if devnet_cfg.replay_storage.is_some() {
         replay_storage(
             client.clone(),
@@ -63,8 +62,8 @@ pub fn start_from_configs(
     start_from_client(client, devnet_cfg, rpc_cfg)
 }
 
-pub fn start_from_client(
-    client: Arc<Client>,
+pub fn start_from_client<T: AccountSigner + EDSigner + BLSSigner + 'static>(
+    client: Arc<Client<T>>,
     devnet_cfg: DevNetConfig,
     rpc_cfg: RPCConfig,
 ) -> ShutdownableThread {
@@ -119,7 +118,7 @@ pub fn start_from_client(
     ShutdownableThread::start(node_task)
 }
 
-fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
+fn spawn_rpc_server_task<T: Send + Sync + 'static>(client: Arc<Client<T>>, rpc_config: &RPCConfig) {
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
     let http_api = node_http::api::HttpApi::new(client);
     node_http::server::spawn_server(http_api, http_addr);
@@ -154,14 +153,14 @@ mod tests {
         client_cfg.log_level = log::LevelFilter::Info;
         let devnet_cfg =
             configs::DevNetConfig { block_period: Duration::from_millis(5), replay_storage: None };
+
         let init_balance = client_cfg.chain_spec.accounts[0].2;
         let money_to_send = 10;
+
         let rpc_cfg = configs::RPCConfig::default();
 
         let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-        let mut client = Client::new(&client_cfg);
-        client.signer = signer.clone();
-        let client = Arc::new(client);
+        let client = Arc::new(Client::new(&client_cfg, Some(signer.clone())));
         let client1 = client.clone();
         thread::spawn(|| {
             start_from_client(client1, devnet_cfg, rpc_cfg).join();
@@ -170,11 +169,12 @@ mod tests {
         client
             .shard_client
             .pool
+            .clone()
+            .unwrap()
             .write()
             .expect(POISONED_LOCK_ERR)
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
-                    .sign(signer.clone()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(&*signer),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
@@ -199,6 +199,6 @@ mod tests {
                 .amount,
             init_balance + money_to_send
         );
-        assert!(client.shard_client.pool.read().expect(POISONED_LOCK_ERR).is_empty());
+        assert!(client.shard_client.pool.clone().unwrap().read().expect(POISONED_LOCK_ERR).is_empty());
     }
 }

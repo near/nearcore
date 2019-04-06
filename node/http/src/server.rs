@@ -34,7 +34,7 @@ fn generate_error_response(error: RPCError) -> Response<Body> {
         .unwrap()
 }
 
-fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
+fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>) -> BoxFut {
     match (req.method(), req.uri().path()) {
         (&Method::OPTIONS, _) => {
             // Pre-flight response for cross site access.
@@ -349,7 +349,7 @@ fn serve(http_api: Arc<HttpApi>, req: Request<Body>) -> BoxFut {
     }
 }
 
-pub fn spawn_server(http_api: HttpApi, addr: Option<SocketAddr>) {
+pub fn spawn_server<T: Send + Sync + 'static>(http_api: HttpApi<T>, addr: Option<SocketAddr>) {
     let addr = addr.unwrap_or_else(|| {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030)
     });

@@ -17,8 +17,8 @@ use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
-use primitives::network::{PeerAddr, PeerInfo};
 use primitives::crypto::signer::InMemorySigner;
+use primitives::network::{PeerAddr, PeerInfo};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 use tokio_utils::ShutdownableThread;
@@ -113,7 +113,7 @@ impl Node {
 
 pub struct ThreadNode {
     pub config: NodeConfig,
-    pub client: Arc<Client>,
+    pub client: Arc<Client<InMemorySigner>>,
     pub state: ThreadNodeState,
 }
 
@@ -143,6 +143,11 @@ impl Node for ProcessNode {
         }
     }
 
+    fn signer(&self) -> Arc<InMemorySigner> {
+        let account_id = &self.config().client_cfg.account_id.clone().expect("Must have signer");
+        Arc::new(InMemorySigner::from_seed(account_id, account_id))
+    }
+
     fn kill(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
@@ -152,11 +157,6 @@ impl Node for ProcessNode {
             }
             ProcessNodeState::Stopped => panic!("Invalid state"),
         }
-    }
-
-    fn signer(&self) -> Arc<InMemorySigner> {
-        let account_id = &self.config().client_cfg.account_id;
-        Arc::new(InMemorySigner::from_seed(account_id, account_id))
     }
 
     fn as_process_mut(&mut self) -> &mut ProcessNode {
@@ -190,19 +190,12 @@ impl Node for ThreadNode {
 
     fn start(&mut self) {
         let client = self.client.clone();
-        let account_id = self.config().client_cfg.account_id.clone();
         let network_cfg = self.config().network_cfg.clone();
         let rpc_cfg = self.config().rpc_cfg.clone();
         let client_cfg = self.config().client_cfg.clone();
         let proxy_handlers = self.config().proxy_handlers.clone();
-        let handle = alphanet::start_from_client(
-            client,
-            Some(account_id),
-            network_cfg,
-            rpc_cfg,
-            client_cfg,
-            proxy_handlers,
-        );
+        let handle =
+            alphanet::start_from_client(client, network_cfg, rpc_cfg, client_cfg, proxy_handlers);
         self.state = ThreadNodeState::Running(handle);
         thread::sleep(Duration::from_secs(1));
     }
@@ -218,7 +211,7 @@ impl Node for ThreadNode {
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
-        self.client.signer.clone()
+        self.client.signer.clone().expect("Must have a signer")
     }
 
     fn as_process_mut(&mut self) -> &mut ProcessNode {
@@ -244,9 +237,13 @@ impl Node for ThreadNode {
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NodeConfig) -> ThreadNode {
-        let account_id = &config.client_cfg.account_id;
-        let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-        let client = Arc::new(Client::new_with_signer(&config.client_cfg, signer));
+        let signer = match &config.client_cfg.account_id {
+            Some(account_id) => {
+                Some(Arc::new(InMemorySigner::from_seed(&account_id, &account_id)))
+            }
+            None => None,
+        };
+        let client = Arc::new(Client::new(&config.client_cfg, signer));
         let state = ThreadNodeState::Stopped;
         ThreadNode { config, client, state }
     }
@@ -277,7 +274,7 @@ impl ProcessNode {
                 "--",
                 "keygen",
                 "--test-seed",
-                self.config().client_cfg.account_id.as_str(),
+                self.config().client_cfg.account_id.clone().expect("Must have account").as_str(),
                 "-p",
                 keygen_path.to_str().unwrap(),
             ])
@@ -289,7 +286,7 @@ impl ProcessNode {
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        let account_name = self.config().client_cfg.account_id.clone();
+        let account_name = self.config().client_cfg.account_id.clone().expect("Must have account");
         let pubkey = InMemorySigner::from_seed(&account_name, &account_name).public_key;
         let chain_spec = &self.config().client_cfg.chain_spec;
         let chain_spec_path = self.config().client_cfg.base_path.join("chain_spec.json");
@@ -351,7 +348,7 @@ impl NodeConfig {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
         Self::new(
             &format!("{}_{}", test_prefix, account_id),
-            account_id,
+            Some(account_id),
             u32::from(peer_id),
             Some(&addr),
             test_port + 1000 + peer_id,
@@ -366,7 +363,7 @@ impl NodeConfig {
     pub fn for_test_passive(
         test_prefix: &str,
         test_port: u16,
-        account_id: &str,
+        account_id: Option<&str>,
         peer_id: u16,
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
@@ -374,7 +371,7 @@ impl NodeConfig {
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
-            &format!("{}_{}", test_prefix, account_id),
+            &format!("{}_{}", test_prefix, peer_id),
             account_id,
             u32::from(peer_id),
             None,
@@ -388,7 +385,7 @@ impl NodeConfig {
 
     pub fn new(
         name: &str,
-        account_id: &str,
+        account_id: Option<&str>,
         peer_id_seed: u32,
         addr: Option<&str>,
         rpc_port: u16,
@@ -398,7 +395,7 @@ impl NodeConfig {
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
-            account_id: Some(String::from(account_id)),
+            account_id: account_id.map(String::from),
             id: get_peer_id_from_seed(Some(peer_id_seed)),
             addr: if addr.is_some() {
                 Some(SocketAddr::from_str(addr.unwrap()).unwrap())
@@ -416,7 +413,7 @@ impl NodeConfig {
 
         let client_cfg = ClientConfig {
             base_path,
-            account_id: String::from(account_id),
+            account_id: account_id.map(String::from),
             public_key: None,
             block_fetch_limit,
             chain_spec,
@@ -489,7 +486,8 @@ pub fn create_nodes(
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
     );
-    let account_names: Vec<_> = chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
+    let account_names: Vec<_> =
+        chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.

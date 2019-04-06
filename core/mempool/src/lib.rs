@@ -11,7 +11,7 @@ use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, ReceiptBlock, SignedShardBlock,
     Snapshot,
 };
-use primitives::crypto::signer::BlockSigner;
+use primitives::crypto::signer::EDSigner;
 use primitives::hash::CryptoHash;
 use primitives::merkle::verify_path;
 use primitives::transaction::{verify_transaction_signature, SignedTransaction};
@@ -25,7 +25,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Mempool that stores transactions and receipts for a chain
 pub struct Pool {
-    signer: Arc<BlockSigner>,
+    signer: Arc<EDSigner>,
     // transactions need to be grouped by account, and within each account,
     // ordered by nonce so that runtime will not ignore some of the transactions
     transactions: HashMap<AccountId, BTreeMap<u64, SignedTransaction>>,
@@ -50,7 +50,7 @@ pub struct Pool {
 
 impl Pool {
     pub fn new(
-        signer: Arc<BlockSigner>,
+        signer: Arc<EDSigner>,
         storage: Arc<RwLock<ShardChainStorage>>,
         trie: Arc<Trie>,
     ) -> Self {
@@ -491,7 +491,7 @@ mod tests {
             receiver: "bob.near".to_string(),
             amount: 1,
         })
-        .sign(signers[0].clone());
+        .sign(&*signers[0]);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.len(), 1);
         assert_eq!(pool.transaction_info.len(), 1);
@@ -522,7 +522,7 @@ mod tests {
             receiver: "bob.near".to_string(),
             amount: 1,
         })
-        .sign(signers[0].clone());
+        .sign(&*signers[0]);
         pool.add_transaction(transaction.clone()).unwrap();
         assert_eq!(pool.transactions.len(), 1);
         assert_eq!(pool.known_to.len(), 1);
@@ -545,7 +545,7 @@ mod tests {
                     receiver: "bob.near".to_string(),
                     amount: i,
                 })
-                .sign(signers[0].clone())
+                .sign(&*signers[0])
             })
             .collect();
         let mut pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
@@ -597,7 +597,7 @@ mod tests {
                     receiver: "bob.near".to_string(),
                     amount: i,
                 })
-                .sign(signers[0].clone())
+                .sign(&*signers[0])
             })
             .collect();
         let mut pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
@@ -649,7 +649,7 @@ mod tests {
                     receiver: "bob.near".to_string(),
                     amount: i,
                 })
-                .sign(signers[0].clone())
+                .sign(&*signers[0])
             })
             .collect();
         let mut pool = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
@@ -677,7 +677,7 @@ mod tests {
                     receiver: "bob.near".to_string(),
                     amount: i,
                 })
-                .sign(signers[0].clone())
+                .sign(&*signers[0])
             })
             .collect();
         let mut pool1 = Pool::new(signers[0].clone(), storage.clone(), trie.clone());

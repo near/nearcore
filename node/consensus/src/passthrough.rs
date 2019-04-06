@@ -13,8 +13,8 @@ use primitives::hash::CryptoHash;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub fn spawn_consensus(
-    client: Arc<Client>,
+pub fn spawn_consensus<T: Send + Sync + 'static>(
+    client: Arc<Client<T>>,
     consensus_tx: Sender<ConsensusBlockProposal>,
     control_rx: Receiver<Control>,
     block_period: Duration,
@@ -29,6 +29,8 @@ pub fn spawn_consensus(
                     let hash = client
                         .shard_client
                         .pool
+                        .clone()
+                        .expect("Must have a pool")
                         .write()
                         .expect(POISONED_LOCK_ERR)
                         .snapshot_payload();

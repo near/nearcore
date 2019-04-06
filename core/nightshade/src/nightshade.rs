@@ -11,8 +11,8 @@ use primitives::crypto::aggregate_signature::{
 };
 use primitives::hash::CryptoHash;
 use primitives::serialize::Encode;
-use primitives::crypto::signature::bs58_serializer;
-use primitives::crypto::signer::BlockSigner;
+use primitives::crypto::signature::{Signature, bs58_serializer};
+use primitives::crypto::signer::{BLSSigner, EDSigner};
 use primitives::traits::Base58Encoded;
 use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
@@ -36,6 +36,12 @@ pub struct BlockProposal {
     pub author: AuthorityId,
     /// Hash of the payload contained in the block.
     pub hash: CryptoHash,
+}
+
+impl BlockProposal {
+    pub fn sign(&self, signer: &EDSigner) -> Signature {
+        signer.sign(self.hash.as_ref())
+    }
 }
 
 impl TryFrom<nightshade_proto::BlockProposal> for BlockProposal {
@@ -286,7 +292,7 @@ impl From<State> for nightshade_proto::State {
 
 impl State {
     /// Create new state
-    pub fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
+    pub fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BLSSigner>) -> Self {
         let bare_state = BareState::new(author, hash);
         let signature = signer.bls_sign(&bare_state.bs_encode());
         Self { bare_state, primary_proof: None, secondary_proof: None, signature }
@@ -307,7 +313,7 @@ impl State {
     }
 
     /// Create new State with increased confidence using `proof`
-    pub fn increase_confidence(&self, proof: Proof, signer: Arc<BlockSigner>) -> Self {
+    pub fn increase_confidence(&self, proof: Proof, signer: Arc<BLSSigner>) -> Self {
         let bare_state = BareState {
             primary_confidence: self.bare_state.primary_confidence + 1,
             endorses: self.bare_state.endorses.clone(),
@@ -423,7 +429,7 @@ pub struct Nightshade {
     /// BLS Public Keys of all authorities participating in consensus.
     bls_public_keys: Vec<BlsPublicKey>,
     /// Signer object that can sign bytes with appropriate BLS secret key.
-    signer: Arc<BlockSigner>,
+    signer: Arc<BLSSigner>,
 }
 
 impl Nightshade {
@@ -432,7 +438,7 @@ impl Nightshade {
         num_authorities: usize,
         block_proposal: BlockProposal,
         bls_public_keys: Vec<BlsPublicKey>,
-        signer: Arc<BlockSigner>,
+        signer: Arc<BLSSigner>,
     ) -> Self {
         assert_eq!(owner_id, block_proposal.author);
         let mut states = vec![];

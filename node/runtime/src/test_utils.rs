@@ -6,7 +6,7 @@ use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::hash::{hash, CryptoHash};
 use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::{InMemorySigner, EDSigner};
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
@@ -157,7 +157,7 @@ impl User {
         root: CryptoHash,
         tx_body: TransactionBody,
     ) -> (MerkleHash, Vec<ApplyResult>) {
-        let transaction = tx_body.sign(self.signer.clone());
+        let transaction = tx_body.sign(&*self.signer);
         let apply_state = ApplyState {
             root,
             shard_id: 0,

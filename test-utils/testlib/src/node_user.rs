@@ -1,12 +1,14 @@
+use std::sync::Arc;
+
 use client::Client;
 use node_http::types::{
     SignedBeaconBlockResponse, SubmitTransactionRequest, SubmitTransactionResponse,
     ViewAccountRequest, ViewAccountResponse,
 };
 use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
-use std::sync::Arc;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -29,7 +31,7 @@ pub struct RpcNodeUser {
 }
 
 pub struct ThreadNodeUser {
-    pub client: Arc<Client>,
+    pub client: Arc<Client<InMemorySigner>>,
 }
 
 impl RpcNodeUser {
@@ -39,7 +41,7 @@ impl RpcNodeUser {
 }
 
 impl ThreadNodeUser {
-    pub fn new(client: Arc<Client>) -> ThreadNodeUser {
+    pub fn new(client: Arc<Client<InMemorySigner>>) -> ThreadNodeUser {
         ThreadNodeUser { client }
     }
 }
@@ -92,7 +94,7 @@ impl NodeUser for ThreadNodeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.client.shard_client.pool.write().expect(POISONED_LOCK_ERR).add_transaction(transaction)
+        self.client.shard_client.pool.clone().expect("Must have pool").write().expect(POISONED_LOCK_ERR).add_transaction(transaction)
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {

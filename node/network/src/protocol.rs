@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use futures::future;
 use futures::sink::Sink;
@@ -10,10 +11,10 @@ use futures::sync::mpsc::Sender;
 use futures::Future;
 use futures::{stream, stream::Stream};
 use log::{debug, error, info, warn};
-use std::time::Duration;
 use tokio::timer::Interval;
 
 use client::Client;
+use configs::network::ProxyHandlerType;
 use configs::{ClientConfig, NetworkConfig};
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade_task::Gossip;
@@ -22,6 +23,7 @@ use primitives::chain::{
     ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
 use primitives::consensus::JointBlockBLS;
+use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
 use primitives::hash::CryptoHash;
 use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
 use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
@@ -32,7 +34,6 @@ use crate::peer_manager::PeerManager;
 use crate::proxy::debug::DebugHandler;
 use crate::proxy::dropout::DropoutHandler;
 use crate::proxy::{Proxy, ProxyHandler};
-use configs::network::ProxyHandlerType;
 
 // Default ban period for malicious peers.
 pub(crate) const PEER_BAN_PERIOD: Duration = Duration::from_secs(3600);
@@ -76,17 +77,19 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const CONNECTED_PEERS_INT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
-pub struct ClientChainStateRetriever {
-    client: Arc<Client>,
+pub struct ClientChainStateRetriever<T> {
+    client: Arc<Client<T>>,
 }
 
-impl ClientChainStateRetriever {
-    pub fn new(client: Arc<Client>) -> Self {
+impl<T> ClientChainStateRetriever<T> {
+    pub fn new(client: Arc<Client<T>>) -> Self {
         ClientChainStateRetriever { client }
     }
 }
 
-impl ChainStateRetriever for ClientChainStateRetriever {
+impl<T: Sized + Sync + Send + Clone + 'static> ChainStateRetriever
+    for ClientChainStateRetriever<T>
+{
     #[inline]
     fn get_chain_state(&self) -> ChainState {
         ChainState {
@@ -106,9 +109,9 @@ enum RequestType {
 }
 
 /// Protocol responsible for actual message processing from network and sending messages.
-struct Protocol {
-    client: Arc<Client>,
-    peer_manager: Arc<PeerManager<ClientChainStateRetriever>>,
+struct Protocol<T> {
+    client: Arc<Client<T>>,
+    peer_manager: Arc<PeerManager<ClientChainStateRetriever<T>>>,
     inc_gossip_tx: Sender<Gossip>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>, BlockIndex)>,
@@ -120,7 +123,7 @@ struct Protocol {
     proxy_messages_tx: Sender<PackedMessage>,
 }
 
-impl Protocol {
+impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol<T> {
     fn update_requests(&self, request: RequestType) -> RequestId {
         let mut request_id_guard = self.next_request_id.write().expect(POISONED_LOCK_ERR);
         let mut guard = self.requests.write().expect(POISONED_LOCK_ERR);
@@ -142,8 +145,11 @@ impl Protocol {
         match message {
             Message::Connected(connected_info) => {
                 info!(
-                    "[{}] Peer {} connected to {} with {:?}",
-                    self.client.account_id, peer_id, self.peer_manager.node_info.id, connected_info
+                    "[{:?}] Peer {} connected to {} with {:?}",
+                    self.client.account_id(),
+                    peer_id,
+                    self.peer_manager.node_info.id,
+                    connected_info
                 );
                 self.on_new_peer(peer_id, connected_info);
             }
@@ -152,6 +158,8 @@ impl Protocol {
                     .client
                     .shard_client
                     .pool
+                    .clone()
+                    .expect("Must have pool")
                     .write()
                     .expect(POISONED_LOCK_ERR)
                     .add_transaction(*tx)
@@ -164,6 +172,8 @@ impl Protocol {
                     .client
                     .shard_client
                     .pool
+                    .clone()
+                    .expect("Must have pool")
                     .write()
                     .expect(POISONED_LOCK_ERR)
                     .add_receipt(*receipt)
@@ -207,8 +217,12 @@ impl Protocol {
                 forward_msg(self.inc_block_tx.clone(), (peer_id, blocks, best_index));
             }
             Message::PayloadRequest(request_id, missing_payload_request) => {
-                if let Some(response) = self.client.fetch_payload(missing_payload_request) {
-                    self.send_payload_response(&peer_id, request_id, response);
+                match self.client.fetch_payload(missing_payload_request) {
+                    Ok(response) => self.send_payload_response(&peer_id, request_id, response),
+                    Err(err) => {
+                        self.peer_manager.suspect_malicious(&peer_id);
+                        warn!(target: "network", "Failed to retrieve payload for {}: {}", peer_id, err);
+                    }
                 }
             }
             Message::PayloadSnapshotRequest(request_id, hash) => {
@@ -217,13 +231,18 @@ impl Protocol {
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
                 {
                     info!(
-                        "[{}], Payload snapshot request from {} for {} (block index = {})",
-                        self.client.account_id, authority_id, hash, block_index
+                        "[{:?}], Payload snapshot request from {} for {} (block index = {})",
+                        self.client.account_id(),
+                        authority_id,
+                        hash,
+                        block_index
                     );
                     match self
                         .client
                         .shard_client
                         .pool
+                        .clone()
+                        .expect("Must have a pool")
                         .write()
                         .expect(POISONED_LOCK_ERR)
                         .on_snapshot_request(hash)
@@ -263,8 +282,10 @@ impl Protocol {
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
                 {
                     info!(
-                        "[{}] Payload response from {} / {}",
-                        self.client.account_id, peer_id, authority_id
+                        "[{:?}] Payload response from {} / {}",
+                        self.client.account_id(),
+                        peer_id,
+                        authority_id
                     );
                     forward_msg(
                         self.payload_response_tx.clone(),
@@ -295,8 +316,10 @@ impl Protocol {
                     self.get_authority_id_from_peer_id(block_index, &peer_id)
                 {
                     info!(
-                        "[{}] Snapshot response from {} / {}",
-                        self.client.account_id, peer_id, authority_id
+                        "[{:?}] Snapshot response from {} / {}",
+                        self.client.account_id(),
+                        peer_id,
+                        authority_id
                     );
                     forward_msg(
                         self.payload_response_tx.clone(),
@@ -443,7 +466,7 @@ impl Protocol {
     }
 
     fn send_snapshot_response(&self, peer_id: &PeerId, request_id: RequestId, snapshot: Snapshot) {
-        info!("[{}] Send snapshot to {}", self.client.account_id, peer_id);
+        info!("[{:?}] Send snapshot to {}", self.client.account_id(), peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let data =
                 encode_message(Message::PayloadSnapshotResponse(request_id, snapshot)).unwrap();
@@ -464,7 +487,7 @@ impl Protocol {
         request_id: RequestId,
         payload: MissingPayloadResponse,
     ) {
-        info!("[{}] Send payload to {}", self.client.account_id, peer_id);
+        info!("[{:?}] Send payload to {}", self.client.account_id(), peer_id);
         if let Some(ch) = self.peer_manager.get_peer_channel(peer_id) {
             let message = Message::PayloadResponse(request_id, payload);
             self.send_single(message, ch);
@@ -558,8 +581,8 @@ fn spawn_proxy(
 /// * `proxy_handlers`: Message are sent through proxy handlers before being sent to the network,
 ///   Handlers can see/drop/modify/replicate each message.
 ///   Note: Use empty vector when no proxy handler will be used.
-pub fn spawn_network(
-    client: Arc<Client>,
+pub fn spawn_network<T: AccountSigner + BLSSigner + EDSigner + Send + Sync + Clone + 'static>(
+    client: Arc<Client<T>>,
     account_id: Option<AccountId>,
     network_cfg: NetworkConfig,
     client_cfg: ClientConfig,
@@ -686,7 +709,7 @@ pub fn spawn_network(
     let task = Interval::new_interval(CONNECTED_PEERS_INT)
         .for_each(move |_| {
             let (active_peers, known_peers) = peer_manager.get_peer_stats();
-            info!(target: "network", "[{}] Peers: active = {}, known = {}", client.account_id, active_peers, known_peers);
+            info!(target: "network", "[{:?}] Peers: active = {}, known = {}", client.account_id(), active_peers, known_peers);
             future::ok(())
         })
         .map_err(|e| error!("Timer error: {}", e));
