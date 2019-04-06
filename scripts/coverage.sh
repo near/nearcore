@@ -18,8 +18,7 @@ for file in target/debug/*
 do
   if [ -f $file ] && [ -x $file ]; then
     mkdir -p "target/cov/$(basename $file)"
-    ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$fi
-le"
+    ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"
   fi
 done
 
