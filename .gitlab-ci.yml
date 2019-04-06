@@ -76,12 +76,13 @@ release_build:
     - *cleanup_obsolete_cache
 
 coverage:
-    stage: rust
+    stage: libs
     before_script:
     - *setup_rust
     - *setup_cache
     - *install_protos
     script:
+    - ./scripts/build_wasm.sh
     - cargo test --all --no-run
     - *code_coverage
 
