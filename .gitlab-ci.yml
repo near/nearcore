@@ -55,11 +55,13 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
-    - cargo build --benches --all
+    - cargo check --all --all-features --tests --benches
     - cargo test --all --verbose
     after_script:
-    - *code_coverage
     - *cleanup_obsolete_cache
+    artifacts:
+        paths:
+            - target/debug
 
 release_build:
     stage: rust
@@ -75,6 +77,13 @@ release_build:
     artifacts:
         paths:
             - target/release/devnet
+
+coverage:
+    stage: libs
+    dependencies:
+    - test_cargo
+    script:
+    - *code_coverage
 
 test_nearlib:
     stage: libs
