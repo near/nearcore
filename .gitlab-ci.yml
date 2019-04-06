@@ -37,7 +37,6 @@ variables:
 stages:
     - rust
     - libs
-    - coverage
 
 cache:
     paths:
@@ -77,7 +76,11 @@ release_build:
     - *cleanup_obsolete_cache
 
 coverage:
-    stage: coverage
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
     script:
     - cargo test --all --no-run
     - *code_coverage
