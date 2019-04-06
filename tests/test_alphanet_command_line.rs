@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -6,10 +7,9 @@ use network::proxy::benchmark::BenchmarkHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
-use std::sync::Arc;
 use testlib::alphanet_utils::{
-    create_nodes, sample_queryable_node, sample_two_nodes, wait, wait_for_catchup, Node, NodeType,
-    TEST_BLOCK_FETCH_LIMIT,
+    create_nodes, Node, NodeType, sample_queryable_node, sample_two_nodes, TEST_BLOCK_FETCH_LIMIT, wait,
+    wait_for_catchup,
 };
 use testlib::test_locks::heavy_test;
 
@@ -37,7 +37,7 @@ fn send_transaction(
                 account_names[to].as_str(),
                 1,
             )
-            .sign(nodes[from].signer()),
+            .sign(&*nodes[from].signer()),
         )
         .unwrap();
 }

@@ -5,9 +5,8 @@ use std::fmt;
 
 use bs58;
 
-use crate::hash;
 use crate::logging::pretty_hash;
-pub use crate::signature::sodiumoxide::crypto::sign::ed25519::Seed;
+pub use crate::crypto::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 use crate::traits::Base58Encoded;
 use crate::traits::ToBytes;
 use crate::types::ReadablePublicKey;
@@ -48,12 +47,18 @@ impl ToBytes for SecretKey {
     }
 }
 
-pub fn verify_signature(
-    signature: &Signature,
-    hash: &hash::CryptoHash,
-    pubkey: &PublicKey,
-) -> bool {
-    sodiumoxide::crypto::sign::ed25519::verify_detached(&signature.0, hash.as_ref(), &pubkey.0)
+/// Allows using PublicKey in std containers and macros.
+impl std::hash::Hash for PublicKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
+    }
+}
+
+/// Allows using SecretKey in std containers and macros.
+impl std::hash::Hash for SecretKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
+    }
 }
 
 const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =

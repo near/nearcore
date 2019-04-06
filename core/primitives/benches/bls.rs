@@ -5,7 +5,7 @@ use bencher::Bencher;
 
 extern crate primitives;
 
-use primitives::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsSecretKey};
+use primitives::crypto::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsSecretKey};
 
 fn bls_sign(bench: &mut Bencher) {
     let key = BlsSecretKey::generate();

@@ -1,10 +1,10 @@
 use clap::{App, Arg, ArgMatches, SubCommand};
-use primitives::signature::sign;
-use primitives::signer::get_key_file;
+use primitives::crypto::signature::sign;
+use primitives::crypto::signer::get_key_file;
 use std::path::PathBuf;
 use std::process;
-use primitives::signer::InMemorySigner;
-use primitives::signer::write_block_producer_key_file;
+use primitives::crypto::signer::InMemorySigner;
+use primitives::crypto::signer::write_block_producer_key_file;
 
 fn get_key_store_path(matches: &ArgMatches) -> PathBuf {
     matches

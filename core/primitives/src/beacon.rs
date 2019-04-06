@@ -1,7 +1,8 @@
-use super::block_traits::{SignedBlock, SignedHeader};
-use super::hash::{hash_struct, CryptoHash};
-use super::types::{AuthorityStake, GroupSignature, PartialSignature};
-use super::utils::{proto_to_result, proto_to_type};
+use crate::block_traits::{SignedBlock, SignedHeader};
+use crate::crypto::group_signature::GroupSignature;
+use crate::hash::{hash_struct, CryptoHash};
+use crate::types::{AuthorityStake, PartialSignature};
+use crate::utils::{proto_to_result, proto_to_type};
 use near_protos::chain as chain_proto;
 use protobuf::{RepeatedField, SingularPtrField};
 use std::borrow::Borrow;

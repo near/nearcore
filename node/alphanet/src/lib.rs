@@ -13,8 +13,10 @@ use coroutines::client_task::ClientTask;
 use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
-use primitives::types::AccountId;
+use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
 use tokio_utils::ShutdownableThread;
+
+const KEY_STORE_PATH: &str = "storage/keystore";
 
 pub fn start() {
     let (client_cfg, network_cfg, rpc_cfg) = get_alphanet_configs();
@@ -27,22 +29,26 @@ pub fn start_from_configs(
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
 ) -> ShutdownableThread {
-    let client = Arc::new(Client::new(&client_cfg));
+    let signer = match client_cfg.account_id.clone() {
+        Some(account_id) => {
+            let mut key_file_path = client_cfg.base_path.to_path_buf();
+            key_file_path.push(KEY_STORE_PATH);
+            Some(Arc::new(InMemorySigner::from_key_file(
+                account_id,
+                key_file_path.as_path(),
+                client_cfg.public_key.clone(),
+            )))
+        }
+        None => None,
+    };
+    let client = Arc::new(Client::new(&client_cfg, signer));
     // Use empty pipeline to launch nodes on production.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![];
-    start_from_client(
-        client,
-        Some(client_cfg.account_id.clone()),
-        network_cfg,
-        rpc_cfg,
-        client_cfg,
-        proxy_handlers,
-    )
+    start_from_client(client, network_cfg, rpc_cfg, client_cfg, proxy_handlers)
 }
 
-pub fn start_from_client(
-    client: Arc<Client>,
-    account_id: Option<AccountId>,
+pub fn start_from_client<T: AccountSigner + BLSSigner + EDSigner + Clone + 'static>(
+    client: Arc<Client<T>>,
     network_cfg: NetworkConfig,
     rpc_cfg: RPCConfig,
     client_cfg: ClientConfig,
@@ -92,7 +98,7 @@ pub fn start_from_client(
         )
         .spawn();
 
-        // Launch Nightshade task.
+        // Launch Nightshade task, if this client has block signer available.
         spawn_nightshade_task(
             client.signer.clone(),
             inc_gossip_rx,
@@ -105,7 +111,7 @@ pub fn start_from_client(
         // Launch Network task.
         spawn_network(
             client.clone(),
-            account_id,
+            client.account_id(),
             network_cfg,
             client_cfg,
             inc_gossip_tx,
@@ -129,7 +135,7 @@ pub fn start_from_client(
     ShutdownableThread::start(node_task)
 }
 
-fn spawn_rpc_server_task(client: Arc<Client>, rpc_config: &RPCConfig) {
+fn spawn_rpc_server_task<T: Send + Sync + 'static>(client: Arc<Client<T>>, rpc_config: &RPCConfig) {
     let http_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), rpc_config.rpc_port));
     let http_api = node_http::api::HttpApi::new(client);
     node_http::server::spawn_server(http_api, http_addr);
@@ -141,7 +147,6 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::test_utils::TestSignedBlock;
     use primitives::transaction::TransactionBody;
-
     use testlib::alphanet_utils::{
         configure_chain_spec, wait, Node, NodeConfig, ThreadNode, TEST_BLOCK_FETCH_LIMIT,
     };
@@ -177,7 +182,8 @@ mod tests {
         ));
         alice
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(alice.signer()),
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                    .sign(&*alice.signer()),
             )
             .unwrap();
 
@@ -237,7 +243,7 @@ mod tests {
         let mut charlie = ThreadNode::new(NodeConfig::for_test_passive(
             test_prefix,
             test_port,
-            "charlie.near",
+            None,
             3,
             vec![bob.config().node_addr()],
             chain_spec.clone(),
@@ -256,7 +262,7 @@ mod tests {
 
         bob.add_transaction(
             TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
-                .sign(alice.signer()),
+                .sign(&*alice.signer()),
         )
         .unwrap();
 
@@ -313,7 +319,7 @@ mod tests {
 
         bob.add_transaction(
             TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
-                .sign(alice.signer()),
+                .sign(&*alice.signer()),
         )
         .unwrap();
 
@@ -415,7 +421,7 @@ mod tests {
         ));
         for i in 0..100 {
             let transaction = TransactionBody::send_money(i + 1, "alice.near", "bob.near", 1)
-                .sign(alice.signer());
+                .sign(&*alice.signer());
             let payload = ChainPayload::new(vec![transaction], vec![]);
             let (mut beacon_block, mut shard_block, shard_extra) =
                 alice.client.prepare_block(payload);

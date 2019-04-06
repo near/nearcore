@@ -5,19 +5,19 @@ use std::iter::FromIterator;
 
 use serde_derive::{Deserialize, Serialize};
 
-use super::block_traits::{SignedBlock, SignedHeader};
-use super::consensus::Payload;
-use super::hash::{hash_struct, CryptoHash};
-use super::merkle::{Direction, MerklePath};
-use super::transaction::{ReceiptTransaction, SignedTransaction};
-use super::types::{
-    AuthorityId, BlockIndex, GroupSignature, MerkleHash, PartialSignature, ShardId,
-};
-use super::utils::proto_to_type;
+use crate::block_traits::{SignedBlock, SignedHeader};
+use crate::consensus::Payload;
+use crate::hash::{hash_struct, CryptoHash};
+use crate::merkle::{Direction, MerklePath};
+use crate::transaction::{ReceiptTransaction, SignedTransaction};
+use crate::types::{AuthorityId, BlockIndex, MerkleHash, ShardId};
+use crate::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_protos::network as network_proto;
 use near_protos::types as types_proto;
 use protobuf::{RepeatedField, SingularPtrField};
+use crate::crypto::group_signature::GroupSignature;
+use crate::types::PartialSignature;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
