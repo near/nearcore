@@ -59,9 +59,6 @@ test_cargo:
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
-    artifacts:
-        paths:
-            - target/debug
 
 release_build:
     stage: rust
