@@ -160,6 +160,8 @@ impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol
                     .pool
                     .clone()
                     .expect("Must have pool")
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
                     .add_transaction(*tx)
                 {
                     error!(target: "network", "{}", e);
@@ -172,6 +174,8 @@ impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol
                     .pool
                     .clone()
                     .expect("Must have pool")
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
                     .add_receipt(*receipt)
                 {
                     error!(target: "network", "{}", e);
@@ -239,7 +243,9 @@ impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol
                         .pool
                         .clone()
                         .expect("Must have a pool")
-                        .on_snapshot_request(authority_id, hash)
+                        .write()
+                        .expect(POISONED_LOCK_ERR)
+                        .on_snapshot_request(hash)
                     {
                         Ok(snapshot) => {
                             self.send_snapshot_response(&peer_id, request_id, snapshot);

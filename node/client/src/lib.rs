@@ -486,7 +486,7 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
         missing_payload_request: MissingPayloadRequest,
     ) -> Result<MissingPayloadResponse, String> {
         match &self.shard_client.pool {
-            Some(pool) => match pool.fetch_payload(missing_payload_request) {
+            Some(pool) => match pool.write().expect(POISONED_LOCK_ERR).fetch_payload(missing_payload_request) {
                 Some(response) => Ok(response),
                 None => Err("No payload available".to_string()),
             },

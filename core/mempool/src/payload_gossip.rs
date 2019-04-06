@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use near_protos::nightshade as nightshade_proto;
 use primitives::chain::ChainPayload;
-use primitives::hash::hash_struct;
 use primitives::crypto::signature::Signature;
 use primitives::crypto::signer::EDSigner;
+use primitives::hash::hash_struct;
 use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;

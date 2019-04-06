@@ -57,7 +57,7 @@ pub struct ShardClient {
     storage: Arc<RwLock<ShardChainStorage>>,
     pub runtime: Runtime,
     pub trie_viewer: TrieViewer,
-    pub pool: Option<Arc<Pool>>,
+    pub pool: Option<Arc<RwLock<Pool>>>,
 }
 
 impl ShardClient {
@@ -81,7 +81,7 @@ impl ShardClient {
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
         let pool = match signer {
-            Some(signer) => Some(Arc::new(Pool::new(signer, storage.clone(), trie.clone()))),
+            Some(signer) => Some(Arc::new(RwLock::new( Pool::new(signer, storage.clone(), trie.clone())))),
             None => None,
         };
         Self { chain, trie, storage, runtime, trie_viewer, pool }
@@ -108,7 +108,7 @@ impl ShardClient {
         self.trie.apply_changes(db_transaction).ok();
         self.chain.insert_block(block.clone());
         if let Some(pool) = &self.pool {
-            pool.import_block(&block);
+            pool.write().expect(POISONED_LOCK_ERR).import_block(&block);
         }
         let index = block.index();
 
@@ -307,9 +307,6 @@ impl ShardClient {
 
 #[cfg(test)]
 mod tests {
-    use rand::prelude::SliceRandom;
-    use rand::thread_rng;
-
     use configs::chain_spec::{AuthorityRotation, DefaultIdType};
     use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::{
@@ -486,6 +483,9 @@ mod tests {
     }
 
     #[test]
+    /// Create chain with two accounts, each having different nonce. Check that
+    /// transactions with old nonce cannot make it into the mempool and transactions
+    /// with valid nonce can.
     fn test_mempool_add_tx() {
         let (mut client, signers) = get_test_client();
         let create_transaction = |sender, receiver, signer, nonce| {
@@ -493,36 +493,19 @@ mod tests {
         };
         client.add_blocks("alice.near", "bob.near", signers[0].clone(), 5);
         client.add_blocks("bob.near", "alice.near", signers[1].clone(), 1);
+        let pool_arc = client.pool.clone().unwrap();
+        let mut pool = pool_arc.write().expect(POISONED_LOCK_ERR);
         let tx = create_transaction("alice.near", "bob.near", &*signers[0], 2);
-        client.pool.clone().unwrap().add_transaction(tx).unwrap();
-        assert!(client.pool.clone().unwrap().is_empty());
+        pool.add_transaction(tx).unwrap();
+        assert!(pool.is_empty());
         let tx = create_transaction("alice.near", "bob.near", &*signers[0], 6);
-        client.pool.clone().unwrap().add_transaction(tx).unwrap();
-        assert_eq!(client.pool.clone().unwrap().len(), 1);
+        pool.add_transaction(tx).unwrap();
+        assert_eq!(pool.len(), 1);
         let tx = create_transaction("bob.near", "alice.near", &*signers[1], 1);
-        client.pool.clone().unwrap().add_transaction(tx).unwrap();
-        assert_eq!(client.pool.clone().unwrap().len(), 1);
+        pool.add_transaction(tx).unwrap();
+        assert_eq!(pool.len(), 1);
         let tx = create_transaction("bob.near", "alice.near", &*signers[1], 2);
-        client.pool.clone().unwrap().add_transaction(tx).unwrap();
-        assert_eq!(client.pool.clone().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_mempool_order_tx() {
-        let (client, signers) = get_test_client();
-        let mut transactions: Vec<_> = (0..10)
-            .map(|i| {
-                TransactionBody::send_money(i + 1, "alice.near", "bob.near", 1).sign(&*signers[0])
-            })
-            .collect();
-        let mut rng = thread_rng();
-        transactions.shuffle(&mut rng);
-        for tx in transactions {
-            client.pool.clone().unwrap().add_transaction(tx).unwrap();
-        }
-        let snapshot_hash = client.pool.clone().unwrap().snapshot_payload();
-        let payload = client.pool.clone().unwrap().pop_payload_snapshot(&snapshot_hash).unwrap();
-        let nonces: Vec<u64> = payload.transactions.iter().map(|tx| tx.body.get_nonce()).collect();
-        assert_eq!(nonces, (1..11).collect::<Vec<u64>>())
+        pool.add_transaction(tx).unwrap();
+        assert_eq!(pool.len(), 2);
     }
 }

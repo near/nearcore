@@ -11,6 +11,8 @@ use nightshade::nightshade_task::Control;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
 pub fn spawn_consensus<T: Send + Sync + 'static>(
     client: Arc<Client<T>>,
     consensus_tx: Sender<ConsensusBlockProposal>,
@@ -29,6 +31,8 @@ pub fn spawn_consensus<T: Send + Sync + 'static>(
                         .pool
                         .clone()
                         .expect("Must have a pool")
+                        .write()
+                        .expect(POISONED_LOCK_ERR)
                         .snapshot_payload();
                     let last_shard_block_header = client.shard_client.chain.best_header();
                     let receipt_block = client.shard_client.get_receipt_block(

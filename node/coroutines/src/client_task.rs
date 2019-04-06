@@ -27,6 +27,9 @@ use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityId, BlockId, BlockIndex, PeerId};
 use shard::ShardBlockExtraInfo;
 
+const MUST_HAVE_A_POOL: &str = "Must have a pool";
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
 pub struct ClientTask<T> {
     client: Arc<Client<T>>,
     /// Incoming blocks produced by other peer that might be imported by this peer.
@@ -367,7 +370,9 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             .shard_client
             .pool
             .clone()
-            .expect("Must have pool")
+            .expect(MUST_HAVE_A_POOL)
+            .write()
+            .expect(POISONED_LOCK_ERR)
             .pop_payload_snapshot(&consensus_block_header.proposal.hash)
         {
             Some(p) => p,
@@ -621,11 +626,11 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             target: "client",
             "[{:?}] Checking payload confirmation, authority_id={} for hash={} from other authority_id={}",
             self.client.account_id(),
-            pool.authority_id.read().expect("Lock is poisoned").unwrap(),
+            pool.read().expect(POISONED_LOCK_ERR).authority_id.unwrap(),
             hash,
             authority_id,
         );
-        if !pool.contains_payload_snapshot(&hash) {
+        if !pool.read().expect(POISONED_LOCK_ERR).contains_payload_snapshot(&hash) {
             tokio_utils::spawn(
                 self.payload_request_tx
                     .clone()
@@ -651,7 +656,11 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
         let pool = &self.client.shard_client.pool.clone().expect("Must have pool");
         match payload_response {
             PayloadResponse::General(authority_id, response) => {
-                match pool.add_missing_payload(authority_id, response) {
+                match pool
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .add_missing_payload(authority_id, response)
+                {
                     Ok(snapshot_hash) => {
                         let send_confirmation = self
                             .control_tx
@@ -668,7 +677,11 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             }
             PayloadResponse::BlockProposal(authority_id, snapshot) => {
                 let hash = snapshot.get_hash();
-                if let Some(request) = pool.add_payload_snapshot(authority_id, snapshot) {
+                if let Some(request) = pool
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .add_payload_snapshot(authority_id, snapshot)
+                {
                     let block_index = self.client.shard_client.chain.best_index() + 1;
                     tokio_utils::spawn(
                         self.payload_request_tx
@@ -699,7 +712,7 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
 
         if owner_uid.is_none() {
             if let Some(pool) = &self.client.shard_client.pool {
-                pool.reset(None, None);
+                pool.write().expect(POISONED_LOCK_ERR).reset(None, None);
             }
             return Control::Stop;
         }
@@ -720,14 +733,10 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             bls_public_keys.push(uid_to_authority_map[&i].bls_public_key.clone());
         }
 
-        self.client
-            .shard_client
-            .pool
-            .clone()
-            .expect("Must have pool")
-            .reset(Some(owner_uid), Some(num_authorities));
-        let hash =
-            self.client.shard_client.pool.clone().expect("Must have pool").snapshot_payload();
+        let pool = self.client.shard_client.pool.clone().expect(MUST_HAVE_A_POOL);
+        let mut pool_guard = pool.write().expect(POISONED_LOCK_ERR);
+        pool_guard.reset(Some(owner_uid), Some(num_authorities));
+        let hash = pool_guard.snapshot_payload();
         Control::Reset { owner_uid, block_index, hash, public_keys, bls_public_keys }
     }
 
@@ -736,7 +745,7 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
         let (owner_uid, _) = self.client.get_uid_to_authority_map(block_index);
         if owner_uid.is_some() {
             let pool = &self.client.shard_client.pool.clone().expect("Must have pool");
-            for payload_gossip in pool.prepare_payload_gossip(block_index) {
+            for payload_gossip in pool.write().expect(POISONED_LOCK_ERR).prepare_payload_gossip(block_index) {
                 tokio_utils::spawn(
                     self.out_payload_gossip_tx
                         .clone()
@@ -853,10 +862,12 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
     }
 
     fn process_payload_gossip(&self, payload_gossip: PayloadGossip) {
-        let pool = &self.client.shard_client.pool.clone().expect("Must have pool");
-        if let Err(err) =
-            pool.add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id)
-        {
+        let pool = self.client.shard_client.pool.clone().expect(MUST_HAVE_A_POOL);
+        let res = pool
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .add_payload_with_author(payload_gossip.payload, payload_gossip.sender_id);
+        if let Err(err) = res {
             warn!(target: "client", "Failed to process payload gossip: {}", err);
         }
     }
