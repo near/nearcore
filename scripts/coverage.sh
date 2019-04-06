@@ -11,6 +11,9 @@ make install DESTDIR=../../kcov-build
 cd ../..
 rm -rf kcov-master
 
+# Remove binaries
+rm target/debug/nearcore
+
 for file in target/debug/*
 do
   if [ -f $file ] && [ -x $file ]; then

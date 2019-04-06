@@ -37,6 +37,7 @@ variables:
 stages:
     - rust
     - libs
+    - coverage
 
 cache:
     paths:
@@ -73,22 +74,18 @@ release_build:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet
     after_script:
-        - *cleanup_obsolete_cache
-    artifacts:
-        paths:
-            - target/release/devnet
+    - *cleanup_obsolete_cache
 
 coverage:
-    stage: libs
-    dependencies:
-    - test_cargo
+    stage: coverage
     script:
+    - cargo test --all --no-run
     - *code_coverage
 
 test_nearlib:
     stage: libs
     dependencies:
-        - release_build
+    - release_build
     script:
     - ./scripts/test_nearlib.sh
 
