@@ -1,19 +1,17 @@
-use protobuf::well_known_types::BytesValue;
-use protobuf::SingularPtrField;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+
+use protobuf::well_known_types::BytesValue;
+use protobuf::SingularPtrField;
 
 use near_protos::receipt as receipt_proto;
 use near_protos::signed_transaction as transaction_proto;
 use near_protos::Message as ProtoMessage;
 
-use crate::logging;
-
-use crate::hash::{hash, CryptoHash};
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
-use crate::crypto::signer::TransactionSigner;
+use crate::hash::{hash, CryptoHash};
+use crate::logging;
 use crate::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
     StructSignature,
@@ -42,11 +40,6 @@ impl TransactionBody {
             receiver: receiver.to_string(),
             amount,
         })
-    }
-
-    pub fn sign(self, signer: Arc<TransactionSigner>) -> SignedTransaction {
-        let signature = signer.sign(self.get_hash().as_ref());
-        SignedTransaction::new(signature, self)
     }
 }
 

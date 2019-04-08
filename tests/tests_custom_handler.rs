@@ -1,10 +1,10 @@
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use network::proxy::predicate::FnProxyHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
-use std::sync::Arc;
 use testlib::alphanet_utils::{create_nodes, sample_two_nodes, wait, Node, TEST_BLOCK_FETCH_LIMIT};
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
@@ -47,7 +47,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
             account_names[j].as_str(),
             1,
         )
-        .sign(nodes[i].read().unwrap().signer());
+        .sign(&*nodes[i].read().unwrap().signer());
         nodes[k].read().unwrap().add_transaction(transaction).unwrap();
         expected_balances[i] -= 1;
         expected_balances[j] += 1;

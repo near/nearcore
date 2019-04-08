@@ -58,13 +58,16 @@ message MissingPayloadResponse {
 message Message {
     message BlockFetchRequest {
         uint64 request_id = 1;
+        // block request start index
         uint64 from = 2;
+        // block request end index
         uint64 to = 3;
     }
     
     message BlockResponse {
         uint64 request_id = 1;
         repeated CoupledBlock response = 2;
+        // the best index that peer has
         uint64 best_index = 3;
     }
     

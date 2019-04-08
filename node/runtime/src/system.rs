@@ -240,7 +240,7 @@ pub fn system_create_account(
 mod tests {
     use primitives::hash::hash;
     use primitives::serialize::Encode;
-    use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
+    use primitives::crypto::signer::{InMemorySigner, EDSigner};
     use primitives::transaction::{TransactionBody, TransactionStatus};
 
     use crate::get;

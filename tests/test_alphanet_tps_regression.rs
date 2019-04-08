@@ -34,11 +34,11 @@ fn send_transaction(
     nonces[money_sender] += 1;
     let nonce = nonces[money_sender];
 
-    let sender_acc = nodes[money_sender].read().unwrap().account_id().clone();
-    let receiver_acc = nodes[money_receiver].read().unwrap().account_id().clone();
+    let sender_acc = nodes[money_sender].read().unwrap().account_id().cloned().unwrap();
+    let receiver_acc = nodes[money_receiver].read().unwrap().account_id().cloned().unwrap();
     let transaction =
         TransactionBody::send_money(nonce, sender_acc.as_str(), receiver_acc.as_str(), 1)
-            .sign(nodes[money_sender].read().unwrap().signer());
+            .sign(&*nodes[money_sender].read().unwrap().signer());
     nodes[tx_receiver].read().unwrap().add_transaction(transaction).unwrap();
     submitted_transactions.write().unwrap().push((1, Instant::now()));
 }
