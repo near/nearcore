@@ -25,7 +25,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let (init_balance, account_names, mut nodes) =
         create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
 
-    let mut nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();
     }
