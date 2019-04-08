@@ -24,6 +24,7 @@ use primitives::types::{AccountId, Balance};
 use tokio_utils::ShutdownableThread;
 
 use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
+use std::sync::RwLock;
 
 const TMP_DIR: &str = "../../tmp/testnet";
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
@@ -103,10 +104,10 @@ pub trait Node {
 }
 
 impl Node {
-    pub fn new(config: NodeConfig) -> Box<dyn Node> {
+    pub fn new(config: NodeConfig) -> Arc<RwLock<dyn Node>> {
         match config.node_type {
-            NodeType::ThreadNode => Box::new(ThreadNode::new(config)),
-            NodeType::ProcessNode => Box::new(ProcessNode::new(config)),
+            NodeType::ThreadNode => Arc::new(RwLock::new(ThreadNode::new(config))),
+            NodeType::ProcessNode => Arc::new(RwLock::new(ProcessNode::new(config))),
         }
     }
 }
@@ -521,10 +522,10 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
 }
 
 /// Sample a node for sending a transaction/checking balance
-pub fn sample_queryable_node(nodes: &Vec<Box<Node>>) -> usize {
+pub fn sample_queryable_node(nodes: &Vec<Arc<RwLock<Node>>>) -> usize {
     let num_nodes = nodes.len();
     let mut k = rand::random::<usize>() % num_nodes;
-    while !nodes[k].is_running() {
+    while !nodes[k].read().unwrap().is_running() {
         k = rand::random::<usize>() % num_nodes;
     }
     k
@@ -535,13 +536,13 @@ pub fn sample_queryable_node(nodes: &Vec<Box<Node>>) -> usize {
 /// Wait until a certain node is caught up and participating in a consensus. Check first-layer BLS signatures;
 /// Wait until all nodes are more-or-less caught up. Check that the max_block_index - min_block_index < threshold;
 ///
-pub fn wait_for_catchup(nodes: &Vec<Box<Node>>) {
+pub fn wait_for_catchup(nodes: &Vec<Arc<RwLock<Node>>>) {
     wait(
         || {
             let tips: Vec<_> = nodes
                 .iter()
-                .filter(|node| node.is_running())
-                .map(|node| node.user().get_best_block_index())
+                .filter(|node| node.read().unwrap().is_running())
+                .map(|node| node.read().unwrap().user().get_best_block_index())
                 .collect();
             tips.iter().min() == tips.iter().max()
         },
