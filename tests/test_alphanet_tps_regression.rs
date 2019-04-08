@@ -1,3 +1,7 @@
+//! Measures the input and the output transactions-per-seconds, compares it with the expected tps,
+//! and verifies that the output tps is not much different from the input tps (makes sure there is
+//! no choking on transactions). The input tps -- is how fast the nodes can be accepting
+//! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -173,9 +177,9 @@ fn run_multiple_nodes(
     // transactions is not approx. the same the number of observed.
 
     let submitted_num: f64 =
-        submitted_transactions.read().unwrap().iter().map(|(n, t)| *n as f64).sum();
+        submitted_transactions.read().unwrap().iter().map(|(n, _)| *n as f64).sum();
     let observed_num: f64 =
-        observed_transactions.read().unwrap().iter().map(|(n, t)| *n as f64).sum();
+        observed_transactions.read().unwrap().iter().map(|(n, _)| *n as f64).sum();
     // The difference is within 20%.
     assert!((submitted_num - observed_num).abs() < f64::max(submitted_num, observed_num) * 0.2);
 
@@ -188,5 +192,6 @@ fn run_multiple_nodes(
 
 #[test]
 fn test_highload() {
-    heavy_test(|| run_multiple_nodes(4, 20, 20, Duration::from_secs(120), "4_10", 3300));
+    // Run 4 nodes with 20 input tps and check the output tps to be 20.
+    heavy_test(|| run_multiple_nodes(4, 20, 20, Duration::from_secs(120), "4_20", 3300));
 }
