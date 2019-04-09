@@ -1,10 +1,16 @@
-const nearlib = require('./');
+const Near = require('./near');
+const NearClient = require('./nearclient');
+const Account = require('./account');
+const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
+const LocalNodeConnection = require('./local_node_connection');
+const KeyPair = require('./signing/key_pair');
 const sendJson = require('./internal/send-json');
 
 const storageAccountIdKey = 'dev_near_user';
 
 // This key will only be available on dev/test environments. Do not rely on it for anything that runs on mainnet.
-const devKey = new nearlib.KeyPair(
+const devKey = new KeyPair(
     '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
     '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
 );
@@ -32,13 +38,13 @@ module.exports = {
         }
         fullRuntimeOptions.networkId = fullRuntimeOptions.networkId || 'localhost';
         fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
-        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new nearlib.BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
+        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
         fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
         this.deps = fullRuntimeOptions.deps;
         this.options = fullRuntimeOptions;
-        const nearClient = new nearlib.NearClient(
-            new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(fullRuntimeOptions.nodeUrl));
-        this.near = new nearlib.Near(nearClient);
+        const nearClient = new NearClient(
+            new SimpleKeyStoreSigner(this.deps.keyStore), new LocalNodeConnection(fullRuntimeOptions.nodeUrl));
+        this.near = new Near(nearClient);
         if (fullRuntimeOptions.accountId && fullRuntimeOptions.key) {
             this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key);
         }
@@ -52,7 +58,7 @@ module.exports = {
         const accountKey = await this.deps.keyStore.getKey(tempUserAccountId);
         if (tempUserAccountId && accountKey) {
             // Make sure the user actually exists with valid keys and recreate it if it doesn't
-            const accountLib = new nearlib.Account(this.near.nearClient);
+            const accountLib = new Account(this.near.nearClient);
             try {
                 await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
@@ -63,7 +69,7 @@ module.exports = {
         } else {
             tempUserAccountId = 'devuser' + Date.now();
         }
-        const keypair = await nearlib.KeyPair.fromRandomSeed();
+        const keypair = await KeyPair.fromRandomSeed();
         const createAccount = this.deps.createAccount ? this.deps.createAccount :
             async (accountId, newAccountPublicKey) =>
                 this.createAccountWithContractHelper(await this.getConfig(), accountId, newAccountPublicKey);
@@ -79,7 +85,7 @@ module.exports = {
      * Function to create an account on local node. This will not work on non-dev environments.
      */
     createAccountWithLocalNodeConnection: async function (newAccountName, newAccountPublicKey) {
-        const account = new nearlib.Account(this.near.nearClient);
+        const account = new Account(this.near.nearClient);
         this.deps.keyStore.setKey(devAccountName, devKey); // need to have dev account in key store to use this.
         const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, devAccountName);
         await this.near.waitForTransactionResult(createAccountResponse);
