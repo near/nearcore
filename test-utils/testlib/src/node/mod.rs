@@ -25,6 +25,9 @@ pub use thread_node::ThreadNode;
 pub mod process_node;
 pub use process_node::ProcessNode;
 
+pub mod remote_node;
+
+
 const TMP_DIR: &str = "../../tmp/testnet";
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 
@@ -36,6 +39,7 @@ pub fn configure_chain_spec() -> ChainSpec {
 pub enum NodeType {
     ThreadNode,
     ProcessNode,
+    RemoteNode,
 }
 
 pub struct NodeConfig {
@@ -99,6 +103,7 @@ impl Node {
         match config.node_type {
             NodeType::ThreadNode => Arc::new(RwLock::new(ThreadNode::new(config))),
             NodeType::ProcessNode => Arc::new(RwLock::new(ProcessNode::new(config))),
+            _ => unimplemented!(),
         }
     }
 }

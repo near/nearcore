@@ -1,12 +1,13 @@
 use crate::node::{Node, NodeConfig, NodeType};
-use crate::user::{User, RpcUser};
+use crate::user::{RpcUser, User};
 use log::error;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Child, Command};
 use std::sync::Arc;
-use std::{thread, fs};
 use std::time::Duration;
+use std::{fs, thread};
 
 pub enum ProcessNodeState {
     Stopped,
@@ -71,7 +72,10 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<User> {
-        Box::new(RpcUser::new(self.config().rpc_cfg.rpc_port))
+        Box::new(RpcUser::new(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            self.config().rpc_cfg.rpc_port,
+        )))
     }
 }
 
