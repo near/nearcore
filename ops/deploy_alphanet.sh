@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/alphanet:0.1.3}
+IMAGE=${1:-nearprotocol/alphanet:0.1.4}
 PREFIX=${2:-alphanet}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.6}
 ZONE=${4:-us-west2-a}

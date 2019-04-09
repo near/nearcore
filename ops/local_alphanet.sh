@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/alphanet:0.1.3}
+IMAGE=${1:-nearprotocol/alphanet:0.1.4}
 STUDIO_IMAGE=${2:-nearprotocol/studio:0.1.7}
 
 sudo docker run -d --name alphanet-0 -p 3000:3000 -p 3030:3030 \
