@@ -1,9 +1,9 @@
-use crate::node::{Node, NodeType, NodeConfig};
-use primitives::crypto::signer::InMemorySigner;
-use std::sync::Arc;
-use crate::user::User;
+use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
+use crate::user::User;
+use primitives::crypto::signer::InMemorySigner;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 pub struct RemoteNode {
     pub addr: SocketAddr,
@@ -19,14 +19,6 @@ impl RemoteNode {
 impl Node for RemoteNode {
     fn account_id(&self) -> Option<&String> {
         unimplemented!()
-    }
-
-    fn config(&self) -> &NodeConfig {
-        unimplemented!()
-    }
-
-    fn node_type(&self) -> NodeType {
-        NodeType::RemoteNode
     }
 
     fn start(&mut self) {

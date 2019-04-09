@@ -23,10 +23,10 @@ pub mod thread_node;
 pub use thread_node::ThreadNode;
 
 pub mod process_node;
+use crate::node::remote_node::RemoteNode;
 pub use process_node::ProcessNode;
 
 pub mod remote_node;
-
 
 const TMP_DIR: &str = "../../tmp/testnet";
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
@@ -35,37 +35,53 @@ pub fn configure_chain_spec() -> ChainSpec {
     ChainSpec::default_poa()
 }
 
-#[derive(PartialEq, Eq, Debug)]
-pub enum NodeType {
-    ThreadNode,
-    ProcessNode,
-    RemoteNode,
+/// Config that can be used to start a node or connect to an existing node.
+pub enum NodeConfig {
+    /// A complete node with network, RPC, client, consensus and all tasks running in a thead.
+    /// Should be the default choice for the tests, since it provides the most control through the
+    /// internal access.
+    Thread(LocalNodeConfig),
+    /// A complete noe running in a subprocess. Can be started and stopped, but besides that all
+    /// interactions are limited to what is exposed through RPC.
+    Process(LocalNodeConfig),
+    /// A node running remotely, which we cannot start or stop, but can communicate with via RPC.
+    Remote { addr: SocketAddr, signer: Arc<InMemorySigner> },
+    // TODO(#826) Add RuntimeNode and RuntimeUser. Later add ClientNode+ClientUser (for testing
+    // non-async part of our code) and ShardClient+ShardUser (for testing shard logic only).
 }
 
-pub struct NodeConfig {
+impl NodeConfig {
+    /// Get `<ip>:port/<peer_id>` that other nodes can use for booting from this node.
+    pub fn boot_addr(&self) -> PeerAddr {
+        match self {
+            NodeConfig::Thread(local_cfg) | NodeConfig::Process(local_cfg) => {
+                let addr = local_cfg.network_cfg.listen_addr.expect("Node doesn't have an address");
+                PeerAddr::parse(&format!(
+                    "127.0.0.1:{}/{}",
+                    addr.port(),
+                    local_cfg.network_cfg.peer_id
+                ))
+                .expect("Failed to parse")
+            }
+            NodeConfig::Remote { .. } => unimplemented!(),
+        }
+    }
+}
+
+/// Config of a node running either inside a thread or inside a subprocess.
+pub struct LocalNodeConfig {
+    // TODO: Clean-up LocalNodeConfig by making it different for thread and process node, because
+    // they are using different fields for initialization.
     pub node_info: PeerInfo,
     pub client_cfg: ClientConfig,
     pub network_cfg: NetworkConfig,
     pub rpc_cfg: RPCConfig,
     pub peer_id_seed: u32,
-    pub node_type: NodeType,
     pub proxy_handlers: Vec<Arc<ProxyHandler>>,
-}
-
-impl NodeConfig {
-    pub fn node_addr(&self) -> PeerAddr {
-        let addr = self.network_cfg.listen_addr.expect("Node doesn't have an address");
-        PeerAddr::parse(&format!("127.0.0.1:{}/{}", addr.port(), self.network_cfg.peer_id))
-            .expect("Failed to parse")
-    }
 }
 
 pub trait Node: Send + Sync {
     fn account_id(&self) -> Option<&AccountId>;
-
-    fn config(&self) -> &NodeConfig;
-
-    fn node_type(&self) -> NodeType;
 
     fn start(&mut self);
 
@@ -85,7 +101,15 @@ pub trait Node: Send + Sync {
 
     fn signer(&self) -> Arc<InMemorySigner>;
 
+    fn as_process_ref(&self) -> &ProcessNode {
+        unimplemented!()
+    }
+
     fn as_process_mut(&mut self) -> &mut ProcessNode {
+        unimplemented!()
+    }
+
+    fn as_thread_ref(&self) -> &ThreadNode {
         unimplemented!()
     }
 
@@ -99,11 +123,21 @@ pub trait Node: Send + Sync {
 }
 
 impl Node {
-    pub fn new(config: NodeConfig) -> Arc<RwLock<dyn Node>> {
-        match config.node_type {
-            NodeType::ThreadNode => Arc::new(RwLock::new(ThreadNode::new(config))),
-            NodeType::ProcessNode => Arc::new(RwLock::new(ProcessNode::new(config))),
-            _ => unimplemented!(),
+    pub fn new_sharable(config: NodeConfig) -> Arc<RwLock<dyn Node>> {
+        match config {
+            NodeConfig::Thread(local_cfg) => Arc::new(RwLock::new(ThreadNode::new(local_cfg))),
+            NodeConfig::Process(local_cfg) => Arc::new(RwLock::new(ProcessNode::new(local_cfg))),
+            NodeConfig::Remote { addr, signer } => {
+                Arc::new(RwLock::new(RemoteNode::new(addr, signer)))
+            }
+        }
+    }
+
+    pub fn new(config: NodeConfig) -> Box<dyn Node> {
+        match config {
+            NodeConfig::Thread(local_cfg) => Box::new(ThreadNode::new(local_cfg)),
+            NodeConfig::Process(local_cfg) => Box::new(ProcessNode::new(local_cfg)),
+            NodeConfig::Remote { addr, signer } => Box::new(RemoteNode::new(addr, signer))
         }
     }
 }
@@ -206,22 +240,18 @@ impl NodeConfig {
 
         let rpc_cfg = RPCConfig { rpc_port };
 
-        let node_type = NodeType::ThreadNode;
-
-        NodeConfig {
+        NodeConfig::Thread(LocalNodeConfig {
             node_info,
             client_cfg,
             network_cfg,
             rpc_cfg,
             peer_id_seed,
-            node_type,
             proxy_handlers,
-        }
+        })
     }
 }
 
-
-// Create some nodes
+/// Create configs for nodes running in a thread. If
 pub fn create_nodes(
     num_nodes: usize,
     test_prefix: &str,
@@ -251,7 +281,7 @@ pub fn create_nodes(
             block_fetch_limit,
             proxy_handlers.clone(),
         );
-        boot_nodes = vec![node.node_addr()];
+        boot_nodes = vec![node.boot_addr()];
         nodes.push(node);
     }
     (TESTING_INIT_BALANCE, account_names, nodes)

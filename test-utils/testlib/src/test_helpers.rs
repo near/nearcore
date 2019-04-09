@@ -28,9 +28,9 @@ pub fn check_result(output: Output) -> Result<String, String> {
     Ok(result.to_owned().to_string())
 }
 
-pub fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
+pub fn wait<F>(mut f: F, check_interval_ms: u64, max_wait_ms: u64)
     where
-        F: Fn() -> bool,
+        F: FnMut() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {

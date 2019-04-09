@@ -1,5 +1,5 @@
-use crate::node::{Node, NodeConfig, NodeType};
-use crate::user::{User, ThreadUser};
+use crate::node::{LocalNodeConfig, Node};
+use crate::user::{ThreadUser, User};
 use client::Client;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
@@ -14,7 +14,7 @@ pub enum ThreadNodeState {
 }
 
 pub struct ThreadNode {
-    pub config: NodeConfig,
+    pub config: LocalNodeConfig,
     pub client: Arc<Client<InMemorySigner>>,
     pub state: ThreadNodeState,
 }
@@ -24,20 +24,12 @@ impl Node for ThreadNode {
         self.config.client_cfg.account_id.as_ref()
     }
 
-    fn config(&self) -> &NodeConfig {
-        &self.config
-    }
-
-    fn node_type(&self) -> NodeType {
-        NodeType::ThreadNode
-    }
-
     fn start(&mut self) {
         let client = self.client.clone();
-        let network_cfg = self.config().network_cfg.clone();
-        let rpc_cfg = self.config().rpc_cfg.clone();
-        let client_cfg = self.config().client_cfg.clone();
-        let proxy_handlers = self.config().proxy_handlers.clone();
+        let network_cfg = self.config.network_cfg.clone();
+        let rpc_cfg = self.config.rpc_cfg.clone();
+        let client_cfg = self.config.client_cfg.clone();
+        let proxy_handlers = self.config.proxy_handlers.clone();
         let handle =
             alphanet::start_from_client(client, network_cfg, rpc_cfg, client_cfg, proxy_handlers);
         self.state = ThreadNodeState::Running(handle);
@@ -58,6 +50,10 @@ impl Node for ThreadNode {
         self.client.signer.clone().expect("Must have a signer")
     }
 
+    fn as_thread_ref(&self) -> &ThreadNode {
+        self
+    }
+
     fn as_thread_mut(&mut self) -> &mut ThreadNode {
         self
     }
@@ -76,7 +72,7 @@ impl Node for ThreadNode {
 
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
-    pub fn new(config: NodeConfig) -> ThreadNode {
+    pub fn new(config: LocalNodeConfig) -> ThreadNode {
         let signer = match &config.client_cfg.account_id {
             Some(account_id) => Some(Arc::new(InMemorySigner::from_seed(&account_id, &account_id))),
             None => None,
