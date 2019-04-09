@@ -16,7 +16,7 @@ use primitives::network::{PeerAddr, PeerInfo};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 
-use crate::user::NodeUser;
+use crate::user::User;
 use std::sync::RwLock;
 
 pub mod thread_node;
@@ -91,7 +91,7 @@ pub trait Node: Send + Sync {
 
     fn is_running(&self) -> bool;
 
-    fn user(&self) -> Box<dyn NodeUser>;
+    fn user(&self) -> Box<dyn User>;
 }
 
 impl Node {

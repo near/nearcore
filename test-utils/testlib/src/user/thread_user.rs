@@ -1,22 +1,22 @@
 use std::sync::Arc;
 use client::Client;
 use primitives::crypto::signer::InMemorySigner;
-use crate::user::{NodeUser, POISONED_LOCK_ERR};
+use crate::user::{User, POISONED_LOCK_ERR};
 use node_runtime::state_viewer::AccountViewCallResult;
 use primitives::transaction::SignedTransaction;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 
-pub struct ThreadNodeUser {
+pub struct ThreadUser {
     pub client: Arc<Client<InMemorySigner>>,
 }
 
-impl ThreadNodeUser {
-    pub fn new(client: Arc<Client<InMemorySigner>>) -> ThreadNodeUser {
-        ThreadNodeUser { client }
+impl ThreadUser {
+    pub fn new(client: Arc<Client<InMemorySigner>>) -> ThreadUser {
+        ThreadUser { client }
     }
 }
 
-impl NodeUser for ThreadNodeUser {
+impl User for ThreadUser {
     fn view_account(&self, account_id: &String) -> Result<AccountViewCallResult, String> {
         let mut state_update = self.client.shard_client.get_state_update();
         self.client.shard_client.trie_viewer.view_account(&mut state_update, account_id)

@@ -1,5 +1,5 @@
 use crate::node::{Node, NodeConfig, NodeType};
-use crate::user::{NodeUser, ThreadNodeUser};
+use crate::user::{User, ThreadUser};
 use client::Client;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
@@ -69,8 +69,8 @@ impl Node for ThreadNode {
         }
     }
 
-    fn user(&self) -> Box<dyn NodeUser> {
-        Box::new(ThreadNodeUser::new(self.client.clone()))
+    fn user(&self) -> Box<dyn User> {
+        Box::new(ThreadUser::new(self.client.clone()))
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::node::{Node, NodeConfig, NodeType};
-use crate::user::{NodeUser, RpcNodeUser};
+use crate::user::{User, RpcUser};
 use log::error;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
@@ -70,8 +70,8 @@ impl Node for ProcessNode {
         }
     }
 
-    fn user(&self) -> Box<NodeUser> {
-        Box::new(RpcNodeUser::new(self.config().rpc_cfg.rpc_port))
+    fn user(&self) -> Box<User> {
+        Box::new(RpcUser::new(self.config().rpc_cfg.rpc_port))
     }
 }
 

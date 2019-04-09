@@ -1,20 +1,20 @@
-use crate::user::NodeUser;
+use crate::user::User;
 use primitives::types::AccountId;
 use node_runtime::state_viewer::AccountViewCallResult;
 use node_http::types::{ViewAccountRequest, ViewAccountResponse, SubmitTransactionRequest, SubmitTransactionResponse, SignedBeaconBlockResponse, GetBlocksByIndexRequest, SignedShardBlocksResponse};
 use primitives::transaction::SignedTransaction;
 
-pub struct RpcNodeUser {
+pub struct RpcUser {
     pub url: String,
 }
 
-impl RpcNodeUser {
-    pub fn new(rpc_port: u16) -> RpcNodeUser {
-        RpcNodeUser { url: format!("http://127.0.0.1:{}", rpc_port) }
+impl RpcUser {
+    pub fn new(rpc_port: u16) -> RpcUser {
+        RpcUser { url: format!("http://127.0.0.1:{}", rpc_port) }
     }
 }
 
-impl NodeUser for RpcNodeUser {
+impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
         let client = reqwest::Client::new();
         let body: ViewAccountRequest = ViewAccountRequest { account_id: account_id.clone() };
