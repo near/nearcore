@@ -98,13 +98,19 @@ window.nearlib = require('./index');
 window.nearlib.dev = require('./dev');
 
 },{"./dev":3,"./index":4,"error-polyfill":28}],3:[function(require,module,exports){
-const nearlib = require('./');
+const Near = require('./near');
+const NearClient = require('./nearclient');
+const Account = require('./account');
+const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
+const LocalNodeConnection = require('./local_node_connection');
+const KeyPair = require('./signing/key_pair');
 const sendJson = require('./internal/send-json');
 
 const storageAccountIdKey = 'dev_near_user';
 
 // This key will only be available on dev/test environments. Do not rely on it for anything that runs on mainnet.
-const devKey = new nearlib.KeyPair(
+const devKey = new KeyPair(
     '22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV',
     '2wyRcSwSuHtRVmkMCGjPwnzZmQLeXLzLLyED1NDMt4BjnKgQL6tF85yBx6Jr26D2dUNeC716RBoTxntVHsegogYw'
 );
@@ -132,13 +138,13 @@ module.exports = {
         }
         fullRuntimeOptions.networkId = fullRuntimeOptions.networkId || 'localhost';
         fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
-        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new nearlib.BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
+        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
         fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
         this.deps = fullRuntimeOptions.deps;
         this.options = fullRuntimeOptions;
-        const nearClient = new nearlib.NearClient(
-            new nearlib.SimpleKeyStoreSigner(this.deps.keyStore), new nearlib.LocalNodeConnection(fullRuntimeOptions.nodeUrl));
-        this.near = new nearlib.Near(nearClient);
+        const nearClient = new NearClient(
+            new SimpleKeyStoreSigner(this.deps.keyStore), new LocalNodeConnection(fullRuntimeOptions.nodeUrl));
+        this.near = new Near(nearClient);
         if (fullRuntimeOptions.accountId && fullRuntimeOptions.key) {
             this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key);
         }
@@ -152,7 +158,7 @@ module.exports = {
         const accountKey = await this.deps.keyStore.getKey(tempUserAccountId);
         if (tempUserAccountId && accountKey) {
             // Make sure the user actually exists with valid keys and recreate it if it doesn't
-            const accountLib = new nearlib.Account(this.near.nearClient);
+            const accountLib = new Account(this.near.nearClient);
             try {
                 await accountLib.viewAccount(tempUserAccountId);
                 return tempUserAccountId;
@@ -163,7 +169,7 @@ module.exports = {
         } else {
             tempUserAccountId = 'devuser' + Date.now();
         }
-        const keypair = await nearlib.KeyPair.fromRandomSeed();
+        const keypair = await KeyPair.fromRandomSeed();
         const createAccount = this.deps.createAccount ? this.deps.createAccount :
             async (accountId, newAccountPublicKey) =>
                 this.createAccountWithContractHelper(await this.getConfig(), accountId, newAccountPublicKey);
@@ -179,7 +185,7 @@ module.exports = {
      * Function to create an account on local node. This will not work on non-dev environments.
      */
     createAccountWithLocalNodeConnection: async function (newAccountName, newAccountPublicKey) {
-        const account = new nearlib.Account(this.near.nearClient);
+        const account = new Account(this.near.nearClient);
         this.deps.keyStore.setKey(devAccountName, devKey); // need to have dev account in key store to use this.
         const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 1, devAccountName);
         await this.near.waitForTransactionResult(createAccountResponse);
@@ -200,7 +206,7 @@ function getCookie(name) {
     return v ? v[2] : null;
 }
 
-},{"./":4,"./internal/send-json":5}],4:[function(require,module,exports){
+},{"./account":1,"./internal/send-json":5,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/key_pair":72,"./signing/simple_key_store_signer":73}],4:[function(require,module,exports){
 const Near = require('./near');
 const NearClient = require('./nearclient');
 const Account = require('./account');
@@ -211,12 +217,13 @@ const LocalNodeConnection = require('./local_node_connection');
 const KeyPair = require('./signing/key_pair');
 const WalletAccount = require('./wallet-account');
 const UnencryptedFileSystemKeyStore = require('./signing/unencrypted_file_system_keystore');
+const dev = require('./dev');
 
-module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair, WalletAccount, UnencryptedFileSystemKeyStore };
+module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair, WalletAccount, dev };
 
 
 
-},{"./account":1,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/in_memory_key_store":71,"./signing/key_pair":72,"./signing/simple_key_store_signer":73,"./signing/unencrypted_file_system_keystore":74,"./wallet-account":75}],5:[function(require,module,exports){
+},{"./account":1,"./dev":3,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/in_memory_key_store":71,"./signing/key_pair":72,"./signing/simple_key_store_signer":73,"./signing/unencrypted_file_system_keystore":74,"./wallet-account":75}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 
 const createError = require('http-errors');
@@ -457,6 +464,18 @@ class Near {
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
+                for (j = result.logs.length - 1; j >= 0; --j) {
+                    let r = result.logs[j];
+                    if (r.result && r.result.length > 0) {
+                        result.lastResultUnparsed = r.result;
+                        try {
+                            result.lastResult = JSON.parse(Buffer.from(r.result).toString());
+                        } catch (e) {
+                            // can't parse
+                        }
+                        break;
+                    }
+                }
                 return result;
             }
             if (result.status == 'Failed') {
@@ -7194,22 +7213,20 @@ SafeBuffer.allocUnsafeSlow = function (size) {
 }
 
 },{"buffer":21}],58:[function(require,module,exports){
-'use strict'
-/* eslint no-proto: 0 */
-module.exports = Object.setPrototypeOf || ({ __proto__: [] } instanceof Array ? setProtoOf : mixinProperties)
+module.exports = Object.setPrototypeOf || ({__proto__:[]} instanceof Array ? setProtoOf : mixinProperties);
 
-function setProtoOf (obj, proto) {
-  obj.__proto__ = proto
-  return obj
+function setProtoOf(obj, proto) {
+	obj.__proto__ = proto;
+	return obj;
 }
 
-function mixinProperties (obj, proto) {
-  for (var prop in proto) {
-    if (!obj.hasOwnProperty(prop)) {
-      obj[prop] = proto[prop]
-    }
-  }
-  return obj
+function mixinProperties(obj, proto) {
+	for (var prop in proto) {
+		if (!obj.hasOwnProperty(prop)) {
+			obj[prop] = proto[prop];
+		}
+	}
+	return obj;
 }
 
 },{}],59:[function(require,module,exports){
