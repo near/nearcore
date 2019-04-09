@@ -5,7 +5,8 @@ use std::time::Duration;
 use network::proxy::predicate::FnProxyHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
-use testlib::alphanet_utils::{create_nodes, sample_two_nodes, wait, Node, TEST_BLOCK_FETCH_LIMIT};
+use testlib::node::{create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT};
+use testlib::test_helpers::wait;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.

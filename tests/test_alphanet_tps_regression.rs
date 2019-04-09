@@ -12,10 +12,10 @@ use primitives::transaction::TransactionBody;
 use std::io::stdout;
 use std::io::Write;
 use std::sync::{Arc, RwLock};
-use testlib::alphanet_utils::{
+use testlib::node::{
     create_nodes, sample_queryable_node, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT,
 };
-use testlib::test_locks::heavy_test;
+use testlib::test_helpers::heavy_test;
 
 /// Creates and sends a random transaction.
 /// Args:

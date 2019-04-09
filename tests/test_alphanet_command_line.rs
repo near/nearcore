@@ -7,11 +7,10 @@ use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
 use std::sync::{Arc, RwLock};
-use testlib::alphanet_utils::{
-    create_nodes, Node, NodeType, sample_queryable_node, sample_two_nodes, TEST_BLOCK_FETCH_LIMIT, wait,
-    wait_for_catchup,
+use testlib::node::{
+    create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeType, TEST_BLOCK_FETCH_LIMIT,
 };
-use testlib::test_locks::heavy_test;
+use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -30,7 +29,8 @@ fn send_transaction(
 ) {
     let k = sample_queryable_node(nodes);
     nodes[k]
-        .read().unwrap()
+        .read()
+        .unwrap()
         .add_transaction(
             TransactionBody::send_money(
                 nonces[from],
@@ -134,7 +134,10 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
             send_transaction(&nodes, &account_names, &nonces, i, j);
             thread::sleep(Duration::from_secs(2));
             let t = sample_queryable_node(&nodes);
-            assert_eq!(nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap(), expected_balances[j]);
+            assert_eq!(
+                nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap(),
+                expected_balances[j]
+            );
 
             println!("Restarting node {}", crash1);
             nodes[crash1].write().unwrap().start();

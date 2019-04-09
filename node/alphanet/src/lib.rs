@@ -147,9 +147,10 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::test_utils::TestSignedBlock;
     use primitives::transaction::TransactionBody;
-    use testlib::alphanet_utils::{
-        configure_chain_spec, wait, Node, NodeConfig, ThreadNode, TEST_BLOCK_FETCH_LIMIT,
+    use testlib::node::{
+        configure_chain_spec, Node, NodeConfig, ThreadNode, TEST_BLOCK_FETCH_LIMIT,
     };
+    use testlib::test_helpers::wait;
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
