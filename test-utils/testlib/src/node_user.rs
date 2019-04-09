@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use client::Client;
 use node_http::types::{
-    SignedBeaconBlockResponse, SubmitTransactionRequest, SubmitTransactionResponse,
-    ViewAccountRequest, ViewAccountResponse,
+    GetBlocksByIndexRequest, SignedBeaconBlockResponse, SignedShardBlocksResponse,
+    SubmitTransactionRequest, SubmitTransactionResponse, ViewAccountRequest, ViewAccountResponse,
 };
 use node_runtime::state_viewer::AccountViewCallResult;
 use primitives::crypto::signer::InMemorySigner;
@@ -24,6 +24,11 @@ pub trait NodeUser {
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
 
     fn get_best_block_index(&self) -> u64;
+
+    fn get_shard_blocks_by_index(
+        &self,
+        r: GetBlocksByIndexRequest,
+    ) -> Result<SignedShardBlocksResponse, String>;
 }
 
 pub struct RpcNodeUser {
@@ -85,6 +90,18 @@ impl NodeUser for RpcNodeUser {
         let response: SignedBeaconBlockResponse = response.json().unwrap();
         response.header.index
     }
+
+    fn get_shard_blocks_by_index(
+        &self,
+        r: GetBlocksByIndexRequest,
+    ) -> Result<SignedShardBlocksResponse, String> {
+        let client = reqwest::Client::new();
+        let url = format!("{}{}", self.url, "/get_shard_blocks_by_index");
+        let mut response =
+            client.post(url.as_str()).body(serde_json::to_string(&r).unwrap()).send().unwrap();
+        let response: SignedShardBlocksResponse = response.json().unwrap();
+        Ok(response)
+    }
 }
 
 impl NodeUser for ThreadNodeUser {
@@ -103,5 +120,16 @@ impl NodeUser for ThreadNodeUser {
 
     fn get_best_block_index(&self) -> u64 {
         self.client.beacon_client.chain.best_index()
+    }
+    fn get_shard_blocks_by_index(
+        &self,
+        r: GetBlocksByIndexRequest,
+    ) -> Result<SignedShardBlocksResponse, String> {
+        let start = r.start.unwrap_or_else(|| self.client.shard_client.chain.best_index());
+        let limit = r.limit.unwrap_or(25);
+        let blocks = self.client.shard_client.chain.get_blocks_by_indices(start, limit);
+        Ok(SignedShardBlocksResponse {
+            blocks: blocks.into_iter().map(std::convert::Into::into).collect(),
+        })
     }
 }
