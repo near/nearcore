@@ -21,7 +21,7 @@ pub trait User {
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
 
-    fn get_best_block_index(&self) -> u64;
+    fn get_best_block_index(&self) -> Option<u64>;
 
     fn get_shard_blocks_by_index(
         &self,

@@ -38,11 +38,11 @@ impl Node for RemoteNode {
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
-        unimplemented!()
+        self.signer.clone()
     }
 
     fn is_running(&self) -> bool {
-        unimplemented!()
+        self.user().get_best_block_index().is_some()
     }
 
     fn user(&self) -> Box<dyn User> {

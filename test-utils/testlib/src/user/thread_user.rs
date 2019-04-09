@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use client::Client;
-use primitives::crypto::signer::InMemorySigner;
 use crate::user::{User, POISONED_LOCK_ERR};
-use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::transaction::SignedTransaction;
+use client::Client;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
+use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::crypto::signer::InMemorySigner;
+use primitives::transaction::SignedTransaction;
+use std::sync::Arc;
 
 pub struct ThreadUser {
     pub client: Arc<Client<InMemorySigner>>,
@@ -23,15 +23,22 @@ impl User for ThreadUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.client.shard_client.pool.clone().expect("Must have pool").write().expect(POISONED_LOCK_ERR).add_transaction(transaction)
+        self.client
+            .shard_client
+            .pool
+            .clone()
+            .expect("Must have pool")
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .add_transaction(transaction)
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
         self.client.shard_client.get_account_nonce(account_id.clone())
     }
 
-    fn get_best_block_index(&self) -> u64 {
-        self.client.beacon_client.chain.best_index()
+    fn get_best_block_index(&self) -> Option<u64> {
+        Some(self.client.beacon_client.chain.best_index())
     }
     fn get_shard_blocks_by_index(
         &self,

@@ -136,24 +136,25 @@ fn run_multiple_nodes(
             while Instant::now() < timeout {
                 // Get random node.
                 let node = &nodes[sample_queryable_node(&nodes)];
-                let new_ind = node.read().unwrap().user().get_best_block_index();
-                if new_ind > prev_ind {
-                    let blocks = node
-                        .read()
-                        .unwrap()
-                        .user()
-                        .get_shard_blocks_by_index(GetBlocksByIndexRequest {
-                            start: Some(prev_ind + 1),
-                            limit: Some(new_ind),
-                        })
-                        .unwrap();
-                    for b in &blocks.blocks {
-                        observed_transactions
-                            .write()
+                if let Some(new_ind) = node.read().unwrap().user().get_best_block_index() {
+                    if new_ind > prev_ind {
+                        let blocks = node
+                            .read()
                             .unwrap()
-                            .push((b.body.transactions.len() as u64, Instant::now()));
+                            .user()
+                            .get_shard_blocks_by_index(GetBlocksByIndexRequest {
+                                start: Some(prev_ind + 1),
+                                limit: Some(new_ind),
+                            })
+                            .unwrap();
+                        for b in &blocks.blocks {
+                            observed_transactions
+                                .write()
+                                .unwrap()
+                                .push((b.body.transactions.len() as u64, Instant::now()));
+                        }
+                        prev_ind = new_ind;
                     }
-                    prev_ind = new_ind;
                 }
                 thread::sleep(check_delay);
             }

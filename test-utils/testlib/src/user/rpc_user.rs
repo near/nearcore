@@ -51,12 +51,12 @@ impl User for RpcUser {
         Some(self.view_account(account_id).ok()?.nonce)
     }
 
-    fn get_best_block_index(&self) -> u64 {
+    fn get_best_block_index(&self) -> Option<u64> {
         let client = reqwest::Client::new();
         let url = format!("{}{}", self.url(), "/view_latest_beacon_block");
-        let mut response = client.post(url.as_str()).send().unwrap();
-        let response: SignedBeaconBlockResponse = response.json().unwrap();
-        response.header.index
+        let mut response = client.post(url.as_str()).send().ok()?;
+        let response: SignedBeaconBlockResponse = response.json().ok()?;
+        Some(response.header.index)
     }
 
     fn get_shard_blocks_by_index(
