@@ -2,7 +2,7 @@
 set -e
 
 IMAGE=${1:-nearprotocol/alphanet:0.1.4}
-STUDIO_IMAGE=${2:-nearprotocol/studio:0.1.7}
+STUDIO_IMAGE=${2:-nearprotocol/studio:0.1.8}
 
 sudo docker run -d --name alphanet-0 -p 3000:3000 -p 3030:3030 \
     -e "BOOT_NODE_IP=127.0.0.1" \
