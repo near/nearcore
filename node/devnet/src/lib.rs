@@ -132,7 +132,7 @@ mod tests {
 
     use primitives::crypto::signer::InMemorySigner;
     use primitives::transaction::TransactionBody;
-    use testlib::alphanet_utils::wait;
+    use testlib::test_helpers::wait;
 
     use super::*;
 

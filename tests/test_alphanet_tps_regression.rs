@@ -12,10 +12,8 @@ use primitives::transaction::TransactionBody;
 use std::io::stdout;
 use std::io::Write;
 use std::sync::{Arc, RwLock};
-use testlib::alphanet_utils::{
-    create_nodes, sample_queryable_node, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT,
-};
-use testlib::test_locks::heavy_test;
+use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, NodeConfig};
+use testlib::test_helpers::heavy_test;
 
 /// Creates and sends a random transaction.
 /// Args:
@@ -87,10 +85,12 @@ fn run_multiple_nodes(
     let (_, _, mut nodes) =
         create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
     for n in &mut nodes {
-        n.client_cfg.log_level = log::LevelFilter::Off;
+        if let NodeConfig::Thread(cfg) = n {
+            cfg.client_cfg.log_level = log::LevelFilter::Off;
+        }
     }
 
-    let nodes: Vec<Arc<RwLock<dyn Node>>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    let nodes: Vec<Arc<RwLock<dyn Node>>> = nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();
     }
@@ -136,24 +136,25 @@ fn run_multiple_nodes(
             while Instant::now() < timeout {
                 // Get random node.
                 let node = &nodes[sample_queryable_node(&nodes)];
-                let new_ind = node.read().unwrap().user().get_best_block_index();
-                if new_ind > prev_ind {
-                    let blocks = node
-                        .read()
-                        .unwrap()
-                        .user()
-                        .get_shard_blocks_by_index(GetBlocksByIndexRequest {
-                            start: Some(prev_ind + 1),
-                            limit: Some(new_ind),
-                        })
-                        .unwrap();
-                    for b in &blocks.blocks {
-                        observed_transactions
-                            .write()
+                if let Some(new_ind) = node.read().unwrap().user().get_best_block_index() {
+                    if new_ind > prev_ind {
+                        let blocks = node
+                            .read()
                             .unwrap()
-                            .push((b.body.transactions.len() as u64, Instant::now()));
+                            .user()
+                            .get_shard_blocks_by_index(GetBlocksByIndexRequest {
+                                start: Some(prev_ind + 1),
+                                limit: Some(new_ind),
+                            })
+                            .unwrap();
+                        for b in &blocks.blocks {
+                            observed_transactions
+                                .write()
+                                .unwrap()
+                                .push((b.body.transactions.len() as u64, Instant::now()));
+                        }
+                        prev_ind = new_ind;
                     }
-                    prev_ind = new_ind;
                 }
                 thread::sleep(check_delay);
             }

@@ -7,11 +7,10 @@ use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
 use std::sync::{Arc, RwLock};
-use testlib::alphanet_utils::{
-    create_nodes, Node, NodeType, sample_queryable_node, sample_two_nodes, TEST_BLOCK_FETCH_LIMIT, wait,
-    wait_for_catchup,
+use testlib::node::{
+    create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT,
 };
-use testlib::test_locks::heavy_test;
+use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
 fn warmup() {
     Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
@@ -30,7 +29,8 @@ fn send_transaction(
 ) {
     let k = sample_queryable_node(nodes);
     nodes[k]
-        .read().unwrap()
+        .read()
+        .unwrap()
         .add_transaction(
             TransactionBody::send_money(
                 nonces[from],
@@ -49,14 +49,25 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
     let crash1 = 2;
     let crash2 = 3;
-    let (init_balance, account_names, mut nodes) =
+    let (init_balance, account_names, nodes) =
         create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
-    for i in 0..num_nodes {
-        nodes[i].node_type =
-            if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
-    }
+    // Convert some of the thread nodes into processes.
+    let nodes: Vec<_> = nodes
+        .into_iter()
+        .map(|node_cfg| {
+            if rand::random::<bool>() {
+                if let NodeConfig::Thread(cfg) = node_cfg {
+                    NodeConfig::Process(cfg)
+                } else {
+                    unimplemented!()
+                }
+            } else {
+                node_cfg
+            }
+        })
+        .collect();
 
-    let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
 
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();
@@ -105,14 +116,25 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     warmup();
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
-    let (init_balance, account_names, mut nodes) =
+    let (init_balance, account_names, nodes) =
         create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, vec![]);
-    for i in 0..num_nodes {
-        nodes[i].node_type =
-            if rand::random::<bool>() { NodeType::ProcessNode } else { NodeType::ThreadNode };
-    }
 
-    let nodes: Vec<Arc<RwLock<Node>>> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    // Convert some of the thread nodes into processes.
+    let nodes: Vec<_> = nodes
+        .into_iter()
+        .map(|node_cfg| {
+            if rand::random::<bool>() {
+                if let NodeConfig::Thread(cfg) = node_cfg {
+                    NodeConfig::Process(cfg)
+                } else {
+                    unimplemented!()
+                }
+            } else {
+                node_cfg
+            }
+        })
+        .collect();
+    let nodes: Vec<Arc<RwLock<Node>>> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
 
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();
@@ -134,7 +156,10 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
             send_transaction(&nodes, &account_names, &nonces, i, j);
             thread::sleep(Duration::from_secs(2));
             let t = sample_queryable_node(&nodes);
-            assert_eq!(nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap(), expected_balances[j]);
+            assert_eq!(
+                nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap(),
+                expected_balances[j]
+            );
 
             println!("Restarting node {}", crash1);
             nodes[crash1].write().unwrap().start();

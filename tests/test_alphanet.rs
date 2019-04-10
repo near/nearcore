@@ -5,8 +5,8 @@ use std::time::Duration;
 use network::proxy::benchmark::BenchmarkHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
-use testlib::alphanet_utils::{create_nodes, sample_two_nodes, wait, Node, TEST_BLOCK_FETCH_LIMIT};
-use testlib::test_locks::heavy_test;
+use testlib::node::{create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT};
+use testlib::test_helpers::{wait, heavy_test};
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.
@@ -15,7 +15,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     let (init_balance, account_names, mut nodes) =
         create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
 
-    let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new(cfg)).collect();
+    let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();
     }
@@ -29,7 +29,8 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
-        let nonce = nodes[i].read().unwrap().get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
+        let nonce =
+            nodes[i].read().unwrap().get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
         let transaction = TransactionBody::send_money(
             nonce,
             account_names[i].as_str(),
@@ -42,7 +43,10 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         expected_balances[j] += 1;
 
         wait(
-            || expected_balances[j] == nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap(),
+            || {
+                expected_balances[j]
+                    == nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap()
+            },
             1000,
             trial_duration,
         );

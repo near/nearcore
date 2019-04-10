@@ -37,7 +37,7 @@ class UnencryptedFileSystemKeyStore {
     async getKey(accountId) {
         // Find keys/account id
         if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
-            throw new Error('Key lookup failed. Please make sure you set up an account.');
+            return null;
         }
         const json = await this.getRawKey(accountId);
         return this.getPublicKeyFromJSON(json);
