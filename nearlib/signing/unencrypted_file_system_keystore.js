@@ -39,15 +39,8 @@ class UnencryptedFileSystemKeyStore {
         if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
             throw 'Key lookup failed. Please make sure you set up an account.';
         }
-        const rawKey = await this.getRawKey(accountId);
-        if (!rawKey.public_key || !rawKey.secret_key || !rawKey.account_id) {
-            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
-        }
-        if (rawKey.account_id != accountId) {
-            throw 'Deployment failed. Keystore contains data for wrong account.';
-        }
-        const result = new KeyPair(rawKey.public_key, rawKey.secret_key);
-        return result;
+        const json = await this.getRawKey(accountId);
+        return this.getPublicKeyFromJSON(json);
     }
 
     /**
@@ -76,6 +69,14 @@ class UnencryptedFileSystemKeyStore {
      */
     getKeyFilePath(accountId) {
         return keyDir + '/' + this.networkId + '_' + accountId;
+    }
+
+    getPublicKeyFromJSON(json) {
+        if (!json.public_key || !json.secret_key || !json.account_id) {
+            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
+        }
+        const result = new KeyPair(json.public_key, json.secret_key);
+        return result;
     }
 
     async getRawKey(accountId) {

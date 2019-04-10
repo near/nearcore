@@ -3,14 +3,18 @@
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
  */
 const KeyPair = require('./key_pair');
+const JsonAccountInfo = require('./json_account_info');
 
 const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
 const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
+
+
 class BrowserLocalStorageKeystore {
-    constructor(networkId = 'unknown') {
+    constructor(networkId = 'unknown', localStorage = window.localStorage) {
         this.networkId = networkId;
+        this.localStorage = localStorage;
     }
 
     static storageKeyForPublicKey(accountId) {
@@ -27,10 +31,18 @@ class BrowserLocalStorageKeystore {
      * @param {KeyPair} key 
      */
     async setKey(accountId, key) {
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+    }
+
+    async setKeyFromJson(json) {
+        const accountInfo = new JsonAccountInfo(json);
+        if (this.networkId != accountInfo.getNetworkId()) {
+            throw 'Setting key for a wrong network';
+        }
+        this.setKey(accountInfo.getAccountId(), accountInfo.getKeyPair());
     }
 
     /**
@@ -38,16 +50,22 @@ class BrowserLocalStorageKeystore {
      * @param {string} accountId 
      */
     async getKey(accountId) {
+        if (!this.localStorage.getItem(
+                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)) ||
+            !this.localStorage.getItem(
+                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))) {
+            throw 'Key lookup failed. Please make sure you set up an account.';
+        }
         return new KeyPair(
-            window.localStorage.getItem(
+            this.localStorage.getItem(
                 BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)),
-            window.localStorage.getItem(
+            this.localStorage.getItem(
                 BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))
         );
     }
 
     static getAccounts() {
-        return Object.keys(window.localStorage).map(function(key) {
+        return Object.keys(this.localStorage).map(function(key) {
             if (key.endsWith('_public')) {
                 return key.substr(0, key.length() - 7);
             }
