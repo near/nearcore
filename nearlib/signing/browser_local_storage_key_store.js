@@ -38,12 +38,15 @@ class BrowserLocalStorageKeystore {
      * @param {string} accountId 
      */
     async getKey(accountId) {
-        return new KeyPair(
-            window.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)),
-            window.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))
-        );
+        const publicKey = window.localStorage.getItem(
+            BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId));
+        const secretKey = window.localStorage.getItem(
+            BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId));
+        if (!publicKey || !secretKey) {
+            return null;
+        }
+
+        return new KeyPair(publicKey, secretKey);
     }
 
     static getAccounts() {
