@@ -70,7 +70,7 @@ impl NodeConfig {
 
 /// Config of a node running either inside a thread or inside a subprocess.
 pub struct LocalNodeConfig {
-    // TODO: Clean-up LocalNodeConfig by making it different for thread and process node, because
+    // TODO(#847): Clean-up LocalNodeConfig by making it different for thread and process node, because
     // they are using different fields for initialization.
     pub node_info: PeerInfo,
     pub client_cfg: ClientConfig,
