@@ -50,18 +50,14 @@ class BrowserLocalStorageKeystore {
      * @param {string} accountId 
      */
     async getKey(accountId) {
-        if (!this.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)) ||
-            !this.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))) {
-            throw 'Key lookup failed. Please make sure you set up an account.';
+        const publicKey = this.localStorage.getItem(
+            BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId));
+        const secretKey = this.localStorage.getItem(
+            BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId));
+        if (!publicKey || !secretKey) {
+            return null;
         }
-        return new KeyPair(
-            this.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)),
-            this.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))
-        );
+        return new KeyPair(publicKey, secretKey);
     }
 
     static getAccounts() {

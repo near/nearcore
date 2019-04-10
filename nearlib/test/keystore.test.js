@@ -69,13 +69,8 @@ describe('Browser keystore', () => {
     });
 
     test('Get account id from empty keystore', async () => {
-        try {
-
-            const key = await keyStore.getKey('someaccount', 'somenetowrk');
-            fail('key lookup should have failed trying to lookup an invalid account');
-        } catch (e) {
-            expect(e).toEqual('Key lookup failed. Please make sure you set up an account.');
-        }
+        const key = await keyStore.getKey('someaccount', 'somenetowrk');
+        expect(key).toBeNull();  
     });
     
     test('Get account id from a network with single key', async () => {

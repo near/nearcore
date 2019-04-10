@@ -92,7 +92,7 @@ class Account {
 }
 module.exports = Account;
 
-},{"./protos":69,"./signing/key_pair":72,"bs58":20}],2:[function(require,module,exports){
+},{"./protos":69,"./signing/key_pair":73,"bs58":20}],2:[function(require,module,exports){
 require('error-polyfill');
 window.nearlib = require('./index');
 window.nearlib.dev = require('./dev');
@@ -206,7 +206,7 @@ function getCookie(name) {
     return v ? v[2] : null;
 }
 
-},{"./account":1,"./internal/send-json":5,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/key_pair":72,"./signing/simple_key_store_signer":73}],4:[function(require,module,exports){
+},{"./account":1,"./internal/send-json":5,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/key_pair":73,"./signing/simple_key_store_signer":74}],4:[function(require,module,exports){
 const Near = require('./near');
 const NearClient = require('./nearclient');
 const Account = require('./account');
@@ -223,7 +223,7 @@ module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyS
 
 
 
-},{"./account":1,"./dev":3,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/in_memory_key_store":71,"./signing/key_pair":72,"./signing/simple_key_store_signer":73,"./signing/unencrypted_file_system_keystore":74,"./wallet-account":75}],5:[function(require,module,exports){
+},{"./account":1,"./dev":3,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/in_memory_key_store":71,"./signing/key_pair":73,"./signing/simple_key_store_signer":74,"./signing/unencrypted_file_system_keystore":75,"./wallet-account":76}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 
 const createError = require('http-errors');
@@ -543,7 +543,7 @@ module.exports = Near;
 
 
 }).call(this,require("buffer").Buffer)
-},{"./local_node_connection":6,"./nearclient":8,"./protos":69,"./signing/browser_local_storage_key_store":70,"./signing/simple_key_store_signer":73,"buffer":21,"http-errors":37}],8:[function(require,module,exports){
+},{"./local_node_connection":6,"./nearclient":8,"./protos":69,"./signing/browser_local_storage_key_store":70,"./signing/simple_key_store_signer":74,"buffer":21,"http-errors":37}],8:[function(require,module,exports){
 (function (Buffer){
 const { SignedTransaction } = require('./protos');
 
@@ -12637,14 +12637,18 @@ module.exports = $root;
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
  */
 const KeyPair = require('./key_pair');
+const JsonAccountInfo = require('./json_account_info');
 
 const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
 const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
+
+
 class BrowserLocalStorageKeystore {
-    constructor(networkId = 'unknown') {
+    constructor(networkId = 'unknown', localStorage = window.localStorage) {
         this.networkId = networkId;
+        this.localStorage = localStorage;
     }
 
     static storageKeyForPublicKey(accountId) {
@@ -12661,10 +12665,18 @@ class BrowserLocalStorageKeystore {
      * @param {KeyPair} key 
      */
     async setKey(accountId, key) {
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+    }
+
+    async setKeyFromJson(json) {
+        const accountInfo = new JsonAccountInfo(json);
+        if (this.networkId != accountInfo.getNetworkId()) {
+            throw 'Setting key for a wrong network';
+        }
+        this.setKey(accountInfo.getAccountId(), accountInfo.getKeyPair());
     }
 
     /**
@@ -12672,16 +12684,18 @@ class BrowserLocalStorageKeystore {
      * @param {string} accountId 
      */
     async getKey(accountId) {
-        return new KeyPair(
-            window.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId)),
-            window.localStorage.getItem(
-                BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId))
-        );
+        const publicKey = this.localStorage.getItem(
+            BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId));
+        const secretKey = this.localStorage.getItem(
+            BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId));
+        if (!publicKey || !secretKey) {
+            return null;
+        }
+        return new KeyPair(publicKey, secretKey);
     }
 
     static getAccounts() {
-        return Object.keys(window.localStorage).map(function(key) {
+        return Object.keys(this.localStorage).map(function(key) {
             if (key.endsWith('_public')) {
                 return key.substr(0, key.length() - 7);
             }
@@ -12690,7 +12704,7 @@ class BrowserLocalStorageKeystore {
 }
 
 module.exports = BrowserLocalStorageKeystore;
-},{"./key_pair":72}],71:[function(require,module,exports){
+},{"./json_account_info":72,"./key_pair":73}],71:[function(require,module,exports){
 /**
  * Simple in-memory keystore for testing purposes.
  */
@@ -12715,6 +12729,41 @@ class InMemoryKeyStore {
 
 module.exports = InMemoryKeyStore;
 },{}],72:[function(require,module,exports){
+const KeyPair = require('./key_pair');
+
+/**
+ * Standard format for storing account info in json
+ */
+class JsonAccountInfo {
+    constructor(json) {
+        if (!json.public_key || !json.secret_key || !json.account_id || !json.network_id) {
+            throw 'Invalid account info format. Please ensure it contains public_key, secret_key, and account_id".';
+        }
+        this.json = json;
+    }
+
+    /**
+     * Gets a key pair from account info.
+     */
+    getKeyPair() {
+        const result = new KeyPair(this.json.public_key, this.json.secret_key);
+        return result;
+    }
+
+    /**
+     * Gets a key pair from account info.
+     */
+    getAccountId() {
+        return this.json.account_id;
+    }
+
+    getNetworkId() {
+        return this.json.network_id;
+    }
+}
+
+module.exports = JsonAccountInfo;
+},{"./key_pair":73}],73:[function(require,module,exports){
 (function (Buffer){
 
 const bs58 = require('bs58');
@@ -12789,7 +12838,7 @@ class KeyPair {
 }
 module.exports = KeyPair;
 }).call(this,require("buffer").Buffer)
-},{"bs58":20,"buffer":21,"tweetnacl":62}],73:[function(require,module,exports){
+},{"bs58":20,"buffer":21,"tweetnacl":62}],74:[function(require,module,exports){
 /**
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
@@ -12826,7 +12875,7 @@ class SimpleKeyStoreSigner {
 
 module.exports = SimpleKeyStoreSigner;
 
-},{"bs58":20,"js-sha256":40,"tweetnacl":62}],74:[function(require,module,exports){
+},{"bs58":20,"js-sha256":40,"tweetnacl":62}],75:[function(require,module,exports){
 const fs = require('fs');
 const keyDir = './neardev';
 const KeyPair = require('./key_pair');
@@ -12868,15 +12917,8 @@ class UnencryptedFileSystemKeyStore {
         if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
             throw 'Key lookup failed. Please make sure you set up an account.';
         }
-        const rawKey = await this.getRawKey(accountId);
-        if (!rawKey.public_key || !rawKey.secret_key || !rawKey.account_id) {
-            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
-        }
-        if (rawKey.account_id != accountId) {
-            throw 'Deployment failed. Keystore contains data for wrong account.';
-        }
-        const result = new KeyPair(rawKey.public_key, rawKey.secret_key);
-        return result;
+        const json = await this.getRawKey(accountId);
+        return this.getPublicKeyFromJSON(json);
     }
 
     /**
@@ -12907,13 +12949,21 @@ class UnencryptedFileSystemKeyStore {
         return keyDir + '/' + this.networkId + '_' + accountId;
     }
 
+    getPublicKeyFromJSON(json) {
+        if (!json.public_key || !json.secret_key || !json.account_id) {
+            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
+        }
+        const result = new KeyPair(json.public_key, json.secret_key);
+        return result;
+    }
+
     async getRawKey(accountId) {
         return JSON.parse(await promisify(fs.readFile)(this.getKeyFilePath(accountId)));
     }
 }
 
 module.exports = UnencryptedFileSystemKeyStore;
-},{"./key_pair":72,"fs":19,"util":68}],75:[function(require,module,exports){
+},{"./key_pair":73,"fs":19,"util":68}],76:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
