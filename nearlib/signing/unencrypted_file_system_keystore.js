@@ -37,7 +37,7 @@ class UnencryptedFileSystemKeyStore {
     async getKey(accountId) {
         // Find keys/account id
         if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
-            throw 'Key lookup failed. Please make sure you set up an account.';
+            throw new Error('Key lookup failed. Please make sure you set up an account.');
         }
         const json = await this.getRawKey(accountId);
         return this.getPublicKeyFromJSON(json);
@@ -73,7 +73,7 @@ class UnencryptedFileSystemKeyStore {
 
     getPublicKeyFromJSON(json) {
         if (!json.public_key || !json.secret_key || !json.account_id) {
-            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
+            throw new Error('Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".');
         }
         const result = new KeyPair(json.public_key, json.secret_key);
         return result;

@@ -40,7 +40,7 @@ class BrowserLocalStorageKeystore {
     async setKeyFromJson(json) {
         const accountInfo = new JsonAccountInfo(json);
         if (this.networkId != accountInfo.getNetworkId()) {
-            throw 'Setting key for a wrong network';
+            throw new Error('Setting key for a wrong network');
         }
         this.setKey(accountInfo.getAccountId(), accountInfo.getKeyPair());
     }
