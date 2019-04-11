@@ -1,6 +1,7 @@
 const fs = require('fs');
 const keyDir = './neardev';
 const KeyPair = require('./key_pair');
+const AccountInfo = require('./account_info');
 const {promisify} = require('util');
 
 /**
@@ -21,12 +22,8 @@ class UnencryptedFileSystemKeyStore {
         if (!await promisify(fs.exists)(keyDir)){
             await promisify(fs.mkdir)(keyDir);
         }
-        const keyFileContent = {
-            public_key: keypair.getPublicKey(),
-            secret_key: keypair.getSecretKey(),
-            account_id: accountId,
-            netowrk_id: this.networkId
-        };
+        const accountInfo = new AccountInfo(accountId, keypair, this.networkId);
+        const keyFileContent = accountInfo.toJson();
         await promisify(fs.writeFile)(this.getKeyFilePath(accountId), JSON.stringify(keyFileContent));
     }
 
@@ -40,7 +37,7 @@ class UnencryptedFileSystemKeyStore {
             return null;
         }
         const json = await this.getRawKey(accountId);
-        return this.getPublicKeyFromJSON(json);
+        return AccountInfo.fromJson(json).getKeyPair();
     }
 
     /**
@@ -69,14 +66,6 @@ class UnencryptedFileSystemKeyStore {
      */
     getKeyFilePath(accountId) {
         return keyDir + '/' + this.networkId + '_' + accountId;
-    }
-
-    getPublicKeyFromJSON(json) {
-        if (!json.public_key || !json.secret_key || !json.account_id) {
-            throw new Error('Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".');
-        }
-        const result = new KeyPair(json.public_key, json.secret_key);
-        return result;
     }
 
     async getRawKey(accountId) {

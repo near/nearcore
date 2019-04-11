@@ -3,7 +3,7 @@
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
  */
 const KeyPair = require('./key_pair');
-const JsonAccountInfo = require('./json_account_info');
+const AccountInfo = require('./account_info');
 
 const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
 const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
@@ -38,7 +38,7 @@ class BrowserLocalStorageKeystore {
     }
 
     async setKeyFromJson(json) {
-        const accountInfo = new JsonAccountInfo(json);
+        const accountInfo =  AccountInfo.fromJson(json);
         if (this.networkId != accountInfo.getNetworkId()) {
             throw new Error('Setting key for a wrong network');
         }
