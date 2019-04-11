@@ -38,6 +38,7 @@ use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
 use storage::TrieUpdate;
 
 mod ext;
+mod ethereum;
 pub mod state_viewer;
 mod system;
 pub mod test_utils;

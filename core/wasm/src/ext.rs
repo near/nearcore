@@ -45,4 +45,6 @@ pub trait External {
         arguments: Vec<u8>,
         mana: Mana,
     ) -> Result<PromiseId>;
+
+    // fn check_ethash(&mut self, header_hash: &[u8], nonce: u64, full_size: usize, mix_hash: &[u8]) -> bool;
 }

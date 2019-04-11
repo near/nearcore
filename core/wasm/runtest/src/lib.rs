@@ -97,6 +97,10 @@ impl External for MyExt {
             _ => Err(ExtError::WrongPromise),
         }
     }
+//
+//    fn check_ethash(&mut self, header_hash: &[u8], nonce: u64, full_size: usize, mix_hash: &[u8]) -> bool {
+//        false
+//    }
 }
 
 #[cfg(test)]
