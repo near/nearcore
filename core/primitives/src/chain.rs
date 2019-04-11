@@ -6,7 +6,6 @@ use std::iter::FromIterator;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::block_traits::{SignedBlock, SignedHeader};
-use crate::consensus::Payload;
 use crate::crypto::group_signature::GroupSignature;
 use crate::hash::{hash_struct, CryptoHash};
 use crate::merkle::{Direction, MerklePath};
@@ -431,24 +430,6 @@ impl Borrow<CryptoHash> for ChainPayload {
 
 impl Eq for ChainPayload {}
 
-impl Payload for ChainPayload {
-    fn verify(&self) -> Result<(), &'static str> {
-        Ok(())
-    }
-
-    fn union_update(&mut self, mut other: Self) {
-        self.transactions.extend(other.transactions.drain(..));
-        self.receipts.extend(other.receipts.drain(..))
-    }
-
-    fn is_empty(&self) -> bool {
-        self.transactions.is_empty() && self.receipts.is_empty()
-    }
-
-    fn new() -> Self {
-        Self { transactions: vec![], receipts: vec![], hash: CryptoHash::default() }
-    }
-}
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct ChainState {

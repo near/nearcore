@@ -37,7 +37,6 @@ fn message_enum_index(message: &Message) -> usize {
         Message::PayloadSnapshotRequest(_, _) => 9,
         Message::PayloadResponse(_, _) => 10,
         Message::PayloadSnapshotResponse(_, _) => 11,
-        Message::JointBlockBLS(_) => 12,
     }
 }
 

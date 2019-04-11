@@ -20,11 +20,9 @@ use nightshade::nightshade_task::Control;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::block_traits::SignedBlock;
 use primitives::chain::{ChainState, PayloadRequest, PayloadResponse, SignedShardBlock};
-use primitives::consensus::JointBlockBLS;
-use primitives::crypto::aggregate_signature::BlsSignature;
 use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
 use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityId, BlockId, BlockIndex, PeerId};
+use primitives::types::{AuthorityId, BlockIndex, PeerId};
 use shard::ShardBlockExtraInfo;
 
 const MUST_HAVE_A_POOL: &str = "Must have a pool";
@@ -53,22 +51,6 @@ pub struct ClientTask<T> {
     /// Sending requests for blocks to peers.
     out_block_fetch_tx: Sender<(PeerId, BlockIndex, BlockIndex)>,
 
-    // Periodic tasks.
-    /// Sends partial signatures of beacon and shard blocks down this channel.
-    out_final_signatures_tx: Sender<(BlockIndex, JointBlockBLS)>,
-    /// Receives partial signatures of beacon and shard blocks from this channel.
-    inc_final_signatures_rx: Receiver<JointBlockBLS>,
-    /// Delay until the next request of final signatures
-    final_signatures_int: Delay,
-
-    // Internal containers.
-    /// Blocks for which the consensus was achieved for the set of transactions, but the computed
-    /// state was not yet double-signed with BLS.
-    unfinalized_beacon_blocks: HashMap<CryptoHash, SignedBeaconBlock>,
-    unfinalized_shard_blocks: HashMap<CryptoHash, (SignedShardBlock, ShardBlockExtraInfo)>,
-    /// Own BLS signature for unfinalized blocks
-    unfinalized_block_signature: HashMap<CryptoHash, BlsSignature>,
-
     /// Channel into which we gossip payloads.
     out_payload_gossip_tx: Sender<PayloadGossip>,
     /// Delay until the next time we gossip payloads.
@@ -94,7 +76,6 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Stream for ClientTask<T>
         let mut block_importing_ended = false;
         let mut retrieve_payload_ended = false;
         let mut payload_response_ended = false;
-        let mut final_signatures_ended = false;
         let mut payload_gossip_ended = false;
         let mut peer_sync_ended = false;
         // We exit this loop when for each polled channel it has either ended or it is not ready.
@@ -107,12 +88,9 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Stream for ClientTask<T>
                         let shard_hash = shard_block.hash;
                         debug!(target: "client", "[{:?}] Block #{} produced: {}, {}",
                               self.client.account_id(), beacon_block.body.header.index, beacon_hash, shard_hash);
-                        self.unfinalized_beacon_blocks.insert(beacon_block.hash, beacon_block);
-                        self.unfinalized_shard_blocks
-                            .insert(shard_block.hash, (shard_block, shard_extra));
-                        if let idx @ Some(_) = self.try_import_produced(beacon_hash, shard_hash) {
-                            new_block_index = idx;
-                        }
+                        let (beacon_block, shard_block) = self.client.try_import_produced(beacon_block, shard_block, shard_extra);
+                        self.announce_block(beacon_block, shard_block);
+                        new_block_index = Some(self.client.shard_client.chain.best_index());
                     } else {
                         info!(target: "client", "[{:?}] Ignoring consensus for {} because current block index is {}",
                               self.client.account_id(), c.index, self.client.shard_client.chain.best_index());
@@ -228,54 +206,6 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Stream for ClientTask<T>
                 }
             }
 
-            match self.final_signatures_int.poll() {
-                Ok(Async::Ready(())) => {
-                    self.request_bls_signatures();
-                    self.final_signatures_int.reset(Instant::now() + self.gossip_interval * 10);
-                }
-                Ok(Async::NotReady) => (),
-                Err(e) => {
-                    warn!(target: "client", "Interval stream error {}", e);
-                    continue;
-                }
-            }
-
-            match self.inc_final_signatures_rx.poll() {
-                Ok(Async::Ready(Some(JointBlockBLS::General {
-                    beacon_hash,
-                    shard_hash,
-                    beacon_sig,
-                    shard_sig,
-                    sender_id,
-                    ..
-                }))) => {
-                    if let idx @ Some(_) = self.try_add_signatures(
-                        beacon_hash,
-                        shard_hash,
-                        beacon_sig,
-                        shard_sig,
-                        sender_id,
-                    ) {
-                        new_block_index = idx;
-                    }
-                }
-                Ok(Async::Ready(Some(JointBlockBLS::Request {
-                    beacon_hash,
-                    shard_hash,
-                    sender_id,
-                    receiver_id,
-                }))) => {
-                    self.reply_with_bls(beacon_hash, shard_hash, sender_id, receiver_id);
-                }
-                Ok(Async::Ready(None)) => {
-                    final_signatures_ended = true;
-                }
-                Ok(Async::NotReady) => (),
-                Err(_) => {
-                    continue;
-                }
-            }
-
             // If we reached here than each channel is either not ready or has ended.
             break;
         }
@@ -298,7 +228,6 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Stream for ClientTask<T>
             && block_importing_ended
             && retrieve_payload_ended
             && payload_response_ended
-            && final_signatures_ended
             && payload_gossip_ended
             && peer_sync_ended
         {
@@ -323,8 +252,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
         retrieve_payload_rx: Receiver<(AuthorityId, CryptoHash)>,
         payload_request_tx: Sender<(BlockIndex, PayloadRequest)>,
         payload_response_rx: Receiver<PayloadResponse>,
-        out_final_signatures_tx: Sender<(BlockIndex, JointBlockBLS)>,
-        inc_final_signatures_rx: Receiver<JointBlockBLS>,
         inc_payload_gossip_rx: Receiver<PayloadGossip>,
         out_payload_gossip_tx: Sender<PayloadGossip>,
         inc_chain_state_rx: Receiver<(PeerId, ChainState)>,
@@ -340,12 +267,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
-            unfinalized_beacon_blocks: Default::default(),
-            unfinalized_shard_blocks: Default::default(),
-            unfinalized_block_signature: HashMap::default(),
-            out_final_signatures_tx,
-            inc_final_signatures_rx,
-            final_signatures_int: Delay::new(Instant::now() + gossip_interval),
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
@@ -397,34 +318,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
                 mapping.get(&owner).as_ref().unwrap().bls_public_key,
                 signer.bls_public_key()
             );
-            let beacon_sig = beacon_block.sign(&*signer);
-            beacon_block.add_signature(&beacon_sig, owner);
-            let shard_sig = shard_block.sign(&*signer);
-            shard_block.add_signature(&shard_sig, owner);
-            for other_id in mapping.keys() {
-                if *other_id == owner {
-                    continue;
-                }
-                tokio_utils::spawn(
-                    self.out_final_signatures_tx
-                        .clone()
-                        .send((
-                            beacon_block.index(),
-                            JointBlockBLS::General {
-                                beacon_hash: beacon_block.hash,
-                                shard_hash: shard_block.hash,
-                                beacon_sig: beacon_sig.clone(),
-                                shard_sig: shard_sig.clone(),
-                                sender_id: owner,
-                                receiver_id: *other_id,
-                            },
-                        ))
-                        .map(|_| ())
-                        .map_err(
-                            |e| error!(target: "client", "Error sending final BLS parts: {}", e),
-                        ),
-                );
-            }
         } else {
             panic!(format!(
                 "Preparing block while not being authority for this block: {:?}",
@@ -432,41 +325,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             ));
         }
         (beacon_block, shard_block, shard_extra)
-    }
-
-    /// Imports produced block.
-    fn try_import_produced(
-        &mut self,
-        beacon_hash: CryptoHash,
-        shard_hash: CryptoHash,
-    ) -> Option<u64> {
-        // Check if it has sufficient number of signatures.
-        let beacon_block = match self.unfinalized_beacon_blocks.get(&beacon_hash) {
-            Some(b) => b,
-            None => return None,
-        };
-        let idx = beacon_block.index();
-        let num_authorities = self.client.get_uid_to_authority_map(idx).1.len();
-        let present = beacon_block.signature.authority_count();
-        if present < 2 * num_authorities / 3 + 1 {
-            debug!(target: "client", "[{:?}] Not enough signatures at {} ({} / {})", self.client.account_id(), idx, present, num_authorities);
-            return None;
-        }
-        debug!(target: "client", "[{:?}] Enough signatures at {} ({} / {})", self.client.account_id(), idx, present, num_authorities);
-
-        let beacon_block = self.unfinalized_beacon_blocks.remove(&beacon_hash).unwrap();
-        let (shard_block, shard_block_info) =
-            self.unfinalized_shard_blocks.remove(&shard_hash).unwrap();
-        self.unfinalized_block_signature.remove(&beacon_hash);
-        self.unfinalized_block_signature.remove(&shard_hash);
-        assert_eq!(shard_block.signature.authority_count(), present);
-        self.client.try_import_produced(
-            beacon_block.clone(),
-            shard_block.clone(),
-            shard_block_info,
-        );
-        self.announce_block(beacon_block, shard_block);
-        Some(self.client.shard_client.chain.best_index())
     }
 
     /// Tries importing block. If succeeds returns index of the block with the highest index.
@@ -490,22 +348,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
                     "[{:?}] Successfully imported block(s) up to {}",
                     self.client.account_id(), new_index,
                 );
-                let mut beacons_to_remove = vec![];
-                let mut shards_to_remove = vec![];
-                for (h, b) in &self.unfinalized_beacon_blocks {
-                    if b.index() <= new_index {
-                        beacons_to_remove.push(*h);
-                        shards_to_remove.push(b.body.header.shard_block_hash);
-                    }
-                }
-                for h in beacons_to_remove {
-                    self.unfinalized_beacon_blocks.remove(&h);
-                    self.unfinalized_block_signature.remove(&h);
-                }
-                for h in shards_to_remove {
-                    self.unfinalized_shard_blocks.remove(&h);
-                    self.unfinalized_block_signature.remove(&h);
-                }
                 self.announce_block(last_beacon_block, last_shard_block);
                 Some(new_index)
             }
@@ -539,51 +381,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
                     .map_err(|e| error!(target: "client", "Error sending request to fetch blocks from peer: {}", e))
             );
         }
-    }
-
-    /// Try adding partial signatures to unfinalized block. If succeeds and the number of authorities
-    /// is sufficient returns  index of the block with the highest index.
-    fn try_add_signatures(
-        &mut self,
-        beacon_hash: CryptoHash,
-        shard_hash: CryptoHash,
-        beacon_sig: BlsSignature,
-        shard_sig: BlsSignature,
-        authority_id: AuthorityId,
-    ) -> Option<u64> {
-        let beacon_block = match self.unfinalized_beacon_blocks.get_mut(&beacon_hash) {
-            Some(b) => b,
-            _ => {
-                debug!(target: "client", "Worthless hash: {}", beacon_hash);
-                return None;
-            }
-        };
-
-        let (shard_block, _) = match self.unfinalized_shard_blocks.get_mut(&shard_hash) {
-            Some(b) => b,
-            _ => {
-                debug!(target: "client", "Worthless hash: {}", shard_hash);
-                return None;
-            }
-        };
-        let block_index = beacon_block.index();
-        // Make sure this authority is actually supposed to sign this block.
-        let (_, mapping) = self.client.get_uid_to_authority_map(block_index);
-        let stake = match mapping.get(&authority_id) {
-            Some(s) => s,
-            None => return None,
-        };
-        // Make sure the signature is correct.
-        if !stake.bls_public_key.verify(beacon_hash.as_ref(), &beacon_sig)
-            || !stake.bls_public_key.verify(shard_hash.as_ref(), &shard_sig)
-        {
-            error!(target: "client", "SCAM: someone is forging signatures for {}", authority_id);
-            return None;
-        }
-        beacon_block.signature.add_signature(&beacon_sig, authority_id);
-        shard_block.signature.add_signature(&shard_sig, authority_id);
-
-        self.try_import_produced(beacon_hash, shard_hash)
     }
 
     fn announce_block(&mut self, beacon_block: SignedBeaconBlock, shard_block: SignedShardBlock) {
@@ -753,110 +550,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
                         .map(|_| ())
                         .map_err(|e| warn!(target: "mempool", "Error sending message: {}", e)),
                 );
-            }
-        }
-    }
-
-    fn bls_sign_with_cache(&mut self, hash: &CryptoHash) -> BlsSignature {
-        if let Some(signature) = self.unfinalized_block_signature.get(&hash) {
-            signature.clone()
-        } else {
-            let start = Instant::now();
-            let signature = self
-                .client
-                .signer
-                .clone()
-                .expect("Must have signer for signing blocks")
-                .bls_sign(hash.as_ref());
-            let elapsed = Instant::now() - start;
-            debug!(target:"client", "BLS signature took {}ms", elapsed.as_millis());
-            self.unfinalized_block_signature.insert(hash.clone(), signature.clone());
-            signature
-        }
-    }
-
-    fn reply_with_bls(
-        &mut self,
-        beacon_hash: CryptoHash,
-        shard_hash: CryptoHash,
-        sender_id: AuthorityId,
-        receiver_id: AuthorityId,
-    ) {
-        if !self.unfinalized_shard_blocks.contains_key(&shard_hash)
-            && !self.client.shard_client.chain.is_known_block(&shard_hash)
-        {
-            return;
-        }
-        let block_index = match self.unfinalized_beacon_blocks.get(&beacon_hash) {
-            Some(b) => b.index(),
-            None => match self.client.beacon_client.chain.get_block(&BlockId::Hash(beacon_hash)) {
-                Some(b) => b.index(),
-                None => return,
-            },
-        };
-        let (owner_uid, _) = self.client.get_uid_to_authority_map(block_index);
-        if let Some(owner_uid) = owner_uid {
-            if owner_uid != receiver_id {
-                error!(target: "client", "Someone meant to request BLS from authority {}, but sent to us - {}", receiver_id, owner_uid);
-                return;
-            }
-            let beacon_sig = self.bls_sign_with_cache(&beacon_hash);
-            let shard_sig = self.bls_sign_with_cache(&shard_hash);
-            tokio_utils::spawn(
-                self.out_final_signatures_tx
-                    .clone()
-                    .send((
-                        block_index,
-                        JointBlockBLS::General {
-                            beacon_hash,
-                            shard_hash,
-                            beacon_sig,
-                            shard_sig,
-                            sender_id: receiver_id,
-                            receiver_id: sender_id,
-                        },
-                    ))
-                    .map(|_| ())
-                    .map_err(|e| error!(target: "client", "Error sending final BLS parts: {}", e)),
-            );
-        }
-    }
-
-    fn request_bls_signatures(&self) {
-        for (beacon_hash, beacon_block) in self.unfinalized_beacon_blocks.iter() {
-            let (owner_uid, authority_map) =
-                self.client.get_uid_to_authority_map(beacon_block.index());
-            let owner_uid = match owner_uid {
-                Some(id) => id,
-                None => return,
-            };
-            let num_authorities = authority_map.len();
-            let signers = &beacon_block.signature.authority_mask;
-            debug!(target: "client",
-                   "[{}] is requesting BLS signatures for block {} from {:?}!",
-                   owner_uid,
-                   beacon_block.index(),
-                   (0..num_authorities)
-                       .filter(|&auth_id| *signers.get(auth_id).unwrap_or(&false))
-                       .collect::<Vec<_>>());
-
-            for auth_id in 0..num_authorities {
-                if *signers.get(auth_id).unwrap_or(&false) {
-                    tokio_utils::spawn(
-                            self.out_final_signatures_tx
-                                .clone()
-                                .send((beacon_block.index(), JointBlockBLS::Request {
-                                    beacon_hash: *beacon_hash,
-                                    shard_hash: beacon_block.body.header.shard_block_hash,
-                                    sender_id: owner_uid,
-                                    receiver_id: auth_id,
-                                }))
-                                .map(|_| ())
-                                .map_err(
-                                    |e| error!(target: "client", "Error sending final BLS parts: {}", e),
-                                ),
-                        );
-                }
             }
         }
     }

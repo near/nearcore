@@ -73,8 +73,6 @@ pub fn start_from_client<T: AccountSigner + BLSSigner + EDSigner + Clone + 'stat
         // Launch block syncing / importing.
         let (inc_block_tx, inc_block_rx) = channel(1024);
         let (out_block_tx, out_block_rx) = channel(1024);
-        let (inc_final_signatures_tx, inc_final_signatures_rx) = channel(1024);
-        let (out_final_signatures_tx, out_final_signatures_rx) = channel(1024);
         let (inc_chain_state_tx, inc_chain_state_rx) = channel(1024);
         let (out_block_fetch_tx, out_block_fetch_rx) = channel(1024);
 
@@ -88,8 +86,6 @@ pub fn start_from_client<T: AccountSigner + BLSSigner + EDSigner + Clone + 'stat
             retrieve_payload_rx,
             payload_request_tx,
             payload_response_rx,
-            out_final_signatures_tx,
-            inc_final_signatures_rx,
             inc_payload_gossip_rx,
             out_payload_gossip_tx,
             inc_chain_state_rx,
@@ -120,8 +116,6 @@ pub fn start_from_client<T: AccountSigner + BLSSigner + EDSigner + Clone + 'stat
             out_block_rx,
             payload_request_rx,
             payload_response_tx,
-            inc_final_signatures_tx,
-            out_final_signatures_rx,
             inc_payload_gossip_tx,
             out_payload_gossip_rx,
             inc_chain_state_tx,

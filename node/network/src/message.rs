@@ -12,12 +12,10 @@ use primitives::beacon::SignedBeaconBlock;
 use primitives::chain::{
     MissingPayloadRequest, MissingPayloadResponse, ReceiptBlock, SignedShardBlock, Snapshot,
 };
-use primitives::consensus::JointBlockBLS;
 use primitives::hash::CryptoHash;
 use primitives::network::ConnectedInfo;
-use primitives::traits::Base58Encoded;
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AuthorityId, BlockIndex};
+use primitives::types::BlockIndex;
 use primitives::utils::proto_to_type;
 
 pub type RequestId = u64;
@@ -59,9 +57,6 @@ pub enum Message {
     PayloadSnapshotRequest(RequestId, CryptoHash),
     /// Response with snapshot for request.
     PayloadSnapshotResponse(RequestId, Snapshot),
-
-    /// Partial BLS signatures of beacon and shard blocks.
-    JointBlockBLS(JointBlockBLS),
 }
 
 impl TryFrom<network_proto::Message> for Message {
@@ -137,33 +132,6 @@ impl TryFrom<network_proto::Message> for Message {
             )) => {
                 let snapshot = proto_to_type(response.snapshot)?;
                 Ok(Message::PayloadSnapshotResponse(response.request_id, snapshot))
-            }
-            Some(network_proto::Message_oneof_message_type::joint_block_bls(joint)) => {
-                match joint.field_type {
-                    Some(network_proto::Message_JointBlockBLS_oneof_type::general(general)) => {
-                        let beacon_sig = Base58Encoded::from_base58(&general.beacon_sig)
-                            .map_err(|e| format!("cannot decode signature: {:?}", e))?;
-                        let shard_sig = Base58Encoded::from_base58(&general.shard_sig)
-                            .map_err(|e| format!("cannot deocde signature: {:?}", e))?;
-                        Ok(Message::JointBlockBLS(JointBlockBLS::General {
-                            sender_id: general.sender_id as AuthorityId,
-                            receiver_id: general.receiver_id as AuthorityId,
-                            beacon_hash: general.beacon_hash.try_into()?,
-                            shard_hash: general.shard_hash.try_into()?,
-                            beacon_sig,
-                            shard_sig,
-                        }))
-                    }
-                    Some(network_proto::Message_JointBlockBLS_oneof_type::request(request)) => {
-                        Ok(Message::JointBlockBLS(JointBlockBLS::Request {
-                            sender_id: request.sender_id as AuthorityId,
-                            receiver_id: request.receiver_id as AuthorityId,
-                            beacon_hash: request.beacon_hash.try_into()?,
-                            shard_hash: request.shard_hash.try_into()?,
-                        }))
-                    }
-                    None => unreachable!(),
-                }
             }
             None => unreachable!(),
         }
@@ -244,51 +212,6 @@ impl From<Message> for network_proto::Message {
                 };
                 network_proto::Message_oneof_message_type::payload_snapshot_response(response)
             }
-            Message::JointBlockBLS(joint_bls) => match joint_bls {
-                JointBlockBLS::General {
-                    sender_id,
-                    receiver_id,
-                    beacon_hash,
-                    shard_hash,
-                    beacon_sig,
-                    shard_sig,
-                } => {
-                    let proto = network_proto::Message_JointBlockBLS_General {
-                        sender_id: sender_id as u64,
-                        receiver_id: receiver_id as u64,
-                        beacon_hash: beacon_hash.into(),
-                        shard_hash: shard_hash.into(),
-                        beacon_sig: beacon_sig.to_base58(),
-                        shard_sig: shard_sig.to_base58(),
-                        ..Default::default()
-                    };
-                    let bls_proto = network_proto::Message_JointBlockBLS {
-                        field_type: Some(network_proto::Message_JointBlockBLS_oneof_type::general(
-                            proto,
-                        )),
-                        ..Default::default()
-                    };
-                    network_proto::Message_oneof_message_type::joint_block_bls(bls_proto)
-                }
-                JointBlockBLS::Request { sender_id, receiver_id, beacon_hash, shard_hash } => {
-                    let proto = network_proto::Message_JointBlockBLS_Request {
-                        sender_id: sender_id as u64,
-                        receiver_id: receiver_id as u64,
-                        beacon_hash: beacon_hash.into(),
-                        shard_hash: shard_hash.into(),
-                        unknown_fields: Default::default(),
-                        cached_size: Default::default(),
-                    };
-                    let bls_proto = network_proto::Message_JointBlockBLS {
-                        field_type: Some(network_proto::Message_JointBlockBLS_oneof_type::request(
-                            proto,
-                        )),
-                        unknown_fields: Default::default(),
-                        cached_size: Default::default(),
-                    };
-                    network_proto::Message_oneof_message_type::joint_block_bls(bls_proto)
-                }
-            },
         };
         network_proto::Message { message_type: Some(message_type), ..Default::default() }
     }

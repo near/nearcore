@@ -338,16 +338,6 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
                     continue;
                 }
             }
-            if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref())
-                || !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref())
-            {
-                error!(target: "client", "[{:?}] Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
-                           self.account_id(),
-                           beacon_block.block_hash(), shard_block.block_hash(),
-                           beacon_block.signature.authority_mask,
-                           shard_block.signature.authority_mask);
-                return BlockImportingResult::InvalidBlock;
-            }
             self.pending_shard_blocks.write().expect(POISONED_LOCK_ERR).insert(shard_block);
             self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(beacon_block);
         }

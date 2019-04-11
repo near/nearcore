@@ -22,7 +22,6 @@ use primitives::block_traits::SignedBlock;
 use primitives::chain::{
     ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
-use primitives::consensus::JointBlockBLS;
 use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
 use primitives::hash::CryptoHash;
 use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
@@ -116,7 +115,6 @@ struct Protocol<T> {
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     inc_block_tx: Sender<(PeerId, Vec<CoupledBlock>, BlockIndex)>,
     payload_response_tx: Sender<PayloadResponse>,
-    inc_final_signatures_tx: Sender<JointBlockBLS>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
     requests: RwLock<HashMap<RequestId, RequestType>>,
     next_request_id: RwLock<u64>,
@@ -331,9 +329,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol
                     warn!(target: "network", "Requesting snapshot from peer {} who is not an authority. {:?}", peer_id, auth_map);
                 }
             }
-            Message::JointBlockBLS(b) => {
-                forward_msg(self.inc_final_signatures_tx.clone(), b);
-            }
         }
     }
 
@@ -519,21 +514,6 @@ impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol
         tokio_utils::spawn(task);
     }
 
-    fn send_joint_block_bls_announce(&self, block_index: BlockIndex, b: JointBlockBLS) {
-        let receiver_id = match b {
-            JointBlockBLS::Request { receiver_id, .. } => receiver_id,
-            JointBlockBLS::General { receiver_id, .. } => receiver_id,
-        };
-        if let Some(ch) = self.get_authority_channel(block_index, receiver_id) {
-            let data = encode_message(Message::JointBlockBLS(b)).unwrap();
-            forward_msg(ch, PeerMessage::Message(data));
-        } else {
-            let (_, auth_map) = self.client.get_uid_to_authority_map(block_index);
-            debug!(target: "network", "[SND BLS] Channel for {} not found, where account_id={:?} map={:?}", receiver_id, self.peer_manager.node_info.account_id,
-                   auth_map
-            );
-        }
-    }
 }
 
 fn get_proxy_handler(proxy_handler_type: &ProxyHandlerType) -> Arc<ProxyHandler> {
@@ -592,8 +572,6 @@ pub fn spawn_network<T: AccountSigner + BLSSigner + EDSigner + Send + Sync + Clo
     out_block_rx: Receiver<(Vec<PeerId>, CoupledBlock)>,
     payload_request_rx: Receiver<(BlockIndex, PayloadRequest)>,
     payload_response_tx: Sender<PayloadResponse>,
-    inc_final_signatures_tx: Sender<JointBlockBLS>,
-    out_final_signatures_rx: Receiver<(BlockIndex, JointBlockBLS)>,
     inc_payload_gossip_tx: Sender<PayloadGossip>,
     out_payload_gossip_rx: Receiver<PayloadGossip>,
     inc_chain_state_tx: Sender<(PeerId, ChainState)>,
@@ -624,7 +602,6 @@ pub fn spawn_network<T: AccountSigner + BLSSigner + EDSigner + Send + Sync + Clo
         inc_gossip_tx,
         inc_block_tx,
         payload_response_tx,
-        inc_final_signatures_tx,
         inc_payload_gossip_tx,
         inc_chain_state_tx,
         requests: Default::default(),
@@ -692,15 +669,6 @@ pub fn spawn_network<T: AccountSigner + BLSSigner + EDSigner + Send + Sync + Clo
                 til_index,
                 client_cfg.block_fetch_limit,
             );
-            future::ok(())
-        })
-    };
-    tokio::spawn(task);
-
-    let task = {
-        let protocol = protocol.clone();
-        out_final_signatures_rx.for_each(move |(block_index, b)| {
-            protocol.send_joint_block_bls_announce(block_index, b);
             future::ok(())
         })
     };
