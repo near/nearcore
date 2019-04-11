@@ -72,7 +72,7 @@ class AccountInfo {
     }
 
     getKeyFileName() {
-        return this.networkId + '_' + this.networkIdaccountId;
+        return this.networkId + '_' + this.accountId;
     }
 }
 
