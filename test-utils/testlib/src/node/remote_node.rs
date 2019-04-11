@@ -18,7 +18,7 @@ impl RemoteNode {
 
 impl Node for RemoteNode {
     fn account_id(&self) -> Option<&String> {
-        unimplemented!()
+        Some(&self.signer.account_id)
     }
 
     fn start(&mut self) {

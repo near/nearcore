@@ -37,6 +37,7 @@ members = [
     "node/tokio-utils",
     "test-utils/keygen",
     "test-utils/testlib",
+    "test-utils/loadtester",
 ]
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",
