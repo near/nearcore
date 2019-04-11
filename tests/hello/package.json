@@ -6,7 +6,7 @@
         "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
     },
     "scripts": {
-        "build": "mkdir -p ./out && near build && cp ./out/main.wasm .."
+        "build": "mkdir -p ./out && near build && cp ./out/main.wasm ../hello.wasm"
     },
     "devDependencies": {
         "near-shell": "github:nearprotocol/near-shell",
