@@ -24,7 +24,8 @@ use primitives::types::{AuthorityId, BlockIndex};
 use primitives::utils::{proto_to_result, proto_to_type};
 use protobuf::{RepeatedField, SingularPtrField};
 
-use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
+use primitives::nightshade::{BlockProposal, ConsensusBlockProposal};
+use crate::nightshade::{Nightshade, State};
 
 const COOLDOWN_MS: u64 = 200;
 const MUST_HAVE_A_SIGNER: &str = "Must have a signer";

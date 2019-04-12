@@ -7,6 +7,7 @@ use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AuthorityId;
 
 use crate::nightshade::{BareState, BlockProposal, Nightshade, Proof, State};
+use primitives::crypto::group_signature::GroupSignature;
 
 /// Dummy proposal from authority id
 pub fn proposal(authority: AuthorityId) -> BlockProposal {
@@ -77,8 +78,10 @@ fn proof(confidence: i64, endorses: AuthorityId, num_authorities: usize) -> Opti
 
     Some(Proof::new(
         previous_bare_state,
-        vec![true; num_authorities],
-        signature,
+        GroupSignature {
+            authority_mask: vec![true; num_authorities],
+            signature,
+        },
     ))
 }
 

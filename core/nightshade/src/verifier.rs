@@ -1,7 +1,7 @@
 use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::types::AuthorityId;
 
-use crate::nightshade::{BareState, NSVerifyErr, State};
+use primitives::nightshade::{BareState, NSVerifyErr, State};
 
 macro_rules! check_or {
     ($condition:expr, $error:expr) => {
@@ -11,7 +11,16 @@ macro_rules! check_or {
     };
 }
 
-impl State {
+pub trait NightshadeVerifier {
+    fn verify(
+        &self,
+        authority: AuthorityId,
+        public_keys: &[BlsPublicKey],
+        weights: &[usize],
+    ) -> Result<(), NSVerifyErr>;
+}
+
+impl NightshadeVerifier for State {
     /// Check if this state has correct proofs about the triplet it contains.
     /// Each authority will check if this state is valid only if it has not successfully verified another
     /// state with the same triplet before. Once it has verified that at least one authority has such
@@ -21,7 +30,7 @@ impl State {
     ///
     /// * `authority` - The authority that send this state.
     /// * `public_keys` - Public key of every authority in the network
-    pub fn verify(
+    fn verify(
         &self,
         authority: AuthorityId,
         public_keys: &[BlsPublicKey],

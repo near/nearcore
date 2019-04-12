@@ -14,7 +14,7 @@ extern crate serde_json;
 pub mod beacon;
 pub mod block_traits;
 pub mod chain;
-pub mod consensus;
+pub mod nightshade;
 pub mod crypto;
 pub mod hash;
 pub mod logging;
