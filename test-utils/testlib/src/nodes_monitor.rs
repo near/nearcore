@@ -4,7 +4,10 @@
 //! * Whether any node is stuck
 //! * Transaction throughput of the nodes.
 
+use log::debug;
+
 use crate::node::Node;
+use crate::sampler::sample_one;
 use node_http::types::GetBlocksByIndexRequest;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -102,38 +105,55 @@ impl NodesMonitor {
         let block_stats = self.block_stats.clone();
         thread::spawn(move || {
             while !*shutdown.read().unwrap() {
-                let mut leading_nodes = Self::leading_nodes(&nodes, &states);
-                if !leading_nodes.is_empty() {
-                    // Will use after #850 is submitted.
-                    // let leader = sample_one(&leading_nodes);
-                    let leader = leading_nodes.pop().unwrap();
-                    let mut block_stats = block_stats.write().unwrap();
-                    let prev_block_index = block_stats.keys().max().unwrap_or(&0);
-                    let leader_guard = leader.read().unwrap();
-
-                    if let Some(ref new_index) = leader_guard.user().get_best_block_index() {
-                        if new_index > prev_block_index {
-                            let blocks = leader_guard.user().get_shard_blocks_by_index(
-                                GetBlocksByIndexRequest {
-                                    start: Some(prev_block_index - 1),
-                                    limit: None,
-                                },
-                            );
-                            if let Ok(blocks) = blocks {
-                                for b in &blocks.blocks {
-                                    block_stats.insert(
-                                        b.body.header.index,
-                                        BlockStats {
-                                            num_transactions: b.body.transactions.len(),
-                                            timestamp: Instant::now(),
-                                        },
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
                 thread::sleep(block_check_delay);
+
+                let leading_node = Self::leading_node(&nodes, &states);
+                if leading_node.is_none() {
+                    continue;
+                }
+                let leading_node = leading_node.unwrap();
+                let leader_guard = leading_node.read().unwrap();
+                debug!(target: "observer", "Leader: {}", leader_guard.account_id().unwrap());
+
+                // Get best block index from the leading node.
+                let best_index = leader_guard.user().get_best_block_index();
+                if best_index.is_none() {
+                    continue;
+                }
+                let best_index = best_index.unwrap();
+                debug!(target: "observer", "Best index: {}", best_index);
+
+                let mut block_stats_guard = block_stats.write().unwrap();
+                let block_request = if block_stats_guard.is_empty() {
+                    // If we have no stats then we just starting. Request the most recent block, only.
+                    debug!(target: "observer", "Requesting: {}..{}", best_index, best_index + 1);
+                    GetBlocksByIndexRequest { start: Some(best_index), limit: Some(1) }
+                } else {
+                    // If we have stats then request all missing blocks.
+                    let prev_block_index = *block_stats_guard.keys().max().unwrap();
+                    if prev_block_index >= best_index {
+                        continue;
+                    }
+                    debug!(target: "observer", "Requesting: {}..", prev_block_index + 1);
+                    GetBlocksByIndexRequest { start: Some(prev_block_index + 1), limit: None }
+                };
+
+                // Request the blocks.
+                let blocks = leader_guard.user().get_shard_blocks_by_index(block_request);
+                if blocks.is_err() {
+                    continue;
+                }
+                let blocks = blocks.unwrap();
+                for b in &blocks.blocks {
+                    debug!(target: "observer", "Got block: {} #tx={}", b.body.header.index, b.body.transactions.len());
+                    block_stats_guard.insert(
+                        b.body.header.index,
+                        BlockStats {
+                            num_transactions: b.body.transactions.len(),
+                            timestamp: Instant::now(),
+                        },
+                    );
+                }
             }
         });
     }
@@ -165,11 +185,11 @@ impl NodesMonitor {
         Some((acc.iter().sum::<f64>() / (acc.len() as f64)) as u64)
     }
 
-    /// Get nodes that have the most up-to-date block index.
-    fn leading_nodes(
+    /// Get a node that has the most up-to-date block index.
+    fn leading_node(
         nodes: &Vec<Arc<RwLock<dyn Node>>>,
         states: &Arc<RwLock<Vec<NodeState>>>,
-    ) -> Vec<Arc<RwLock<dyn Node>>> {
+    ) -> Option<Arc<RwLock<dyn Node>>> {
         let guard = states.read().unwrap();
         let blocks: Vec<_> = guard
             .iter()
@@ -179,11 +199,13 @@ impl NodesMonitor {
                 NodeState::BestBlock(i) => Some((i, n.clone())),
             })
             .collect();
-        if let Some(max) = blocks.iter().map(|(i, _)| *i).max() {
-            blocks.into_iter().filter_map(|(i, n)| if i == max { Some(n) } else { None }).collect()
-        } else {
-            vec![]
+        if blocks.is_empty() {
+            return None;
         }
+        let max = blocks.iter().map(|(i, _)| *i).max().unwrap();
+        let leading_blocks: Vec<_> =
+            blocks.into_iter().filter_map(|(i, n)| if i == max { Some(n) } else { None }).collect();
+        Some(sample_one(&leading_blocks).clone())
     }
 
     pub fn all_nodes_running(&self) -> bool {

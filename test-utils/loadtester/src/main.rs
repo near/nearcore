@@ -1,10 +1,16 @@
 use clap::{App, Arg};
+use env_logger::Builder;
+use log::warn;
 use primitives::crypto::signer::InMemorySigner;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::Duration;
 use testlib::node::{Node, NodeConfig};
+use testlib::nodes_monitor::NodesMonitor;
+use testlib::transactions_executor::Executor;
 
 const NUMBER_OF_NODES_ERR: &str =
     "Number of addresses, public keys, and account ids should be the same";
@@ -13,7 +19,6 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
     let matches = App::new("Near Load Tester")
         .arg(
             Arg::with_name("key_files_path")
-                .short("k")
                 .long("key-files-path")
                 .value_name("KEY_FILES_PATH")
                 .help("The path to the folder with key files.")
@@ -22,7 +27,6 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
         )
         .arg(
             Arg::with_name("addresses")
-                .short("a")
                 .long("addresses")
                 .value_name("ADDRESSES")
                 .help(
@@ -34,7 +38,6 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
         )
         .arg(
             Arg::with_name("public_keys")
-                .short("k")
                 .long("public-keys")
                 .value_name("PUBLIC_KEYS")
                 .help("Public keys of the nodes we are connecting two.")
@@ -43,7 +46,6 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
         )
         .arg(
             Arg::with_name("account_ids")
-                .short("a")
                 .long("account-ids")
                 .value_name("ACCOUNT_IDS")
                 .help("Account ids of the corresponding nodes")
@@ -59,10 +61,16 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
         .map(|addr_id| SocketAddr::from_str(&addr_id).expect("Cannot parse address"))
         .clone()
         .collect();
-    let public_keys: Vec<String> =
-        matches.values_of("public_keys").unwrap_or_else(clap::Values::default).map(String::from).collect();
-    let account_ids: Vec<String> =
-        matches.values_of("account_ids").unwrap_or_else(clap::Values::default).map(String::from).collect();
+    let public_keys: Vec<String> = matches
+        .values_of("public_keys")
+        .unwrap_or_else(clap::Values::default)
+        .map(String::from)
+        .collect();
+    let account_ids: Vec<String> = matches
+        .values_of("account_ids")
+        .unwrap_or_else(clap::Values::default)
+        .map(String::from)
+        .collect();
 
     assert_eq!(addrs.len(), public_keys.len(), "{}", NUMBER_OF_NODES_ERR);
     assert_eq!(account_ids.len(), public_keys.len(), "{}", NUMBER_OF_NODES_ERR);
@@ -84,9 +92,38 @@ fn connect_nodes(args: Vec<(Arc<InMemorySigner>, SocketAddr)>) -> Vec<Arc<RwLock
         .collect()
 }
 
+fn configure_logging(log_level: log::LevelFilter) {
+    let internal_targets = vec!["observer"];
+    let mut builder = Builder::from_default_env();
+    internal_targets.iter().for_each(|internal_targets| {
+        builder.filter(Some(internal_targets), log_level);
+    });
+    builder.default_format_timestamp_nanos(true);
+    if let Err(e) = builder.try_init() {
+        warn!(target: "client", "Failed to reinitialize the log level {}", e);
+    }
+}
+
 fn main() {
+    configure_logging(log::LevelFilter::Debug);
     let args = parse_args();
-    let _nodes = connect_nodes(args);
-    // TODO: Start observer and transactions executor, add transactions executor args once #851
-    // and #852 are merged.
+    let nodes = connect_nodes(args);
+    let nodes_monitor = Arc::new(NodesMonitor::new(
+        nodes.to_vec(),
+        Duration::from_millis(500),
+        Duration::from_secs(5),
+    ));
+    nodes_monitor.start();
+    // Wait for all nodes to start running.
+    while !nodes_monitor.all_nodes_running() {}
+    println!("all nodes started");
+    {
+        let nodes_monitor = nodes_monitor.clone();
+        thread::spawn(move || loop {
+            println!("TPS: {:?}", nodes_monitor.average_tps());
+            thread::sleep(Duration::from_secs(1));
+        })
+    }
+    .join()
+    .unwrap();
 }

@@ -2,7 +2,7 @@
 set -e
 
 IMAGE=${1:-nearprotocol/alphanet:0.1.4}
-PREFIX=${2:-alphanet}
+PREFIX=${2:-loadtesting}
 ZONE=${3:-us-west2-a}
 
 gcloud beta compute instances update-container ${PREFIX}-0 \

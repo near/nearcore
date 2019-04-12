@@ -1041,6 +1041,8 @@ name = "loadtester"
 version = "0.0.1"
 dependencies = [
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
  "testlib 0.1.0",
 ]
