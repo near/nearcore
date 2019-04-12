@@ -24,6 +24,10 @@
     "jest": "^24.1.0",
     "uglifyify": "^5.0.1"
   },
+  "jest": {
+    "coverageDirectory": "./coverage/",
+    "collectCoverage": true
+  },
   "keywords": [],
   "license": "MIT",
   "scripts": {
