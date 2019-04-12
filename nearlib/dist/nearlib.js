@@ -93,11 +93,14 @@ class Account {
 module.exports = Account;
 
 },{"./protos":69,"./signing/key_pair":72,"bs58":20}],2:[function(require,module,exports){
+(function (Buffer){
 require('error-polyfill');
 window.nearlib = require('./index');
 window.nearlib.dev = require('./dev');
+window.Buffer = Buffer;
 
-},{"./dev":3,"./index":4,"error-polyfill":28}],3:[function(require,module,exports){
+}).call(this,require("buffer").Buffer)
+},{"./dev":3,"./index":4,"buffer":21,"error-polyfill":28}],3:[function(require,module,exports){
 const Near = require('./near');
 const NearClient = require('./nearclient');
 const Account = require('./account');
