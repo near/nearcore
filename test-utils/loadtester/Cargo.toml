@@ -1,0 +1,10 @@
+[package]
+name = "loadtester"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+primitives = { path = "../../core/primitives" }
+testlib = { path = "../testlib" }
+clap = "2.32"

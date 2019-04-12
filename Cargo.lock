@@ -1037,6 +1037,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "loadtester"
+version = "0.0.1"
+dependencies = [
+ "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "primitives 0.1.0",
+ "testlib 0.1.0",
+]
+
+[[package]]
 name = "local-encoding"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
