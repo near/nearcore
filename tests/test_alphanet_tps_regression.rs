@@ -8,12 +8,13 @@ use std::time::{Duration, Instant};
 use network::proxy::benchmark::BenchmarkHandler;
 use network::proxy::ProxyHandler;
 use node_http::types::GetBlocksByIndexRequest;
-use primitives::transaction::TransactionBody;
+use primitives::transaction::{TransactionBody, SignedTransaction};
 use std::io::stdout;
 use std::io::Write;
 use std::sync::{Arc, RwLock};
 use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, NodeConfig};
 use testlib::test_helpers::heavy_test;
+use testlib::transactions_generator::{Generator, TransactionType};
 
 /// Creates and sends a random transaction.
 /// Args:
@@ -22,22 +23,23 @@ use testlib::test_helpers::heavy_test;
 /// `submitted_transactions`: (number of transactions, when these transactions were submitted).
 fn send_transaction(
     nodes: Vec<Arc<RwLock<dyn Node>>>,
-    nonces: Arc<RwLock<Vec<u64>>>,
+//    nonces: Arc<RwLock<Vec<u64>>>,
+    t: SignedTransaction,
     submitted_transactions: Arc<RwLock<Vec<(u64, Instant)>>>,
 ) {
-    let (money_sender, money_receiver) = sample_two_nodes(nodes.len());
+//    let (money_sender, money_receiver) = sample_two_nodes(nodes.len());
     let tx_receiver = sample_queryable_node(&nodes);
     // Update nonces.
-    let mut nonces = nonces.write().unwrap();
-    nonces[money_sender] += 1;
-    let nonce = nonces[money_sender];
+//    let mut nonces = nonces.write().unwrap();
+//    nonces[money_sender] += 1;
+//    let nonce = nonces[money_sender];
 
-    let sender_acc = nodes[money_sender].read().unwrap().account_id().cloned().unwrap();
-    let receiver_acc = nodes[money_receiver].read().unwrap().account_id().cloned().unwrap();
-    let transaction =
-        TransactionBody::send_money(nonce, sender_acc.as_str(), receiver_acc.as_str(), 1)
-            .sign(&*nodes[money_sender].read().unwrap().signer());
-    nodes[tx_receiver].read().unwrap().add_transaction(transaction).unwrap();
+//    let sender_acc = nodes[money_sender].read().unwrap().account_id().cloned().unwrap();
+//    let receiver_acc = nodes[money_receiver].read().unwrap().account_id().cloned().unwrap();
+//    let transaction =
+//        TransactionBody::send_money(nonce, sender_acc.as_str(), receiver_acc.as_str(), 1)
+//            .sign(&*nodes[money_sender].read().unwrap().signer());
+    nodes[tx_receiver].read().unwrap().add_transaction(t).unwrap();
     submitted_transactions.write().unwrap().push((1, Instant::now()));
 }
 
@@ -108,14 +110,17 @@ fn run_multiple_nodes(
         let submitted_transactions = submitted_transactions.clone();
 
         thread::spawn(move || {
-            let nonces = vec![0u64; nodes.len()];
-            let nonces = Arc::new(RwLock::new(nonces));
+//            let nonces = vec![0u64; nodes.len()];
+//            let nonces = Arc::new(RwLock::new(nonces));
+            let mut generator = Generator::new(nodes.to_vec()).iter(TransactionType::SetGet);
             while Instant::now() < timeout {
                 {
-                    let nodes = nodes.to_vec();
-                    let nonces = nonces.clone();
+//                    let nodes = nodes.to_vec();
+//                    let nonces = nonces.clone();
+                    let t = generator.next().unwrap();
                     let submitted_transactions = submitted_transactions.clone();
-                    thread::spawn(move || send_transaction(nodes, nonces, submitted_transactions));
+                    let nodes = nodes.to_vec();
+                    thread::spawn(move || send_transaction(nodes, t, submitted_transactions));
                 }
                 thread::sleep(tx_delay);
             }
@@ -175,8 +180,7 @@ fn run_multiple_nodes(
     let _ = stdout().flush();
 
     // Test that the network does not choke. The choke can be observed when the number of submitted
-    // transactions is not approx. the same the number of observed.
-
+    // transactions is not approx. the same the number of obser
     let submitted_num: f64 =
         submitted_transactions.read().unwrap().iter().map(|(n, _)| *n as f64).sum();
     let observed_num: f64 =
