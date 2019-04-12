@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::borrow::Borrow;
 
 use protobuf::well_known_types::BytesValue;
 use protobuf::SingularPtrField;

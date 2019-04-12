@@ -6,7 +6,7 @@ use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::crypto::group_signature::GroupSignature;
 use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::{InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::merkle::merklize;
 use primitives::transaction::{
@@ -193,7 +193,7 @@ impl User {
         amount: u64,
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let signer = InMemorySigner::from_seed(account_id, account_id);
-        self.create_account_with_key(root, account_id, amount, signer.public_key())
+        self.create_account_with_key(root, account_id, amount, signer.public_key)
     }
 
     pub fn create_account_with_key(

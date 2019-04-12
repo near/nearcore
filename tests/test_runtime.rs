@@ -1,7 +1,9 @@
 use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use configs::ClientConfig;
 use node_runtime::state_viewer::AccountViewCallResult;
-use node_runtime::test_utils::{bob_account, default_code_hash, encode_int, eve_account};
+use node_runtime::test_utils::{
+    alice_account, bob_account, default_code_hash, encode_int, eve_account,
+};
 use node_runtime::{callback_id_to_bytes, set};
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
@@ -12,40 +14,23 @@ use primitives::transaction::{
     ReceiptTransaction, SwapKeyTransaction, TransactionBody, TransactionStatus,
 };
 use primitives::types::AccountingInfo;
-use testlib::alphanet_utils::{Node, NodeConfig, NodeType, RuntimeNode, ShardClientNode};
-use testlib::node_user::NodeUser;
+use testlib::node::{Node, RuntimeNode, ShardClientNode};
+use testlib::user::User;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 fn create_shard_client_node() -> ShardClientNode {
     let client_cfg = ClientConfig::default_devnet();
-    let node_config = NodeConfig {
-        node_info: None,
-        client_cfg,
-        network_cfg: None,
-        rpc_cfg: None,
-        peer_id_seed: Default::default(),
-        node_type: NodeType::ShardClientNode,
-        proxy_handlers: vec![],
-    };
-    ShardClientNode::new(node_config)
+    ShardClientNode::new(client_cfg)
 }
 
 fn create_runtime_node() -> RuntimeNode {
-    let client_cfg = ClientConfig::default_devnet();
-    let node_config = NodeConfig {
-        node_info: None,
-        client_cfg,
-        network_cfg: None,
-        rpc_cfg: None,
-        peer_id_seed: Default::default(),
-        node_type: NodeType::ShardClientNode,
-        proxy_handlers: vec![],
-    };
-    RuntimeNode::new(node_config)
+    RuntimeNode::new(&alice_account())
 }
 
 /// validate transaction result in the case that it is successfully and generate one receipt which
 /// itself generates another receipt.
-fn validate_tx_result(node_user: Box<NodeUser>, root: CryptoHash, hash: &CryptoHash) {
+fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoHash) {
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 1);
@@ -69,7 +54,7 @@ fn test_smart_contract_simple(node: impl Node) {
         args: vec![],
         amount: 0,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -88,7 +73,7 @@ fn test_smart_contract_bad_method_name(node: impl Node) {
         args: vec![],
         amount: 0,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -112,7 +97,7 @@ fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         args: vec![],
         amount: 0,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -136,7 +121,7 @@ fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         args: vec![],
         amount: 10,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -155,7 +140,7 @@ fn test_smart_contract_with_args(node: impl Node) {
         args: (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
         amount: 0,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -315,11 +300,11 @@ fn test_callback(node: RuntimeNode) {
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
 
-    let mut state_update = node.client.borrow().get_state_update();
+    let mut state_update = node.client.read().expect(POISONED_LOCK_ERR).get_state_update();
     set(&mut state_update, &callback_id_to_bytes(&callback_id.clone()), &callback);
     let (root, transaction) = state_update.finalize();
     {
-        let mut client = node.client.borrow_mut();
+        let mut client = node.client.write().expect(POISONED_LOCK_ERR);
         client.state_root = root;
         client.trie.apply_changes(transaction).unwrap();
     }
@@ -360,11 +345,11 @@ fn test_callback_failure(node: RuntimeNode) {
     );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut state_update = node.client.borrow().get_state_update();
+    let mut state_update = node.client.read().expect(POISONED_LOCK_ERR).get_state_update();
     set(&mut state_update, &callback_id_to_bytes(&callback_id.clone()), &callback);
     let (root, transaction) = state_update.finalize();
     {
-        let mut client = node.client.borrow_mut();
+        let mut client = node.client.write().expect(POISONED_LOCK_ERR);
         client.state_root = root;
         client.trie.apply_changes(transaction).unwrap();
     }
@@ -402,7 +387,7 @@ fn test_nonce_update_when_deploying_contract(node: impl Node) {
         contract_id: account_id.clone(),
         wasm_byte_array: wasm_binary.to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -423,7 +408,7 @@ fn test_nonce_updated_when_tx_failed(node: impl Node) {
         &bob_account(),
         TESTING_INIT_BALANCE + 1,
     )
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let node_user = node.user();
     let hash = transaction.get_hash();
@@ -447,7 +432,7 @@ fn test_upload_contract(node: impl Node) {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: 10,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     node_user.add_transaction(transaction).unwrap();
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -458,7 +443,7 @@ fn test_upload_contract(node: impl Node) {
         contract_id: eve_account(),
         wasm_byte_array: wasm_binary.to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
@@ -481,7 +466,7 @@ fn test_redeploy_contract(node: impl Node) {
         contract_id: account_id.clone(),
         wasm_byte_array: test_binary.to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
@@ -505,7 +490,7 @@ fn test_send_money(node: impl Node) {
         &bob_account(),
         money_used,
     )
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
@@ -552,7 +537,7 @@ fn test_send_money_over_balance(node: impl Node) {
         &bob_account(),
         money_used,
     )
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
@@ -600,7 +585,7 @@ fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
         &eve_account(),
         money_used,
     )
-    .sign(node.signer());
+    .sign(&*node.signer());
 
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
@@ -645,7 +630,7 @@ fn test_create_account(node: impl Node) {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: money_used,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -696,7 +681,7 @@ fn test_create_account_again(node: impl Node) {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: money_used,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     node_user.add_transaction(transaction).unwrap();
 
     let result1 = node_user.view_account(account_id);
@@ -733,7 +718,7 @@ fn test_create_account_again(node: impl Node) {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: money_used,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
@@ -785,7 +770,7 @@ fn test_create_account_failure_invalid_name(node: impl Node) {
             public_key: node.signer().public_key.0[..].to_vec(),
             amount: money_used,
         })
-        .sign(node.signer());
+        .sign(&*node.signer());
         let tx_hash = transaction.get_hash();
         node_user.add_transaction(transaction).unwrap();
         let new_root = node_user.get_state_root();
@@ -820,7 +805,7 @@ fn test_create_account_failure_already_exists(node: impl Node) {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: money_used,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -876,7 +861,7 @@ fn test_swap_key(node: impl Node) {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: money_used,
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     node_user.add_transaction(transaction).unwrap();
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -887,7 +872,7 @@ fn test_swap_key(node: impl Node) {
         cur_key: node.signer().public_key.0[..].to_vec(),
         new_key: signer2.public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -910,7 +895,7 @@ fn test_add_key(node: impl Node) {
         originator: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -933,7 +918,7 @@ fn test_add_existing_key(node: impl Node) {
         originator: account_id.clone(),
         new_key: node.signer().public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -956,7 +941,7 @@ fn test_delete_key(node: impl Node) {
         originator: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -970,7 +955,7 @@ fn test_delete_key(node: impl Node) {
         originator: account_id.clone(),
         cur_key: node.signer().public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -995,7 +980,7 @@ fn test_delete_key_not_owned(node: impl Node) {
         originator: account_id.clone(),
         cur_key: signer2.public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
@@ -1018,7 +1003,7 @@ fn test_delete_key_no_key_left(node: impl Node) {
         originator: account_id.clone(),
         cur_key: node.signer().public_key.0[..].to_vec(),
     })
-    .sign(node.signer());
+    .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
     let transaction_result = node_user.get_transaction_result(&tx_hash);
