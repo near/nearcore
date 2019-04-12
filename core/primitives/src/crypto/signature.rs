@@ -47,20 +47,6 @@ impl ToBytes for SecretKey {
     }
 }
 
-/// Allows using PublicKey in std containers and macros.
-impl std::hash::Hash for PublicKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(self.as_ref());
-    }
-}
-
-/// Allows using SecretKey in std containers and macros.
-impl std::hash::Hash for SecretKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(self.as_ref());
-    }
-}
-
 const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
     [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
 

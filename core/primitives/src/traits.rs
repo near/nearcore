@@ -8,7 +8,7 @@ pub trait ToBytes: Sized {
 pub trait Base58Encoded:
     for<'a> TryFrom<&'a [u8], Error = Box<std::error::Error>> + ToBytes
 {
-    fn from_base58(s: &String) -> Result<Self, Box<std::error::Error>> {
+    fn from_base58(s: &str) -> Result<Self, Box<std::error::Error>> {
         let bytes = bs58::decode(s).into_vec()?;
         Self::try_from(&bytes)
     }

@@ -48,7 +48,7 @@ pub fn wait<F>(mut f: F, check_interval_ms: u64, max_wait_ms: u64)
 /// Wait until a certain node is caught up and participating in a consensus. Check first-layer BLS signatures;
 /// Wait until all nodes are more-or-less caught up. Check that the max_block_index - min_block_index < threshold;
 ///
-pub fn wait_for_catchup(nodes: &Vec<Arc<RwLock<dyn Node>>>) {
+pub fn wait_for_catchup(nodes: &[Arc<RwLock<dyn Node>>]) {
     wait(
         || {
             let tips: Vec<_> = nodes

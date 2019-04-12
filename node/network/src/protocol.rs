@@ -133,7 +133,7 @@ impl<T: AccountSigner + EDSigner + BLSSigner + Sized + Clone + 'static> Protocol
         next_request_id
     }
 
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn receive_message(&self, peer_id: PeerId, data: Vec<u8>) {
         let message = match decode_message(&data) {
             Ok(m) => m,

@@ -48,6 +48,7 @@ impl Executor {
         thread::spawn(move || {
             let interval = Duration::from_nanos((Duration::from_secs(1).as_nanos() as u64) / tps);
             let timeout = timeout.map(|t| Instant::now() + t);
+            #[allow(clippy::mutex_atomic)]
             let messages_sent = Arc::new(Mutex::new(0usize));
             tokio::run(
                 Interval::new_interval(interval)
