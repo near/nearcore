@@ -17,7 +17,7 @@ cd ..
 rm -rf new_project
 mkdir new_project
 cd new_project
-npm install near-shell
+npm install git+https://git@github.com/nearprotocol/near-shell.git
 node_modules/near-shell/near new_project
 npm install
 npm run build
