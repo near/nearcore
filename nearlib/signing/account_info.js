@@ -1,14 +1,13 @@
 const KeyPair = require('./key_pair');
 
 /**
- * Standard format for storing account info in json
+ * Utility functions for dealing with account information. 
  */
 class AccountInfo {
-
     constructor(accountId, keyPair, networkId) {
-        this.accountId = accountId;
-        this.keyPair = keyPair;
-        this.networkId = networkId;
+        this._accountId = accountId;
+        this._keyPair = keyPair;
+        this._networkId = networkId;
     }
 
     /**
@@ -25,31 +24,43 @@ class AccountInfo {
     /**
      * Convert to standard json format.
      */
-    toJson() {
+    toJSON() {
         return {
-            account_id: this.accountId,
-            public_key: this.keyPair.getPublicKey(),
-            secret_key: this.keyPair.getSecretKey(),
-            network_id: this.networkId
+            account_id: this._accountId,
+            public_key: this._keyPair.getPublicKey(),
+            secret_key: this._keyPair.getSecretKey(),
+            network_id: this._networkId
         };
     }
 
     /**
-     * Gets a key pair from account info.
+     * Gets/sets a key pair for account info.
      */
-    getKeyPair() {
-        return this.keyPair;
+    get keyPair() {
+        return this._keyPair;
+    }
+    set keyPair(keyPair) {
+        this._keyPair = keyPair;
     }
 
     /**
      * Gets a key pair from account info.
      */
-    getAccountId() {
-        return this.accountId;
+    get accountId() {
+        return this._accountId;
+    }
+    set accountId(accountId) {
+        this._accountId = accountId;
     }
 
-    getNetworkId() {
-        return this.networkId;
+    /**
+     * Gets/sets network id.
+     */
+    get networkId() {
+        return this._networkId;
+    }
+    set networkId(networkId) {
+        this._networkId = networkId;
     }
 
     /**
@@ -57,7 +68,7 @@ class AccountInfo {
      */
     downloadAsFile() {
         const fileName = getKeyFileName();
-        const text = JSON.stringify(this.toJson());
+        const text = JSON.stringify(this.toJSON());
       
         var element = document.createElement('a');
         element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
@@ -72,7 +83,7 @@ class AccountInfo {
     }
 
     getKeyFileName() {
-        return this.networkId + '_' + this.accountId;
+        return this._networkId + '_' + this._accountId;
     }
 }
 

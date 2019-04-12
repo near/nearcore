@@ -9,8 +9,6 @@ const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
 const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
-
-
 class BrowserLocalStorageKeystore {
     constructor(networkId = 'unknown', localStorage = window.localStorage) {
         this.networkId = networkId;
@@ -39,10 +37,10 @@ class BrowserLocalStorageKeystore {
 
     async setKeyFromJson(json) {
         const accountInfo =  AccountInfo.fromJson(json);
-        if (this.networkId != accountInfo.getNetworkId()) {
+        if (this.networkId != accountInfo.networkId) {
             throw new Error('Setting key for a wrong network');
         }
-        this.setKey(accountInfo.getAccountId(), accountInfo.getKeyPair());
+        this.setKey(accountInfo.accountId, accountInfo.keyPair);
     }
 
     /**

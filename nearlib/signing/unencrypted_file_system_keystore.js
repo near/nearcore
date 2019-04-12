@@ -23,7 +23,7 @@ class UnencryptedFileSystemKeyStore {
             await promisify(fs.mkdir)(keyDir);
         }
         const accountInfo = new AccountInfo(accountId, keypair, this.networkId);
-        const keyFileContent = accountInfo.toJson();
+        const keyFileContent = accountInfo.toJSON();
         await promisify(fs.writeFile)(this.getKeyFilePath(accountId), JSON.stringify(keyFileContent));
     }
 
@@ -37,7 +37,7 @@ class UnencryptedFileSystemKeyStore {
             return null;
         }
         const json = await this.getRawKey(accountId);
-        return AccountInfo.fromJson(json).getKeyPair();
+        return AccountInfo.fromJson(json).keyPair;
     }
 
     /**
