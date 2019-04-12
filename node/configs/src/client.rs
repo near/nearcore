@@ -13,7 +13,7 @@ const MAX_NUM_BLOCKS_REQUEST: u64 = 100;
 #[derive(Clone)]
 pub struct ClientConfig {
     pub base_path: PathBuf,
-    pub account_id: AccountId,
+    pub account_id: Option<AccountId>,
     pub public_key: Option<String>,
     pub chain_spec: ChainSpec,
     /// Maximum number of blocks to be fetched in one request.
@@ -25,7 +25,7 @@ impl ClientConfig {
     pub fn default_devnet() -> Self {
         Self {
             base_path: PathBuf::from(DEFAULT_BASE_PATH),
-            account_id: String::from(ALICE_ID),
+            account_id: Some(String::from(ALICE_ID)),
             public_key: None,
             chain_spec: ChainSpec::default_devnet(),
             block_fetch_limit: MAX_NUM_BLOCKS_REQUEST,
@@ -54,9 +54,7 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .long("account-id")
             .value_name("ACCOUNT_ID")
             .help("Set the account id of the node")
-            .takes_value(true)
-            // TODO(#282): Remove default account id from here.
-            .default_value("alice.near"),
+            .takes_value(true),
         Arg::with_name("public_key")
             .short("k")
             .long("public-key")
@@ -83,7 +81,7 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
 
 pub fn from_matches(matches: &ArgMatches, default_chain_spec: ChainSpec) -> ClientConfig {
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
-    let account_id = matches.value_of("account_id").map(String::from).unwrap();
+    let account_id = matches.value_of("account_id").map(String::from);
     let public_key = matches.value_of("public_key").map(String::from);
     let block_fetch_limit =
         matches.value_of("block_fetch_limit").and_then(|s| s.parse::<u64>().ok()).unwrap();

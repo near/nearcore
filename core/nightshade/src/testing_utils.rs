@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use primitives::crypto::aggregate_signature::BlsAggregateSignature;
 use primitives::hash::hash_struct;
-use primitives::crypto::signer::BlockSigner;
+use primitives::crypto::signer::BLSSigner;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AuthorityId;
 

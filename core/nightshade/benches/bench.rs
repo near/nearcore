@@ -5,7 +5,7 @@ use bencher::Bencher;
 
 use nightshade::nightshade::BareState;
 use primitives::hash::hash_struct;
-use primitives::crypto::signer::{BlockSigner, InMemorySigner};
+use primitives::crypto::signer::{BLSSigner, InMemorySigner};
 
 fn bare_state() -> BareState {
     BareState::new(0, hash_struct(&0))

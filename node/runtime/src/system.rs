@@ -237,6 +237,19 @@ pub fn system_create_account(
 
 #[cfg(test)]
 mod tests {
+<<<<<<< HEAD
+=======
+    use primitives::hash::hash;
+    use primitives::serialize::Encode;
+    use primitives::crypto::signer::{InMemorySigner, EDSigner};
+    use primitives::transaction::{TransactionBody, TransactionStatus};
+
+    use crate::get;
+    use crate::state_viewer::{AccountViewCallResult, TrieViewer};
+    use crate::test_utils::*;
+    use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+
+>>>>>>> master
     use super::*;
     use crate::test_utils::*;
     use configs::chain_spec::TESTING_INIT_BALANCE;
