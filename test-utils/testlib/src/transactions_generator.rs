@@ -27,8 +27,8 @@ pub enum TransactionType {
 }
 
 impl Generator {
-    pub fn new(nodes: Vec<Arc<RwLock<dyn Node>>>) -> Self {
-        Self { nodes, nonces: Default::default() }
+    pub fn new(nodes: Vec<Arc<RwLock<dyn Node>>>, nonces: RwLock<HashMap<AccountId, u64>>) -> Self {
+        Self { nodes, nonces }
     }
 
     /// Increments nonce and returns it.
