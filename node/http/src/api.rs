@@ -6,14 +6,7 @@ use primitives::logging::pretty_utf8;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
 
-use crate::types::{
-    CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
-    GetBlocksByIndexRequest, GetTransactionRequest, SignedBeaconBlockResponse,
-    SignedBeaconBlocksResponse, SignedShardBlockResponse, SignedShardBlocksResponse,
-    SubmitTransactionRequest, SubmitTransactionResponse, TransactionInfoResponse,
-    TransactionResultResponse, ViewAccountRequest, ViewAccountResponse, ViewStateRequest,
-    ViewStateResponse,
-};
+use crate::types::*;
 use primitives::transaction::verify_transaction_signature;
 use primitives::transaction::SignedTransaction;
 
@@ -43,6 +36,7 @@ impl HttpApi {
                 amount: r.amount,
                 stake: r.stake,
                 code_hash: r.code_hash,
+                public_keys: r.public_keys,
                 nonce: r.nonce,
             }),
             Err(e) => Err(e.to_string()),
@@ -185,11 +179,33 @@ impl HttpApi {
         }
     }
 
-    pub fn get_transaction_result(
+    pub fn get_receipt_info(
         &self,
         r: &GetTransactionRequest,
-    ) -> Result<TransactionResultResponse, ()> {
+    ) -> Result<ReceiptInfoResponse, RPCError> {
+        match self.client.shard_client.get_receipt_info(&r.hash) {
+            Some(info) => Ok(ReceiptInfoResponse {
+                receipt: info.receipt.into(),
+                block_index: info.block_index,
+                result: info.result
+            }),
+            None => Err(RPCError::NotFound)
+        }
+    }
+
+    pub fn get_transaction_final_result(
+        &self,
+        r: &GetTransactionRequest,
+    ) -> Result<TransactionFinalResultResponse, ()> {
         let result = self.client.shard_client.get_transaction_final_result(&r.hash);
+        Ok(TransactionFinalResultResponse { result })
+    }
+
+    pub fn get_transaction_result(
+        &self,
+        r: &GetTransactionRequest
+    ) -> Result<TransactionResultResponse, ()> {
+        let result = self.client.shard_client.get_transaction_result(&r.hash);
         Ok(TransactionResultResponse { result })
     }
 }

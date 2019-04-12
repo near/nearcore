@@ -1,5 +1,6 @@
 use protobuf::well_known_types::BytesValue;
 use protobuf::SingularPtrField;
+use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -11,9 +12,9 @@ use near_protos::Message as ProtoMessage;
 
 use crate::logging;
 
-use crate::hash::{hash, CryptoHash};
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::TransactionSigner;
+use crate::hash::{hash, CryptoHash};
 use crate::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
     StructSignature,
@@ -801,7 +802,7 @@ impl fmt::Debug for CallbackResult {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
     pub originator: AccountId,
@@ -865,6 +866,24 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             body: Some(body),
             ..Default::default()
         }
+    }
+}
+
+impl Hash for ReceiptTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.nonce.hash(state)
+    }
+}
+
+impl PartialEq for ReceiptTransaction {
+    fn eq(&self, other: &ReceiptTransaction) -> bool {
+        self.nonce == other.nonce
+    }
+}
+
+impl Borrow<CryptoHash> for ReceiptTransaction {
+    fn borrow(&self) -> &CryptoHash {
+        &self.nonce
     }
 }
 
@@ -970,8 +989,12 @@ impl fmt::Debug for FinalTransactionResult {
 pub struct TransactionAddress {
     /// Block hash
     pub block_hash: CryptoHash,
-    /// Transaction index within the block
+    /// Transaction index within the block. If it is a receipt,
+    /// index is the index in the receipt block.
     pub index: usize,
+    /// Only for receipts. The shard that the receipt
+    /// block is supposed to go
+    pub shard_id: Option<ShardId>,
 }
 
 pub fn verify_transaction_signature(

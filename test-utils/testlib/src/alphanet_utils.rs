@@ -1,8 +1,10 @@
+use std::cell::RefCell;
 use std::fs;
 use std::net::SocketAddr;
 use std::panic;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
@@ -17,13 +19,18 @@ use configs::ClientConfig;
 use configs::NetworkConfig;
 use configs::RPCConfig;
 use network::proxy::ProxyHandler;
-use primitives::network::{PeerAddr, PeerInfo};
+use node_runtime::test_utils::get_runtime_and_trie;
 use primitives::crypto::signer::InMemorySigner;
+use primitives::network::{PeerAddr, PeerInfo};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
+use shard::ShardClient;
+use storage::test_utils::create_beacon_shard_storages;
 use tokio_utils::ShutdownableThread;
 
-use crate::node_user::{NodeUser, RpcNodeUser, ThreadNodeUser};
+use crate::node_user::{
+    FakeClient, NodeUser, RpcNodeUser, RuntimeUser, ShardClientUser, ThreadNodeUser,
+};
 
 const TMP_DIR: &str = "../../tmp/testnet";
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
@@ -36,6 +43,8 @@ pub fn configure_chain_spec() -> ChainSpec {
 pub enum NodeType {
     ThreadNode,
     ProcessNode,
+    ShardClientNode,
+    RuntimeNode,
 }
 
 pub enum ProcessNodeState {
@@ -49,20 +58,21 @@ pub enum ThreadNodeState {
 }
 
 pub struct NodeConfig {
-    pub node_info: PeerInfo,
+    pub node_info: Option<PeerInfo>,
     pub client_cfg: ClientConfig,
-    pub network_cfg: NetworkConfig,
-    pub rpc_cfg: RPCConfig,
+    pub network_cfg: Option<NetworkConfig>,
+    pub rpc_cfg: Option<RPCConfig>,
     pub peer_id_seed: u32,
     pub node_type: NodeType,
     pub proxy_handlers: Vec<Arc<ProxyHandler>>,
 }
 
 impl NodeConfig {
-    pub fn node_addr(&self) -> PeerAddr {
-        let addr = self.network_cfg.listen_addr.expect("Node doesn't have an address");
-        PeerAddr::parse(&format!("127.0.0.1:{}/{}", addr.port(), self.network_cfg.peer_id))
-            .expect("Failed to parse")
+    pub fn node_addr(&self) -> Option<PeerAddr> {
+        let network_cfg = self.network_cfg.as_ref()?;
+        let peer_id = network_cfg.peer_id;
+        let addr = network_cfg.listen_addr?;
+        PeerAddr::parse(&format!("127.0.0.1:{}/{}", addr.port(), peer_id)).ok()
     }
 }
 
@@ -95,8 +105,8 @@ pub trait Node {
 
     fn is_running(&self) -> bool;
 
-    fn rpc_user(&self) -> RpcNodeUser {
-        RpcNodeUser::new(self.config().rpc_cfg.rpc_port)
+    fn rpc_user(&self) -> Option<RpcNodeUser> {
+        self.config().rpc_cfg.as_ref().map(|cfg| RpcNodeUser::new(cfg.rpc_port))
     }
 
     fn user(&self) -> Box<dyn NodeUser>;
@@ -107,6 +117,8 @@ impl Node {
         match config.node_type {
             NodeType::ThreadNode => Box::new(ThreadNode::new(config)),
             NodeType::ProcessNode => Box::new(ProcessNode::new(config)),
+            NodeType::ShardClientNode => Box::new(ShardClientNode::new(config)),
+            NodeType::RuntimeNode => Box::new(RuntimeNode::new(config)),
         }
     }
 }
@@ -120,6 +132,18 @@ pub struct ThreadNode {
 pub struct ProcessNode {
     pub config: NodeConfig,
     pub state: ProcessNodeState,
+}
+
+pub struct ShardClientNode {
+    pub config: NodeConfig,
+    pub client: Arc<ShardClient>,
+    pub signer: Arc<InMemorySigner>,
+}
+
+pub struct RuntimeNode {
+    pub config: NodeConfig,
+    pub client: Rc<RefCell<FakeClient>>,
+    pub signer: Arc<InMemorySigner>,
 }
 
 impl Node for ProcessNode {
@@ -175,7 +199,7 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<NodeUser> {
-        Box::new(self.rpc_user())
+        Box::new(self.rpc_user().unwrap())
     }
 }
 
@@ -198,8 +222,8 @@ impl Node for ThreadNode {
         let handle = alphanet::start_from_client(
             client,
             Some(account_id),
-            network_cfg,
-            rpc_cfg,
+            network_cfg.unwrap(),
+            rpc_cfg.unwrap(),
             client_cfg,
             proxy_handlers,
         );
@@ -238,6 +262,74 @@ impl Node for ThreadNode {
 
     fn user(&self) -> Box<dyn NodeUser> {
         Box::new(ThreadNodeUser::new(self.client.clone()))
+    }
+}
+
+impl Node for ShardClientNode {
+    fn config(&self) -> &NodeConfig {
+        &self.config
+    }
+
+    fn node_type(&self) -> NodeType {
+        NodeType::ShardClientNode
+    }
+
+    fn start(&mut self) {}
+
+    fn kill(&mut self) {}
+
+    fn signer(&self) -> Arc<InMemorySigner> {
+        self.signer.clone()
+    }
+
+    fn as_process_mut(&mut self) -> &mut ProcessNode {
+        unimplemented!()
+    }
+
+    fn as_thread_mut(&mut self) -> &mut ThreadNode {
+        unimplemented!()
+    }
+
+    fn is_running(&self) -> bool {
+        true
+    }
+
+    fn user(&self) -> Box<dyn NodeUser> {
+        Box::new(ShardClientUser::new(self.client.clone()))
+    }
+}
+
+impl Node for RuntimeNode {
+    fn config(&self) -> &NodeConfig {
+        &self.config
+    }
+
+    fn node_type(&self) -> NodeType {
+        NodeType::RuntimeNode
+    }
+
+    fn start(&mut self) {}
+
+    fn kill(&mut self) {}
+
+    fn signer(&self) -> Arc<InMemorySigner> {
+        self.signer.clone()
+    }
+
+    fn as_process_mut(&mut self) -> &mut ProcessNode {
+        unimplemented!()
+    }
+
+    fn as_thread_mut(&mut self) -> &mut ThreadNode {
+        unimplemented!()
+    }
+
+    fn is_running(&self) -> bool {
+        true
+    }
+
+    fn user(&self) -> Box<dyn NodeUser> {
+        Box::new(RuntimeUser::new(&self.signer.account_id, self.client.clone()))
     }
 }
 
@@ -303,7 +395,7 @@ impl ProcessNode {
             "run",
             "--",
             "--rpc_port",
-            format!("{}", self.config().rpc_cfg.rpc_port).as_str(),
+            format!("{}", self.config().rpc_cfg.as_ref().unwrap().rpc_port).as_str(),
             "--base-path",
             self.config().client_cfg.base_path.to_str().unwrap(),
             "--test-network-key-seed",
@@ -315,11 +407,12 @@ impl ProcessNode {
             "-k",
             format!("{}", pubkey).as_str(),
         ]);
-        if let Some(ref addr) = self.config().node_info.addr {
+        if let Some(ref addr) = self.config().node_info.as_ref().and_then(|info| info.addr) {
             start_node_command.args(&["--addr", format!("{}", addr).as_str()]);
         }
-        if !self.config().network_cfg.boot_nodes.is_empty() {
-            let boot_node = format!("{}", self.config().network_cfg.boot_nodes[0]);
+        if !self.config().network_cfg.as_ref().unwrap().boot_nodes.is_empty() {
+            let boot_node =
+                format!("{}", self.config().network_cfg.as_ref().unwrap().boot_nodes[0]);
             start_node_command.args(&["--boot-nodes", boot_node.as_str()]);
         }
         start_node_command
@@ -334,6 +427,28 @@ impl Drop for ProcessNode {
             }
             ProcessNodeState::Stopped => {}
         }
+    }
+}
+
+impl ShardClientNode {
+    pub fn new(config: NodeConfig) -> Self {
+        let account_id = &config.client_cfg.account_id;
+        let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+        let (_, shard_storage) = create_beacon_shard_storages();
+
+        let chain_spec = &config.client_cfg.chain_spec;
+        let shard_client = ShardClient::new(signer.clone(), chain_spec, shard_storage);
+        ShardClientNode { config, client: Arc::new(shard_client), signer }
+    }
+}
+
+impl RuntimeNode {
+    pub fn new(config: NodeConfig) -> Self {
+        let account_id = &config.client_cfg.account_id;
+        let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+        let (runtime, trie, root) = get_runtime_and_trie();
+        let client = Rc::new(RefCell::new(FakeClient { runtime, trie, state_root: root }));
+        RuntimeNode { config, signer, client }
     }
 }
 
@@ -438,10 +553,10 @@ impl NodeConfig {
         let node_type = NodeType::ThreadNode;
 
         NodeConfig {
-            node_info,
+            node_info: Some(node_info),
             client_cfg,
-            network_cfg,
-            rpc_cfg,
+            network_cfg: Some(network_cfg),
+            rpc_cfg: Some(rpc_cfg),
             peer_id_seed,
             node_type,
             proxy_handlers,
@@ -489,7 +604,8 @@ pub fn create_nodes(
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
     );
-    let account_names: Vec<_> = chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
+    let account_names: Vec<_> =
+        chain_spec.initial_authorities.iter().map(|acc| acc.0.clone()).collect();
     let mut nodes = vec![];
     let mut boot_nodes = vec![];
     // Launch nodes in a chain, such that X+1 node boots from X node.
@@ -504,7 +620,7 @@ pub fn create_nodes(
             block_fetch_limit,
             proxy_handlers.clone(),
         );
-        boot_nodes = vec![node.node_addr()];
+        boot_nodes = vec![node.node_addr().unwrap()];
         nodes.push(node);
     }
     (TESTING_INIT_BALANCE, account_names, nodes)

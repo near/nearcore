@@ -1,18 +1,16 @@
 use std::collections::HashMap;
 
 use near_protos::serde::b64_format as protos_b64_format;
-use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{BeaconBlockHeader, SignedBeaconBlockHeader};
 use primitives::chain::{ReceiptBlock, ShardBlock, ShardBlockHeader, SignedShardBlock};
-use primitives::hash::{bs58_format, CryptoHash};
-use primitives::crypto::signature::{bs58_serializer, PublicKey};
-use primitives::transaction::{
-    FinalTransactionResult, LogEntry, SignedTransaction, TransactionResult,
-};
-use primitives::types::{
-    AccountId, AuthorityStake, Balance, MerkleHash, Nonce, ShardId,
-};
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::crypto::group_signature::GroupSignature;
+use primitives::crypto::signature::{bs58_serializer, PublicKey};
+use primitives::hash::{bs58_format, CryptoHash};
+use primitives::transaction::{
+    FinalTransactionResult, LogEntry, SignedTransaction, TransactionResult, ReceiptTransaction
+};
+use primitives::types::{AccountId, AuthorityStake, Balance, MerkleHash, Nonce, ShardId};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
@@ -25,6 +23,7 @@ pub struct ViewAccountResponse {
     pub amount: Balance,
     pub stake: Balance,
     pub nonce: Nonce,
+    pub public_keys: Vec<PublicKey>,
     #[serde(with = "bs58_format")]
     pub code_hash: CryptoHash,
 }
@@ -150,9 +149,18 @@ pub struct SignedTransactionResponse {
     pub hash: CryptoHash,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct ReceiptResponse {
+    #[serde(with = "protos_b64_format")]
+    pub body: near_protos::receipt::ReceiptTransaction,
+    #[serde(with = "bs58_format")]
+    pub hash: CryptoHash,
+}
+
 impl From<SignedTransaction> for SignedTransactionResponse {
     fn from(transaction: SignedTransaction) -> Self {
-        Self { body: transaction.clone().into(), hash: transaction.get_hash() }
+        let hash = transaction.get_hash();
+        Self { body: transaction.into(), hash }
     }
 }
 
@@ -161,6 +169,13 @@ impl From<ShardBlock> for ShardBlockResponse {
         let transactions =
             block.transactions.into_iter().map(SignedTransactionResponse::from).collect();
         ShardBlockResponse { header: block.header.into(), transactions, receipts: block.receipts }
+    }
+}
+
+impl From<ReceiptTransaction> for ReceiptResponse {
+    fn from(receipt: ReceiptTransaction) -> Self {
+        let hash = receipt.nonce;
+        Self { body: receipt.into(), hash }
     }
 }
 
@@ -207,6 +222,11 @@ pub struct GetTransactionRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct TransactionResultResponse {
+    pub result: TransactionResult,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TransactionFinalResultResponse {
     /// Final result of given transaction, including it's receipts.
     pub result: FinalTransactionResult,
 }
@@ -220,6 +240,13 @@ pub struct SubmitTransactionResponse {
 #[derive(Serialize, Deserialize)]
 pub struct TransactionInfoResponse {
     pub transaction: SignedTransactionResponse,
+    pub block_index: u64,
+    pub result: TransactionResult,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ReceiptInfoResponse {
+    pub receipt: ReceiptResponse,
     pub block_index: u64,
     pub result: TransactionResult,
 }

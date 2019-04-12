@@ -53,36 +53,62 @@ impl ShardChainStorage {
         block: &SignedShardBlock,
         tx_results: Vec<TransactionResult>,
     ) -> io::Result<()> {
-        let keys: Vec<_> = block
+        let transaction_keys: Vec<_> = block
             .body
-            .receipts
+            .transactions
             .iter()
-            .flat_map(|b| b.receipts.iter().map(|r| self.generic_storage.enc_hash(&r.nonce)))
-            .chain(
-                block
-                    .body
-                    .transactions
-                    .iter()
-                    .map(|t| self.generic_storage.enc_hash(&t.get_hash())),
-            )
-            .map(|k| k.to_vec())
+            .map(|t| self.generic_storage.enc_hash(&t.get_hash()).to_vec())
             .collect();
-
-        let updates: HashMap<Vec<u8>, TransactionAddress> = keys
+        let transaction_address_updates: HashMap<Vec<u8>, TransactionAddress> = transaction_keys
             .iter()
             .cloned()
             .enumerate()
-            .map(|(i, key)| (key, TransactionAddress { block_hash: block.hash, index: i }))
+            .map(|(i, key)| {
+                (key, TransactionAddress { block_hash: block.hash, index: i, shard_id: None })
+            })
             .collect();
         extend_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TRANSACTION_ADDRESSES,
             &mut self.transaction_addresses,
-            updates,
+            transaction_address_updates,
         )?;
 
-        let updates: HashMap<Vec<u8>, TransactionResult> =
-            keys.into_iter().zip(tx_results.into_iter()).collect();
+        let receipt_keys: Vec<_> = block
+            .body
+            .receipts
+            .iter()
+            .flat_map(|b| {
+                b.receipts.iter().zip(std::iter::repeat(b.shard_id)).enumerate().map(
+                    |(i, (r, shard_id))| {
+                        (shard_id, i, self.generic_storage.enc_hash(&r.nonce).to_vec())
+                    },
+                )
+            })
+            .collect();
+        let receipt_address_updates: HashMap<Vec<u8>, TransactionAddress> = receipt_keys
+            .iter()
+            .cloned()
+            .map(|(shard_id, index, key)| {
+                (
+                    key,
+                    TransactionAddress { block_hash: block.hash, index, shard_id: Some(shard_id) },
+                )
+            })
+            .collect();
+        extend_with_cache(
+            self.generic_storage.storage.as_ref(),
+            COL_TRANSACTION_ADDRESSES,
+            &mut self.transaction_addresses,
+            receipt_address_updates,
+        )?;
+
+        let updates: HashMap<Vec<u8>, TransactionResult> = receipt_keys
+            .into_iter()
+            .map(|(_, _, key)| key)
+            .chain(transaction_keys.into_iter())
+            .zip(tx_results.into_iter())
+            .collect();
         extend_with_cache(
             self.generic_storage.storage.as_ref(),
             COL_TRANSACTION_RESULTS,

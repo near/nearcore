@@ -457,6 +457,18 @@ class Near {
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
+                for (j = result.logs.length - 1; j >= 0; --j) {
+                    let r = result.logs[j];
+                    if (r.result && r.result.length > 0) {
+                        result.lastResultUnparsed = r.result;
+                        try {
+                            result.lastResult = JSON.parse(Buffer.from(r.result).toString());
+                        } catch (e) {
+                            // can't parse
+                        }
+                        break;
+                    }
+                }
                 return result;
             }
             if (result.status == 'Failed') {
@@ -7194,22 +7206,20 @@ SafeBuffer.allocUnsafeSlow = function (size) {
 }
 
 },{"buffer":21}],58:[function(require,module,exports){
-'use strict'
-/* eslint no-proto: 0 */
-module.exports = Object.setPrototypeOf || ({ __proto__: [] } instanceof Array ? setProtoOf : mixinProperties)
+module.exports = Object.setPrototypeOf || ({__proto__:[]} instanceof Array ? setProtoOf : mixinProperties);
 
-function setProtoOf (obj, proto) {
-  obj.__proto__ = proto
-  return obj
+function setProtoOf(obj, proto) {
+	obj.__proto__ = proto;
+	return obj;
 }
 
-function mixinProperties (obj, proto) {
-  for (var prop in proto) {
-    if (!obj.hasOwnProperty(prop)) {
-      obj[prop] = proto[prop]
-    }
-  }
-  return obj
+function mixinProperties(obj, proto) {
+	for (var prop in proto) {
+		if (!obj.hasOwnProperty(prop)) {
+			obj[prop] = proto[prop];
+		}
+	}
+	return obj;
 }
 
 },{}],59:[function(require,module,exports){
