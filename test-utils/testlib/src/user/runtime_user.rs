@@ -11,11 +11,11 @@ use shard::ReceiptInfo;
 use storage::{Trie, TrieUpdate};
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// Fake client without chain, used in RuntimeUser and RuntimeNode
-pub struct FakeClient {
+pub struct MockClient {
     pub runtime: Runtime,
     // Arc here because get_runtime_and_trie returns Arc<Trie> and
     // TrieUpdate takes Arc<Trie>.
@@ -23,7 +23,7 @@ pub struct FakeClient {
     pub state_root: MerkleHash,
 }
 
-impl FakeClient {
+impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
         TrieUpdate::new(self.trie.clone(), self.state_root)
     }
@@ -33,15 +33,15 @@ pub struct RuntimeUser {
     pub account_id: AccountId,
     pub nonce: RefCell<Nonce>,
     pub trie_viewer: TrieViewer,
-    pub client: Arc<RwLock<FakeClient>>,
+    pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
     pub transaction_results: RefCell<HashMap<CryptoHash, TransactionResult>>,
     // store receipts generated when applying transactions
-    pub receipts: RefCell<HashSet<ReceiptTransaction>>,
+    pub receipts: RefCell<HashMap<CryptoHash, ReceiptTransaction>>,
 }
 
 impl RuntimeUser {
-    pub fn new(account_id: &str, client: Arc<RwLock<FakeClient>>) -> Self {
+    pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
         RuntimeUser {
             trie_viewer: TrieViewer {},
             account_id: account_id.to_string(),
@@ -90,7 +90,7 @@ impl RuntimeUser {
             let new_receipts: Vec<_> =
                 apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
             for receipt in new_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.clone());
+                self.receipts.borrow_mut().insert(receipt.nonce, receipt.clone());
             }
             receipts = vec![to_receipt_block(new_receipts)];
             txs = vec![];
@@ -137,7 +137,7 @@ impl User for RuntimeUser {
     }
 
     fn get_best_block_index(&self) -> Option<u64> {
-        unreachable!("get_best_block_index should not be implemented for RuntimeUser");
+        unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
@@ -158,6 +158,6 @@ impl User for RuntimeUser {
         &self,
         _r: GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String> {
-        unreachable!("get_shard_blocks_by_index should not be implemented for RuntimeUser");
+        unimplemented!("get_shard_blocks_by_index should not be implemented for RuntimeUser");
     }
 }

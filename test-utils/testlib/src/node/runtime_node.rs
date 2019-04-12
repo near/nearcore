@@ -1,5 +1,5 @@
 use crate::node::{Node, ProcessNode, ThreadNode};
-use crate::user::runtime_user::{FakeClient, RuntimeUser};
+use crate::user::runtime_user::{MockClient, RuntimeUser};
 use crate::user::User;
 use node_runtime::test_utils::get_runtime_and_trie;
 use primitives::crypto::signer::InMemorySigner;
@@ -7,7 +7,7 @@ use primitives::types::AccountId;
 use std::sync::{Arc, RwLock};
 
 pub struct RuntimeNode {
-    pub client: Arc<RwLock<FakeClient>>,
+    pub client: Arc<RwLock<MockClient>>,
     pub signer: Arc<InMemorySigner>,
 }
 
@@ -15,7 +15,7 @@ impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
         let (runtime, trie, root) = get_runtime_and_trie();
-        let client = Arc::new(RwLock::new(FakeClient { runtime, trie, state_root: root }));
+        let client = Arc::new(RwLock::new(MockClient { runtime, trie, state_root: root }));
         RuntimeNode { signer, client }
     }
 }

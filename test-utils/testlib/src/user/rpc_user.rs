@@ -74,7 +74,7 @@ impl User for RpcUser {
     }
 
     fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
-        unreachable!("add receipt should not be implemented for RpcUser");
+        unimplemented!("add receipt should not be implemented for RpcUser");
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {

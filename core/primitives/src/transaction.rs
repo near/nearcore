@@ -795,7 +795,7 @@ impl fmt::Debug for CallbackResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
     pub originator: AccountId,
@@ -859,18 +859,6 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             body: Some(body),
             ..Default::default()
         }
-    }
-}
-
-impl Hash for ReceiptTransaction {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.nonce.hash(state)
-    }
-}
-
-impl PartialEq for ReceiptTransaction {
-    fn eq(&self, other: &ReceiptTransaction) -> bool {
-        self.nonce == other.nonce
     }
 }
 
