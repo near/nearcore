@@ -36,6 +36,7 @@ pub fn configure_chain_spec() -> ChainSpec {
 }
 
 /// Config that can be used to start a node or connect to an existing node.
+#[allow(clippy::large_enum_variant)]
 pub enum NodeConfig {
     /// A complete node with network, RPC, client, consensus and all tasks running in a thead.
     /// Should be the default choice for the tests, since it provides the most control through the
@@ -95,7 +96,7 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
+    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
         self.user().get_account_nonce(account_id)
     }
 
@@ -143,6 +144,7 @@ impl Node {
 }
 
 impl NodeConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn for_test(
         test_prefix: &str,
         test_port: u16,
@@ -168,6 +170,7 @@ impl NodeConfig {
     }
 
     /// Create full node that does not accept incoming connections.
+    #[allow(clippy::too_many_arguments)]
     pub fn for_test_passive(
         test_prefix: &str,
         test_port: u16,
@@ -191,6 +194,7 @@ impl NodeConfig {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: &str,
         account_id: Option<&str>,
@@ -298,7 +302,7 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
 }
 
 /// Sample a node for sending a transaction/checking balance
-pub fn sample_queryable_node(nodes: &Vec<Arc<RwLock<Node>>>) -> usize {
+pub fn sample_queryable_node(nodes: &[Arc<RwLock<Node>>]) -> usize {
     let num_nodes = nodes.len();
     let mut k = rand::random::<usize>() % num_nodes;
     while !nodes[k].read().unwrap().is_running() {

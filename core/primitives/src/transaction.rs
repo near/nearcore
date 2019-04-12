@@ -969,7 +969,7 @@ pub struct TransactionAddress {
 
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,
-    public_keys: &Vec<PublicKey>,
+    public_keys: &[PublicKey],
 ) -> bool {
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
