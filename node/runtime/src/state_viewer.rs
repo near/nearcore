@@ -26,6 +26,7 @@ pub struct AccountViewCallResult {
     pub nonce: Nonce,
     pub amount: Balance,
     pub stake: u64,
+    pub public_keys: Vec<PublicKey>,
     pub code_hash: CryptoHash,
 }
 
@@ -45,6 +46,7 @@ impl TrieViewer {
                 nonce: account.nonce,
                 amount: account.amount,
                 stake: account.staked,
+                public_keys: account.public_keys,
                 code_hash: account.code_hash,
             }),
             _ => Err(format!("account {} does not exist while viewing", account_id)),
@@ -56,13 +58,7 @@ impl TrieViewer {
         state_update: &mut TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
-        if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
-        }
-        match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
-            Some(account) => Ok(account.public_keys),
-            _ => Err(format!("account {} does not exist while viewing", account_id)),
-        }
+        self.view_account(state_update, account_id).map(|account| account.public_keys)
     }
 
     pub fn view_state(

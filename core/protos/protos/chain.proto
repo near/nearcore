@@ -27,7 +27,8 @@ message ReceiptBlock {
     SignedShardBlockHeader header = 1;
     repeated MerkleNode path = 2;
     repeated ReceiptTransaction receipts = 3;
-    bytes hash = 4;
+    uint32 shard_id = 4;
+    bytes hash = 5;
 }
 
 message ShardBlock {

@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::borrow::Borrow;
 
 use protobuf::well_known_types::BytesValue;
 use protobuf::SingularPtrField;
@@ -794,7 +795,7 @@ impl fmt::Debug for CallbackResult {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
     pub originator: AccountId,
@@ -858,6 +859,12 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             body: Some(body),
             ..Default::default()
         }
+    }
+}
+
+impl Borrow<CryptoHash> for ReceiptTransaction {
+    fn borrow(&self) -> &CryptoHash {
+        &self.nonce
     }
 }
 
@@ -963,8 +970,12 @@ impl fmt::Debug for FinalTransactionResult {
 pub struct TransactionAddress {
     /// Block hash
     pub block_hash: CryptoHash,
-    /// Transaction index within the block
+    /// Transaction index within the block. If it is a receipt,
+    /// index is the index in the receipt block.
     pub index: usize,
+    /// Only for receipts. The shard that the receipt
+    /// block is supposed to go
+    pub shard_id: Option<ShardId>,
 }
 
 pub fn verify_transaction_signature(

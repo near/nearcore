@@ -1,8 +1,16 @@
 use crate::user::User;
+use node_http::types::{
+    GetBlocksByIndexRequest, GetTransactionRequest, ReceiptInfoResponse, SignedBeaconBlockResponse,
+    SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionRequest,
+    SubmitTransactionResponse, TransactionResultResponse, ViewAccountRequest, ViewAccountResponse,
+    ViewStateRequest, ViewStateResponse,
+};
+use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
+use primitives::hash::CryptoHash;
+use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use primitives::types::AccountId;
-use node_runtime::state_viewer::AccountViewCallResult;
-use node_http::types::{ViewAccountRequest, ViewAccountResponse, SubmitTransactionRequest, SubmitTransactionResponse, SignedBeaconBlockResponse, GetBlocksByIndexRequest, SignedShardBlocksResponse};
-use primitives::transaction::SignedTransaction;
+use shard::ReceiptInfo;
+use std::convert::TryInto;
 use std::net::SocketAddr;
 
 pub struct RpcUser {
@@ -31,8 +39,26 @@ impl User for RpcUser {
             account: response.account_id,
             nonce: response.nonce,
             amount: response.amount,
+            public_keys: response.public_keys,
             stake: response.stake,
             code_hash: response.code_hash,
+        };
+        Ok(result)
+    }
+
+    fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
+        let client = reqwest::Client::new();
+        let body = ViewStateRequest { contract_account_id: account_id.clone() };
+        let url = format!("{}{}", self.url(), "/view_state");
+        let mut response =
+            client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
+        let response: ViewStateResponse = response.json().unwrap();
+        let result = ViewStateResult {
+            values: response
+                .values
+                .into_iter()
+                .map(|(s, v)| (bs58::decode(s).into_vec().unwrap(), v))
+                .collect(),
         };
         Ok(result)
     }
@@ -47,6 +73,10 @@ impl User for RpcUser {
         Ok(())
     }
 
+    fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
+        unimplemented!("add receipt should not be implemented for RpcUser");
+    }
+
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
         Some(self.view_account(account_id).ok()?.nonce)
     }
@@ -57,6 +87,38 @@ impl User for RpcUser {
         let mut response = client.post(url.as_str()).send().ok()?;
         let response: SignedBeaconBlockResponse = response.json().ok()?;
         Some(response.header.index)
+    }
+
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+        let client = reqwest::Client::new();
+        let body = GetTransactionRequest { hash: *hash };
+        let url = format!("{}{}", self.url(), "/get_transaction_result");
+        let mut response =
+            client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
+        let response: TransactionResultResponse = response.json().unwrap();
+        response.result
+    }
+
+    fn get_state_root(&self) -> CryptoHash {
+        let client = reqwest::Client::new();
+        let url = format!("{}{}", self.url(), "/view_latest_shard_block");
+        let mut response = client.post(url.as_str()).send().unwrap();
+        let response: SignedShardBlockResponse = response.json().unwrap();
+        response.body.header.merkle_root_state
+    }
+
+    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
+        let client = reqwest::Client::new();
+        let body = GetTransactionRequest { hash: *hash };
+        let url = format!("{}{}", self.url(), "/get_transaction_result");
+        let mut response =
+            client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
+        let response: ReceiptInfoResponse = response.json().unwrap();
+        Some(ReceiptInfo {
+            receipt: response.receipt.body.try_into().ok()?,
+            block_index: response.block_index,
+            result: response.result,
+        })
     }
 
     fn get_shard_blocks_by_index(

@@ -16,9 +16,9 @@ use std::convert::TryFrom;
 use serde::{de::DeserializeOwned, Serialize};
 
 use primitives::chain::ReceiptBlock;
+use primitives::crypto::signature::PublicKey;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::{Decode, Encode};
-use primitives::crypto::signature::PublicKey;
 use primitives::transaction::{
     verify_transaction_signature, AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody, ReceiptTransaction, SignedTransaction,
@@ -72,7 +72,7 @@ fn account_id_to_bytes(col: &[u8], account_key: &AccountId) -> Vec<u8> {
     key
 }
 
-fn callback_id_to_bytes(id: &[u8]) -> Vec<u8> {
+pub fn callback_id_to_bytes(id: &[u8]) -> Vec<u8> {
     let mut key = COL_CALLBACK.to_vec();
     key.extend_from_slice(id);
     key
@@ -107,7 +107,7 @@ fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option
     state_update.get(key).and_then(|data| Decode::decode(&data).ok())
 }
 
-fn set<T: Serialize>(state_update: &mut TrieUpdate, key: &[u8], value: &T) {
+pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: &[u8], value: &T) {
     value
         .encode()
         .ok()
@@ -897,6 +897,7 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::hash;
     use storage::test_utils::create_trie;
 
@@ -914,6 +915,7 @@ mod tests {
     #[test]
     fn test_genesis_state() {
         let (viewer, mut state_update) = get_test_trie_viewer();
+        let signer = InMemorySigner::from_seed(&alice_account(), &alice_account());
         let result = viewer.view_account(&mut state_update, &alice_account());
         assert_eq!(
             result.unwrap(),
@@ -921,6 +923,7 @@ mod tests {
                 account: alice_account(),
                 amount: TESTING_INIT_BALANCE,
                 nonce: 0,
+                public_keys: vec![signer.public_key],
                 stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
             }
@@ -953,280 +956,6 @@ mod tests {
         let get_res =
             get(&mut new_state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id)).unwrap();
         assert_eq!(test_account, get_res);
-    }
-
-    #[test]
-    fn test_smart_contract_simple() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, apply_results) =
-            alice.call_function(root, &bob_account(), "run_test", vec![], 0);
-        // 3 results: signedTx, It's Receipt, Mana receipt
-        assert_eq!(apply_results.len(), 3);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[0].new_receipts.len(), 1);
-        // Receipt successfully executed
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[1].new_receipts.len(), 1);
-        // Mana successfully executed
-        assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
-        // Checking final root
-        assert_ne!(root, new_root);
-    }
-
-    #[test]
-    fn test_smart_contract_bad_method_name() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (_, apply_results) = alice.call_function(root, &bob_account(), "_run_test", vec![], 0);
-        // Only 1 results: signedTx
-        assert_eq!(apply_results.len(), 1);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
-    }
-
-    #[test]
-    fn test_smart_contract_empty_method_name_with_no_tokens() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (_, apply_results) = alice.call_function(root, &bob_account(), "", vec![], 0);
-        // Only 1 results: signedTx
-        assert_eq!(apply_results.len(), 1);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Failed);
-    }
-
-    #[test]
-    fn test_smart_contract_empty_method_name_with_tokens() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, apply_results) = alice.call_function(root, &bob_account(), "", vec![], 10);
-        // 3 results: signedTx, It's Receipt, Mana receipt
-        assert_eq!(apply_results.len(), 3);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[0].new_receipts.len(), 1);
-        // Receipt successfully executed
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[1].new_receipts.len(), 1);
-        // Mana successfully executed
-        assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
-        // Checking final root
-        assert_ne!(root, new_root);
-    }
-
-    #[test]
-    fn test_smart_contract_with_args() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (new_root, apply_results) = alice.call_function(
-            root,
-            &bob_account(),
-            "run_test",
-            (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
-            0,
-        );
-        // 3 results: signedTx, It's Receipt, Mana receipt
-        assert_eq!(apply_results.len(), 3);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[0].new_receipts.len(), 1);
-        // Receipt successfully executed
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[1].new_receipts.len(), 1);
-        // Mana successfully executed
-        assert_eq!(apply_results[2].tx_result[0].status, TransactionStatus::Completed);
-        // Checking final root
-        assert_ne!(root, new_root);
-    }
-
-    #[test]
-    fn test_async_call_with_no_callback() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie.clone(), root);
-        let (_, apply_results) = alice.async_call(root, &bob_account(), "run_test", vec![]);
-        // 2 results: Receipt, Mana receipt
-        assert_eq!(apply_results.len(), 2);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[0].new_receipts.len(), 1);
-        assert_eq!(root, apply_results[0].root);
-        // Receipt successfully executed
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
-        // Change in mana and gas
-        assert_ne!(root, apply_results[1].root);
-    }
-
-    #[test]
-    fn test_async_call_with_logs() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime, &alice_account(), trie, root);
-        let (_, apply_results) = alice.async_call(root, &bob_account(), "log_something", vec![]);
-        // 2 results: Receipt, Mana receipt
-        assert_eq!(apply_results.len(), 2);
-        // Signed TX successfully generated
-        assert_eq!(apply_results[0].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[0].new_receipts.len(), 1);
-        // Receipt successfully executed and contains logs
-        assert_eq!(apply_results[1].tx_result[0].status, TransactionStatus::Completed);
-        assert_eq!(apply_results[0].tx_result[0].logs[0], "LOG: hello".to_string());
-        // Change in mana and gas
-        assert_ne!(apply_results[0].root, apply_results[1].root);
-    }
-
-    #[test]
-    fn test_async_call_with_callback() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
-        let accounting_info =
-            AccountingInfo { originator: alice_account(), contract_id: Some(bob_account()) };
-        let mut callback =
-            Callback::new(b"sum_with_input".to_vec(), args, 0, accounting_info.clone());
-        callback.results.resize(1, None);
-        let callback_id = [0; 32].to_vec();
-        let mut async_call =
-            AsyncCall::new(b"run_test".to_vec(), vec![], 0, 0, accounting_info.clone());
-        let callback_info = CallbackInfo::new(callback_id.clone(), 0, alice_account());
-        async_call.callback = Some(callback_info.clone());
-        let receipt = ReceiptTransaction::new(
-            alice_account(),
-            bob_account(),
-            hash(&[1, 2, 3]).into(),
-            ReceiptBody::NewCall(async_call),
-        );
-        let block_index = 1;
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let mut new_receipts = vec![];
-        let mut transaction_result = TransactionResult::default();
-        runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
-            .unwrap();
-        // Check result of the AsyncCall transaction
-        assert_eq!(transaction_result.result, Some(encode_int(10).to_vec()));
-        assert_eq!(new_receipts.len(), 2);
-
-        assert_eq!(new_receipts[0].originator, bob_account());
-        assert_eq!(new_receipts[0].receiver, alice_account());
-        let callback_res =
-            CallbackResult::new(callback_info.clone(), Some(encode_int(10).to_vec()));
-        assert_eq!(new_receipts[0].body, ReceiptBody::Callback(callback_res));
-
-        assert_eq!(new_receipts[1].originator, bob_account());
-        assert_eq!(new_receipts[1].receiver, alice_account());
-        if let ReceiptBody::ManaAccounting(ref mana_accounting) = new_receipts[1].body {
-            assert_eq!(mana_accounting.mana_refund, 0);
-            assert!(mana_accounting.gas_used > 0);
-            assert_eq!(mana_accounting.accounting_info, accounting_info);
-        } else {
-            assert!(false);
-        }
-    }
-
-    #[test]
-    fn test_deposit_with_callback() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
-        let accounting_info =
-            AccountingInfo { originator: alice_account(), contract_id: Some(bob_account()) };
-        let mut callback =
-            Callback::new(b"sum_with_input".to_vec(), args, 0, accounting_info.clone());
-        callback.results.resize(1, None);
-        let callback_id = [0; 32].to_vec();
-        let mut async_call = AsyncCall::new(
-            vec![], // deposit
-            vec![],
-            1,
-            0,
-            accounting_info.clone(),
-        );
-        let callback_info = CallbackInfo::new(callback_id.clone(), 0, alice_account());
-        async_call.callback = Some(callback_info.clone());
-        let receipt = ReceiptTransaction::new(
-            alice_account(),
-            bob_account(),
-            hash(&[1, 2, 3]).into(),
-            ReceiptBody::NewCall(async_call),
-        );
-        let block_index = 1;
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let mut new_receipts = vec![];
-        let mut transaction_result = TransactionResult::default();
-        runtime
-            .apply_receipt(&mut state_update, &receipt, &mut new_receipts, block_index, &mut transaction_result)
-            .unwrap();
-        assert_eq!(transaction_result.result, Some(vec![]));
-        // Just callback - no refunds
-        assert_eq!(new_receipts.len(), 1);
-
-        assert_eq!(new_receipts[0].originator, bob_account());
-        assert_eq!(new_receipts[0].receiver, alice_account());
-        let callback_res = CallbackResult::new(callback_info.clone(), Some(vec![]));
-        assert_eq!(new_receipts[0].body, ReceiptBody::Callback(callback_res));
-    }
-
-    #[test]
-    fn test_callback() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let callback_id = [0; 32].to_vec();
-        let (new_root, _) = alice.callback(
-            root,
-            &bob_account(),
-            "run_test_with_storage_change",
-            vec![],
-            callback_id.clone(),
-        );
-        assert_ne!(root, new_root);
-        let mut state_update = TrieUpdate::new(trie.clone(), new_root);
-        let callback: Option<Callback> =
-            get(&mut state_update, &callback_id_to_bytes(&callback_id));
-        assert!(callback.is_none());
-    }
-
-    #[test]
-    // if the callback failed, it should still be removed
-    fn test_callback_failure() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let callback_id = [0; 32].to_vec();
-        let (new_root, _) = alice.callback(
-            root,
-            &bob_account(),
-            "a_function_that_does_not_exist",
-            vec![],
-            callback_id.clone(),
-        );
-        // the callback should be removed
-        assert_eq!(root, new_root);
-        let mut state_update = TrieUpdate::new(trie, new_root);
-        let callback: Option<Callback> =
-            get(&mut state_update, &callback_id_to_bytes(&callback_id));
-        assert!(callback.is_none());
-    }
-
-    #[test]
-    fn test_nonce_update_when_deploying_contract() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
-        let (new_root, _) = alice.deploy_contract(root, &alice_account(), wasm_binary);
-        let mut state_update = TrieUpdate::new(trie, new_root);
-        let account: Account =
-            get(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &alice_account())).unwrap();
-        assert_eq!(account.nonce, 1);
-    }
-
-    #[test]
-    fn test_nonce_updated_when_tx_failed() {
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let (mut alice, root) = User::new(runtime.clone(), &alice_account(), trie.clone(), root);
-        let (new_root, _) = alice.send_money(root, &bob_account(), 10000);
-        assert_ne!(new_root, root);
-        let mut state_update = TrieUpdate::new(trie, new_root);
-        let account: Account =
-            get(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &alice_account())).unwrap();
-        assert_eq!(account.nonce, 1);
     }
 
     #[test]

@@ -1273,6 +1273,7 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "network 0.0.1",
  "node-http 0.1.0",
+ "node-runtime 0.0.1",
  "primitives 0.1.0",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2313,6 +2314,7 @@ name = "testlib"
 version = "0.1.0"
 dependencies = [
  "alphanet 0.1.0",
+ "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "chain 0.0.1",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "client 0.1.0",
@@ -2329,6 +2331,8 @@ dependencies = [
  "rand_xorshift 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
+ "shard 0.0.1",
+ "storage 0.0.1",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-utils 0.0.1",
 ]
