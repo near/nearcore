@@ -5,7 +5,7 @@ use super::{
     CACHE_SIZE, COL_RECEIPT_BLOCK, COL_STATE, COL_TRANSACTION_ADDRESSES, COL_TRANSACTION_RESULTS,
     COL_TX_NONCE,
 };
-use lru::LruCache;
+use cached::SizedCache;
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::hash::CryptoHash;
 use primitives::transaction::{TransactionAddress, TransactionResult};
@@ -18,13 +18,13 @@ use std::sync::Arc;
 pub struct ShardChainStorage {
     generic_storage: BlockChainStorage<SignedShardBlockHeader, SignedShardBlock>,
     // keyed by transaction hash
-    transaction_results: LruCache<Vec<u8>, TransactionResult>,
+    transaction_results: SizedCache<Vec<u8>, TransactionResult>,
     // keyed by transaction hash
-    transaction_addresses: LruCache<Vec<u8>, TransactionAddress>,
+    transaction_addresses: SizedCache<Vec<u8>, TransactionAddress>,
     // keyed by block index
-    receipts: LruCache<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
+    receipts: SizedCache<Vec<u8>, HashMap<ShardId, ReceiptBlock>>,
     // Records the largest transaction nonce per account
-    tx_nonce: LruCache<Vec<u8>, u64>,
+    tx_nonce: SizedCache<Vec<u8>, u64>,
 }
 
 impl GenericStorage<SignedShardBlockHeader, SignedShardBlock> for ShardChainStorage {
@@ -40,10 +40,10 @@ impl ShardChainStorage {
     pub fn new(storage: Arc<KeyValueDB>, shard_id: u32) -> Self {
         Self {
             generic_storage: BlockChainStorage::new(storage, ChainId::ShardChain(shard_id)),
-            transaction_results: LruCache::new(CACHE_SIZE),
-            transaction_addresses: LruCache::new(CACHE_SIZE),
-            receipts: LruCache::new(CACHE_SIZE),
-            tx_nonce: LruCache::new(CACHE_SIZE),
+            transaction_results: SizedCache::with_size(CACHE_SIZE),
+            transaction_addresses: SizedCache::with_size(CACHE_SIZE),
+            receipts: SizedCache::with_size(CACHE_SIZE),
+            tx_nonce: SizedCache::with_size(CACHE_SIZE),
         }
     }
 

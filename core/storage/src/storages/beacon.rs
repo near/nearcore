@@ -5,7 +5,7 @@ use super::{
 };
 use crate::storages::ChainId;
 use crate::KeyValueDB;
-use lru::LruCache;
+use cached::SizedCache;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::types::{AuthorityMask, AuthorityStake, Epoch, Slot};
 use std::collections::{HashMap, HashSet};
@@ -16,17 +16,17 @@ use std::sync::Arc;
 pub struct BeaconChainStorage {
     generic_storage: BlockChainStorage<SignedBeaconBlockHeader, SignedBeaconBlock>,
     /// Proposals per slot in which they occur.
-    proposals: LruCache<Vec<u8>, Vec<AuthorityStake>>,
+    proposals: SizedCache<Vec<u8>, Vec<AuthorityStake>>,
     /// Participation of authorities per slot in which they have happened.
-    participation: LruCache<Vec<u8>, AuthorityMask>,
+    participation: SizedCache<Vec<u8>, AuthorityMask>,
     /// Records the blocks that it processed for the given epochs.
-    processed_blocks: LruCache<Vec<u8>, HashSet<Slot>>,
+    processed_blocks: SizedCache<Vec<u8>, HashSet<Slot>>,
 
     // The following is derived information which we do not want to recompute.
     /// Computed thresholds for each epoch.
-    thresholds: LruCache<Vec<u8>, u64>,
+    thresholds: SizedCache<Vec<u8>, u64>,
     /// Authorities that were accepted for the given slots.
-    accepted_authorities: LruCache<Vec<u8>, Vec<AuthorityStake>>,
+    accepted_authorities: SizedCache<Vec<u8>, Vec<AuthorityStake>>,
 }
 
 impl GenericStorage<SignedBeaconBlockHeader, SignedBeaconBlock> for BeaconChainStorage {
@@ -42,11 +42,11 @@ impl BeaconChainStorage {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
         Self {
             generic_storage: BlockChainStorage::new(storage, ChainId::BeaconChain),
-            proposals: LruCache::new(CACHE_SIZE),
-            participation: LruCache::new(CACHE_SIZE),
-            processed_blocks: LruCache::new(CACHE_SIZE),
-            thresholds: LruCache::new(CACHE_SIZE),
-            accepted_authorities: LruCache::new(CACHE_SIZE),
+            proposals: SizedCache::with_size(CACHE_SIZE),
+            participation: SizedCache::with_size(CACHE_SIZE),
+            processed_blocks: SizedCache::with_size(CACHE_SIZE),
+            thresholds: SizedCache::with_size(CACHE_SIZE),
+            accepted_authorities: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
