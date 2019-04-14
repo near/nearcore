@@ -22,6 +22,7 @@ pub mod payload_gossip;
 use payload_gossip::PayloadGossip;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const BLOCK_SIZE: u32 = 100;
 
 /// Mempool that stores transactions and receipts for a chain
 pub struct Pool {
@@ -207,14 +208,16 @@ impl Pool {
     }
 
     pub fn snapshot_payload(&mut self) -> CryptoHash {
-        // Put tx and receipts into an snapshot without erasing them.
-        let transactions: Vec<_> = self
+        // strategy for snapshot: take all receipts and limit number of transactions
+        let receipt_hashes: Vec<_> = self.receipts.iter().map(ReceiptBlock::get_hash).collect();
+        let transaction_hashes: Vec<_> = self
             .transactions
             .values()
-            .flat_map::<Vec<_>, _>(|v| v.values().map(SignedTransaction::get_hash).collect())
+            .flat_map(BTreeMap::values)
+            .take(BLOCK_SIZE as usize)
+            .map(SignedTransaction::get_hash)
             .collect();
-        let receipts: Vec<_> = self.receipts.iter().map(ReceiptBlock::get_hash).clone().collect();
-        let snapshot = Snapshot::new(transactions, receipts);
+        let snapshot = Snapshot::new(transaction_hashes, receipt_hashes);
         if snapshot.is_empty() {
             return CryptoHash::default();
         }
@@ -707,5 +710,32 @@ mod tests {
             assert_eq!(known_to.len(), 1);
             assert!(known_to.contains(&0));
         }
+    }
+
+    #[test]
+    /// Add BLOCK_SIZE + 1 transactions into mempool and check that
+    /// the produced chain payload has size BLOCK_SIZE
+    fn test_over_block_size() {
+        let (storage, trie, signers) = get_test_chain();
+        let transactions: Vec<_> = (1..BLOCK_SIZE as usize + 2)
+            .map(|i| {
+                TransactionBody::SendMoney(SendMoneyTransaction {
+                    nonce: i as u64,
+                    originator: "alice.near".to_string(),
+                    receiver: "bob.near".to_string(),
+                    amount: 1,
+                })
+                .sign(&*signers[0])
+            })
+            .collect();
+        let mut pool = Pool::new(signers[0].clone(), storage.clone(), trie.clone());
+        for transaction in transactions {
+            pool.add_transaction(transaction).unwrap();
+        }
+        assert_eq!(pool.len(), BLOCK_SIZE as usize + 1);
+        let snapshot_hash = pool.snapshot_payload();
+        let payload = pool.pop_payload_snapshot(&snapshot_hash).unwrap();
+        assert_eq!(payload.transactions.len(), BLOCK_SIZE as usize);
+        assert!(payload.receipts.is_empty());
     }
 }

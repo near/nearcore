@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::crypto::signer::{BLSSigner, InMemorySigner, EDSigner};
+use primitives::crypto::signer::{BLSSigner, EDSigner, InMemorySigner};
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::cmp::max;
 use std::io::Write;
@@ -78,6 +78,7 @@ impl ChainSpec {
     /// Returns:
     /// * generated `ChainSpec`;
     /// * signers that can be used for assertions and mocking in tests.
+    #[allow(clippy::needless_range_loop)]
     pub fn testing_spec(
         id_type: DefaultIdType,
         num_accounts: usize,
