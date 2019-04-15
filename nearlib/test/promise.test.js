@@ -9,7 +9,7 @@ let keyStore;
 let storage;
 
 beforeAll(async () => {
-    keyStore = new InMemoryKeyStore("somenetwork");
+    keyStore = new InMemoryKeyStore('somenetwork');
     storage = createFakeStorage();
     nearjs = await dev.connect({
         nodeUrl: 'http://localhost:3030',

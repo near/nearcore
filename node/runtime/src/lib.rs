@@ -710,7 +710,7 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    fn process_transaction(
+    pub fn process_transaction(
         runtime: Self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
@@ -746,7 +746,7 @@ impl Runtime {
         result
     }
 
-    fn process_receipt(
+    pub fn process_receipt(
         runtime: Self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
