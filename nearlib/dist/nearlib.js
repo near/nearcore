@@ -92,7 +92,7 @@ class Account {
 }
 module.exports = Account;
 
-},{"./protos":69,"./signing/key_pair":72,"bs58":20}],2:[function(require,module,exports){
+},{"./protos":69,"./signing/key_pair":73,"bs58":20}],2:[function(require,module,exports){
 (function (Buffer){
 require('error-polyfill');
 window.nearlib = require('./index');
@@ -209,7 +209,7 @@ function getCookie(name) {
     return v ? v[2] : null;
 }
 
-},{"./account":1,"./internal/send-json":5,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/key_pair":72,"./signing/simple_key_store_signer":73}],4:[function(require,module,exports){
+},{"./account":1,"./internal/send-json":5,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":71,"./signing/key_pair":73,"./signing/simple_key_store_signer":74}],4:[function(require,module,exports){
 const Near = require('./near');
 const NearClient = require('./nearclient');
 const Account = require('./account');
@@ -222,11 +222,11 @@ const WalletAccount = require('./wallet-account');
 const UnencryptedFileSystemKeyStore = require('./signing/unencrypted_file_system_keystore');
 const dev = require('./dev');
 
-module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair, WalletAccount, dev };
+module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, UnencryptedFileSystemKeyStore, LocalNodeConnection, KeyPair, WalletAccount, dev };
 
 
 
-},{"./account":1,"./dev":3,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":70,"./signing/in_memory_key_store":71,"./signing/key_pair":72,"./signing/simple_key_store_signer":73,"./signing/unencrypted_file_system_keystore":74,"./wallet-account":75}],5:[function(require,module,exports){
+},{"./account":1,"./dev":3,"./local_node_connection":6,"./near":7,"./nearclient":8,"./signing/browser_local_storage_key_store":71,"./signing/in_memory_key_store":72,"./signing/key_pair":73,"./signing/simple_key_store_signer":74,"./signing/unencrypted_file_system_keystore":75,"./wallet-account":76}],5:[function(require,module,exports){
 let fetch = (typeof window === 'undefined' || window.name == 'nodejs') ? require('node-fetch') : window.fetch;
 
 const createError = require('http-errors');
@@ -546,7 +546,7 @@ module.exports = Near;
 
 
 }).call(this,require("buffer").Buffer)
-},{"./local_node_connection":6,"./nearclient":8,"./protos":69,"./signing/browser_local_storage_key_store":70,"./signing/simple_key_store_signer":73,"buffer":21,"http-errors":37}],8:[function(require,module,exports){
+},{"./local_node_connection":6,"./nearclient":8,"./protos":69,"./signing/browser_local_storage_key_store":71,"./signing/simple_key_store_signer":74,"buffer":21,"http-errors":37}],8:[function(require,module,exports){
 (function (Buffer){
 const { SignedTransaction } = require('./protos');
 
@@ -12635,19 +12635,112 @@ $root.SignedTransaction = (function() {
 module.exports = $root;
 
 },{"protobufjs/minimal":46}],70:[function(require,module,exports){
+const KeyPair = require('./key_pair');
+
+/**
+ * Utility functions for dealing with account information. 
+ */
+class AccountInfo {
+    constructor(accountId, keyPair, networkId) {
+        this._accountId = accountId;
+        this._keyPair = keyPair;
+        this._networkId = networkId;
+    }
+
+    /**
+     * Reconstruct account info object from json.
+     * @param {Object} json 
+     */
+    static fromJson(json) {
+        if (!json.public_key || !json.secret_key || !json.account_id || !json.network_id) {
+            throw 'Invalid account info format. Please ensure it contains public_key, secret_key, and account_id".';
+        }
+        return new AccountInfo(json.account_id, new KeyPair(json.public_key, json.secret_key), json.network_id);
+    }
+
+    /**
+     * Convert to standard json format.
+     */
+    toJSON() {
+        return {
+            account_id: this._accountId,
+            public_key: this._keyPair.getPublicKey(),
+            secret_key: this._keyPair.getSecretKey(),
+            network_id: this._networkId
+        };
+    }
+
+    /**
+     * Gets/sets a key pair for account info.
+     */
+    get keyPair() {
+        return this._keyPair;
+    }
+    set keyPair(keyPair) {
+        this._keyPair = keyPair;
+    }
+
+    /**
+     * Gets a key pair from account info.
+     */
+    get accountId() {
+        return this._accountId;
+    }
+    set accountId(accountId) {
+        this._accountId = accountId;
+    }
+
+    /**
+     * Gets/sets network id.
+     */
+    get networkId() {
+        return this._networkId;
+    }
+    set networkId(networkId) {
+        this._networkId = networkId;
+    }
+
+    /**
+     * Utility function to download account info as a standard file.
+     */
+    downloadAsFile() {
+        const fileName = getKeyFileName();
+        const text = JSON.stringify(this.toJSON());
+      
+        var element = document.createElement('a');
+        element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+        element.setAttribute('download', fileName);
+      
+        element.style.display = 'none';
+        document.body.appendChild(element);
+      
+        element.click();
+      
+        document.body.removeChild(element);
+    }
+
+    getKeyFileName() {
+        return this._networkId + '_' + this._accountId;
+    }
+}
+
+module.exports = AccountInfo;
+},{"./key_pair":73}],71:[function(require,module,exports){
 /**
  * Stores keys in the browser local storage. This allows to retain keys between
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
  */
 const KeyPair = require('./key_pair');
+const AccountInfo = require('./account_info');
 
 const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
 const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
 class BrowserLocalStorageKeystore {
-    constructor(networkId = 'unknown') {
+    constructor(networkId = 'unknown', localStorage = window.localStorage) {
         this.networkId = networkId;
+        this.localStorage = localStorage;
     }
 
     static storageKeyForPublicKey(accountId) {
@@ -12664,10 +12757,18 @@ class BrowserLocalStorageKeystore {
      * @param {KeyPair} key 
      */
     async setKey(accountId, key) {
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+    }
+
+    async setKeyFromJson(json) {
+        const accountInfo =  AccountInfo.fromJson(json);
+        if (this.networkId != accountInfo.networkId) {
+            throw new Error('Setting key for a wrong network');
+        }
+        this.setKey(accountInfo.accountId, accountInfo.keyPair);
     }
 
     /**
@@ -12675,19 +12776,18 @@ class BrowserLocalStorageKeystore {
      * @param {string} accountId 
      */
     async getKey(accountId) {
-        const publicKey = window.localStorage.getItem(
+        const publicKey = this.localStorage.getItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId));
-        const secretKey = window.localStorage.getItem(
+        const secretKey = this.localStorage.getItem(
             BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId));
         if (!publicKey || !secretKey) {
             return null;
         }
-
         return new KeyPair(publicKey, secretKey);
     }
 
     static getAccounts() {
-        return Object.keys(window.localStorage).map(function(key) {
+        return Object.keys(this.localStorage).map(function(key) {
             if (key.endsWith('_public')) {
                 return key.substr(0, key.length() - 7);
             }
@@ -12696,7 +12796,7 @@ class BrowserLocalStorageKeystore {
 }
 
 module.exports = BrowserLocalStorageKeystore;
-},{"./key_pair":72}],71:[function(require,module,exports){
+},{"./account_info":70,"./key_pair":73}],72:[function(require,module,exports){
 /**
  * Simple in-memory keystore for testing purposes.
  */
@@ -12720,7 +12820,7 @@ class InMemoryKeyStore {
 }
 
 module.exports = InMemoryKeyStore;
-},{}],72:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 (function (Buffer){
 
 const bs58 = require('bs58');
@@ -12795,7 +12895,7 @@ class KeyPair {
 }
 module.exports = KeyPair;
 }).call(this,require("buffer").Buffer)
-},{"bs58":20,"buffer":21,"tweetnacl":62}],73:[function(require,module,exports){
+},{"bs58":20,"buffer":21,"tweetnacl":62}],74:[function(require,module,exports){
 /**
  * Simple signer that acquires a key from its single keystore and signs transactions.
  */
@@ -12832,10 +12932,11 @@ class SimpleKeyStoreSigner {
 
 module.exports = SimpleKeyStoreSigner;
 
-},{"bs58":20,"js-sha256":40,"tweetnacl":62}],74:[function(require,module,exports){
+},{"bs58":20,"js-sha256":40,"tweetnacl":62}],75:[function(require,module,exports){
 const fs = require('fs');
 const keyDir = './neardev';
 const KeyPair = require('./key_pair');
+const AccountInfo = require('./account_info');
 const {promisify} = require('util');
 
 /**
@@ -12856,12 +12957,8 @@ class UnencryptedFileSystemKeyStore {
         if (!await promisify(fs.exists)(keyDir)){
             await promisify(fs.mkdir)(keyDir);
         }
-        const keyFileContent = {
-            public_key: keypair.getPublicKey(),
-            secret_key: keypair.getSecretKey(),
-            account_id: accountId,
-            netowrk_id: this.networkId
-        };
+        const accountInfo = new AccountInfo(accountId, keypair, this.networkId);
+        const keyFileContent = accountInfo.toJSON();
         await promisify(fs.writeFile)(this.getKeyFilePath(accountId), JSON.stringify(keyFileContent));
     }
 
@@ -12872,17 +12969,10 @@ class UnencryptedFileSystemKeyStore {
     async getKey(accountId) {
         // Find keys/account id
         if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
-            throw 'Key lookup failed. Please make sure you set up an account.';
+            return null;
         }
-        const rawKey = await this.getRawKey(accountId);
-        if (!rawKey.public_key || !rawKey.secret_key || !rawKey.account_id) {
-            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
-        }
-        if (rawKey.account_id != accountId) {
-            throw 'Deployment failed. Keystore contains data for wrong account.';
-        }
-        const result = new KeyPair(rawKey.public_key, rawKey.secret_key);
-        return result;
+        const json = await this.getRawKey(accountId);
+        return AccountInfo.fromJson(json).keyPair;
     }
 
     /**
@@ -12919,7 +13009,7 @@ class UnencryptedFileSystemKeyStore {
 }
 
 module.exports = UnencryptedFileSystemKeyStore;
-},{"./key_pair":72,"fs":19,"util":68}],75:[function(require,module,exports){
+},{"./account_info":70,"./key_pair":73,"fs":19,"util":68}],76:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
