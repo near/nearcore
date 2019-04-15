@@ -319,20 +319,15 @@ fn read_with_cache<'a, T: Decode + Clone + 'a>(
     key: &[u8],
 ) -> StorageResult<&'a T> {
     let key_vec = key.to_vec();
-    // This code block is safe. Has to use unsafe due to Cached API limitations,
-    // mainly that there is not lookup method that takes &self.
-    unsafe {
-        let cache = cache as *mut SizedCache<Vec<u8>, T>;
-        if let Some(value) = cache.as_mut().unwrap().cache_get(&key_vec) {
-            Ok(Some(value))
-        } else if let Some(data) = storage.get(Some(col), key)? {
-            let result = Decode::decode(data.as_ref())?;
-            cache.as_mut().unwrap().cache_set(key_vec.clone(), result);
-            Ok(cache.as_mut().unwrap().cache_get(&key_vec))
-        } else {
-            Ok(None)
-        }
+    if cache.cache_get(&key_vec).is_some() {
+        return Ok(Some(cache.cache_get(&key_vec).unwrap()));
     }
+    if let Some(data) = storage.get(Some(col), key)? {
+        let result = Decode::decode(data.as_ref())?;
+        cache.cache_set(key.to_vec(), result);
+        return Ok(cache.cache_get(&key_vec));
+    }
+    Ok(None)
 }
 
 /// prune column based on index
