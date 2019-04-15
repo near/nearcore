@@ -160,6 +160,10 @@ impl Executor {
             let guard = node.read().unwrap();
             let account_id = guard.account_id().unwrap().clone();
             let nonce = guard.user().view_account(&account_id).unwrap().nonce;
+            // Since the first set of transactions is used for initialization (e.g. contract
+            // deployment) we want them to get through, so we shift the nonces by 100 in case
+            // there are other transactions that are send over to the testnet while we are computing
+            // their nonces.
             res.insert(account_id, nonce + 100);
         }
         RwLock::new(res)

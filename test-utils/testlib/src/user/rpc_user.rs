@@ -24,6 +24,8 @@ impl RpcUser {
     }
 
     fn client(&self) -> Result<reqwest::Client, String> {
+        // We need to timeout the request in order to not block the thread. 1 sec is enough for
+        // most practical applications.
         reqwest::Client::builder()
             .timeout(Some(Duration::from_secs(1)))
             .build()
