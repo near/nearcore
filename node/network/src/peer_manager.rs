@@ -51,7 +51,7 @@ impl<T: ChainStateRetriever> PeerManager<T> {
         gossip_interval: Duration,
         gossip_sample_size: usize,
         node_info: PeerInfo,
-        boot_nodes: &Vec<PeerAddr>,
+        boot_nodes: &[PeerAddr],
         inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
         out_msg_rx: Receiver<(PeerId, Vec<u8>)>,
         chain_state_retriever: T,

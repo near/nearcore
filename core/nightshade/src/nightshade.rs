@@ -185,8 +185,8 @@ impl Proof {
 
     pub fn verify(
         &self,
-        public_keys: &Vec<BlsPublicKey>,
-        weights: &Vec<usize>,
+        public_keys: &[BlsPublicKey],
+        weights: &[usize],
     ) -> Result<(), NSVerifyErr> {
         // Verify that this proof contains enough signature in order to be accepted as valid.
         let current_weight: usize = self

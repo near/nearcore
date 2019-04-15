@@ -82,6 +82,7 @@ pub struct BlockChainStorage<H, B> {
     genesis_hash: Option<CryptoHash>,
     // keyed by hash
     best_block_hash: LruCache<Vec<u8>, CryptoHash>,
+    best_block_index: LruCache<Vec<u8>, u64>,
     // keyed by hash
     headers: LruCache<Vec<u8>, H>,
     // keyed by hash
@@ -136,6 +137,7 @@ where
             chain_id,
             genesis_hash: None,
             best_block_hash: LruCache::new(CACHE_SIZE),
+            best_block_index: LruCache::new(CACHE_SIZE),
             headers: LruCache::new(CACHE_SIZE),
             blocks: LruCache::new(CACHE_SIZE),
             block_indices: LruCache::new(CACHE_SIZE),
@@ -146,15 +148,18 @@ where
         self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR)
     }
 
-    pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
-        // check whether we already have a genesis. If we do, then
-        // the genesis must match the existing one in storage
-        if let Some(genesis_hash) = self.genesis_hash {
-            if genesis_hash != genesis.block_hash() {
+    pub fn set_genesis_hash(&mut self, genesis_hash: CryptoHash) -> io::Result<()> {
+        if let Some(current_genesis_hash) = self.genesis_hash {
+            if current_genesis_hash != genesis_hash {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid genesis"));
             }
         }
-        self.genesis_hash = Some(genesis.block_hash());
+        self.genesis_hash = Some(genesis_hash);
+        Ok(())
+    }
+
+    pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
+        self.set_genesis_hash(genesis.block_hash())?;
         if self.block(&genesis.block_hash())?.is_none() {
             // Only add genesis block if it was not added before. It might have been added before
             // if we have launched on the existing storage.
@@ -184,12 +189,32 @@ where
     }
 
     #[inline]
+    pub fn best_block_index(&mut self) -> StorageResult<u64> {
+        let mut key = self.enc_slice(self.genesis_hash.expect(MISSING_GENESIS_ERR).as_ref());
+        key.extend_from_slice(&[0]);
+        read_with_cache(self.storage.as_ref(), COL_BEST_BLOCK, &mut self.best_block_index, &key).map(|x| x.cloned())
+    }
+
+    #[inline]
     pub fn set_best_block_hash(&mut self, value: CryptoHash) -> io::Result<()> {
         let key = self.enc_hash(self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR));
         write_with_cache(
             self.storage.as_ref(),
             COL_BEST_BLOCK,
             &mut self.best_block_hash,
+            &key,
+            value,
+        )
+    }
+
+    #[inline]
+    pub fn set_best_block_index(&mut self, value: u64) -> io::Result<()> {
+        let mut key = self.enc_slice(self.genesis_hash.expect(MISSING_GENESIS_ERR).as_ref());
+        key.extend_from_slice(&[0]);
+        write_with_cache(
+            self.storage.as_ref(),
+            COL_BEST_BLOCK,
+            &mut self.best_block_index,
             &key,
             value,
         )

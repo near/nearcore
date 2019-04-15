@@ -58,6 +58,7 @@ network = { path = "./node/network" }
 configs = { path = "./node/configs" }
 client = { path = "./node/client" }
 testlib = { path = "./test-utils/testlib" }
+node-runtime = { path = "./node/runtime" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

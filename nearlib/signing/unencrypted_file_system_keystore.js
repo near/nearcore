@@ -1,6 +1,7 @@
 const fs = require('fs');
 const keyDir = './neardev';
 const KeyPair = require('./key_pair');
+const AccountInfo = require('./account_info');
 const {promisify} = require('util');
 
 /**
@@ -21,12 +22,8 @@ class UnencryptedFileSystemKeyStore {
         if (!await promisify(fs.exists)(keyDir)){
             await promisify(fs.mkdir)(keyDir);
         }
-        const keyFileContent = {
-            public_key: keypair.getPublicKey(),
-            secret_key: keypair.getSecretKey(),
-            account_id: accountId,
-            netowrk_id: this.networkId
-        };
+        const accountInfo = new AccountInfo(accountId, keypair, this.networkId);
+        const keyFileContent = accountInfo.toJSON();
         await promisify(fs.writeFile)(this.getKeyFilePath(accountId), JSON.stringify(keyFileContent));
     }
 
@@ -37,17 +34,10 @@ class UnencryptedFileSystemKeyStore {
     async getKey(accountId) {
         // Find keys/account id
         if (!await promisify(fs.exists)(this.getKeyFilePath(accountId))) {
-            throw 'Key lookup failed. Please make sure you set up an account.';
+            return null;
         }
-        const rawKey = await this.getRawKey(accountId);
-        if (!rawKey.public_key || !rawKey.secret_key || !rawKey.account_id) {
-            throw 'Deployment failed. neardev/devkey.json format problem. Please make sure file contains public_key, secret_key, and account_id".';
-        }
-        if (rawKey.account_id != accountId) {
-            throw 'Deployment failed. Keystore contains data for wrong account.';
-        }
-        const result = new KeyPair(rawKey.public_key, rawKey.secret_key);
-        return result;
+        const json = await this.getRawKey(accountId);
+        return AccountInfo.fromJson(json).keyPair;
     }
 
     /**

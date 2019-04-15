@@ -83,7 +83,7 @@ impl NodesMonitor {
 
     fn start_state_observer(&self) {
         let shutdown = self.shutdown.clone();
-        let state_check_delay = self.state_check_delay.clone();
+        let state_check_delay = self.state_check_delay;
         let nodes = self.nodes.to_vec();
         let states = self.states.clone();
         thread::spawn(move || {
@@ -102,7 +102,7 @@ impl NodesMonitor {
 
     fn start_block_observer(&self) {
         let shutdown = self.shutdown.clone();
-        let block_check_delay = self.block_check_delay.clone();
+        let block_check_delay = self.block_check_delay;
         let nodes = self.nodes.to_vec();
         let states = self.states.clone();
         let block_stats = self.block_stats.clone();
@@ -188,7 +188,7 @@ impl NodesMonitor {
 
     /// Get a node that has the most up-to-date block index.
     fn leading_node(
-        nodes: &Vec<Arc<RwLock<dyn Node>>>,
+        nodes: &[Arc<RwLock<dyn Node>>],
         states: &Arc<RwLock<Vec<NodeState>>>,
     ) -> Option<Arc<RwLock<dyn Node>>> {
         let guard = states.read().unwrap();
@@ -210,7 +210,7 @@ impl NodesMonitor {
     }
 
     pub fn all_nodes_running(&self) -> bool {
-        self.states.read().unwrap().iter().all(|n| n.is_running())
+        self.states.read().unwrap().iter().all(NodeState::is_running)
     }
 
     /// Returns if all nodes are in sync.

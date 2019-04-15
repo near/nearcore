@@ -3,14 +3,16 @@
  * browser sessions. Local storage likes to work with strings so we store public and private key separately.
  */
 const KeyPair = require('./key_pair');
+const AccountInfo = require('./account_info');
 
 const LOCAL_STORAGE_SECRET_KEY_SUFFIX = '_secretkey';
 const LOCAL_STORAGE_PUBLIC_KEY_SUFFIX = '_publickey';
 
 
 class BrowserLocalStorageKeystore {
-    constructor(networkId = 'unknown') {
+    constructor(networkId = 'unknown', localStorage = window.localStorage) {
         this.networkId = networkId;
+        this.localStorage = localStorage;
     }
 
     static storageKeyForPublicKey(accountId) {
@@ -27,10 +29,18 @@ class BrowserLocalStorageKeystore {
      * @param {KeyPair} key 
      */
     async setKey(accountId, key) {
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
-        window.localStorage.setItem(
+        this.localStorage.setItem(
             BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+    }
+
+    async setKeyFromJson(json) {
+        const accountInfo =  AccountInfo.fromJson(json);
+        if (this.networkId != accountInfo.networkId) {
+            throw new Error('Setting key for a wrong network');
+        }
+        this.setKey(accountInfo.accountId, accountInfo.keyPair);
     }
 
     /**
@@ -38,19 +48,18 @@ class BrowserLocalStorageKeystore {
      * @param {string} accountId 
      */
     async getKey(accountId) {
-        const publicKey = window.localStorage.getItem(
+        const publicKey = this.localStorage.getItem(
             BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId));
-        const secretKey = window.localStorage.getItem(
+        const secretKey = this.localStorage.getItem(
             BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId));
         if (!publicKey || !secretKey) {
             return null;
         }
-
         return new KeyPair(publicKey, secretKey);
     }
 
     static getAccounts() {
-        return Object.keys(window.localStorage).map(function(key) {
+        return Object.keys(this.localStorage).map(function(key) {
             if (key.endsWith('_public')) {
                 return key.substr(0, key.length() - 7);
             }

@@ -24,8 +24,8 @@ impl State {
     pub fn verify(
         &self,
         authority: AuthorityId,
-        public_keys: &Vec<BlsPublicKey>,
-        weights: &Vec<usize>,
+        public_keys: &[BlsPublicKey],
+        weights: &[usize],
     ) -> Result<(), NSVerifyErr> {
         // Check this is a valid triplet
         self.bare_state.verify()?;

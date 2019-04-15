@@ -77,6 +77,7 @@ describe('dev connect', () => {
             account_id: newAccountId,
             amount: 1,
             code_hash: newAccountCodeHash,
+            public_keys: viewAccountResponse.public_keys,
             stake: 0,
         };
         expect(viewAccountResponse).toEqual(expectedAccount);
@@ -97,6 +98,7 @@ describe('dev connect', () => {
             account_id: newAccountId,
             amount: 1,
             code_hash: newAccountCodeHash,
+            public_keys: viewAccountResponse.public_keys,
             stake: 0,
         };
         expect(viewAccountResponse).toEqual(expectedAccount);
@@ -129,14 +131,15 @@ test('create account and then view account returns the created account', async (
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 0, aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
+    const result = await account.viewAccount(newAccountName);
     const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
         amount: 0,
         code_hash: newAccountCodeHash,
+        public_keys: result.public_keys,
         stake: 0,
     };
-    const result = await account.viewAccount(newAccountName);
     expect(result).toEqual(expectedAccount);
 });
 
@@ -150,14 +153,15 @@ test('create account with a new key and then view account returns the created ac
         aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
     expect(createAccountResponse['key']).not.toBeFalsy();
+    const result = await account.viewAccount(newAccountName);
     const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
         amount: amount,
         code_hash: newAccountCodeHash,
+        public_keys: result.public_keys,
         stake: 0,
     };
-    const result = await account.viewAccount(newAccountName);
     expect(result).toEqual(expectedAccount);
     const aliceAccountAfterCreation = await account.viewAccount(aliceAccountName);
     expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
