@@ -71,6 +71,7 @@ impl ShardClient {
         signer: Option<Arc<T>>,
         chain_spec: &ChainSpec,
         storage: Arc<RwLock<ShardChainStorage>>,
+        max_block_size: u32,
     ) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
@@ -87,9 +88,12 @@ impl ShardClient {
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
         let pool = match signer {
-            Some(signer) => {
-                Some(Arc::new(RwLock::new(Pool::new(signer, storage.clone(), trie.clone()))))
-            }
+            Some(signer) => Some(Arc::new(RwLock::new(Pool::new(
+                signer,
+                storage.clone(),
+                trie.clone(),
+                max_block_size,
+            )))),
             None => None,
         };
         Self { chain, trie, storage, runtime, trie_viewer, pool }
@@ -347,6 +351,7 @@ mod tests {
     };
     use storage::test_utils::create_beacon_shard_storages;
     use storage::GenericStorage;
+    use testlib::node::TEST_BLOCK_MAX_SIZE;
 
     use super::*;
 
@@ -358,7 +363,12 @@ mod tests {
             AuthorityRotation::ProofOfAuthority,
         );
         let shard_storage = create_beacon_shard_storages().1;
-        let shard_client = ShardClient::new(Some(signers[0].clone()), &chain_spec, shard_storage);
+        let shard_client = ShardClient::new(
+            Some(signers[0].clone()),
+            &chain_spec,
+            shard_storage,
+            TEST_BLOCK_MAX_SIZE,
+        );
         (shard_client, signers)
     }
 

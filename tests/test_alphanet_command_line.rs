@@ -8,7 +8,8 @@ use primitives::transaction::TransactionBody;
 use primitives::types::AccountId;
 use std::sync::{Arc, RwLock};
 use testlib::node::{
-    create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT,
+    create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
+    TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
 };
 use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
@@ -49,8 +50,14 @@ fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
     let crash1 = 2;
     let crash2 = 3;
-    let (init_balance, account_names, nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
+    let (init_balance, account_names, nodes) = create_nodes(
+        num_nodes,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
+        proxy_handlers,
+    );
     // Convert some of the thread nodes into processes.
     let nodes: Vec<_> = nodes
         .into_iter()
@@ -116,8 +123,14 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
     warmup();
     // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
     let (crash1, crash2) = (2, 3);
-    let (init_balance, account_names, nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, vec![]);
+    let (init_balance, account_names, nodes) = create_nodes(
+        num_nodes,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
+        vec![],
+    );
 
     // Convert some of the thread nodes into processes.
     let nodes: Vec<_> = nodes
@@ -134,7 +147,8 @@ fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port
             }
         })
         .collect();
-    let nodes: Vec<Arc<RwLock<Node>>> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+    let nodes: Vec<Arc<RwLock<Node>>> =
+        nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
 
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();

@@ -147,9 +147,8 @@ mod tests {
     use primitives::chain::ChainPayload;
     use primitives::test_utils::TestSignedBlock;
     use primitives::transaction::TransactionBody;
-    use testlib::node::{
-        configure_chain_spec, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT,
-    };
+    use testlib::node::TEST_BLOCK_MAX_SIZE;
+    use testlib::node::{configure_chain_spec, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT};
     use testlib::test_helpers::wait;
 
     /// Creates two nodes, one boot node and secondary node booting from it.
@@ -168,6 +167,7 @@ mod tests {
             vec![],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
 
@@ -179,6 +179,7 @@ mod tests {
             vec![alice.boot_addr()],
             chain_spec,
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let mut alice = Node::new(alice);
@@ -232,6 +233,7 @@ mod tests {
             vec![],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let bob = NodeConfig::for_test(
@@ -242,6 +244,7 @@ mod tests {
             vec![alice.boot_addr()],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let charlie = NodeConfig::for_test_passive(
@@ -252,6 +255,7 @@ mod tests {
             vec![bob.boot_addr()],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
 
@@ -306,6 +310,7 @@ mod tests {
             vec![],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let bob = NodeConfig::for_test(
@@ -316,6 +321,7 @@ mod tests {
             vec![alice.boot_addr()],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let mut alice = Node::new(alice);
@@ -362,6 +368,7 @@ mod tests {
             vec![],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let bob = NodeConfig::for_test(
@@ -372,6 +379,7 @@ mod tests {
             vec![alice.boot_addr()],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let charlie = NodeConfig::for_test(
@@ -382,6 +390,7 @@ mod tests {
             vec![bob.boot_addr()],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let dan = NodeConfig::for_test(
@@ -392,6 +401,7 @@ mod tests {
             vec![charlie.boot_addr()],
             chain_spec,
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let mut alice = Node::new(alice);
@@ -424,6 +434,7 @@ mod tests {
             vec![],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let bob = NodeConfig::for_test(
@@ -434,6 +445,7 @@ mod tests {
             vec![alice.boot_addr()],
             chain_spec.clone(),
             TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
             vec![],
         );
         let mut alice = Node::new(alice);
