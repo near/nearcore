@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use primitives::hash::CryptoHash;
 use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
@@ -11,6 +13,7 @@ pub use rpc_user::RpcUser;
 pub mod runtime_user;
 pub use runtime_user::RuntimeUser;
 pub mod shard_client_user;
+use futures::Future;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 pub use shard_client_user::ShardClientUser;
 
@@ -27,7 +30,6 @@ pub trait User {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
 
-    // this should not be implemented for RpcUser
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String>;
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
@@ -44,4 +46,57 @@ pub trait User {
         &self,
         r: GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String>;
+}
+
+pub trait AsyncUser {
+    fn view_account(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = AccountViewCallResult, Error = Box<dyn Error>>>;
+
+    fn view_balance(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = Balance, Error = Box<dyn Error>>> {
+        Box::new(self.view_account(account_id).map(|acc| acc.amount))
+    }
+
+    fn view_state(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = ViewStateResult, Error = Box<dyn Error>>>;
+
+    fn add_transaction(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Box<dyn Future<Item = (), Error = Box<dyn Error>>>;
+
+    fn add_receipt(
+        &self,
+        receipt: ReceiptTransaction,
+    ) -> Box<dyn Future<Item = (), Error = Box<dyn Error>>>;
+
+    fn get_account_nonce(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = Option<u64>, Error = Box<dyn Error>>>;
+
+    fn get_best_block_index(&self) -> Box<dyn Future<Item = Option<u64>, Error = Box<dyn Error>>>;
+
+    fn get_transaction_result(
+        &self,
+        hash: &CryptoHash,
+    ) -> Box<dyn Future<Item = TransactionResult, Error = Box<dyn Error>>>;
+
+    fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = Box<dyn Error>>>;
+
+    fn get_receipt_info(
+        &self,
+        hash: &CryptoHash,
+    ) -> Box<dyn Future<Item = Option<ReceiptInfo>, Error = Box<dyn Error>>>;
+
+    fn get_shard_blocks_by_index(
+        &self,
+        r: GetBlocksByIndexRequest,
+    ) -> Box<dyn Future<Item = SignedShardBlocksResponse, Error = Box<dyn Error>>>;
 }
