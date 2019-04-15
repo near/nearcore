@@ -4,16 +4,17 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
-use primitives::hash::{hash, CryptoHash};
+use primitives::crypto::group_signature::GroupSignature;
 use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::{InMemorySigner, EDSigner};
+use primitives::crypto::signer::InMemorySigner;
+use primitives::hash::{hash, CryptoHash};
+use primitives::merkle::merklize;
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
     ReceiptTransaction, SignedTransaction, StakeTransaction, TransactionBody,
 };
 use primitives::types::{AccountId, AccountingInfo, MerkleHash, Nonce};
-use primitives::crypto::group_signature::GroupSignature;
 use storage::test_utils::create_trie;
 use storage::{Trie, TrieUpdate};
 
@@ -54,7 +55,8 @@ pub fn get_runtime_and_trie_from_chain_spec(
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
+    let (chain_spec, _) =
+        ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
     get_runtime_and_trie_from_chain_spec(&chain_spec)
 }
 
@@ -72,18 +74,19 @@ pub fn encode_int(val: i32) -> [u8; 4] {
 }
 
 pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
+    let (receipt_merkle_root, path) = merklize(&vec![&receipts]);
     let header = SignedShardBlockHeader {
         body: ShardBlockHeader {
             parent_hash: CryptoHash::default(),
             shard_id: 0,
             index: 0,
             merkle_root_state: CryptoHash::default(),
-            receipt_merkle_root: CryptoHash::default(),
+            receipt_merkle_root,
         },
         hash: CryptoHash::default(),
         signature: GroupSignature::default(),
     };
-    ReceiptBlock::new(header, vec![], receipts)
+    ReceiptBlock::new(header, path[0].clone(), receipts, 0)
 }
 
 impl Runtime {
@@ -190,7 +193,7 @@ impl User {
         amount: u64,
     ) -> (MerkleHash, Vec<ApplyResult>) {
         let signer = InMemorySigner::from_seed(account_id, account_id);
-        self.create_account_with_key(root, account_id, amount, signer.public_key())
+        self.create_account_with_key(root, account_id, amount, signer.public_key)
     }
 
     pub fn create_account_with_key(

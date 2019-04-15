@@ -101,12 +101,10 @@ impl<'a, I: Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)>> Iterator for Me
             (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => {
                 if left_key < right_key {
                     std::cmp::Ordering::Less
+                } else if left_key == right_key {
+                    std::cmp::Ordering::Equal
                 } else {
-                    if left_key == right_key {
-                        std::cmp::Ordering::Equal
-                    } else {
-                        std::cmp::Ordering::Greater
-                    }
+                    std::cmp::Ordering::Greater
                 }
             }
             (Some(_), None) => std::cmp::Ordering::Less,
@@ -199,12 +197,10 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                             (false, false) => {
                                 if left_key < *right_key {
                                     Ordering::Trie
+                                } else if &left_key == right_key {
+                                    Ordering::Both
                                 } else {
-                                    if &left_key == right_key {
-                                        Ordering::Both
-                                    } else {
-                                        Ordering::Overlay
-                                    }
+                                    Ordering::Overlay
                                 }
                             }
                             (false, true) => Ordering::Trie,

@@ -16,7 +16,7 @@ parity-rocksdb = "0.5"
 parking_lot = "0.7.1"
 serde = "1.0"
 serde_derive = "1.0"
-lru = "0.1"
+cached = "0.8"
 
 primitives = { path = "../primitives" }
 

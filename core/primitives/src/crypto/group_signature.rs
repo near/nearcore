@@ -71,7 +71,7 @@ impl GroupSignature {
         self.authority_mask.iter().filter(|&x| *x).count()
     }
 
-    pub fn verify(&self, keys: &Vec<BlsPublicKey>, message: &[u8]) -> bool {
+    pub fn verify(&self, keys: &[BlsPublicKey], message: &[u8]) -> bool {
         if keys.len() < self.authority_mask.len() {
             return false;
         }

@@ -1,7 +1,7 @@
 //! Several specializations of the storage over the general-purpose key-value storage used by the
 //! generic BlockChain and by specific BeaconChain/ShardChain.
 use crate::KeyValueDB;
-use lru::LruCache;
+use cached::{Cached, SizedCache};
 use primitives::block_traits::SignedBlock;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
@@ -81,13 +81,14 @@ pub struct BlockChainStorage<H, B> {
     storage: Arc<KeyValueDB>,
     genesis_hash: Option<CryptoHash>,
     // keyed by hash
-    best_block_hash: LruCache<Vec<u8>, CryptoHash>,
+    best_block_hash: SizedCache<Vec<u8>, CryptoHash>,
+    best_block_index: SizedCache<Vec<u8>, u64>,
     // keyed by hash
-    headers: LruCache<Vec<u8>, H>,
+    headers: SizedCache<Vec<u8>, H>,
     // keyed by hash
-    blocks: LruCache<Vec<u8>, B>,
+    blocks: SizedCache<Vec<u8>, B>,
     // keyed by index
-    block_indices: LruCache<Vec<u8>, CryptoHash>,
+    block_indices: SizedCache<Vec<u8>, CryptoHash>,
 }
 
 /// Specific block chain storages like beacon chain storage and shard chain storage should implement
@@ -135,10 +136,11 @@ where
             storage,
             chain_id,
             genesis_hash: None,
-            best_block_hash: LruCache::new(CACHE_SIZE),
-            headers: LruCache::new(CACHE_SIZE),
-            blocks: LruCache::new(CACHE_SIZE),
-            block_indices: LruCache::new(CACHE_SIZE),
+            best_block_hash: SizedCache::with_size(CACHE_SIZE),
+            best_block_index: SizedCache::with_size(CACHE_SIZE),
+            headers: SizedCache::with_size(CACHE_SIZE),
+            blocks: SizedCache::with_size(CACHE_SIZE),
+            block_indices: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
@@ -146,15 +148,18 @@ where
         self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR)
     }
 
-    pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
-        // check whether we already have a genesis. If we do, then
-        // the genesis must match the existing one in storage
-        if let Some(genesis_hash) = self.genesis_hash {
-            if genesis_hash != genesis.block_hash() {
+    pub fn set_genesis_hash(&mut self, genesis_hash: CryptoHash) -> io::Result<()> {
+        if let Some(current_genesis_hash) = self.genesis_hash {
+            if current_genesis_hash != genesis_hash {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid genesis"));
             }
         }
-        self.genesis_hash = Some(genesis.block_hash());
+        self.genesis_hash = Some(genesis_hash);
+        Ok(())
+    }
+
+    pub fn set_genesis(&mut self, genesis: B) -> io::Result<()> {
+        self.set_genesis_hash(genesis.block_hash())?;
         if self.block(&genesis.block_hash())?.is_none() {
             // Only add genesis block if it was not added before. It might have been added before
             // if we have launched on the existing storage.
@@ -184,12 +189,33 @@ where
     }
 
     #[inline]
+    pub fn best_block_index(&mut self) -> StorageResult<u64> {
+        let mut key = self.enc_slice(self.genesis_hash.expect(MISSING_GENESIS_ERR).as_ref());
+        key.extend_from_slice(&[0]);
+        read_with_cache(self.storage.as_ref(), COL_BEST_BLOCK, &mut self.best_block_index, &key)
+            .map(|x| x.cloned())
+    }
+
+    #[inline]
     pub fn set_best_block_hash(&mut self, value: CryptoHash) -> io::Result<()> {
         let key = self.enc_hash(self.genesis_hash.as_ref().expect(MISSING_GENESIS_ERR));
         write_with_cache(
             self.storage.as_ref(),
             COL_BEST_BLOCK,
             &mut self.best_block_hash,
+            &key,
+            value,
+        )
+    }
+
+    #[inline]
+    pub fn set_best_block_index(&mut self, value: u64) -> io::Result<()> {
+        let mut key = self.enc_slice(self.genesis_hash.expect(MISSING_GENESIS_ERR).as_ref());
+        key.extend_from_slice(&[0]);
+        write_with_cache(
+            self.storage.as_ref(),
+            COL_BEST_BLOCK,
+            &mut self.best_block_index,
             &key,
             value,
         )
@@ -278,7 +304,7 @@ fn chain_id_to_bytes(index: &u32) -> &[u8] {
 fn write_with_cache<T: Clone + Encode>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &mut LruCache<Vec<u8>, T>,
+    cache: &mut SizedCache<Vec<u8>, T>,
     key: &[u8],
     value: T,
 ) -> io::Result<()> {
@@ -287,14 +313,14 @@ fn write_with_cache<T: Clone + Encode>(
     db_transaction.put(Some(col), key, &data);
     storage.write(db_transaction)?;
     // If it has reached here then it is safe to put in cache.
-    cache.put(key.to_vec(), value);
+    cache.cache_set(key.to_vec(), value);
     Ok(())
 }
 
 fn extend_with_cache<T: Clone + Encode>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &mut LruCache<Vec<u8>, T>,
+    cache: &mut SizedCache<Vec<u8>, T>,
     values: HashMap<Vec<u8>, T>,
 ) -> io::Result<()> {
     let mut db_transaction = storage.transaction();
@@ -307,7 +333,7 @@ fn extend_with_cache<T: Clone + Encode>(
     storage.write(db_transaction)?;
     // If it has reached here then it is safe to put in cache.
     for (key, value) in cache_to_extend {
-        cache.put(key, value);
+        cache.cache_set(key, value);
     }
     Ok(())
 }
@@ -315,27 +341,26 @@ fn extend_with_cache<T: Clone + Encode>(
 fn read_with_cache<'a, T: Decode + Clone + 'a>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &'a mut LruCache<Vec<u8>, T>,
+    cache: &'a mut SizedCache<Vec<u8>, T>,
     key: &[u8],
 ) -> StorageResult<&'a T> {
     let key_vec = key.to_vec();
-    if cache.contains(&key_vec) {
-        let value = cache.get(&key_vec).unwrap();
-        Ok(Some(value))
-    } else if let Some(data) = storage.get(Some(col), key)? {
-        let result = Decode::decode(data.as_ref())?;
-        cache.put(key_vec.clone(), result);
-        Ok(cache.get(&key_vec))
-    } else {
-        Ok(None)
+    if cache.cache_get(&key_vec).is_some() {
+        return Ok(Some(cache.cache_get(&key_vec).unwrap()));
     }
+    if let Some(data) = storage.get(Some(col), key)? {
+        let result = Decode::decode(data.as_ref())?;
+        cache.cache_set(key.to_vec(), result);
+        return Ok(cache.cache_get(&key_vec));
+    }
+    Ok(None)
 }
 
 /// prune column based on index
 fn prune_index<T>(
     storage: &KeyValueDB,
     col: u32,
-    cache: &mut LruCache<Vec<u8>, T>,
+    cache: &mut SizedCache<Vec<u8>, T>,
     filter: &Fn(u64) -> bool,
 ) -> io::Result<()> {
     let get_u64_from_key = |k: &[u8]| {
@@ -352,13 +377,14 @@ fn prune_index<T>(
     }
     storage.write(db_transaction)?;
 
-    // LruCache does not have `retain`, so have to sort to this
-    // https://github.com/jeromefroe/lru-rs/issues/31
-    let keys: Vec<_> = cache.iter().map(|(k, _)| k.clone()).collect();
-    for key in keys {
-        if !filter(get_u64_from_key(&key)) {
-            cache.pop(&key);
+    let mut keys_to_remove = vec![];
+    for key in cache.key_order() {
+        if !filter(get_u64_from_key(key)) {
+            keys_to_remove.push(key.clone());
         }
+    }
+    for key in keys_to_remove {
+        cache.cache_remove(&key);
     }
     Ok(())
 }
@@ -370,20 +396,20 @@ mod test {
     #[test]
     fn test_cache_read_and_write() {
         let db = kvdb_memorydb::create(NUM_COLS);
-        let mut cache = LruCache::new(8);
+        let mut cache = SizedCache::with_size(8);
         for i in 0..8 {
             write_with_cache(&db, 0, &mut cache, &[i as u8], i).unwrap();
         }
         for i in (8..12).rev() {
             write_with_cache(&db, 0, &mut cache, &[i as u8], i).unwrap();
         }
-        let values: Vec<_> = cache.into_iter().map(|(_, v)| *v as u32).collect();
-        assert_eq!(values, vec![8, 9, 10, 11, 7, 6, 5, 4]);
+        let keys: Vec<u8> = cache.key_order().flatten().cloned().collect();
+        assert_eq!(keys, vec![8, 9, 10, 11, 7, 6, 5, 4]);
         for i in 0..12 {
             let result = read_with_cache(&db, 0, &mut cache, &[i as u8]);
             assert_eq!(*result.unwrap().unwrap(), i);
         }
-        let values: Vec<u32> = cache.into_iter().map(|(_, v)| *v as u32).collect();
-        assert_eq!(values, vec![11, 10, 9, 8, 7, 6, 5, 4]);
+        let keys: Vec<u8> = cache.key_order().flatten().cloned().collect();
+        assert_eq!(keys, vec![11, 10, 9, 8, 7, 6, 5, 4]);
     }
 }

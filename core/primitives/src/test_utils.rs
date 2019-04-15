@@ -56,7 +56,7 @@ pub trait TestSignedBlock: SignedBlock {
     fn sign_all<T: BLSSigner + AccountSigner>(
         &mut self,
         authorities: &HashMap<AuthorityId, AuthorityStake>,
-        signers: &Vec<Arc<T>>,
+        signers: &[Arc<T>],
     ) {
         let signer_map: HashMap<AccountId, Arc<T>> =
             signers.iter().map(|s| (s.account_id(), s.clone())).collect();

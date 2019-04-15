@@ -164,20 +164,20 @@ impl RawTrieNode {
 }
 
 impl RcTrieNode {
-    fn encode(data: &Vec<u8>, rc: u32) -> Result<Vec<u8>, std::io::Error> {
+    fn encode(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_all(data)?;
         cursor.write_u32::<LittleEndian>(rc)?;
         Ok(cursor.into_inner())
     }
 
-    fn decode_raw(bytes: &Vec<u8>) -> Result<(Vec<u8>, u32), std::io::Error> {
+    fn decode_raw(bytes: &[u8]) -> Result<(Vec<u8>, u32), std::io::Error> {
         let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
         let rc = cursor.read_u32::<LittleEndian>()?;
         Ok((bytes[..bytes.len() - 4].to_vec(), rc))
     }
 
-    fn decode(bytes: &Vec<u8>) -> Result<(RawTrieNode, u32), std::io::Error> {
+    fn decode(bytes: &[u8]) -> Result<(RawTrieNode, u32), std::io::Error> {
         let node = RawTrieNode::decode(&bytes[..bytes.len() - 4])?;
         let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
         let rc = cursor.read_u32::<LittleEndian>()?;

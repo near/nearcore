@@ -7,17 +7,17 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::block_traits::{SignedBlock, SignedHeader};
 use crate::consensus::Payload;
+use crate::crypto::group_signature::GroupSignature;
 use crate::hash::{hash_struct, CryptoHash};
 use crate::merkle::{Direction, MerklePath};
 use crate::transaction::{ReceiptTransaction, SignedTransaction};
+use crate::types::PartialSignature;
 use crate::types::{AuthorityId, BlockIndex, MerkleHash, ShardId};
 use crate::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_protos::network as network_proto;
 use near_protos::types as types_proto;
 use protobuf::{RepeatedField, SingularPtrField};
-use crate::crypto::group_signature::GroupSignature;
-use crate::types::PartialSignature;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -183,6 +183,8 @@ pub struct ReceiptBlock {
     pub path: MerklePath,
     // receipts should not be empty
     pub receipts: Vec<ReceiptTransaction>,
+    /// The shard that the receipt block goes to.
+    pub shard_id: ShardId,
     // hash is the hash of receipts. It is
     // sufficient to uniquely identify the
     // receipt block because of the uniqueness
@@ -205,7 +207,13 @@ impl TryFrom<chain_proto::ReceiptBlock> for ReceiptBlock {
         let receipts =
             proto.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let header = proto_to_type(proto.header)?;
-        Ok(ReceiptBlock { header, path, receipts, hash: proto.hash.try_into()? })
+        Ok(ReceiptBlock {
+            header,
+            path,
+            receipts,
+            shard_id: proto.shard_id,
+            hash: proto.hash.try_into()?,
+        })
     }
 }
 
@@ -224,6 +232,7 @@ impl From<ReceiptBlock> for chain_proto::ReceiptBlock {
             receipts: RepeatedField::from_iter(
                 receipt.receipts.into_iter().map(std::convert::Into::into),
             ),
+            shard_id: receipt.shard_id,
             hash: receipt.hash.into(),
             ..Default::default()
         }
@@ -253,9 +262,10 @@ impl ReceiptBlock {
         header: SignedShardBlockHeader,
         path: MerklePath,
         receipts: Vec<ReceiptTransaction>,
+        shard_id: ShardId,
     ) -> Self {
         let hash = hash_struct(&receipts);
-        ReceiptBlock { header, path, receipts, hash }
+        ReceiptBlock { header, path, receipts, shard_id, hash }
     }
 
     pub fn get_hash(&self) -> CryptoHash {
