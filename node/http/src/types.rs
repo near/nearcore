@@ -8,9 +8,11 @@ use primitives::crypto::group_signature::GroupSignature;
 use primitives::crypto::signature::{bs58_serializer, PublicKey};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::transaction::{
-    FinalTransactionResult, LogEntry, SignedTransaction, TransactionResult, ReceiptTransaction
+    FinalTransactionResult, LogEntry, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
-use primitives::types::{AccountId, AuthorityStake, Balance, MerkleHash, Nonce, ShardId};
+use primitives::types::{
+    AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, Nonce, ShardId,
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
@@ -58,7 +60,7 @@ pub struct AuthorityProposalResponse {
     pub public_key: PublicKey,
     #[serde(with = "bs58_serializer")]
     pub bls_public_key: BlsPublicKey,
-    pub amount: u64,
+    pub amount: Balance,
 }
 
 impl From<AuthorityStake> for AuthorityProposalResponse {
@@ -76,7 +78,7 @@ impl From<AuthorityStake> for AuthorityProposalResponse {
 pub struct BeaconBlockHeaderResponse {
     #[serde(with = "bs58_format")]
     pub parent_hash: CryptoHash,
-    pub index: u64,
+    pub index: BlockIndex,
     pub authority_proposal: Vec<AuthorityProposalResponse>,
     #[serde(with = "bs58_format")]
     pub shard_block_hash: CryptoHash,
@@ -118,7 +120,7 @@ pub struct ShardBlockHeaderResponse {
     #[serde(with = "bs58_format")]
     pub parent_hash: CryptoHash,
     pub shard_id: ShardId,
-    pub index: u64,
+    pub index: BlockIndex,
     #[serde(with = "bs58_format")]
     pub merkle_root_state: MerkleHash,
 }
@@ -240,14 +242,14 @@ pub struct SubmitTransactionResponse {
 #[derive(Serialize, Deserialize)]
 pub struct TransactionInfoResponse {
     pub transaction: SignedTransactionResponse,
-    pub block_index: u64,
+    pub block_index: BlockIndex,
     pub result: TransactionResult,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ReceiptInfoResponse {
     pub receipt: ReceiptResponse,
-    pub block_index: u64,
+    pub block_index: BlockIndex,
     pub result: TransactionResult,
 }
 
@@ -255,4 +257,11 @@ pub struct ReceiptInfoResponse {
 pub struct SubmitTransactionRequest {
     #[serde(with = "protos_b64_format")]
     pub transaction: near_protos::signed_transaction::SignedTransaction,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HealthzResponse {
+    #[serde(with = "bs58_format")]
+    pub genesis_hash: CryptoHash,
+    pub latest_block_index: BlockIndex,
 }

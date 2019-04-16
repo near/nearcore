@@ -22,4 +22,4 @@ alphanet --base-path ${BASE_PATH} \
     --addr 0.0.0.0:3000 \
     --test-network-key-seed ${NODE_NUM} \
     --account-id near.${NODE_NUM} \
-    --boot-nodes ${BOOT_NODE_IP}:3000/7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t | tee output.log
+    --boot-nodes ${BOOT_NODE_IP}:3000/7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t 2>&1 | tee output.log
