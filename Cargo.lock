@@ -1362,6 +1362,7 @@ dependencies = [
 name = "node-http"
 version = "0.1.0"
 dependencies = [
+ "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "beacon 0.0.1",
  "chain 0.0.1",
  "client 0.1.0",
@@ -1371,6 +1372,7 @@ dependencies = [
  "near-protos 0.1.0",
  "node-runtime 0.0.1",
  "primitives 0.1.0",
+ "protobuf 2.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",

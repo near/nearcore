@@ -8,9 +8,15 @@ use primitives::crypto::group_signature::GroupSignature;
 use primitives::crypto::signature::{bs58_serializer, PublicKey};
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::transaction::{
-    FinalTransactionResult, LogEntry, SignedTransaction, TransactionResult, ReceiptTransaction
+    FinalTransactionResult, LogEntry, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use primitives::types::{AccountId, AuthorityStake, Balance, MerkleHash, Nonce, ShardId};
+
+pub enum RPCError {
+    BadRequest(String),
+    NotFound,
+    ServiceUnavailable(String),
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
@@ -255,4 +261,40 @@ pub struct ReceiptInfoResponse {
 pub struct SubmitTransactionRequest {
     #[serde(with = "protos_b64_format")]
     pub transaction: near_protos::signed_transaction::SignedTransaction,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: Vec<serde_json::Value>,
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct JsonRpcResponseError {
+    code: i64,
+    message: String,
+    data: serde_json::Value,
+}
+
+impl From<RPCError> for JsonRpcResponseError {
+    fn from(error: RPCError) -> JsonRpcResponseError {
+        let (code, message) = match error {
+            RPCError::BadRequest(msg) => (-32602, format!("Bad request: {}", msg)),
+            RPCError::NotFound => (-32601, format!("Not found")),
+            RPCError::ServiceUnavailable(msg) => (-32603, format!("Service unavailable: {}", msg)),
+        };
+        JsonRpcResponseError { code, message, data: serde_json::Value::Null }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcResponseError>,
+    pub id: String,
 }

@@ -10,7 +10,8 @@ use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
-use crate::api::{HttpApi, RPCError};
+use crate::types::RPCError;
+use crate::api::HttpApi;
 
 type BoxFut = Box<Future<Item = Response<Body>, Error = hyper::Error> + Send>;
 
@@ -42,6 +43,7 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
                     .map(move |_| build_response().body(Body::empty()).unwrap()),
             )
         }
+
         (&Method::POST, "/submit_transaction") => {
             Box::new(req.into_body().concat2().map(move |chunk| {
                 match serde_json::from_slice(&chunk) {
@@ -276,6 +278,18 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
             }))
         }
 
+        (&Method::POST, "/") => Box::new(req.into_body().concat2().map(move |chunk| {
+            match serde_json::from_slice(&chunk) {
+                Ok(request) => build_response()
+                    .body(Body::from(serde_json::to_string(&http_api.jsonrpc(&request)).unwrap()))
+                    .unwrap(),
+                Err(e) => build_response()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(e.to_string()))
+                    .unwrap(),
+            }
+        })),
+
         _ => Box::new(future::ok(
             build_response().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap(),
         )),
@@ -283,9 +297,7 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
 }
 
 pub fn spawn_server<T: Send + Sync + 'static>(http_api: HttpApi<T>, addr: Option<SocketAddr>) {
-    let addr = addr.unwrap_or_else(|| {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030)
-    });
+    let addr = addr.unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030));
 
     let http_api = Arc::new(http_api);
     let service = move || {

@@ -428,7 +428,7 @@ class Near {
      * const result = (await this.getTransactionStatus(transactionHash)).result
      */
     async getTransactionStatus(transactionHash) {
-        const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
+        const transactionStatusResponse = await this.nearClient.request('get_transaction_final_result', {
             hash: transactionHash,
         });
         return transactionStatusResponse;
@@ -574,12 +574,12 @@ class NearClient {
     async submitTransaction (signedTransaction) {
         const buffer = SignedTransaction.encode(signedTransaction).finish();
         const transaction = _arrayBufferToBase64(buffer);
-        const data = { transaction };
+        const params = [transaction];
         try {
-            return await this.request('submit_transaction', data);
+            return await this.jsonRpcRequest('broadcast_tx_async', params);
         } catch(e) {
-            if (e.response) { 
-                throw new Error(e.response.text);
+            if (e.error) {
+                throw new Error(e.error.message);
             }
             throw e;
         }
@@ -587,6 +587,16 @@ class NearClient {
 
     async getNonce (account_id) {
         return (await this.viewAccount(account_id)).nonce + 1;
+    }
+
+    async jsonRpcRequest(method, params) {
+        const request = {
+            jsonrpc: '2.0',
+            method,
+            params,
+            id: 'dontcare',
+        };
+        return await this.nearConnection.request('/', request)
     }
 
     async request (methodName, params) {

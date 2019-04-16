@@ -1,14 +1,18 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
+use protobuf::parse_from_bytes;
+use serde_json::json;
+
 use client::Client;
+use primitives::hash::CryptoHash;
 use primitives::logging::pretty_utf8;
+use primitives::transaction::verify_transaction_signature;
+use primitives::transaction::SignedTransaction;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
 
 use crate::types::*;
-use primitives::transaction::verify_transaction_signature;
-use primitives::transaction::SignedTransaction;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -22,13 +26,49 @@ impl<T> HttpApi<T> {
     }
 }
 
-pub enum RPCError {
-    BadRequest(String),
-    NotFound,
-    ServiceUnavailable(String),
+fn decode_transaction(value: &serde_json::Value) -> Result<SignedTransaction, RPCError> {
+    let data = base64::decode(
+        value.as_str().ok_or_else(|| RPCError::BadRequest(format!("Param should be bytes")))?,
+    )
+    .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?;
+    let transaction = parse_from_bytes::<near_protos::signed_transaction::SignedTransaction>(&data)
+        .map_err(|e| RPCError::BadRequest(format!("Failed to parse protobuf: {}", e)))?;
+    transaction.try_into().map_err(RPCError::BadRequest)
 }
 
 impl<T> HttpApi<T> {
+    pub fn jsonrpc(&self, r: &JsonRpcRequest) -> JsonRpcResponse {
+        let mut resp = JsonRpcResponse {
+            jsonrpc: r.jsonrpc.clone(),
+            id: r.id.clone(),
+            result: None,
+            error: None,
+        };
+        match self.jsonrpc_matcher(&r.method, &r.params) {
+            Ok(value) => resp.result = Some(value),
+            Err(err) => resp.error = Some(err.into()),
+        }
+        resp
+    }
+
+    fn jsonrpc_matcher(
+        &self,
+        method: &String,
+        params: &Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, RPCError> {
+        match method.as_ref() {
+            "broadcast_tx_async" => {
+                if params.len() != 1 {
+                    return Err(RPCError::BadRequest(format!("Invalid number of arguments")));
+                }
+                let transaction = decode_transaction(&params[0])?;
+                let hash = self.submit_tx(transaction)?;
+                Ok(json!({"hash": hash, "log": "", "data": "", "code": "0"}))
+            }
+            _ => Err(RPCError::NotFound),
+        }
+    }
+
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {}", r.account_id);
         let mut state_update = self.client.shard_client.get_state_update();
@@ -72,12 +112,7 @@ impl<T> HttpApi<T> {
         }
     }
 
-    pub fn submit_transaction(
-        &self,
-        r: &SubmitTransactionRequest,
-    ) -> Result<SubmitTransactionResponse, RPCError> {
-        let transaction: SignedTransaction =
-            r.transaction.clone().try_into().map_err(RPCError::BadRequest)?;
+    fn submit_tx(&self, transaction: SignedTransaction) -> Result<CryptoHash, RPCError> {
         debug!(target: "near-rpc", "Received transaction {:#?}", transaction);
         let originator = transaction.body.get_originator();
         let mut state_update = self.client.shard_client.get_state_update();
@@ -94,11 +129,23 @@ impl<T> HttpApi<T> {
         }
         let hash = transaction.get_hash();
         if let Some(pool) = &self.client.shard_client.pool {
-            pool.write().expect(POISONED_LOCK_ERR).add_transaction(transaction).map_err(RPCError::BadRequest)?;
+            pool.write()
+                .expect(POISONED_LOCK_ERR)
+                .add_transaction(transaction)
+                .map_err(RPCError::BadRequest)?;
         } else {
             // TODO(822): Relay to validator.
         }
-        Ok(SubmitTransactionResponse { hash })
+        Ok(hash)
+    }
+
+    pub fn submit_transaction(
+        &self,
+        r: &SubmitTransactionRequest,
+    ) -> Result<SubmitTransactionResponse, RPCError> {
+        let transaction: SignedTransaction =
+            r.transaction.clone().try_into().map_err(RPCError::BadRequest)?;
+        self.submit_tx(transaction).map(|hash| SubmitTransactionResponse { hash })
     }
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
@@ -193,9 +240,9 @@ impl<T> HttpApi<T> {
             Some(info) => Ok(ReceiptInfoResponse {
                 receipt: info.receipt.into(),
                 block_index: info.block_index,
-                result: info.result
+                result: info.result,
             }),
-            None => Err(RPCError::NotFound)
+            None => Err(RPCError::NotFound),
         }
     }
 
@@ -209,7 +256,7 @@ impl<T> HttpApi<T> {
 
     pub fn get_transaction_result(
         &self,
-        r: &GetTransactionRequest
+        r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
         let result = self.client.shard_client.get_transaction_result(&r.hash);
         Ok(TransactionResultResponse { result })
