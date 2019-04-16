@@ -1,20 +1,19 @@
 use std::convert::{TryFrom, TryInto};
-use std::fmt::Debug;
-use std::hash::Hash;
 
 use crate::crypto::aggregate_signature::{
-    uncompressed_bs58_signature_serializer, AggregatePublicKey, BlsAggregateSignature,
+    uncompressed_bs58_signature_serializer,
     BlsPublicKey, BlsSignature,
 };
 use crate::crypto::group_signature::GroupSignature;
-use crate::crypto::signature::{bs58_serializer, Signature};
+use crate::crypto::signature::Signature;
 use crate::crypto::signer::{BLSSigner, EDSigner};
 use crate::hash::CryptoHash;
 pub use crate::serialize::{Decode, Encode};
 use crate::traits::Base58Encoded;
-use crate::types::{AuthorityId, BlockIndex, PartialSignature};
+use crate::types::{AuthorityId, BlockIndex};
 use crate::utils::proto_to_type;
 use near_protos::nightshade as nightshade_proto;
+use near_protos::chain as chain_proto;
 use protobuf::SingularPtrField;
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -35,7 +34,7 @@ pub struct BlockProposal {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ConsensusBlockProposal {
-    pub proposal: BlockProposal,
+    pub proposal_with_proof: Proof,
     pub index: BlockIndex,
 }
 
@@ -60,7 +59,7 @@ pub struct BareState {
 /// It must have signatures from more than 2/3 authorities on triplets of the form `(C - 1, O, C')`
 ///
 /// This is a lazy data structure. Aggregated signature is computed after all BLS parts are supplied.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Proof {
     pub bare_state: BareState,
     pub signature: GroupSignature,
@@ -115,17 +114,17 @@ impl BlockProposal {
     }
 }
 
-impl TryFrom<nightshade_proto::BlockProposal> for BlockProposal {
+impl TryFrom<chain_proto::BlockProposal> for BlockProposal {
     type Error = String;
 
-    fn try_from(proto: nightshade_proto::BlockProposal) -> Result<Self, Self::Error> {
+    fn try_from(proto: chain_proto::BlockProposal) -> Result<Self, Self::Error> {
         Ok(BlockProposal { hash: proto.hash.try_into()?, author: proto.author as AuthorityId })
     }
 }
 
-impl From<BlockProposal> for nightshade_proto::BlockProposal {
+impl From<BlockProposal> for chain_proto::BlockProposal {
     fn from(block_proposal: BlockProposal) -> Self {
-        nightshade_proto::BlockProposal {
+        chain_proto::BlockProposal {
             hash: block_proposal.hash.into(),
             author: block_proposal.author as u64,
             ..Default::default()
@@ -133,10 +132,10 @@ impl From<BlockProposal> for nightshade_proto::BlockProposal {
     }
 }
 
-impl TryFrom<nightshade_proto::BareState> for BareState {
+impl TryFrom<chain_proto::BareState> for BareState {
     type Error = String;
 
-    fn try_from(proto: nightshade_proto::BareState) -> Result<Self, Self::Error> {
+    fn try_from(proto: chain_proto::BareState) -> Result<Self, Self::Error> {
         let endorses = proto_to_type(proto.endorses)?;
         Ok(BareState {
             primary_confidence: proto.primary_confidence,
@@ -146,9 +145,9 @@ impl TryFrom<nightshade_proto::BareState> for BareState {
     }
 }
 
-impl From<BareState> for nightshade_proto::BareState {
-    fn from(state: BareState) -> Self {
-        nightshade_proto::BareState {
+impl From<BareState> for chain_proto::BareState {
+    fn from(state: BareState) -> chain_proto::BareState {
+        chain_proto::BareState {
             primary_confidence: state.primary_confidence,
             endorses: SingularPtrField::some(state.endorses.into()),
             secondary_confidence: state.secondary_confidence,
@@ -189,10 +188,10 @@ impl BareState {
     }
 }
 
-impl TryFrom<nightshade_proto::Proof> for Proof {
+impl TryFrom<chain_proto::Proof> for Proof {
     type Error = String;
 
-    fn try_from(proto: nightshade_proto::Proof) -> Result<Self, Self::Error> {
+    fn try_from(proto: chain_proto::Proof) -> Result<Self, Self::Error> {
         let signature = Base58Encoded::from_base58(&proto.signature);
         match (proto_to_type(proto.bare_state), signature) {
             (Ok(bare_state), Ok(signature)) => Ok(Proof {
@@ -204,9 +203,9 @@ impl TryFrom<nightshade_proto::Proof> for Proof {
     }
 }
 
-impl From<Proof> for nightshade_proto::Proof {
-    fn from(proof: Proof) -> nightshade_proto::Proof {
-        nightshade_proto::Proof {
+impl From<Proof> for chain_proto::Proof {
+    fn from(proof: Proof) -> Self {
+        Self {
             bare_state: SingularPtrField::some(proof.bare_state.into()),
             mask: proof.signature.authority_mask,
             signature: proof.signature.signature.to_base58(),
@@ -245,6 +244,12 @@ impl Proof {
         } else {
             Err(NSVerifyErr::InvalidProof)
         }
+    }
+}
+
+impl Default for Proof {
+    fn default() -> Self {
+        Proof { bare_state: BareState::empty(), signature: GroupSignature::default() }
     }
 }
 

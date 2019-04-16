@@ -19,6 +19,7 @@ use primitives::transaction::{
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
 use primitives::types::Nonce;
+use primitives::test_utils::forge_proof;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
@@ -59,7 +60,10 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
             transactions = batches.remove(0);
         }
         let payload = ChainPayload::new(transactions, prev_receipt_blocks);
-        let (beacon_block, shard_block, shard_extra) = client.prepare_block(payload);
+        let proof = forge_proof(&payload,
+                                &client.get_uid_to_authority_map(client.beacon_client.chain.best_index() + 1).1,
+                                &vec![client.signer.clone().unwrap()]);
+        let (beacon_block, shard_block, shard_extra) = client.prepare_block(payload, proof);
         let (_beacon_block, shard_block) =
             client.try_import_produced(beacon_block, shard_block, shard_extra);
         prev_receipt_blocks = client

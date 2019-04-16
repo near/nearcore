@@ -4,6 +4,23 @@ import "types.proto";
 import "receipt.proto";
 import "signed_transaction.proto";
 
+message BlockProposal {
+    bytes hash = 1;
+    uint64 author = 2;
+}
+
+message BareState {
+    int64 primary_confidence = 1;
+    BlockProposal endorses = 2;
+    int64 secondary_confidence = 3;
+}
+
+message Proof {
+    BareState bare_state = 1;
+    repeated bool mask = 2;
+    string signature = 3;
+}
+
 message ChainState {
     bytes genesis_hash = 1;
     uint64 last_index = 2;
@@ -20,7 +37,7 @@ message ShardBlockHeader {
 message SignedShardBlockHeader {
     ShardBlockHeader body = 1;
     bytes hash = 2;
-    GroupSignature signature = 3;
+    Proof proof = 4;
 }
 
 message ReceiptBlock {
@@ -40,7 +57,7 @@ message ShardBlock {
 message SignedShardBlock {
     ShardBlock body = 1;
     bytes hash = 2;
-    GroupSignature signature = 3;
+    Proof proof = 4;
 }
 
 message BeaconBlockHeader {

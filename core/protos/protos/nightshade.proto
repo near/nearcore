@@ -2,23 +2,6 @@ syntax = "proto3";
 
 import "chain.proto";
 
-message BlockProposal {
-    bytes hash = 1;
-    uint64 author = 2;
-}
-
-message BareState {
-    int64 primary_confidence = 1;
-    BlockProposal endorses = 2;
-    int64 secondary_confidence = 3;
-}
-
-message Proof {
-    BareState bare_state = 1;
-    repeated bool mask = 2;
-    string signature = 3;
-}
-
 message State {
     BareState bare_state = 1;
     Proof primary_proof = 2;

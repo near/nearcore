@@ -4,7 +4,6 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use configs::{chain_spec::AuthorityRotation, ChainSpec};
 use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
-use primitives::crypto::group_signature::GroupSignature;
 use primitives::crypto::signature::PublicKey;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
@@ -22,6 +21,7 @@ use crate::state_viewer::TrieViewer;
 
 use super::{callback_id_to_bytes, set, ApplyResult, ApplyState, Runtime};
 use configs::chain_spec::DefaultIdType;
+use primitives::nightshade::Proof;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -84,7 +84,7 @@ pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
             receipt_merkle_root,
         },
         hash: CryptoHash::default(),
-        signature: GroupSignature::default(),
+        proof: Proof::default(),
     };
     ReceiptBlock::new(header, path[0].clone(), receipts, 0)
 }

@@ -138,12 +138,20 @@ fn spawn_rpc_server_task<T: Send + Sync + 'static>(client: Arc<Client<T>>, rpc_c
 #[cfg(test)]
 mod tests {
     use primitives::block_traits::SignedBlock;
-    use primitives::chain::ChainPayload;
-    use primitives::test_utils::TestSignedBlock;
-    use primitives::transaction::TransactionBody;
+    use primitives::chain::{ChainPayload, ShardBlock, ReceiptBlock, Snapshot};
+    use primitives::test_utils::{TestSignedBlock, forge_proof};
+    use primitives::transaction::{TransactionBody, SignedTransaction};
     use testlib::node::TEST_BLOCK_MAX_SIZE;
     use testlib::node::{configure_chain_spec, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT};
     use testlib::test_helpers::wait;
+    use primitives::nightshade::{Proof, BareState, BlockProposal};
+    use client::Client;
+    use primitives::crypto::signer::{InMemorySigner, AccountSigner, BLSSigner};
+    use std::sync::Arc;
+    use std::collections::HashMap;
+    use primitives::types::{AuthorityId, AuthorityStake, AccountId, PartialSignature};
+    use primitives::crypto::group_signature::GroupSignature;
+    use std::io::Chain;
 
     /// Creates two nodes, one boot node and secondary node booting from it.
     /// Waits until they produce block with transfer money tx.
@@ -256,15 +264,17 @@ mod tests {
         let mut alice = Node::new(alice);
         let mut bob = Node::new(bob);
         let mut charlie = Node::new(charlie);
+        let payload = ChainPayload::default();
+
+        // Sign by alice & bob to make this blocks valid.
+        let block_index = alice.as_thread_mut().client.beacon_client.chain.best_index() + 1;
+        let (_, authorities) =
+            alice.as_thread_mut().client.get_uid_to_authority_map(block_index);
+        let signers = vec![alice.signer(), bob.signer()];
+        let proof = forge_proof(&payload, &authorities, &signers);
 
         let (mut beacon_block, mut shard_block, shard_extra) =
-            alice.as_thread_mut().client.prepare_block(ChainPayload::default());
-        // Sign by alice & bob to make this blocks valid.
-        let (_, authorities) =
-            alice.as_thread_mut().client.get_uid_to_authority_map(beacon_block.index());
-        let signers = vec![alice.signer(), bob.signer()];
-        beacon_block.sign_all(&authorities, &signers);
-        shard_block.sign_all(&authorities, &signers);
+            alice.as_thread_mut().client.prepare_block(payload, proof);
         alice.as_thread_mut().client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.as_thread_mut()
@@ -320,14 +330,16 @@ mod tests {
         );
         let mut alice = Node::new(alice);
         let mut bob = Node::new(bob);
-        let (mut beacon_block, mut shard_block, shard_extra) =
-            alice.as_thread_mut().client.prepare_block(ChainPayload::default());
+        let payload = ChainPayload::default();
+
         // Sign by alice & bob to make this blocks valid.
+        let block_index = alice.as_thread_mut().client.beacon_client.chain.best_index() + 1;
         let (_, authorities) =
-            alice.as_thread_mut().client.get_uid_to_authority_map(beacon_block.index());
+            alice.as_thread_mut().client.get_uid_to_authority_map(block_index);
         let signers = vec![alice.signer(), bob.signer()];
-        beacon_block.sign_all(&authorities, &signers);
-        shard_block.sign_all(&authorities, &signers);
+        let proof = forge_proof(&payload, &authorities, &signers);
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            alice.as_thread_mut().client.prepare_block(payload, proof);
         alice.as_thread_mut().client.try_import_produced(beacon_block, shard_block, shard_extra);
 
         bob.add_transaction(
@@ -450,13 +462,13 @@ mod tests {
             let transaction = TransactionBody::send_money(i + 1, "alice.near", "bob.near", 1)
                 .sign(&*alice.signer());
             let payload = ChainPayload::new(vec![transaction], vec![]);
-            let (mut beacon_block, mut shard_block, shard_extra) =
-                alice_client.prepare_block(payload);
-            // Sign by alice & bob to make this blocks valid.
-            let (_, authorities) = alice_client.get_uid_to_authority_map(beacon_block.index());
+            let block_index = alice.as_thread_mut().client.beacon_client.chain.best_index() + 1;
+            let (_, authorities) =
+                alice.as_thread_mut().client.get_uid_to_authority_map(block_index);
             let signers = vec![alice.signer(), bob.signer()];
-            beacon_block.sign_all(&authorities, &signers);
-            shard_block.sign_all(&authorities, &signers);
+            let proof = forge_proof(&payload, &authorities, &signers);
+            let (mut beacon_block, mut shard_block, shard_extra) =
+                alice_client.prepare_block(payload, proof);
             alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
         }
         assert_eq!(alice_client.shard_client.chain.best_index(), 100);

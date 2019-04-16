@@ -125,9 +125,9 @@ fn spawn_all(num_authorities: usize) {
                 // Check every authority committed to the same outcome
                 let headers: Vec<_> = v
                     .iter()
-                    .map(|(el, _)| el.clone().expect("Authority not committed").proposal)
+                    .map(|(el, _)| el.clone().expect("Authority not committed").proposal_with_proof)
                     .collect();
-                if !headers.iter().all(|h| h == &headers[0]) {
+                if !headers.iter().all(|h| h.bare_state.endorses == headers[0].bare_state.endorses) {
                     panic!("Authorities committed to different outcomes.");
                 }
             })

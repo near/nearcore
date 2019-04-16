@@ -6,7 +6,6 @@ use std::iter::FromIterator;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::block_traits::{SignedBlock, SignedHeader};
-use crate::crypto::group_signature::GroupSignature;
 use crate::hash::{hash_struct, CryptoHash};
 use crate::merkle::{Direction, MerklePath};
 use crate::transaction::{ReceiptTransaction, SignedTransaction};
@@ -17,6 +16,7 @@ use near_protos::chain as chain_proto;
 use near_protos::network as network_proto;
 use near_protos::types as types_proto;
 use protobuf::{RepeatedField, SingularPtrField};
+use crate::nightshade::Proof;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardBlockHeader {
@@ -59,7 +59,7 @@ impl From<ShardBlockHeader> for chain_proto::ShardBlockHeader {
 pub struct SignedShardBlockHeader {
     pub body: ShardBlockHeader,
     pub hash: CryptoHash,
-    pub signature: GroupSignature,
+    pub proof: Proof,
 }
 
 impl TryFrom<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
@@ -67,9 +67,9 @@ impl TryFrom<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
 
     fn try_from(proto: chain_proto::SignedShardBlockHeader) -> Result<Self, Self::Error> {
         let body = proto_to_type(proto.body)?;
-        let signature = proto_to_type(proto.signature)?;
         let hash = proto.hash.try_into()?;
-        Ok(SignedShardBlockHeader { body, hash, signature })
+        let proof = proto_to_type(proto.proof)?;
+        Ok(SignedShardBlockHeader { body, hash, proof })
     }
 }
 
@@ -78,7 +78,7 @@ impl From<SignedShardBlockHeader> for chain_proto::SignedShardBlockHeader {
         chain_proto::SignedShardBlockHeader {
             body: SingularPtrField::some(header.body.into()),
             hash: header.hash.into(),
-            signature: SingularPtrField::some(header.signature.into()),
+            proof: SingularPtrField::some(header.proof.into()),
             ..Default::default()
         }
     }
@@ -131,7 +131,7 @@ impl From<ShardBlock> for chain_proto::ShardBlock {
 pub struct SignedShardBlock {
     pub body: ShardBlock,
     pub hash: CryptoHash,
-    pub signature: GroupSignature,
+    pub proof: Proof,
 }
 
 impl TryFrom<chain_proto::SignedShardBlock> for SignedShardBlock {
@@ -139,9 +139,9 @@ impl TryFrom<chain_proto::SignedShardBlock> for SignedShardBlock {
 
     fn try_from(proto: chain_proto::SignedShardBlock) -> Result<Self, Self::Error> {
         let body = proto_to_type(proto.body)?;
-        let signature = proto_to_type(proto.signature)?;
         let hash = proto.hash.try_into()?;
-        Ok(SignedShardBlock { body, hash, signature })
+        let proof = proto_to_type(proto.proof)?;
+        Ok(SignedShardBlock { body, hash, proof })
     }
 }
 
@@ -150,7 +150,7 @@ impl From<SignedShardBlock> for chain_proto::SignedShardBlock {
         chain_proto::SignedShardBlock {
             body: SingularPtrField::some(block.body.into()),
             hash: block.hash.into(),
-            signature: SingularPtrField::some(block.signature.into()),
+            proof: SingularPtrField::some(block.proof.into()),
             ..Default::default()
         }
     }
@@ -308,7 +308,7 @@ impl SignedShardBlock {
         SignedShardBlock {
             body: ShardBlock { header, transactions, receipts },
             hash,
-            signature: GroupSignature::default(),
+            proof: Proof::default(),
         }
     }
 
@@ -342,7 +342,7 @@ impl SignedBlock for SignedShardBlock {
         SignedShardBlockHeader {
             body: self.body.header.clone(),
             hash: self.hash,
-            signature: self.signature.clone(),
+            proof: self.proof.clone(),
         }
     }
 
@@ -357,7 +357,8 @@ impl SignedBlock for SignedShardBlock {
     }
 
     fn add_signature(&mut self, signature: &PartialSignature, authority_id: usize) {
-        self.signature.add_signature(signature, authority_id);
+//        unimplemented!();
+//        self.signature.add_signature(signature, authority_id);
     }
 
     fn weight(&self) -> u128 {
@@ -614,7 +615,11 @@ impl Borrow<CryptoHash> for Snapshot {
 
 impl Snapshot {
     pub fn new(transactions: Vec<CryptoHash>, receipts: Vec<CryptoHash>) -> Self {
-        let hash = hash_struct(&(&transactions, &receipts));
+        let hash = if transactions.is_empty() && receipts.is_empty() {
+            CryptoHash::default() // workaround for clear() inconsistency
+        } else {
+            hash_struct(&(&transactions, &receipts))
+        };
         Snapshot { transactions, receipts, hash }
     }
 

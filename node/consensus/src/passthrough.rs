@@ -10,10 +10,13 @@ use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
 use nightshade::nightshade_task::Control;
 use primitives::block_traits::SignedHeader;
 use primitives::hash::CryptoHash;
+use primitives::nightshade::{BareState, Proof};
+use primitives::crypto::group_signature::GroupSignature;
+use primitives::crypto::signer::BLSSigner;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub fn spawn_consensus<T: Send + Sync + 'static>(
+pub fn spawn_consensus<T: Send + Sync + BLSSigner + 'static>(
     client: Arc<Client<T>>,
     consensus_tx: Sender<ConsensusBlockProposal>,
     control_rx: Receiver<Control>,
@@ -41,8 +44,18 @@ pub fn spawn_consensus<T: Send + Sync + 'static>(
                     );
                     if hash != CryptoHash::default() || receipt_block.is_some() {
                         beacon_block_index += 1;
+                        let bare_state = BareState {
+                            primary_confidence: 2,
+                            secondary_confidence: 0,
+                            endorses: BlockProposal { author: 0, hash },
+                        };
+                        let mut signature = GroupSignature::default();
+                        signature.add_signature(&client.signer.clone().unwrap().bls_sign(&bare_state.bs_encode()), 0);
                         let c = ConsensusBlockProposal {
-                            proposal: BlockProposal { author: 0, hash },
+                            proposal_with_proof: Proof {
+                                bare_state,
+                                signature,
+                            },
                             index: beacon_block_index,
                         };
                         tokio_utils::spawn(consensus_tx.clone().send(c).map(|_| ()).map_err(|e| {

@@ -593,20 +593,21 @@ impl<T: BLSSigner + EDSigner + 'static> Stream for NightshadeTask<T> {
                     if !self.consensus_reported {
                         if let Some(outcome) = self.nightshade_as_ref().committed.clone() {
                             self.consensus_reported = true;
+                            let proposal = &outcome.bare_state.endorses;
 
-                            if self.confirmed_proposals[outcome.author] {
+                            if self.confirmed_proposals[proposal.author] {
                                 tokio_utils::spawn(
                                     self.consensus_sender
                                         .clone()
                                         .send(ConsensusBlockProposal {
-                                            proposal: outcome,
+                                            proposal_with_proof: outcome,
                                             index: self.block_index.unwrap(),
                                         })
                                         .map(|_| ())
                                         .map_err(|e| error!("Failed sending consensus: {:?}", e)),
                                 );
                             } else {
-                                warn!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", outcome.hash, outcome.author);
+                                warn!(target: "nightshade", "Consensus reached on block proposal {} from {} that wasn't fetched.", proposal.hash, proposal.author);
                             }
                         }
                     }

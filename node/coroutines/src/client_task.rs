@@ -285,7 +285,8 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
         &mut self,
         consensus_block_header: ConsensusBlockProposal,
     ) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
-        info!(target: "client", "[{:?}] Producing block for proposal {:?}, index {}", self.client.account_id(), consensus_block_header.proposal.hash, consensus_block_header.index);
+        let proposal = &consensus_block_header.proposal_with_proof.bare_state.endorses;
+        info!(target: "client", "[{:?}] Producing block for proposal {:?}, index {}", self.client.account_id(), proposal.hash, consensus_block_header.index);
         let payload = match self
             .client
             .shard_client
@@ -294,7 +295,7 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
             .expect(MUST_HAVE_A_POOL)
             .write()
             .expect(POISONED_LOCK_ERR)
-            .pop_payload_snapshot(&consensus_block_header.proposal.hash)
+            .pop_payload_snapshot(&proposal.hash)
         {
             Some(p) => p,
             None => {
@@ -303,12 +304,12 @@ impl<T: AccountSigner + EDSigner + BLSSigner + 'static> ClientTask<T> {
                 panic!(
                     "[{:?}] Failed to find payload for {} from authority {}",
                     self.client.account_id(),
-                    consensus_block_header.proposal.hash,
-                    consensus_block_header.proposal.author
+                    proposal.hash,
+                    proposal.author
                 );
             }
         };
-        let (mut beacon_block, mut shard_block, shard_extra) = self.client.prepare_block(payload);
+        let (mut beacon_block, mut shard_block, shard_extra) = self.client.prepare_block(payload, consensus_block_header.proposal_with_proof);
         let (owner_uid, mapping) = self.client.get_uid_to_authority_map(beacon_block.index());
         if let Some(owner) = owner_uid {
             let signer = self.client.signer.clone().expect("Must have signer to prepare blocks");

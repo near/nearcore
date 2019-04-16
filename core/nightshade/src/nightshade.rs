@@ -70,7 +70,7 @@ pub struct Nightshade {
     /// It is Some(outcome) when the authority holding this Nightshade instance has committed
     /// to some proposal. Nightshade consensus "guarantees" that if an authority commits to some
     /// value then every other honest authority will not commit to a different value.
-    pub committed: Option<BlockProposal>,
+    pub committed: Option<Proof>,
     /// BLS Public Keys of all authorities participating in consensus.
     bls_public_keys: Vec<BlsPublicKey>,
     /// Signer object that can sign bytes with appropriate BLS secret key.
@@ -195,9 +195,9 @@ impl Nightshade {
 
             if self.states[self.owner_id].can_commit() {
                 if let Some(endorse) = self.committed.clone() {
-                    assert_eq!(endorse, self.states[self.owner_id].endorses());
+                    assert_eq!(endorse.bare_state.endorses, self.states[self.owner_id].endorses());
                 } else {
-                    self.committed = Some(self.states[self.owner_id].endorses());
+                    self.committed = Some(self.states[self.owner_id].primary_proof.clone().unwrap());
                 }
             }
 
