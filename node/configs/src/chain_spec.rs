@@ -94,7 +94,7 @@ impl ChainSpec {
                 DefaultIdType::Named => NAMED_IDS[i].to_string(),
                 DefaultIdType::Enumerated => {
                     if i == 0 {
-                        String::from("alice.near")
+                        String::from(ALICE_ID)
                     } else {
                         format!("near.{}", i)
                     }

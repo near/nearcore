@@ -898,6 +898,17 @@ pub enum FinalTransactionStatus {
     Completed,
 }
 
+impl FinalTransactionStatus {
+    pub fn to_code(&self) -> u64 {
+        match self {
+            FinalTransactionStatus::Completed => 0,
+            FinalTransactionStatus::Failed => 1,
+            FinalTransactionStatus::Started => 2,
+            FinalTransactionStatus::Unknown => 9999,
+        }
+    }
+}
+
 impl Default for TransactionStatus {
     fn default() -> Self {
         TransactionStatus::Unknown
@@ -962,6 +973,18 @@ impl fmt::Debug for FinalTransactionResult {
             .field("status", &self.status)
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .finish()
+    }
+}
+
+impl FinalTransactionResult {
+    pub fn final_log(&self) -> String {
+        let mut logs = vec![];
+        for log in self.logs.iter() {
+            for line in log.lines.iter() {
+                logs.push(line.clone());
+            }
+        }
+        logs.join("\n")
     }
 }
 

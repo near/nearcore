@@ -18,16 +18,26 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
 /// Given implementation only supports latest height, thus ignoring it.
-pub fn query_client<T>(client: &Client<T>, path: &str, data: &[u8], _height: u64, _prove: bool) -> Result<ABCIQueryResponse, String> {
+pub fn query_client<T>(
+    client: &Client<T>,
+    path: &str,
+    data: &[u8],
+    _height: u64,
+    _prove: bool,
+) -> Result<ABCIQueryResponse, String> {
     let path_parts: Vec<&str> = path.split('/').collect();
     if path_parts.len() == 0 {
-        return Err("Path must contain at least single token".to_string())
+        return Err("Path must contain at least single token".to_string());
     }
     let mut state_update = client.shard_client.get_state_update();
     match path_parts[0] {
-        "account" => match client.shard_client.trie_viewer.view_account(&mut state_update, &AccountId::from(path_parts[1])) {
+        "account" => match client
+            .shard_client
+            .trie_viewer
+            .view_account(&mut state_update, &AccountId::from(path_parts[1]))
+        {
             Ok(r) => Ok(ABCIQueryResponse::account(path, r)),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         },
         "call" => {
             let best_index = client.shard_client.chain.best_index();
@@ -44,7 +54,7 @@ pub fn query_client<T>(client: &Client<T>, path: &str, data: &[u8], _height: u64
                 Err(e) => Err(e),
             }
         }
-        _ => Err(format!("Unknown path {}", path))
+        _ => Err(format!("Unknown path {}", path)),
     }
 }
 
@@ -98,16 +108,17 @@ impl<T> HttpApi<T> {
                 let path = params[0]
                     .as_str()
                     .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
-                let response = query_client(&*self.client, path, &vec![], 0, false).map_err(|e| RPCError::BadRequest(e))?;
+                let response = query_client(&*self.client, path, &vec![], 0, false)
+                    .map_err(|e| RPCError::BadRequest(e))?;
                 Ok(json!({"response": {
-                    "log": response.log,
-                     "height": response.height,
-                     "proof": response.proof,
-                     "value": base64::encode(&response.value),
-                     "key": base64::encode(&response.key),
-                     "index": response.index,
-                     "code": response.code
-                 }}))
+                   "log": response.log,
+                    "height": response.height,
+                    "proof": response.proof,
+                    "value": base64::encode(&response.value),
+                    "key": base64::encode(&response.key),
+                    "index": response.index,
+                    "code": response.code
+                }}))
             }
             "broadcast_tx_async" => {
                 if params.len() != 1 {
@@ -118,6 +129,34 @@ impl<T> HttpApi<T> {
                 let transaction = decode_transaction(&params[0])?;
                 let hash = self.submit_tx(transaction)?;
                 Ok(json!({"hash": hash, "log": "", "data": "", "code": "0"}))
+            }
+            "tx" => {
+                if params.len() != 2 {
+                    return Err(RPCError::BadRequest(format!(
+                        "Invalid number of arguments, must be 2"
+                    )));
+                }
+                let hash_str = params[0].as_str().ok_or_else(|| {
+                    RPCError::BadRequest(format!("Hash param must be base64 string"))
+                })?;
+                let hash = base64::decode(hash_str)
+                    .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?
+                    .try_into()
+                    .map_err(|e| RPCError::BadRequest(format!("Bad hash: {}", e)))?;
+                let result = self.client.shard_client.get_transaction_final_result(&hash);
+                // TODO: include merkle proof if requested, tx bytes, index and block height in final result.
+                Ok(json!({
+                    "proof": "null",
+                    "tx": "null",
+                    "tx_result": {
+                        "log": result.final_log(),
+                        "data": "",
+                        "code": result.status.to_code(),
+                    },
+                    "index": 0,
+                    "height": 0,
+                    "hash": hash_str,
+                }))
             }
             _ => Err(RPCError::MethodNotFound(format!("{} not found", method))),
         }
