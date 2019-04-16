@@ -16,6 +16,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::timer::{Delay, Interval};
+use tokio::util::FutureExt;
 
 /// How the messages should be sent to the nodes.
 pub enum TrafficType {
@@ -96,10 +97,15 @@ impl Executor {
                         let node = sample_one(&nodes).clone();
                         tokio::spawn(
                             Delay::new(instant)
-                                .map(move |_| {
-                                    let _ = node.write().unwrap().add_transaction(t);
+                                .map_err(|_| format!("Timer error"))
+                                .and_then(move |_| {
+                                    node.write().unwrap()
+                                        .async_user().add_transaction(t)
+                                        .timeout(Duration::from_secs(1))
+                                        .map(|_| ())
+                                        .map_err(|err| format!("Error sending transaction {}", err))
                                 })
-                                .map_err(|_| ()),
+                                .map_err(|_| ())
                         );
                         Ok(())
                     })

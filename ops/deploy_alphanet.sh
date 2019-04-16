@@ -2,7 +2,7 @@
 set -e
 
 IMAGE=${1:-nearprotocol/alphanet:0.1.6}
-PREFIX=${2:-loadtesting-4-16-3}
+PREFIX=${2:-alphanet}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.8}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
