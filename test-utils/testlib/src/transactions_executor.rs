@@ -7,13 +7,27 @@ use futures::future::Future;
 use futures::stream::Stream;
 use futures::sync::mpsc::{channel, Sender};
 use primitives::transaction::SignedTransaction;
+use primitives::types::AccountId;
 use rand::distributions::{Distribution, Exp};
 use std::collections::vec_deque::VecDeque;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::timer::{Delay, Interval};
+
+/// How the messages should be sent to the nodes.
+pub enum TrafficType {
+    /// Messages are sent one after another.
+    Regular,
+    /// Submit transactions with random delay, following exponential distribution, which is commonly
+    /// used to imitate network lag.
+    ImitateLag {
+        /// Mean latency.
+        mean_delay: Duration,
+    },
+}
 
 pub struct Executor {
     /// Nodes that can be used to generate nonces
@@ -21,8 +35,7 @@ pub struct Executor {
 }
 
 impl Executor {
-    /// Spawn executor in a separate thread. Submit transactions with random delay, following
-    /// exponential distribution, which is commonly used to imitate network lag.
+    /// Spawn executor in a separate thread.
     /// Args:
     /// * `nodes`: nodes to run on;
     /// * `transaction_type`: type of transaction to send;
@@ -30,14 +43,14 @@ impl Executor {
     /// * `transactions_limit`: if specified will terminate after submitting the given number of
     /// transactions;
     /// * `tps`: transactions-per-second;
-    /// * `delay_mean`: mean latency;
+    /// * `traffic_type`: how messages should be sent.
     pub fn spawn(
         nodes: Vec<Arc<RwLock<dyn Node>>>,
         transaction_type: TransactionType,
         timeout: Option<Duration>,
         transactions_limit: Option<usize>,
         tps: u64,
-        delay_mean: Duration,
+        traffic_type: TrafficType,
     ) -> JoinHandle<()> {
         let (tx_sender, tx_receiver) = channel(1000);
         Self::spawn_producer(nodes.to_vec(), tx_sender, transaction_type);
@@ -74,7 +87,12 @@ impl Executor {
                     .zip(tx_receiver)
                     .map(|(_, t)| t)
                     .for_each(move |t| {
-                        let instant = Instant::now() + Self::sample_exp(delay_mean);
+                        let instant = match traffic_type {
+                            TrafficType::Regular => Instant::now(),
+                            TrafficType::ImitateLag { mean_delay } => {
+                                Instant::now() + Self::sample_exp(mean_delay)
+                            }
+                        };
                         let node = sample_one(&nodes).clone();
                         tokio::spawn(
                             Delay::new(instant)
@@ -109,7 +127,8 @@ impl Executor {
         transaction_type: TransactionType,
     ) {
         thread::spawn(move || {
-            let mut generator = Generator::new(nodes).iter(transaction_type);
+            let nonces = Self::get_nonces(&nodes);
+            let mut generator = Generator::new(nodes, nonces).iter(transaction_type);
             let mut backlog = VecDeque::new();
             loop {
                 if backlog.is_empty() {
@@ -134,6 +153,21 @@ impl Executor {
                 }
             }
         });
+    }
+
+    fn get_nonces(nodes: &Vec<Arc<RwLock<dyn Node>>>) -> RwLock<HashMap<AccountId, u64>> {
+        let mut res = HashMap::new();
+        for node in nodes {
+            let guard = node.read().unwrap();
+            let account_id = guard.account_id().unwrap().clone();
+            let nonce = guard.user().view_account(&account_id).unwrap().nonce;
+            // Since the first set of transactions is used for initialization (e.g. contract
+            // deployment) we want them to get through, so we shift the nonces by 100 in case
+            // there are other transactions that are send over to the testnet while we are computing
+            // their nonces.
+            res.insert(account_id, nonce + 100);
+        }
+        RwLock::new(res)
     }
 
     /// Submits transaction to a random node.

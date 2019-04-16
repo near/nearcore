@@ -10,19 +10,19 @@ sudo docker run -d --name alphanet-0 -p 3000:3000 -p 3030:3030 \
     -e "TOTAL_NODES=4" \
     ${IMAGE}
 
-sudo docker run -d --name alphanet-1 --add-host=alphanet-0:172.17.0.2 \
+sudo docker run -d --name alphanet-1 --add-host=alphanet-0:172.17.0.2 -p 3031:3030 \
     -e "BOOT_NODE_IP=172.17.0.2" \
     -e "NODE_NUM=1" \
     -e "TOTAL_NODES=4" \
     ${IMAGE}
 
-sudo docker run -d --name alphanet-2 --add-host=alphanet-0:172.17.0.2 \
+sudo docker run -d --name alphanet-2 --add-host=alphanet-0:172.17.0.2 -p 3032:3030 \
     -e "BOOT_NODE_IP=172.17.0.2" \
     -e "NODE_NUM=2" \
     -e "TOTAL_NODES=4" \
     ${IMAGE}
 
-sudo docker run -d --name alphanet-3 --add-host=alphanet-0:172.17.0.2 \
+sudo docker run -d --name alphanet-3 --add-host=alphanet-0:172.17.0.2 -p 3033:3030 \
     -e "BOOT_NODE_IP=172.17.0.2" \
     -e "NODE_NUM=3" \
     -e "TOTAL_NODES=4" \

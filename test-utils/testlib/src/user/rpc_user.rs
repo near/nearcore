@@ -11,7 +11,9 @@ use primitives::transaction::{ReceiptTransaction, SignedTransaction, Transaction
 use primitives::types::AccountId;
 use shard::ReceiptInfo;
 use std::convert::TryInto;
+use std::error::Error;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 pub struct RpcUser {
     pub addr: SocketAddr,
@@ -25,11 +27,20 @@ impl RpcUser {
     fn url(&self) -> String {
         format!("http://{}", self.addr)
     }
+
+    fn client(&self) -> Result<reqwest::Client, String> {
+        // We need to timeout the request in order to not block the thread. 1 sec is enough for
+        // most practical applications.
+        reqwest::Client::builder()
+            .timeout(Some(Duration::from_secs(1)))
+            .build()
+            .map_err(|e| e.description().to_owned())
+    }
 }
 
 impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let client = reqwest::Client::new();
+        let client = self.client()?;
         let body: ViewAccountRequest = ViewAccountRequest { account_id: account_id.clone() };
         let url = format!("{}{}", self.url(), "/view_account");
         let mut response =
@@ -64,7 +75,7 @@ impl User for RpcUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let client = reqwest::Client::new();
+        let client = self.client()?;
         let body = SubmitTransactionRequest { transaction: transaction.into() };
         let url = format!("{}{}", self.url(), "/submit_transaction");
         let mut response =
@@ -82,7 +93,7 @@ impl User for RpcUser {
     }
 
     fn get_best_block_index(&self) -> Option<u64> {
-        let client = reqwest::Client::new();
+        let client = self.client().ok()?;
         let url = format!("{}{}", self.url(), "/view_latest_beacon_block");
         let mut response = client.post(url.as_str()).send().ok()?;
         let response: SignedBeaconBlockResponse = response.json().ok()?;
@@ -125,7 +136,7 @@ impl User for RpcUser {
         &self,
         r: GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String> {
-        let client = reqwest::Client::new();
+        let client = self.client()?;
         let url = format!("{}{}", self.url(), "/get_shard_blocks_by_index");
         let mut response =
             client.post(url.as_str()).body(serde_json::to_string(&r).unwrap()).send().unwrap();

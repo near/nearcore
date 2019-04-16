@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::crypto::signer::{BLSSigner, InMemorySigner, EDSigner};
+use primitives::crypto::signer::{BLSSigner, EDSigner, InMemorySigner};
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::cmp::max;
 use std::io::Write;
@@ -92,13 +92,7 @@ impl ChainSpec {
         for i in 0..num_signers {
             let account_id = match id_type {
                 DefaultIdType::Named => NAMED_IDS[i].to_string(),
-                DefaultIdType::Enumerated => {
-                    if i == 0 {
-                        String::from("alice.near")
-                    } else {
-                        format!("near.{}", i)
-                    }
-                }
+                DefaultIdType::Enumerated => format!("near.{}", i),
             };
             let signer =
                 Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
@@ -120,6 +114,18 @@ impl ChainSpec {
             }
             signers.push(signer);
         }
+        {
+            let account_id = "alice.near".to_owned();
+            let signer = InMemorySigner::from_seed(account_id.as_str(), account_id.as_str());
+            // Add alice.near.
+            accounts.push((
+                account_id.clone(),
+                signer.public_key().to_readable(),
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_TX_STAKE,
+            ));
+        }
+
         let spec = ChainSpec {
             accounts,
             initial_authorities,
