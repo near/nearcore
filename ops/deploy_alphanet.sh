@@ -2,7 +2,7 @@
 set -e
 
 IMAGE=${1:-nearprotocol/alphanet:0.1.4}
-PREFIX=${2:-alphanet}
+PREFIX=${2:-loadtesting4}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.8}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
@@ -38,7 +38,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --disk name=${PREFIX}-persistent-0 \
     --container-mount-disk mount-path="/srv/near" \
     --boot-disk-size 200GB \
-    --address ${PREFIX}-0
+    --address ${PREFIX}-0 \
+    --machine-type n1-highcpu-4
 
 BOOT_NODE_IP=$(
     gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION}  | head -n 1 | awk '{print $2}'
@@ -54,7 +55,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-1 \
     --tags=alphanet-instance \
     --disk=name=${PREFIX}-persistent-1 \
     --container-mount-disk=mount-path="/srv/near" \
-    --boot-disk-size 200GB
+    --boot-disk-size 200GB \
+    --machine-type n1-highcpu-4
 
 gcloud beta compute instances create-with-container ${PREFIX}-2 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
@@ -65,7 +67,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-2 \
     --tags=alphanet-instance \
     --disk=name=${PREFIX}-persistent-2 \
     --container-mount-disk=mount-path="/srv/near" \
-    --boot-disk-size 200GB
+    --boot-disk-size 200GB \
+    --machine-type n1-highcpu-4
 
 gcloud beta compute instances create-with-container ${PREFIX}-3 \
     --container-env BOOT_NODE_IP=${BOOT_NODE_IP} \
@@ -76,7 +79,8 @@ gcloud beta compute instances create-with-container ${PREFIX}-3 \
     --tags=alphanet-instance \
     --disk=name=${PREFIX}-persistent-3 \
     --container-mount-disk=mount-path="/srv/near" \
-    --boot-disk-size 200GB
+    --boot-disk-size 200GB \
+    --machine-type n1-highcpu-4
 
 set +e
 gcloud compute firewall-rules describe alphanet-studio > /dev/null 2>&1

@@ -67,7 +67,7 @@ pub trait AsyncUser {
     fn add_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String>>;
+    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
     fn add_receipt(
         &self,

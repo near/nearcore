@@ -38,7 +38,7 @@ impl Node for RemoteNode {
     }
 
     fn user(&self) -> Box<User> {
-        AsyncUserWrapper::new(self.async_user())
+        Box::new(RpcUser::new(self.addr))
     }
 
     fn async_user(&self) -> Box<dyn AsyncUser> {
