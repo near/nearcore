@@ -1,5 +1,5 @@
 use crate::node::{LocalNodeConfig, Node};
-use crate::user::{RpcUser, User};
+use crate::user::{AsyncUser, AsyncUserWrapper, RpcUser, User};
 use log::error;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
@@ -68,6 +68,10 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<User> {
+        AsyncUserWrapper::new(self.async_user())
+    }
+
+    fn async_user(&self) -> Box<dyn AsyncUser> {
         Box::new(RpcUser::new(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             self.config.rpc_cfg.rpc_port,
