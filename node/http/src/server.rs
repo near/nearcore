@@ -27,6 +27,7 @@ fn build_response() -> Builder {
 fn generate_error_response(error: RPCError) -> Response<Body> {
     let (body, error_code) = match error {
         RPCError::BadRequest(msg) => (Body::from(msg), StatusCode::BAD_REQUEST),
+        RPCError::MethodNotFound(msg) => (Body::from(msg), StatusCode::NOT_FOUND),
         RPCError::NotFound => (Body::from(""), StatusCode::NOT_FOUND),
         RPCError::ServiceUnavailable(msg) => (Body::from(msg), StatusCode::SERVICE_UNAVAILABLE),
     };

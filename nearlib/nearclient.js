@@ -14,10 +14,8 @@ class NearClient {
         this.nearConnection = nearConnection;
     }
 
-    async viewAccount (account_id) {
-        const viewAccountResponse = await this.request('view_account', {
-            account_id: account_id,
-        });
+    async viewAccount(accountId) {
+        const viewAccountResponse = await this.jsonRpcRequest('abci_query', [`account/${accountId}`, "", 0, false]);
         return viewAccountResponse;
     }
 
@@ -46,7 +44,7 @@ class NearClient {
             params,
             id: 'dontcare',
         };
-        return await this.nearConnection.request('/', request)
+        return await this.nearConnection.request('', request)
     }
 
     async request (methodName, params) {

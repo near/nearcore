@@ -9,12 +9,44 @@ use primitives::hash::CryptoHash;
 use primitives::logging::pretty_utf8;
 use primitives::transaction::verify_transaction_signature;
 use primitives::transaction::SignedTransaction;
-use primitives::types::BlockId;
+use primitives::types::{AccountId, BlockId};
 use primitives::utils::bs58_vec2str;
 
 use crate::types::*;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+/// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
+/// Given implementation only supports latest height, thus ignoring it.
+pub fn query_client<T>(client: &Client<T>, path: &str, data: &[u8], _height: u64, _prove: bool) -> Result<ABCIQueryResponse, String> {
+    let path_parts: Vec<&str> = path.split('/').collect();
+    if path_parts.len() == 0 {
+        return Err("Path must contain at least single token".to_string())
+    }
+    let mut state_update = client.shard_client.get_state_update();
+    match path_parts[0] {
+        "account" => match client.shard_client.trie_viewer.view_account(&mut state_update, &AccountId::from(path_parts[1])) {
+            Ok(r) => Ok(ABCIQueryResponse::account(path, r)),
+            Err(e) => Err(e)
+        },
+        "call" => {
+            let best_index = client.shard_client.chain.best_index();
+            let mut logs = vec![];
+            match client.shard_client.trie_viewer.call_function(
+                state_update,
+                best_index,
+                &AccountId::from(path_parts[1]),
+                path_parts[2],
+                data,
+                &mut logs,
+            ) {
+                Ok(result) => Ok(ABCIQueryResponse::result(path, result, logs)),
+                Err(e) => Err(e),
+            }
+        }
+        _ => Err(format!("Unknown path {}", path))
+    }
+}
 
 pub struct HttpApi<T> {
     client: Arc<Client<T>>,
@@ -57,15 +89,37 @@ impl<T> HttpApi<T> {
         params: &Vec<serde_json::Value>,
     ) -> Result<serde_json::Value, RPCError> {
         match method.as_ref() {
+            "abci_query" => {
+                if params.len() != 4 {
+                    return Err(RPCError::BadRequest(format!(
+                        "Invalid number of arguments, must be 3"
+                    )));
+                }
+                let path = params[0]
+                    .as_str()
+                    .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
+                let response = query_client(&*self.client, path, &vec![], 0, false).map_err(|e| RPCError::BadRequest(e))?;
+                Ok(json!({"response": {
+                    "log": response.log,
+                     "height": response.height,
+                     "proof": response.proof,
+                     "value": base64::encode(&response.value),
+                     "key": base64::encode(&response.key),
+                     "index": response.index,
+                     "code": response.code
+                 }}))
+            }
             "broadcast_tx_async" => {
                 if params.len() != 1 {
-                    return Err(RPCError::BadRequest(format!("Invalid number of arguments")));
+                    return Err(RPCError::BadRequest(format!(
+                        "Invalid number of arguments, must be 1"
+                    )));
                 }
                 let transaction = decode_transaction(&params[0])?;
                 let hash = self.submit_tx(transaction)?;
                 Ok(json!({"hash": hash, "log": "", "data": "", "code": "0"}))
             }
-            _ => Err(RPCError::NotFound),
+            _ => Err(RPCError::MethodNotFound(format!("{} not found", method))),
         }
     }
 

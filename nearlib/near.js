@@ -58,11 +58,7 @@ class Near {
             args = {};
         }
         const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        const response = await this.nearClient.request('call_view_function', {
-            contract_account_id: contractAccountId,
-            method_name: methodName,
-            args: serializedArgs
-        });
+        const response = await this.nearClient.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, 0, false]);
         response.logs.forEach(line => {
             console.log(`[${contractAccountId}]: ${line}`);
         });
