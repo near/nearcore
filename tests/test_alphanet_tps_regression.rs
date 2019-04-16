@@ -90,7 +90,7 @@ fn run_multiple_nodes(
         test_prefix,
         test_port,
         TEST_BLOCK_FETCH_LIMIT,
-        TEST_BLOCK_MAX_SIZE,
+        TEST_BLOCK_MAX_SIZE * 10,
         proxy_handlers,
     );
     for n in &mut nodes {
