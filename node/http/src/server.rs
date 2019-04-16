@@ -268,7 +268,7 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
                 }
             }))
         }
-        (&Method::GET, "/healthz") => {
+        (&Method::GET, "/healthz") | (&Method::GET, "/status") => {
             // Assume that, if we can get a latest block, things are healthy
             Box::new(future::ok(match http_api.view_latest_beacon_block() {
                 Ok(_) => build_response().body(Body::from("")).unwrap(),
