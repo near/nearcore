@@ -9,21 +9,30 @@ use node_http::types::{
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use primitives::hash::CryptoHash;
 use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use primitives::types::AccountId;
 use reqwest::r#async::Client;
 use shard::ReceiptInfo;
 use std::convert::TryInto;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use primitives::types::AccountId;
+use std::time::Duration;
 
 pub struct RpcUser {
     url: String,
-    client: Arc<Client>,
 }
+
+/// Timeout for establishing connection.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl RpcUser {
     pub fn new(addr: SocketAddr) -> RpcUser {
-        RpcUser { url: format!("http://{}", addr), client: Arc::new(Client::new()) }
+        RpcUser { url: format!("http://{}", addr) }
+    }
+
+    /// Attempts to initialize the client.
+    fn client(&self) -> Result<Client, String> {
+        Client::builder()
+            .use_rustls_tls()
+            .connect_timeout(CONNECT_TIMEOUT).build().map_err(|err| format!("{}", err))
     }
 }
 
@@ -34,8 +43,12 @@ impl AsyncUser for RpcUser {
     ) -> Box<dyn Future<Item = AccountViewCallResult, Error = String>> {
         let url = format!("{}{}", self.url, "/view_account");
         let body: ViewAccountRequest = ViewAccountRequest { account_id: account_id.clone() };
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+
+        let response = client
             .post(url.as_str())
             .body(serde_json::to_string(&body).unwrap())
             .send()
@@ -58,8 +71,11 @@ impl AsyncUser for RpcUser {
     ) -> Box<dyn Future<Item = ViewStateResult, Error = String>> {
         let url = format!("{}{}", self.url, "/view_state");
         let body = ViewStateRequest { contract_account_id: account_id.clone() };
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .body(serde_json::to_string(&body).unwrap())
             .send()
@@ -81,8 +97,11 @@ impl AsyncUser for RpcUser {
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
         let url = format!("{}{}", self.url, "/submit_transaction");
         let body = SubmitTransactionRequest { transaction: transaction.into() };
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .body(serde_json::to_string(&body).unwrap())
             .send()
@@ -109,8 +128,11 @@ impl AsyncUser for RpcUser {
 
     fn get_best_block_index(&self) -> Box<dyn Future<Item = u64, Error = String>> {
         let url = format!("{}{}", self.url, "/view_latest_beacon_block");
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .send()
             .and_then(|mut resp| resp.json::<SignedBeaconBlockResponse>())
@@ -125,8 +147,11 @@ impl AsyncUser for RpcUser {
     ) -> Box<dyn Future<Item = TransactionResult, Error = String>> {
         let url = format!("{}{}", self.url, "/get_transaction_result");
         let body = GetTransactionRequest { hash: *hash };
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .body(serde_json::to_string(&body).unwrap())
             .send()
@@ -138,8 +163,11 @@ impl AsyncUser for RpcUser {
 
     fn get_state_root(&self) -> Box<dyn Future<Item = CryptoHash, Error = String>> {
         let url = format!("{}{}", self.url, "/view_latest_shard_block");
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .send()
             .and_then(|mut resp| resp.json::<SignedShardBlockResponse>())
@@ -154,8 +182,11 @@ impl AsyncUser for RpcUser {
     ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>> {
         let url = format!("{}{}", self.url, "/get_transaction_result");
         let body = GetTransactionRequest { hash: *hash };
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .body(serde_json::to_string(&body).unwrap())
             .send()
@@ -174,8 +205,11 @@ impl AsyncUser for RpcUser {
         r: GetBlocksByIndexRequest,
     ) -> Box<dyn Future<Item = SignedShardBlocksResponse, Error = String>> {
         let url = format!("{}{}", self.url, "/get_shard_blocks_by_index");
-        let response = self
-            .client
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(err) => return Box::new(futures::future::done(Err(err))),
+        };
+        let response = client
             .post(url.as_str())
             .body(serde_json::to_string(&r).unwrap())
             .send()
