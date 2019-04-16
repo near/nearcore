@@ -270,9 +270,13 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
         }
         (&Method::GET, "/healthz") => {
             // Assume that, if we can get a latest block, things are healthy
-            Box::new(future::ok(match http_api.view_latest_beacon_block() {
-                Ok(_) => build_response().body(Body::from("")).unwrap(),
-                Err(_) => unreachable!(),
+            Box::new(future::ok(match http_api.healthz() {
+                Ok(response) => build_response()
+                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                    .unwrap(),
+                Err(_) => {
+                    build_response().status(StatusCode::BAD_REQUEST).body(Body::empty()).unwrap()
+                }
             }))
         }
 
@@ -283,9 +287,7 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
 }
 
 pub fn spawn_server<T: Send + Sync + 'static>(http_api: HttpApi<T>, addr: Option<SocketAddr>) {
-    let addr = addr.unwrap_or_else(|| {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030)
-    });
+    let addr = addr.unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3030));
 
     let http_api = Arc::new(http_api);
     let service = move || {

@@ -94,7 +94,10 @@ impl<T> HttpApi<T> {
         }
         let hash = transaction.get_hash();
         if let Some(pool) = &self.client.shard_client.pool {
-            pool.write().expect(POISONED_LOCK_ERR).add_transaction(transaction).map_err(RPCError::BadRequest)?;
+            pool.write()
+                .expect(POISONED_LOCK_ERR)
+                .add_transaction(transaction)
+                .map_err(RPCError::BadRequest)?;
         } else {
             // TODO(822): Relay to validator.
         }
@@ -193,9 +196,9 @@ impl<T> HttpApi<T> {
             Some(info) => Ok(ReceiptInfoResponse {
                 receipt: info.receipt.into(),
                 block_index: info.block_index,
-                result: info.result
+                result: info.result,
             }),
-            None => Err(RPCError::NotFound)
+            None => Err(RPCError::NotFound),
         }
     }
 
@@ -209,9 +212,15 @@ impl<T> HttpApi<T> {
 
     pub fn get_transaction_result(
         &self,
-        r: &GetTransactionRequest
+        r: &GetTransactionRequest,
     ) -> Result<TransactionResultResponse, ()> {
         let result = self.client.shard_client.get_transaction_result(&r.hash);
         Ok(TransactionResultResponse { result })
+    }
+
+    pub fn healthz(&self) -> Result<HealthzResponse, ()> {
+        let genesis_hash = self.client.beacon_client.chain.genesis_hash();
+        let latest_block_index = self.client.beacon_client.chain.best_index();
+        Ok(HealthzResponse { genesis_hash, latest_block_index })
     }
 }
