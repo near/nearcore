@@ -375,4 +375,10 @@ impl<T> HttpApi<T> {
         let result = self.client.shard_client.get_transaction_result(&r.hash);
         Ok(TransactionResultResponse { result })
     }
+
+    pub fn healthz(&self) -> Result<HealthzResponse, ()> {
+        let genesis_hash = self.client.beacon_client.chain.genesis_hash();
+        let latest_block_index = self.client.beacon_client.chain.best_index();
+        Ok(HealthzResponse { genesis_hash, latest_block_index })
+    }
 }

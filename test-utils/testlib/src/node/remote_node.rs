@@ -1,6 +1,6 @@
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
-use crate::user::User;
+use crate::user::{AsyncUser, User};
 use primitives::crypto::signer::InMemorySigner;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -38,6 +38,10 @@ impl Node for RemoteNode {
     }
 
     fn user(&self) -> Box<dyn User> {
+        Box::new(RpcUser::new(self.addr))
+    }
+
+    fn async_user(&self) -> Box<dyn AsyncUser> {
         Box::new(RpcUser::new(self.addr))
     }
 }

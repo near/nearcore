@@ -273,9 +273,13 @@ fn serve<T: Send + Sync + 'static>(http_api: Arc<HttpApi<T>>, req: Request<Body>
         }
         (&Method::GET, "/healthz") | (&Method::GET, "/status") => {
             // Assume that, if we can get a latest block, things are healthy
-            Box::new(future::ok(match http_api.view_latest_beacon_block() {
-                Ok(_) => build_response().body(Body::from("")).unwrap(),
-                Err(_) => unreachable!(),
+            Box::new(future::ok(match http_api.healthz() {
+                Ok(response) => build_response()
+                    .body(Body::from(serde_json::to_string(&response).unwrap()))
+                    .unwrap(),
+                Err(_) => {
+                    build_response().status(StatusCode::BAD_REQUEST).body(Body::empty()).unwrap()
+                }
             }))
         }
 

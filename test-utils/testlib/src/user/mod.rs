@@ -11,6 +11,7 @@ pub use rpc_user::RpcUser;
 pub mod runtime_user;
 pub use runtime_user::RuntimeUser;
 pub mod shard_client_user;
+use futures::Future;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 pub use shard_client_user::ShardClientUser;
 
@@ -27,7 +28,6 @@ pub trait User {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
 
-    // this should not be implemented for RpcUser
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String>;
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
@@ -44,4 +44,58 @@ pub trait User {
         &self,
         r: GetBlocksByIndexRequest,
     ) -> Result<SignedShardBlocksResponse, String>;
+}
+
+/// Same as `User` by provides async API that can be used inside tokio.
+pub trait AsyncUser: Send + Sync {
+    fn view_account(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = AccountViewCallResult, Error = String>>;
+
+    fn view_balance(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = Balance, Error = String>> {
+        Box::new(self.view_account(account_id).map(|acc| acc.amount))
+    }
+
+    fn view_state(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = ViewStateResult, Error = String>>;
+
+    fn add_transaction(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
+
+    fn add_receipt(
+        &self,
+        receipt: ReceiptTransaction,
+    ) -> Box<dyn Future<Item = (), Error = String>>;
+
+    fn get_account_nonce(
+        &self,
+        account_id: &AccountId,
+    ) -> Box<dyn Future<Item = u64, Error = String>>;
+
+    fn get_best_block_index(&self) -> Box<dyn Future<Item = u64, Error = String>>;
+
+    fn get_transaction_result(
+        &self,
+        hash: &CryptoHash,
+    ) -> Box<dyn Future<Item = TransactionResult, Error = String>>;
+
+    fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
+
+    fn get_receipt_info(
+        &self,
+        hash: &CryptoHash,
+    ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>>;
+
+    fn get_shard_blocks_by_index(
+        &self,
+        r: GetBlocksByIndexRequest,
+    ) -> Box<dyn Future<Item = SignedShardBlocksResponse, Error = String>>;
 }
