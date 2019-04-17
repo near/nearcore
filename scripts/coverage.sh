@@ -12,9 +12,11 @@ cd ../..
 rm -rf kcov-master
 
 # Remove binaries
-rm target/debug/nearcore
+rm -rf target/debug/deps/test*
+rm -rf target/debug/deps/nearcore*
+rm -rf target/debug/deps/alphanet*
 
-for file in target/debug/*
+for file in target/debug/deps/*
 do
   if [ -f $file ] && [ -x $file ]; then
     mkdir -p "target/cov/$(basename $file)"
