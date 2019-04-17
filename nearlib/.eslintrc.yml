@@ -21,6 +21,7 @@ rules:
     - always
   no-console: off
 globals:
+  jasmine: true
   window: true
   fetch: true
   Headers: true

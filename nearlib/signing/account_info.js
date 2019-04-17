@@ -67,7 +67,7 @@ class AccountInfo {
      * Utility function to download account info as a standard file.
      */
     downloadAsFile() {
-        const fileName = getKeyFileName();
+        const fileName = this.keyFileName;
         const text = JSON.stringify(this.toJSON());
       
         var element = document.createElement('a');
@@ -82,7 +82,7 @@ class AccountInfo {
         document.body.removeChild(element);
     }
 
-    getKeyFileName() {
+    get keyFileName() {
         return this._networkId + '_' + this._accountId;
     }
 }
