@@ -5,7 +5,9 @@ use std::time::Duration;
 use network::proxy::predicate::FnProxyHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
-use testlib::node::{create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT};
+use testlib::node::{
+    create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
+};
 use testlib::test_helpers::wait;
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
@@ -23,8 +25,14 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
 
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![fn_proxy_handler];
 
-    let (init_balance, account_names, mut nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
+    let (init_balance, account_names, mut nodes) = create_nodes(
+        num_nodes,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
+        proxy_handlers,
+    );
 
     let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
     for i in 0..num_nodes {
@@ -41,7 +49,8 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
     for _ in 0..num_trials {
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
-        let nonce = nodes[i].read().unwrap().get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
+        let nonce =
+            nodes[i].read().unwrap().get_account_nonce(&account_names[i]).unwrap_or_default() + 1;
         let transaction = TransactionBody::send_money(
             nonce,
             account_names[i].as_str(),
@@ -54,7 +63,10 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, te
         expected_balances[j] += 1;
 
         wait(
-            || expected_balances[j] == nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap(),
+            || {
+                expected_balances[j]
+                    == nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap()
+            },
             1000,
             trial_duration,
         );

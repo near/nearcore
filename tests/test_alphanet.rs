@@ -5,15 +5,23 @@ use std::time::Duration;
 use network::proxy::benchmark::BenchmarkHandler;
 use network::proxy::ProxyHandler;
 use primitives::transaction::TransactionBody;
-use testlib::node::{create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT};
-use testlib::test_helpers::{wait, heavy_test};
+use testlib::node::{
+    create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
+};
+use testlib::test_helpers::{heavy_test, wait};
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
     // Add proxy handlers to the pipeline.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
 
-    let (init_balance, account_names, mut nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
+    let (init_balance, account_names, mut nodes) = create_nodes(
+        num_nodes,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
+        proxy_handlers,
+    );
 
     let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
     for i in 0..num_nodes {

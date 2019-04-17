@@ -133,6 +133,6 @@ fn main() {
 
     // Start the executor.
     let handle =
-        Executor::spawn(nodes, TransactionType::Monetary, None, None, 200, TrafficType::Regular);
+        Executor::spawn(nodes, TransactionType::Monetary, None, None, 700, TrafficType::Regular);
     handle.join().unwrap();
 }

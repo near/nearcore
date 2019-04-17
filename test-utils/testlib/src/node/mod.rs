@@ -16,7 +16,7 @@ use primitives::network::{PeerAddr, PeerInfo};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 
-use crate::user::User;
+use crate::user::{AsyncUser, User};
 use std::sync::RwLock;
 pub mod thread_node;
 pub use thread_node::ThreadNode;
@@ -31,6 +31,7 @@ pub use shard_client_node::ShardClientNode;
 
 const TMP_DIR: &str = "../../tmp/testnet";
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
+pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> ChainSpec {
     ChainSpec::default_poa()
@@ -125,6 +126,10 @@ pub trait Node: Send + Sync {
     fn is_running(&self) -> bool;
 
     fn user(&self) -> Box<dyn User>;
+
+    fn async_user(&self) -> Box<dyn AsyncUser> {
+        unimplemented!()
+    }
 }
 
 impl Node {
@@ -165,6 +170,7 @@ impl NodeConfig {
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         block_fetch_limit: u64,
+        block_size_limit: u32,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
@@ -177,6 +183,7 @@ impl NodeConfig {
             boot_nodes,
             chain_spec,
             block_fetch_limit,
+            block_size_limit,
             proxy_handlers,
         )
     }
@@ -191,6 +198,7 @@ impl NodeConfig {
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         block_fetch_limit: u64,
+        block_size_limit: u32,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
@@ -202,6 +210,7 @@ impl NodeConfig {
             boot_nodes,
             chain_spec,
             block_fetch_limit,
+            block_size_limit,
             proxy_handlers,
         )
     }
@@ -216,6 +225,7 @@ impl NodeConfig {
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         block_fetch_limit: u64,
+        block_size_limit: u32,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
@@ -240,6 +250,7 @@ impl NodeConfig {
             account_id: account_id.map(String::from),
             public_key: None,
             block_fetch_limit,
+            block_size_limit,
             chain_spec,
             log_level: log::LevelFilter::Info,
         };
@@ -274,6 +285,7 @@ pub fn create_nodes_with_id_type(
     test_prefix: &str,
     test_port: u16,
     block_fetch_limit: u64,
+    block_size_limit: u32,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
     node_id_type: DefaultIdType,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
@@ -297,6 +309,7 @@ pub fn create_nodes_with_id_type(
             boot_nodes,
             chain_spec.clone(),
             block_fetch_limit,
+            block_size_limit,
             proxy_handlers.clone(),
         );
         boot_nodes = vec![node.boot_addr()];

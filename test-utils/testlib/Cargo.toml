@@ -12,7 +12,6 @@ clap = "2.32"
 log = "0.4"
 rand = "0.6"
 rand_xorshift = "0.1"
-reqwest = "0.9"
 serde_json = "1.0.0"
 tokio = "0.1"
 futures = "0.1.25"
@@ -31,4 +30,8 @@ node-runtime = { path = "../../node/runtime" }
 tokio-utils = { path = "../../node/tokio-utils" }
 storage = { path = "../../core/storage" }
 shard = { path = "../../node/shard" }
+
+[dependencies.reqwest]
+version = "0.9"
+features = ["rustls-tls", "trust-dns"]
 

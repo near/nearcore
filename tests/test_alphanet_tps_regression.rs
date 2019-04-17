@@ -12,7 +12,10 @@ use primitives::transaction::TransactionBody;
 use std::io::stdout;
 use std::io::Write;
 use std::sync::{Arc, RwLock};
-use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, NodeConfig};
+use testlib::node::{
+    create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
+    TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
+};
 use testlib::test_helpers::heavy_test;
 
 /// Creates and sends a random transaction.
@@ -82,15 +85,22 @@ fn run_multiple_nodes(
     // Add proxy handlers to the pipeline.
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
 
-    let (_, _, mut nodes) =
-        create_nodes(num_nodes, test_prefix, test_port, TEST_BLOCK_FETCH_LIMIT, proxy_handlers);
+    let (_, _, mut nodes) = create_nodes(
+        num_nodes,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE * 10,
+        proxy_handlers,
+    );
     for n in &mut nodes {
         if let NodeConfig::Thread(cfg) = n {
             cfg.client_cfg.log_level = log::LevelFilter::Off;
         }
     }
 
-    let nodes: Vec<Arc<RwLock<dyn Node>>> = nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
+    let nodes: Vec<Arc<RwLock<dyn Node>>> =
+        nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
     for i in 0..num_nodes {
         nodes[i].write().unwrap().start();
     }
