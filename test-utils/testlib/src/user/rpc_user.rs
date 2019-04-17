@@ -2,12 +2,14 @@ use crate::user::User;
 use node_http::types::{
     GetBlocksByIndexRequest, GetTransactionRequest, ReceiptInfoResponse, SignedBeaconBlockResponse,
     SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionRequest,
-    SubmitTransactionResponse, TransactionResultResponse, ViewAccountRequest, ViewAccountResponse,
-    ViewStateRequest, ViewStateResponse,
+    SubmitTransactionResponse, TransactionFinalResultResponse, TransactionResultResponse,
+    ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use primitives::hash::CryptoHash;
-use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use primitives::transaction::{
+    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+};
 use primitives::types::AccountId;
 use shard::ReceiptInfo;
 use std::convert::TryInto;
@@ -107,6 +109,16 @@ impl User for RpcUser {
         let mut response =
             client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
         let response: TransactionResultResponse = response.json().unwrap();
+        response.result
+    }
+
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        let client = reqwest::Client::new();
+        let body = GetTransactionRequest { hash: *hash };
+        let url = format!("{}{}", self.url(), "/get_transaction_final_result");
+        let mut response =
+            client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
+        let response: TransactionFinalResultResponse = response.json().unwrap();
         response.result
     }
 

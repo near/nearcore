@@ -268,7 +268,7 @@ impl ShardClient {
                 .unwrap()
                 .map(|b| b.receipts[address.index].clone())?;
             let result = self.get_transaction_result(&hash);
-            Some(ReceiptInfo { receipt: receipt, block_index, result })
+            Some(ReceiptInfo { receipt, block_index, result })
         })
     }
 

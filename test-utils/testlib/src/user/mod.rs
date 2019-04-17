@@ -1,6 +1,8 @@
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use primitives::hash::CryptoHash;
-use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use primitives::transaction::{
+    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+};
 use primitives::types::{AccountId, Balance, MerkleHash};
 use shard::ReceiptInfo;
 
@@ -35,6 +37,8 @@ pub trait User {
     fn get_best_block_index(&self) -> Option<u64>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult;
+
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult;
 
     fn get_state_root(&self) -> MerkleHash;
 
