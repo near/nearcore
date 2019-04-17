@@ -8,7 +8,7 @@ edition = "2018"
 wasmi = { version = "0.4.1" }
 pwasm-utils = "0.6.2"
 parity-wasm = "0.31"
-wasmer-runtime = {git = "https://github.com/nearprotocol/wasmer.git", rev="ad7b3e4cbc60a9bbbac5587234c1707ec2a16128"}
+wasmer-runtime = "0.3.0"
 byteorder = "1.2"
 log = "0.4"
 cached = "0.8.0"
