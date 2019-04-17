@@ -176,7 +176,7 @@ class Near {
             let j;
             for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == result.logs[j]; j++);
             if (j != alreadyDisplayedLogs.length) {
-                console.warn('new logs:', flatLog, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
+                console.warn('new logs:', result.logs, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
             }
             for (; j < result.logs.length; ++j) {
                 const line = result.logs[j];

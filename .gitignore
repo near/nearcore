@@ -33,3 +33,6 @@ tmp/
 
 # Logs
 *.log
+
+# Nearlib coverage
+nearlib/coverage/

@@ -127,7 +127,7 @@ impl<T> HttpApi<T> {
                 let data_str = params[1]
                     .as_str()
                     .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
-                let data = base64::decode(data_str).map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
+                let data = hex::decode(data_str).map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
 
                 let response = query_client(self, path, &data, 0, false)
                     .map_err(|e| RPCError::BadRequest(e))?;
