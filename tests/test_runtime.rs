@@ -1,4 +1,6 @@
-use configs::chain_spec::{DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE, ChainSpec, AuthorityRotation};
+use configs::chain_spec::{
+    AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+};
 use configs::ClientConfig;
 use network::proxy::benchmark::BenchmarkHandler;
 use network::proxy::ProxyHandler;
@@ -12,15 +14,16 @@ use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
-    DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
-    ReceiptTransaction, SwapKeyTransaction, TransactionBody, TransactionStatus, FinalTransactionStatus
+    DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
+    FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
+    TransactionStatus,
 };
 use primitives::types::AccountingInfo;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
 use testlib::node::{
-    create_nodes_with_id_type, Node, NodeConfig, RuntimeNode,
-    ShardClientNode, ThreadNode, TEST_BLOCK_FETCH_LIMIT,
+    create_nodes_with_id_type, Node, NodeConfig, RuntimeNode, ShardClientNode, ThreadNode,
+    TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
 };
 use testlib::test_helpers::{heavy_test, wait};
 use testlib::user::User;
@@ -51,6 +54,7 @@ fn create_testnet_node(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
         test_prefix,
         test_port,
         TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
         proxy_handlers,
         DefaultIdType::Named,
     );
@@ -98,12 +102,14 @@ fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoHash)
 
 /// Wait until transaction finishes (either succeeds or fails).
 fn wait_for_transaction(node_user: &Box<User>, hash: &CryptoHash) {
-    wait(|| {
-        match node_user.get_transaction_final_result(hash).status {
+    wait(
+        || match node_user.get_transaction_final_result(hash).status {
             FinalTransactionStatus::Unknown | FinalTransactionStatus::Started => false,
-            _ => true
-        }
-    }, 500, 60000);
+            _ => true,
+        },
+        500,
+        60000,
+    );
 }
 
 fn test_smart_contract_simple(node: impl Node) {
@@ -528,7 +534,7 @@ fn test_upload_contract(node: impl Node) {
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &tx_hash);
-    
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert!(transaction_result.receipts.is_empty());

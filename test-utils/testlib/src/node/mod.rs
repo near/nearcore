@@ -324,6 +324,7 @@ pub fn create_nodes(
     test_prefix: &str,
     test_port: u16,
     block_fetch_limit: u64,
+    block_size_limit: u32,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
     create_nodes_with_id_type(
@@ -331,6 +332,7 @@ pub fn create_nodes(
         test_prefix,
         test_port,
         block_fetch_limit,
+        block_size_limit,
         proxy_handlers,
         DefaultIdType::Enumerated,
     )

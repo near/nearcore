@@ -315,7 +315,7 @@ impl User for RpcUser {
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
         let client = reqwest::Client::new();
         let body = GetTransactionRequest { hash: *hash };
-        let url = format!("{}{}", self.url(), "/get_transaction_final_result");
+        let url = format!("{}{}", self.url, "/get_transaction_final_result");
         let mut response =
             client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
         let response: TransactionFinalResultResponse = response.json().unwrap();
