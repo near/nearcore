@@ -9,7 +9,7 @@ use primitives::types::AccountId;
 const DEFAULT_BASE_PATH: &str = ".";
 const DEFAULT_LOG_LEVEL: &str = "Info";
 const MAX_NUM_BLOCKS_REQUEST: u64 = 100;
-const MAX_BLOCK_SIZE: u32 = 1000;
+const MAX_BLOCK_SIZE: u32 = 10000;
 
 #[derive(Clone)]
 pub struct ClientConfig {
@@ -77,7 +77,7 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .value_name("BLOCK_SIZE_LIMIT")
             .help("Sets maximum block size")
             .takes_value(true)
-            .default_value("1000"),
+            .default_value("10000"),
         Arg::with_name("log_level")
             .short("l")
             .long("log-level")
