@@ -14,10 +14,15 @@ use primitives::types::{
     AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, Nonce, ShardId,
 };
 
+/// RPC errors that JSONRPC and HTTP that APIs can use to return meaningful type of errors.
 pub enum RPCError {
+    /// Error if input arguments don't match the expected types or format.
     BadRequest(String),
+    /// Method for JSON RPC not found.
     MethodNotFound(String),
+    /// Item / account not found.
     NotFound,
+    /// Service is not available.
     ServiceUnavailable(String),
 }
 
