@@ -33,7 +33,3 @@ tmp/
 
 # Logs
 *.log
-
-# Nearlib files & coverage
-nearlib/neardev/
-nearlib/coverage/

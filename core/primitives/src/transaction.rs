@@ -904,7 +904,7 @@ impl FinalTransactionStatus {
             FinalTransactionStatus::Completed => 0,
             FinalTransactionStatus::Failed => 1,
             FinalTransactionStatus::Started => 2,
-            FinalTransactionStatus::Unknown => 9999,
+            FinalTransactionStatus::Unknown => std::u64::MAX,
         }
     }
 }
@@ -979,8 +979,8 @@ impl fmt::Debug for FinalTransactionResult {
 impl FinalTransactionResult {
     pub fn final_log(&self) -> String {
         let mut logs = vec![];
-        for log in self.logs.iter() {
-            for line in log.lines.iter() {
+        for log in &self.logs {
+            for line in &log.lines {
                 logs.push(line.clone());
             }
         }

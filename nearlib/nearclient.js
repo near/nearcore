@@ -55,14 +55,8 @@ class NearClient {
         const encodedHash = _arrayBufferToBase64(transactionHash);
         const response = await this.jsonRpcRequest('tx', [encodedHash, false]);
         // tx_result has default values: code = 0, logs: '', data: ''.
-        let status;
-        const code = response.tx_result.code || 0;
-        switch (code) {
-            case 0: status = 'Completed'; break;
-            case 1: status = 'Failed'; break;
-            case 2: status = 'Started'; break;
-            default: status = 'Unknown';
-        }
+        const codes = {0: 'Completed', 1: 'Failed', 2: 'Started'};
+        const status = codes.get(response.tx_result.code || 0) || 'Unknown';
         const logs = response.tx_result.log || '';
         return {logs: logs.split('\n'), status, value: response.tx_result.data };
     }
@@ -76,7 +70,7 @@ class NearClient {
             jsonrpc: '2.0',
             method,
             params,
-            id: 'dontcare',
+            id: Date.now().toString(),
         };
         const response = await this.nearConnection.request('', request);
         if (response.error) {
